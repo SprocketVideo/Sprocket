@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using Sprocket.Audio;
+using Sprocket.Core.Audio;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 using Sprocket.Media;
@@ -40,18 +42,61 @@ internal static class MediaBootstrap
             track.Clips.Add(new Clip(mediaId, Timecode.Zero, info.Duration, Timecode.Zero));
             timeline.Tracks.Add(track);
 
+            // Master clock: the audio device clock when the source has audio and a device is available
+            // (audio is the master, ARCHITECTURE.md §8); otherwise the software wall-clock (video-only).
+            (IMasterClock? clock, bool audioWired) = TryCreateAudioClock(project, mediaId, path, sampleRate);
+
             var feed = new RingVideoFrameFeed(new VideoDecodeRing(source));
-            var engine = new PlaybackEngine(project, feed);
+            var engine = new PlaybackEngine(project, feed, clock); // engine owns + disposes the clock
             engine.Start();
 
             string status =
                 $"{Path.GetFileName(path)}  ·  {info.Width}×{info.Height}  ·  " +
-                $"{Fps(info.FrameRate):0.##} fps  ·  {info.Duration.ToSeconds():0.0}s";
+                $"{Fps(info.FrameRate):0.##} fps  ·  {info.Duration.ToSeconds():0.0}s  ·  " +
+                (audioWired ? "audio master clock" : "no audio (software clock)");
             return new Result(engine, status);
         }
         catch (Exception ex)
         {
             return new Result(null, $"Could not open media: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Builds the audio track + audio master clock for the source, or returns <c>(null, false)</c> so the
+    /// engine falls back to its default <c>SoftwareClock</c> — when the source has no audio, or no audio device
+    /// is available. Failures degrade gracefully (ARCHITECTURE.md §15): a missing device must not stop playback.
+    /// </summary>
+    private static (IMasterClock? clock, bool audioWired) TryCreateAudioClock(
+        Project project, MediaRefId mediaId, string path, int sampleRate)
+    {
+        if (project.MediaPool.Get(mediaId) is not { Info.HasAudio: true })
+            return (null, false);
+
+        const int channels = 2; // stereo output; the source is upmixed/downmixed at decode
+        AudioSource? audio = null;
+        OpenAlAudioOutput? output = null;
+        try
+        {
+            audio = AudioSource.Open(path, sampleRate, channels);
+
+            var audioTrack = new AudioTrack { Name = "A1" };
+            audioTrack.Clips.Add(new Clip(mediaId, Timecode.Zero, project.Timeline.Duration, Timecode.Zero));
+            project.Timeline.Tracks.Add(audioTrack);
+
+            var mixer = new AudioMixer(sampleRate, channels, id => id == mediaId ? audio : null);
+
+            output = new OpenAlAudioOutput();
+            output.Configure(sampleRate, channels);
+
+            // The engine takes ownership: it disposes the mixer (which disposes the AudioSource) and the output.
+            return (new AudioEngine(output, mixer, project), true);
+        }
+        catch
+        {
+            output?.Dispose();
+            audio?.Dispose();
+            return (null, false); // degrade to the software clock; video still plays
         }
     }
 

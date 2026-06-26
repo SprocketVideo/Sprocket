@@ -49,7 +49,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private readonly Project _project;
     private readonly VideoTrack? _videoTrack;
     private readonly IVideoFrameFeed _feed;
-    private readonly SoftwareClock _clock;
+    private readonly IMasterClock _clock;
     private readonly int _paceMsPlaying;
 
     private readonly object _frameGate = new();
@@ -67,8 +67,10 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private bool _disposed;
 
     /// <summary>Creates an engine over <paramref name="project"/>, playing its first enabled video track from
-    /// <paramref name="feed"/>. <paramref name="clock"/> defaults to a fresh <see cref="SoftwareClock"/>.</summary>
-    public PlaybackEngine(Project project, IVideoFrameFeed feed, SoftwareClock? clock = null)
+    /// <paramref name="feed"/>. <paramref name="clock"/> is the master clock (audio device clock when audio is
+    /// present, ARCHITECTURE.md §8); it defaults to a fresh <see cref="SoftwareClock"/> for the video-only case.
+    /// If the clock is <see cref="IAsyncDisposable"/> the engine takes ownership and disposes it on teardown.</summary>
+    public PlaybackEngine(Project project, IVideoFrameFeed feed, IMasterClock? clock = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(feed);
@@ -319,6 +321,13 @@ public sealed class PlaybackEngine : IAsyncDisposable
         }
 
         await _feed.DisposeAsync().ConfigureAwait(false);
+
+        // The audio master clock owns a device + feed loop; the software clock owns nothing. Dispose whichever
+        // we were given if it is disposable, so the whole playback session tears down through one call.
+        if (_clock is IAsyncDisposable asyncClock)
+            await asyncClock.DisposeAsync().ConfigureAwait(false);
+        else if (_clock is IDisposable syncClock)
+            syncClock.Dispose();
 
         lock (_frameGate)
         {

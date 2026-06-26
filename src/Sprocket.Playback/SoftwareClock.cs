@@ -17,7 +17,7 @@ namespace Sprocket.Playback;
 /// <para>Thread-safe: <see cref="Now"/> is read from the render/pump threads while transport methods are
 /// called from the UI thread, all guarded by one lock.</para>
 /// </remarks>
-public sealed class SoftwareClock : IClock
+public sealed class SoftwareClock : IMasterClock
 {
     private readonly Func<TimeSpan> _elapsedSource;
     private readonly object _gate = new();

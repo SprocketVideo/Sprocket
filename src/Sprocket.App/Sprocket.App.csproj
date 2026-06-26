@@ -38,6 +38,7 @@
     <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
     <ProjectReference Include="..\Sprocket.Media\Sprocket.Media.csproj" />
     <ProjectReference Include="..\Sprocket.Render\Sprocket.Render.csproj" />
+    <ProjectReference Include="..\Sprocket.Audio\Sprocket.Audio.csproj" />
     <ProjectReference Include="..\Sprocket.Playback\Sprocket.Playback.csproj" />
   </ItemGroup>
 

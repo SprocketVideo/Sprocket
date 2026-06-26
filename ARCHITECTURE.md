@@ -62,9 +62,13 @@ Sprocket.App ──► Sprocket.Playback ──► Sprocket.Render ──► Spr
 ```
 
 **`Sprocket.Core` is the keystone and depends on nothing.** It defines the data model and the
-*abstractions* the render graph calls into (`IFrameSource`, `IVideoEffect`, `IClock`). The
-Media/Render/Audio layers provide concrete implementations. This keeps the model testable
-headlessly and keeps native/GPU concerns out of the domain types.
+*abstractions* the render graph and engine call into: `IFrameSource`/`IVideoCompositor` (video),
+`IPcmReader` (audio PCM pull — the audio analogue of `IFrameSource`), and `IClock`/`IMasterClock`
+(the read-only and transport-capable clock). The Media/Render/Audio layers provide concrete
+implementations. This keeps the model testable headlessly and keeps native/GPU concerns out of the
+domain types. Note **Sprocket.Audio depends only on Core, not Media** — the FFmpeg audio decode
+(`AudioSource : IPcmReader`) lives in Media and is wired to the mixer by the composition root, so the
+audio mixer/clock stay FFmpeg-free.
 
 ---
 

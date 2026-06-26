@@ -197,6 +197,47 @@ End-to-end on **both** Windows 11 and Linux:
        pipeline headlessly. (A no-GUI CLI smoke was dropped — `Sprocket.App` is a `WinExe` with no reliable
        console — in favour of that test-host coverage.)
 5. Audio: `IAudioOutput` + mixer; switch to audio master clock; A/V sync.
+   - **✅ DONE (`src/Sprocket.Audio` + `src/Sprocket.Media/AudioSource`; 16 tests in `tests/Sprocket.Audio.Tests`,
+     +5 in `tests/Sprocket.Media.Tests`).** The slice now plays with audio as the **master clock** and video
+     synced to it (ARCHITECTURE.md §6, §8). Honours the §2 dependency graph: **Sprocket.Audio depends only on
+     Core** (no FFmpeg) — the FFmpeg audio decode lives in Media; the App composition root wires them. Delivered:
+     - **Two Core seams (symmetry with video):** `IPcmReader` (pull interleaved float32 PCM at the project
+       rate/layout, sequential + seek — the audio analogue of `IFrameSource`) and `IMasterClock` (a
+       transport-capable `IClock`: `Start`/`Pause`/`Seek`). `SoftwareClock` now implements `IMasterClock`, so the
+       playback engine became **clock-agnostic** — its field is `IMasterClock` and it disposes the clock if it is
+       `IAsyncDisposable`, so the whole session tears down through one call.
+     - **`Sprocket.Media.AudioSource`** (`IPcmReader`) — opens the file's audio stream and **resamples to
+       interleaved float32 at the project rate/channels via libswresample** (raw `swr_alloc_set_opts2`/`swr_convert`
+       interop, the one place that touches it), once at decode (§6). Sample-accurate seek = keyframe-seek → flush
+       decoder → `swr_init` reset → decode-to-target discard computed from the landing frame's PTS, mirroring the
+       video path. A small managed leftover buffer (≤ one decoded frame) keeps steady-state reads allocation-free.
+     - **`AudioMixer`** — executes `RenderGraph.PlanAudioBuffer`: pulls each audible layer's PCM through
+       `IPcmReader`, applies the per-clip **gain envelope as a linear ramp across the buffer** (this is how fades
+       work — same `Fade` opacity that drives video alpha), sums, then a **SIMD** (`Vector<float>`) master-gain +
+       hard-limit pass. Keeps each reader positioned for sequential playback and only re-seeks on a real jump
+       (1 ms tolerance), so steady playback never re-seeks.
+     - **`IAudioOutput`** (device seam) + **`OpenAlAudioOutput`** (Silk.NET.OpenAL / OpenAL Soft) — a streaming
+       source fed by a rotating pool of 8 device buffers (float32 → 16-bit PCM); recycled-buffer frames + the
+       current play offset give `PlayedFrames`, the clock's time source. Device-bound, so it rests on **manual
+       verification** like the windowed GPU preview (confirmed this session: real device opens and `PlayedFrames`
+       advances under playback); the mixer/clock are covered headlessly against a fake output.
+     - **`AudioEngine`** (`IMasterClock`) — the audio master clock: `Now` is derived from `PlayedFrames` against an
+       anchor (re-anchored on every transport op, so no drift); a background **feeder** keeps the device queue full
+       by mixing the timeline for an advancing write cursor. Seeks bump a generation so an in-flight mix for a
+       superseded position is dropped (the same discipline the video decode ring uses). Flushing the device on seek
+       discards queued-but-unplayed audio so the new position is heard promptly.
+     - **App bootstrap** — adds an `A1` audio track and builds the audio master clock when the source has audio and
+       a device is available; **degrades to the `SoftwareClock` (video still plays)** when there is no audio or no
+       device (§15). The playback engine receives the clock and owns its teardown.
+     - **Tests (21 new):** mixer summing / track-gain-dB / mute / solo / master-gain / hard-limit / fade gain ramp /
+       seek-on-jump-only / silence-off-clip / reader disposal (all against a synthetic `FakePcmReader`, no FFmpeg);
+       `AudioEngine` clock semantics (start/pause/seek re-anchor, `Now` from played frames) via a deterministic
+       `FakeAudioOutput`, plus a bounded live-feeder integration asserting mixed non-silent audio reaches the queue;
+       and `AudioSource` decode/resample/seek against the real fixture (whole-stream count, downsample scaling,
+       non-silence, mono→stereo interleave, post-seek resume). Full suite: **103 tests green** (Core 42, Media 18,
+       Audio 16, Playback 27).
+     - **Note:** audio uses a stereo 16-bit device path for the slice (OpenAL Soft's portable format); float32
+       output and sample-exact device-offset interpolation are easy later refinements behind `IAudioOutput`.
 6. Hardware-accel decode path behind `IHardwareContext` (CUDA/VAAPI/D3D11VA), with software fallback.
 7. Effects (brightness, fade) + audio volume/fade in mixer.
 8. Export pipeline (full-res encode).

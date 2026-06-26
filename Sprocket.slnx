@@ -3,6 +3,7 @@
     <Project Path="src/Sprocket.Core/Sprocket.Core.csproj" />
     <Project Path="src/Sprocket.Media/Sprocket.Media.csproj" />
     <Project Path="src/Sprocket.Render/Sprocket.Render.csproj" />
+    <Project Path="src/Sprocket.Audio/Sprocket.Audio.csproj" />
     <Project Path="src/Sprocket.Playback/Sprocket.Playback.csproj" />
     <Project Path="src/Sprocket.App/Sprocket.App.csproj" />
     <Project Path="src/Sprocket.Spike/Sprocket.Spike.csproj" />
@@ -10,6 +11,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Sprocket.Core.Tests/Sprocket.Core.Tests.csproj" />
     <Project Path="tests/Sprocket.Media.Tests/Sprocket.Media.Tests.csproj" />
+    <Project Path="tests/Sprocket.Audio.Tests/Sprocket.Audio.Tests.csproj" />
     <Project Path="tests/Sprocket.Playback.Tests/Sprocket.Playback.Tests.csproj" />
   </Folder>
 </Solution>
