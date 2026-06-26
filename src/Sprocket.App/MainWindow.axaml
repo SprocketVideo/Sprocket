@@ -3,61 +3,225 @@
         xmlns:local="clr-namespace:Sprocket.App"
         x:Class="Sprocket.App.MainWindow"
         Width="1280" Height="800"
+        MinWidth="900" MinHeight="600"
         Title="Sprocket"
-        Background="#0E0E12">
-  <DockPanel>
+        Background="{DynamicResource WindowBg}"
+        WindowDecorations="BorderOnly">
 
-    <!-- Status strip (top): media info / errors. Engine/runtime text is debug-only per UI.md §3.7. -->
-    <Border DockPanel.Dock="Top" Background="#16161C" Padding="14,8">
-      <TextBlock x:Name="StatusText"
-                 Foreground="#9AA4B2"
-                 FontSize="12"
-                 Text="" />
-    </Border>
+  <!--
+    PLAN.md step 11 — the app UI shell (UI.md §1/§2): a frameless window with custom chrome + inline menu
+    bar, splitter-resizable Project / Program / Inspector panes over a full-width Timeline, and a status bar.
+    The pane *contents* (media bin, timeline control, inspector) arrive in steps 12–16; this is the structure,
+    with the Program monitor + transport + Export + Save + Edit→Undo/Redo fully live.
+  -->
 
-    <!-- Transport (bottom): play/pause, position, scrubber, duration. -->
-    <Border DockPanel.Dock="Bottom" Background="#16161C" Padding="14,10">
-      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto" VerticalAlignment="Center">
-        <Button x:Name="PlayPauseButton" Grid.Column="0"
-                Width="44" Height="36"
-                Padding="0"
-                HorizontalContentAlignment="Center"
-                VerticalContentAlignment="Center"
-                FontSize="15"
-                Content="▶" />
-        <TextBlock x:Name="PositionText" Grid.Column="1"
-                   Margin="14,0,10,0"
-                   VerticalAlignment="Center"
-                   FontFamily="Cascadia Code,Consolas,monospace"
-                   Foreground="#D5DBE6"
-                   Text="0:00.00" />
-        <Slider x:Name="Scrubber" Grid.Column="2"
-                Minimum="0" Maximum="1" Value="0"
-                VerticalAlignment="Center" />
-        <TextBlock x:Name="DurationText" Grid.Column="3"
-                   Margin="10,0,14,0"
-                   VerticalAlignment="Center"
-                   FontFamily="Cascadia Code,Consolas,monospace"
-                   Foreground="#8A93A2"
-                   Text="0:00.00" />
-        <Button x:Name="SaveButton" Grid.Column="4"
-                Height="36"
-                Padding="14,0"
-                Margin="0,0,8,0"
-                VerticalContentAlignment="Center"
-                FontSize="13"
-                Content="Save" />
-        <Button x:Name="ExportButton" Grid.Column="5"
-                Height="36"
-                Padding="14,0"
-                VerticalContentAlignment="Center"
-                FontSize="13"
-                Content="Export" />
+  <DockPanel x:Name="Root">
+
+    <!-- ── Title bar: logo · menu · project title/save-state · window controls ─────────────────── -->
+    <Border x:Name="TitleBar" DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Height="40"
+            BorderBrush="{DynamicResource Edge}" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="12,0,6,0" VerticalAlignment="Center">
+          <Border Width="22" Height="22" Background="{DynamicResource Accent}" CornerRadius="5" Margin="0,0,8,0">
+            <TextBlock Text="S" Foreground="White" FontWeight="Bold" FontSize="13"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Text="Sprocket" Foreground="{DynamicResource Text}" FontWeight="SemiBold"
+                     FontSize="13" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <Menu Grid.Column="1" VerticalAlignment="Center" Background="Transparent" Margin="6,0,0,0">
+          <MenuItem Header="_File">
+            <MenuItem x:Name="SaveMenuItem" Header="_Save Project" InputGesture="Ctrl+S" />
+            <MenuItem x:Name="ExportMenuItem" Header="_Export…" InputGesture="Ctrl+E" />
+            <Separator />
+            <MenuItem x:Name="ExitMenuItem" Header="E_xit" InputGesture="Alt+F4" />
+          </MenuItem>
+          <MenuItem Header="_Edit">
+            <MenuItem x:Name="UndoMenuItem" Header="_Undo" InputGesture="Ctrl+Z" IsEnabled="False" />
+            <MenuItem x:Name="RedoMenuItem" Header="_Redo" InputGesture="Ctrl+Shift+Z" IsEnabled="False" />
+            <Separator />
+            <MenuItem Header="Cu_t" IsEnabled="False" />
+            <MenuItem Header="_Copy" IsEnabled="False" />
+            <MenuItem Header="_Paste" IsEnabled="False" />
+          </MenuItem>
+          <MenuItem Header="_Clip" IsEnabled="False" />
+          <MenuItem Header="_Sequence" IsEnabled="False" />
+          <MenuItem Header="Effe_cts" IsEnabled="False" />
+          <MenuItem Header="_View" IsEnabled="False" />
+          <MenuItem Header="_Window" IsEnabled="False" />
+          <MenuItem Header="_Help">
+            <MenuItem x:Name="AboutMenuItem" Header="_About Sprocket" />
+          </MenuItem>
+        </Menu>
+
+        <!-- Project title + save state (centered). -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Center"
+                    VerticalAlignment="Center" Spacing="8">
+          <TextBlock x:Name="ProjectTitleText" Foreground="{DynamicResource Text}" FontSize="12"
+                     VerticalAlignment="Center" Text="Untitled" />
+          <TextBlock x:Name="SaveStateText" Foreground="{DynamicResource FaintText}" FontSize="12"
+                     VerticalAlignment="Center" Text="• all changes saved" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Top">
+          <Button x:Name="MinButton" Classes="caption" Content="—" />
+          <Button x:Name="MaxButton" Classes="caption" Content="▢" />
+          <Button x:Name="CloseButton" Classes="caption close" Content="✕" />
+        </StackPanel>
       </Grid>
     </Border>
 
-    <!-- Program monitor (fills the rest). -->
-    <local:PreviewSurface x:Name="Preview" />
+    <!-- ── Tool + action bar ───────────────────────────────────────────────────────────────────── -->
+    <Border DockPanel.Dock="Top" Background="{DynamicResource WindowBg}" Padding="10,6"
+            BorderBrush="{DynamicResource Edge}" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
+          <!-- Tool palette (radio group). Select is the slice tool; the others are placeholders for steps 12–13. -->
+          <RadioButton Classes="tool" GroupName="Tools" Content="Select" IsChecked="True" />
+          <RadioButton Classes="tool" GroupName="Tools" Content="Blade" IsEnabled="False" />
+          <RadioButton Classes="tool" GroupName="Tools" Content="Slip" IsEnabled="False" />
+          <RadioButton Classes="tool" GroupName="Tools" Content="Hand" IsEnabled="False" />
+          <RadioButton Classes="tool" GroupName="Tools" Content="Zoom" IsEnabled="False" />
+          <Border Width="1" Height="18" Background="{DynamicResource Edge}" Margin="8,0" />
+          <ToggleButton Content="Snapping" IsChecked="True" IsEnabled="False" FontSize="12" Padding="8,3" />
+          <ToggleButton Content="Linked" IsEnabled="False" FontSize="12" Padding="8,3" Margin="2,0,0,0" />
+        </StackPanel>
 
+        <TextBlock x:Name="SequenceBadge" Grid.Column="2" Margin="0,0,12,0" VerticalAlignment="Center"
+                   FontFamily="Cascadia Code,Consolas,monospace" FontSize="12"
+                   Foreground="{DynamicResource MutedText}" Text="—" />
+        <Button x:Name="ExportButton" Grid.Column="3" Classes="primary" Content="Export" VerticalAlignment="Center" />
+      </Grid>
+    </Border>
+
+    <!-- ── Status bar (bottom) ─────────────────────────────────────────────────────────────────── -->
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Height="26"
+            BorderBrush="{DynamicResource Edge}" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="Auto,*,Auto" Margin="12,0">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
+          <Ellipse x:Name="StateDot" Width="8" Height="8" Fill="#3FB950" VerticalAlignment="Center" />
+          <TextBlock x:Name="EngineStateText" Foreground="{DynamicResource MutedText}" FontSize="11"
+                     VerticalAlignment="Center" Text="Ready" />
+        </StackPanel>
+        <!-- Media info / transient messages (export + save status). -->
+        <TextBlock x:Name="StatusText" Grid.Column="1" Margin="16,0" VerticalAlignment="Center"
+                   Foreground="{DynamicResource FaintText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="" />
+        <!-- Live telemetry: fps · resolution · duration. NO framework/runtime text (UI.md §3.7). -->
+        <TextBlock x:Name="TelemetryText" Grid.Column="2" VerticalAlignment="Center"
+                   FontFamily="Cascadia Code,Consolas,monospace" FontSize="11"
+                   Foreground="{DynamicResource MutedText}" Text="" />
+      </Grid>
+    </Border>
+
+    <!-- ── Workspace: Project | Program | Inspector  over  Timeline (all splitter-resizable) ─────── -->
+    <Grid Margin="6" RowDefinitions="*,6,240">
+
+      <Grid Grid.Row="0" ColumnDefinitions="240,6,*,6,300">
+
+        <!-- Project panel (media bin lands in step 15). -->
+        <Border Grid.Column="0" Classes="pane">
+          <DockPanel>
+            <Border DockPanel.Dock="Top" Classes="paneHeader">
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Classes="title" Text="Project" />
+                <TextBlock x:Name="ProjectItemsText" Grid.Column="1" HorizontalAlignment="Right"
+                           Foreground="{DynamicResource FaintText}" FontSize="11" VerticalAlignment="Center"
+                           Text="0 items" />
+              </Grid>
+            </Border>
+            <Border DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Padding="8,6">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Media" Foreground="{DynamicResource Text}" FontSize="12" />
+                <TextBlock Text="Effects" Foreground="{DynamicResource FaintText}" FontSize="12" />
+                <TextBlock Text="Transitions" Foreground="{DynamicResource FaintText}" FontSize="12" />
+                <TextBlock Text="Audio" Foreground="{DynamicResource FaintText}" FontSize="12" />
+              </StackPanel>
+            </Border>
+            <ListBox x:Name="MediaList" Background="Transparent" Foreground="{DynamicResource MutedText}"
+                     FontSize="12" BorderThickness="0" />
+          </DockPanel>
+        </Border>
+
+        <GridSplitter Grid.Column="1" Width="6" Background="Transparent" ResizeDirection="Columns"
+                      HorizontalAlignment="Stretch" />
+
+        <!-- Program monitor: the live preview + transport. -->
+        <Border Grid.Column="2" Classes="pane" ClipToBounds="True">
+          <DockPanel>
+            <Border DockPanel.Dock="Top" Classes="paneHeader">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                  <TextBlock Classes="title" Text="Program" />
+                  <TextBlock Text="Source" Foreground="{DynamicResource FaintText}" FontSize="12"
+                             VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Grid.Column="2" Text="Fit" Foreground="{DynamicResource FaintText}" FontSize="12"
+                           VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+
+            <!-- Transport (under the monitor, UI.md §3.4). -->
+            <Border DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Padding="10,8"
+                    BorderBrush="{DynamicResource Edge}" BorderThickness="0,1,0,0">
+              <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" VerticalAlignment="Center">
+                <Button x:Name="JumpStartButton" Grid.Column="0" Classes="transport" Content="⏮" Margin="0,0,4,0" />
+                <Button x:Name="PlayPauseButton" Grid.Column="1" Classes="transport" Content="▶" />
+                <Button x:Name="JumpEndButton" Grid.Column="2" Classes="transport" Content="⏭" Margin="4,0,0,0" />
+                <TextBlock x:Name="PositionText" Grid.Column="3" Margin="14,0,10,0" VerticalAlignment="Center"
+                           FontFamily="Cascadia Code,Consolas,monospace" Foreground="{DynamicResource Text}"
+                           Text="0:00.00" />
+                <Slider x:Name="Scrubber" Grid.Column="4" Minimum="0" Maximum="1" Value="0" VerticalAlignment="Center" />
+                <TextBlock x:Name="DurationText" Grid.Column="5" Margin="10,0,0,0" VerticalAlignment="Center"
+                           FontFamily="Cascadia Code,Consolas,monospace" Foreground="{DynamicResource MutedText}"
+                           Text="0:00.00" />
+              </Grid>
+            </Border>
+
+            <local:PreviewSurface x:Name="Preview" />
+          </DockPanel>
+        </Border>
+
+        <GridSplitter Grid.Column="3" Width="6" Background="Transparent" ResizeDirection="Columns"
+                      HorizontalAlignment="Stretch" />
+
+        <!-- Inspector (type-driven properties land in step 16). -->
+        <Border Grid.Column="4" Classes="pane">
+          <DockPanel>
+            <Border DockPanel.Dock="Top" Classes="paneHeader">
+              <TextBlock Classes="title" Text="Inspector" />
+            </Border>
+            <TextBlock Classes="placeholder" Margin="16"
+                       Text="No clip selected.&#10;Clip properties (Transform, Color) arrive with the Inspector — step 16." />
+          </DockPanel>
+        </Border>
+      </Grid>
+
+      <GridSplitter Grid.Row="1" Height="6" Background="Transparent" ResizeDirection="Rows"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+
+      <!-- Timeline (custom-drawn control lands in step 12). -->
+      <Border Grid.Row="2" Classes="pane">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Classes="paneHeader">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+              <TextBlock x:Name="TimelineHeader" Classes="title" Text="Timeline" />
+              <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+                          Margin="0,0,10,0">
+                <TextBlock Text="⊟" Foreground="{DynamicResource MutedText}" FontSize="13" VerticalAlignment="Center" />
+                <TextBlock Text="100%" Foreground="{DynamicResource FaintText}" FontSize="11"
+                           FontFamily="Cascadia Code,Consolas,monospace" VerticalAlignment="Center" />
+                <TextBlock Text="⊞" Foreground="{DynamicResource MutedText}" FontSize="13" VerticalAlignment="Center" />
+              </StackPanel>
+              <Button x:Name="AddTrackButton" Grid.Column="3" Content="+ Track" FontSize="12" Padding="10,3"
+                      VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <TextBlock Classes="placeholder" Margin="16"
+                     Text="Timeline ruler, clips, waveforms and the playhead arrive with the timeline control — step 12.&#10;&#10;Use + Track to add a track (undoable via Edit ▸ Undo)." />
+        </DockPanel>
+      </Border>
+    </Grid>
   </DockPanel>
 </Window>

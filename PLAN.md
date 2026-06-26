@@ -407,6 +407,39 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     (`File · Edit · Clip · Sequence · Effects · View · Window · Help`); **splitter-resizable**
     Project / Program / Inspector / Timeline panes ([UI.md §1](UI.md)); project title + autosave
     / dirty-state indicator.
+    - **✅ DONE (`src/Sprocket.App`: `App.axaml`, `MainWindow.axaml`/`.cs`).** The slice's bare window grew
+      into the full panelled shell of [UI.md §1/§2](UI.md), keeping playback/preview/export/save live. The
+      *structure* is complete; the pane **contents** (media bin, timeline control, inspector) are their own
+      steps (12–16) and show clearly-labelled placeholders for now. Delivered:
+      - **Frameless window + custom chrome:** `WindowDecorations="BorderOnly"` (Avalonia 12 renamed/dropped the
+        v11 `ExtendClientAreaChromeHints` model — `BorderOnly` keeps a resize border with no OS title bar) plus
+        a custom title bar — logo, **inline menu bar** (`File · Edit · Clip · Sequence · Effects · View · Window
+        · Help`), centred project title + save-state, and custom **min / max / close** glyphs. The bar is
+        draggable (`BeginMoveDrag`), double-click maximizes, and a maximized window is inset by `OffScreenMargin`
+        so nothing clips under the screen edges.
+      - **Splitter-resizable layout (UI.md §1):** a `GridSplitter` grid — **Project | Program | Inspector**
+        across the top, a full-width **Timeline** below a horizontal splitter, with a **tool/action bar** under
+        the title bar and a **status bar** at the bottom. All four panes are user-resizable.
+      - **Live regions:** the **Program** pane hosts the existing `PreviewSurface` + a transport row
+        (jump-to-start ⏮, play/pause, jump-to-end ⏭, position, scrubber, duration); **Export** and **Save** run
+        from the action bar / File menu; the **Project** pane lists the real `MediaPool` items; the **status bar**
+        shows engine state + a `fps · WxH · duration` telemetry readout and the action bar a `1080p · 30`
+        sequence badge — **no framework/runtime text** anywhere ([UI.md §3.7](UI.md)).
+      - **Undo/redo + dirty-state wired onto the step-10 `EditHistory`:** **Edit ▸ Undo/Redo** (and `Ctrl+Z` /
+        `Ctrl+Shift+Z` / `Ctrl+Y`) drive the stack, the menu items enable/disable + show the next command's
+        label, and the title-bar indicator flips between *• all changes saved* / *• unsaved changes* (tracked by
+        comparing `EditHistory.UndoCount` against the depth recorded at the last save; `UndoCount`/`RedoCount`
+        added to `EditHistory`). **`+ Track`** issues a real `AddTrackCommand`, so the foundational command stack
+        is demonstrably end-to-end (add a track → undo removes it → dirty flips) ahead of the timeline editing UI.
+      - **Placeholders (own steps):** tool palette beyond Select, Snapping/Linked toggles, the Media-tab
+        siblings (Effects/Transitions/Audio), the Source monitor + Fit zoom, the Inspector sections, and the
+        timeline ruler/clips are present as disabled/labelled stand-ins so the shell reads as the target UI
+        without pretending the features exist.
+      - **Verification:** builds clean (the Avalonia XAML compiler validates control/property/resource
+        references — it caught the removed v11 chrome property); a headless smoke launch
+        (`SPROCKET_APP_SECONDS=4 dotnet run`) starts the shell, opens the sample, wires the engine, and tears
+        down cleanly (exit 0). The windowed layout itself is display-bound and rests on manual verification like
+        the preview path. No unit tests (the App is a UI-bound `WinExe`); the full suite stays **153 green**.
 12. **Timeline control v1.** Custom-drawn ruler + playhead, clip thumbnails (filmstrip) and audio
     waveforms, drag-move + trim handles, timeline zoom (`⊟ 100% ⊞`), **Snapping**, and the
     **Hand**/**Zoom** view tools. The most involved bespoke control.

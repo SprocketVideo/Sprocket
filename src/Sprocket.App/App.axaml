@@ -2,7 +2,112 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Sprocket.App.App"
              RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <!-- Palette (UI.md §1): near-black surfaces + a single indigo/violet accent. -->
+    <SolidColorBrush x:Key="WindowBg" Color="#0E0E12" />
+    <SolidColorBrush x:Key="PanelBg" Color="#16161C" />
+    <SolidColorBrush x:Key="RaisedBg" Color="#22222B" />
+    <SolidColorBrush x:Key="Edge" Color="#2A2A33" />
+    <SolidColorBrush x:Key="Text" Color="#D5DBE6" />
+    <SolidColorBrush x:Key="MutedText" Color="#9AA4B2" />
+    <SolidColorBrush x:Key="FaintText" Color="#6A7180" />
+    <SolidColorBrush x:Key="Accent" Color="#6C5CE7" />
+  </Application.Resources>
+
   <Application.Styles>
     <FluentTheme />
+
+    <!-- Shell styling (PLAN.md step 11 / UI.md §1): dark near-black panels, a single indigo accent. -->
+
+    <!-- Titled pane container. -->
+    <Style Selector="Border.pane">
+      <Setter Property="Background" Value="{DynamicResource PanelBg}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Edge}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+
+    <!-- Pane title strip. -->
+    <Style Selector="Border.paneHeader">
+      <Setter Property="Background" Value="{DynamicResource RaisedBg}" />
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Edge}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="TextBlock.title">
+      <Setter Property="Foreground" Value="{DynamicResource Text}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- Placeholder text for panes whose content lands in a later step. -->
+    <Style Selector="TextBlock.placeholder">
+      <Setter Property="Foreground" Value="{DynamicResource FaintText}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="TextAlignment" Value="Center" />
+    </Style>
+
+    <!-- Window caption buttons (min / max / close). -->
+    <Style Selector="Button.caption">
+      <Setter Property="Width" Value="44" />
+      <Setter Property="Height" Value="40" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedText}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="Button.caption:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBg}" />
+      <Setter Property="Foreground" Value="{DynamicResource Text}" />
+    </Style>
+    <Style Selector="Button.close:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#C0392B" />
+      <Setter Property="Foreground" Value="White" />
+    </Style>
+
+    <!-- Primary action button (Export). -->
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{DynamicResource Accent}" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Padding" Value="14,0" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="5" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#7D6FF0" />
+    </Style>
+
+    <!-- Tool-palette radio buttons (Select / Blade / Slip / Hand / Zoom): the checked one shows white. -->
+    <Style Selector="RadioButton.tool">
+      <Setter Property="Foreground" Value="{DynamicResource MutedText}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="RadioButton.tool:checked">
+      <Setter Property="Foreground" Value="White" />
+    </Style>
+
+    <!-- Transport buttons under the program monitor. -->
+    <Style Selector="Button.transport">
+      <Setter Property="Width" Value="38" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="{DynamicResource RaisedBg}" />
+      <Setter Property="Foreground" Value="{DynamicResource Text}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="FontSize" Value="14" />
+    </Style>
   </Application.Styles>
 </Application>

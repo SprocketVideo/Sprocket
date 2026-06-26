@@ -26,6 +26,13 @@ public sealed class EditHistory
     /// <summary>Whether there is an undone edit to redo.</summary>
     public bool CanRedo => _redo.Count > 0;
 
+    /// <summary>The number of edits on the undo stack. A stable marker for dirty-state tracking — record it on
+    /// save and compare: the document is clean exactly while the count matches the saved marker.</summary>
+    public int UndoCount => _undo.Count;
+
+    /// <summary>The number of undone edits available to redo.</summary>
+    public int RedoCount => _redo.Count;
+
     /// <summary>The label of the next edit <see cref="Undo"/> would reverse, or <see langword="null"/>.</summary>
     public string? UndoLabel => CanUndo ? _undo[^1].Label : null;
 
