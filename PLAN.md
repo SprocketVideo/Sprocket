@@ -340,6 +340,30 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
        a project with no audio track yields a video-only file; progress reaches completion; an empty timeline
        throws. Full suite: **123 tests green** (Core 42, Media 24, Audio 16, Render 8, Playback 27, Export 6).
 9. Project save/load (JSON).
+   - **✅ DONE (`src/Sprocket.Persistence`; 11 tests in `tests/Sprocket.Persistence.Tests`).** The timeline data
+     model round-trips losslessly to/from versioned JSON (ARCHITECTURE.md §12) — slice DoD #8, completing the
+     vertical slice. Delivered:
+     - **`ProjectSerializer`** (`Serialize`/`Deserialize` + `Save`/`Load` file helpers) over a set of DTOs kept
+       **separate from the domain model** — the model has constructors, read-only collections, and the
+       `AnimatableValue` factory type that don't serialize directly, and a distinct wire format lets the model
+       evolve behind a stable file format. Uses `System.Text.Json` with a **source-generated context**
+       (trim/AOT-friendly), camelCase names, string enums, indented output.
+     - **Versioned:** every file carries `schemaVersion` (currently 1); loading an unknown version throws
+       `InvalidDataException` (as does malformed JSON) so a future format break fails loudly rather than
+       mis-parsing.
+     - **Relative + absolute media paths (§12):** on save (when a file path is known) each `MediaRef` stores a
+       path relative to the project file alongside the absolute one; on load the relative path is resolved
+       against the project directory and preferred when it exists, so a project moved together with its media
+       relinks. **Offline-tolerant:** a media file that can't be found is kept with its stored path (renders as
+       black/silence downstream) rather than failing the load.
+     - **App wiring:** a **Save** button writes `project.sprocket.json` next to the app output (loading back into
+       the running app arrives with the File menu in the UI shell, step 11; the API + tests cover load today).
+     - **Tests (11):** a rich project (NTSC-rational fps, two track kinds in z-order, clip trim, a constant
+       brightness + a keyframed Hold/Linear fade, track gain/mute/solo + opacity/blend, master gain) round-trips
+       field-for-field; the schema version is present and an unknown one throws; malformed JSON throws; a
+       save-then-move scenario relinks media via the relative path; missing media still loads; the empty project
+       round-trips. Full suite: **134 tests green** (Core 42, Media 24, Render 8, Audio 16, Playback 27, Export 6,
+       Persistence 11). **The vertical slice (steps 1–9) is complete.**
 
 ## Post-slice build order (target UI & full feature set)
 

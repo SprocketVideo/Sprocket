@@ -13,8 +13,10 @@ making non-trivial changes:
 - [PLAN.md](PLAN.md) — feasibility analysis and the numbered build order, with a ✅ status note recorded inline on each completed step. **When you complete a build-order step, update its PLAN.md entry** the same way existing steps are annotated.
 - [UI.md](UI.md) — the target UI mockup and the features it implies.
 
-The project is mid-build: the vertical slice (PLAN steps 1–6) is done; steps 7–9 (effects, export,
-save/load) and the post-slice UI build-out (steps 10+) remain.
+The project is mid-build: the **vertical slice (PLAN steps 1–9) is complete** — import, trim, GPU
+effects (brightness/fade), audio master clock + mixer, hardware-accel decode, MP4 export, and JSON
+save/load, all on one cross-platform managed codebase. The post-slice UI build-out (steps 10+) and
+cross-platform packaging (steps 24–25) remain.
 
 Do not commit `.NET` build artifacts: never add any `/bin` or `/obj` directory, or anything under
 them, to version control.

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sprocket.Persistence — (de)serialize a Project to/from versioned JSON (ARCHITECTURE.md §12).
+    Depends only on Sprocket.Core; uses System.Text.Json with a source-generated context so it is
+    trim/AOT-friendly. The on-disk shape is a set of DTOs decoupled from the domain model, so the
+    model can evolve without breaking the file format (schemaVersion gates compatibility).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
+  </ItemGroup>
+
+</Project>

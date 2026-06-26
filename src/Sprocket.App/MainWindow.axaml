@@ -17,7 +17,7 @@
 
     <!-- Transport (bottom): play/pause, position, scrubber, duration. -->
     <Border DockPanel.Dock="Bottom" Background="#16161C" Padding="14,10">
-      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" VerticalAlignment="Center">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto" VerticalAlignment="Center">
         <Button x:Name="PlayPauseButton" Grid.Column="0"
                 Width="44" Height="36"
                 Padding="0"
@@ -40,7 +40,14 @@
                    FontFamily="Cascadia Code,Consolas,monospace"
                    Foreground="#8A93A2"
                    Text="0:00.00" />
-        <Button x:Name="ExportButton" Grid.Column="4"
+        <Button x:Name="SaveButton" Grid.Column="4"
+                Height="36"
+                Padding="14,0"
+                Margin="0,0,8,0"
+                VerticalContentAlignment="Center"
+                FontSize="13"
+                Content="Save" />
+        <Button x:Name="ExportButton" Grid.Column="5"
                 Height="36"
                 Padding="14,0"
                 VerticalContentAlignment="Center"

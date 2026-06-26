@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 using Sprocket.Export;
+using Sprocket.Persistence;
 using Sprocket.Playback;
 
 namespace Sprocket.App;
@@ -35,6 +36,7 @@ public partial class MainWindow : Window
         var positionText = this.FindControl<TextBlock>("PositionText")!;
         var durationText = this.FindControl<TextBlock>("DurationText")!;
         var exportButton = this.FindControl<Button>("ExportButton")!;
+        var saveButton = this.FindControl<Button>("SaveButton")!;
         var preview = this.FindControl<PreviewSurface>("Preview")!;
 
         statusText.Text = status;
@@ -44,11 +46,15 @@ public partial class MainWindow : Window
             playPause.IsEnabled = false;
             scrubber.IsEnabled = false;
             exportButton.IsEnabled = false;
+            saveButton.IsEnabled = false;
             return;
         }
 
         exportButton.IsEnabled = _project is not null;
         exportButton.Click += (_, _) => _ = ExportAsync(exportButton, statusText);
+
+        saveButton.IsEnabled = _project is not null;
+        saveButton.Click += (_, _) => Save(statusText);
 
         preview.Attach(_engine);
 
@@ -121,6 +127,29 @@ public partial class MainWindow : Window
         {
             _exporting = false;
             exportButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Saves the loaded project to <c>project.sprocket.json</c> next to the app output (PLAN.md step 9, slice
+    /// DoD #8). Serialization is fast and synchronous; <see cref="ProjectSerializer"/> stores media paths
+    /// relative to the file so the project relinks if moved with its media. Loading a project back into the
+    /// running app arrives with the File menu in the UI shell (PLAN step 11); the API + tests cover load today.
+    /// </summary>
+    private void Save(TextBlock statusText)
+    {
+        if (_project is null)
+            return;
+
+        string outputPath = Path.Combine(AppContext.BaseDirectory, "project.sprocket.json");
+        try
+        {
+            ProjectSerializer.Save(_project, outputPath);
+            statusText.Text = $"Saved → {outputPath}";
+        }
+        catch (Exception ex)
+        {
+            statusText.Text = $"Save failed: {ex.Message}";
         }
     }
 

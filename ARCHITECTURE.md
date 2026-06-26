@@ -47,7 +47,7 @@ Sprocket.slnx
 │   ├── Sprocket.Audio        // mixer + IAudioOutput (Silk.NET.OpenAL). Master clock.
 │   ├── Sprocket.Playback     // playback engine: scheduling, ring buffers, A/V sync, transport.
 │   ├── Sprocket.Export       // offline export: drives the render graph + mixer → MediaEncoder (MP4).
-│   ├── Sprocket.Persistence  // (planned, PLAN step 9) project (de)serialization to JSON.
+│   ├── Sprocket.Persistence  // versioned JSON project (de)serialization (System.Text.Json source-gen).
 │   ├── Sprocket.Plugins      // (planned, PLAN step 23) IVideoEffect contract + AssemblyLoadContext host.
 │   └── Sprocket.App          // Avalonia UI (MVVM): timeline control, preview surface, panels.
 │       (Sprocket.Spike — standalone PLAN step 1 de-risk artifact, not part of the app)
@@ -57,7 +57,8 @@ Sprocket.slnx
     ├── Sprocket.Audio.Tests       // mixer/clock against fakes; AudioSource decode/resample/seek.
     ├── Sprocket.Render.Tests      // effects produce expected pixels (offscreen raster, SkSL).
     ├── Sprocket.Playback.Tests    // clock, pump drop/hold, present pipeline.
-    └── Sprocket.Export.Tests      // export round-trip: encode → reopen → assert format/effects.
+    ├── Sprocket.Export.Tests      // export round-trip: encode → reopen → assert format/effects.
+    └── Sprocket.Persistence.Tests // project JSON round-trip, schema version, relink, offline tolerance.
 ```
 
 **Dependency direction (acyclic):**
@@ -68,7 +69,7 @@ Sprocket.App ──► Sprocket.Playback ──► Sprocket.Render ──► Spr
      │   │          │      └──► Sprocket.Audio ──► Sprocket.Core
      │   │          └──► Sprocket.Media ──────────► Sprocket.Core
      │   └──► Sprocket.Export ──► {Core, Media, Render, Audio}
-     └──► Sprocket.Persistence ──► Sprocket.Core   (planned)
+     └──► Sprocket.Persistence ──► Sprocket.Core
                 Sprocket.Plugins ──► Sprocket.Core   (planned)
 ```
 
@@ -419,6 +420,13 @@ license deliberately before any distribution.
 - Version the schema (`"schemaVersion"`) from v1 for forward migration.
 - The model is plain data (no native handles), so it serializes cleanly and round-trips in
   tests.
+
+*Implemented (PLAN step 9): `ProjectSerializer` over a DTO layer kept separate from the domain model
+(the model's constructors/read-only collections/`AnimatableValue` factory don't serialize directly,
+and a distinct wire format lets the model evolve behind `schemaVersion`). Source-generated
+`System.Text.Json`, camelCase, string enums. Relative paths are resolved against the project-file
+directory and preferred when present; missing media loads offline rather than failing. An explicit
+"offline" model flag + relink UI is deferred to the UI build-out (the load itself already tolerates it).*
 
 ---
 
