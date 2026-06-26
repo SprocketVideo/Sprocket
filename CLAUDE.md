@@ -1,0 +1,123 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+Sprocket — a cross-platform (Windows 11, Linux, macOS) non-destructive video editor in C# / .NET 10.
+The work is structured around three documents that must stay authoritative; read them before
+making non-trivial changes:
+
+- [BRIEF.md](BRIEF.md) — the feature brief (the *what*).
+- [ARCHITECTURE.md](ARCHITECTURE.md) — the detailed technical design the implementation must conform to (the *how/why*). Sections are referenced throughout the code as `§N`.
+- [PLAN.md](PLAN.md) — feasibility analysis and the numbered build order, with a ✅ status note recorded inline on each completed step. **When you complete a build-order step, update its PLAN.md entry** the same way existing steps are annotated.
+- [UI.md](UI.md) — the target UI mockup and the features it implies.
+
+The project is mid-build: the vertical slice (PLAN steps 1–6) is done; steps 7–9 (effects, export,
+save/load) and the post-slice UI build-out (steps 10+) remain.
+
+## Commands
+
+```bash
+# Build everything (uses the .slnx solution)
+dotnet build Sprocket.slnx
+
+# Run all tests
+dotnet test Sprocket.slnx
+
+# Run one test project
+dotnet test tests/Sprocket.Core.Tests/Sprocket.Core.Tests.csproj
+
+# Run a single test by name filter
+dotnet test tests/Sprocket.Core.Tests/Sprocket.Core.Tests.csproj --filter "FullyQualifiedName~TimingTests"
+
+# Run the editor app (optional first arg = media file; otherwise a sample clip is generated)
+dotnet run --project src/Sprocket.App [path/to/media.mp4]
+
+# Linux headless cross-platform verification (decode→SkSL→offscreen PNG), needs Docker — see header of the script
+bash scripts/linux-check.sh
+```
+
+**`ffmpeg` CLI must be on PATH** to run `Sprocket.Media.Tests` / `Sprocket.Audio.Tests`: they
+generate a deterministic fixture clip once via the `ffmpeg` command (see `TestVideo.cs`), cached in
+the test output dir. The decode tests force the `win-x64` RID on Windows so the Sdcb FFmpeg natives
+land in the output.
+
+Tests are **xUnit**. There is no separate lint step; `Sprocket.Core` and `Sprocket.Media` build with
+`TreatWarningsAsErrors=true`, so warnings break the build there.
+
+## The non-negotiable performance rule
+
+**Pixel data must never be allocated on the managed heap per frame** (ARCHITECTURE §1). Decoded
+frames stay in native FFmpeg `AVFrame` buffers → wrapped by pointer with `SKImage.FromPixels` →
+all compositing/effects run as Skia GPU operations. C# holds handles/pointers only; the few
+unavoidable crossings (audio PCM) use pooled / pinned native buffers. Any change to the
+decode/upload/render hot path must preserve this — verify with an allocation profiler, target ~0
+Gen0 per frame. **No C++/CLI** anywhere: all native interop is P/Invoke against a C ABI so one
+managed build serves all three OSes; only the bundled native libs differ per RID.
+
+## Architecture (the parts that span files)
+
+Projects and their **acyclic dependency direction** (ARCHITECTURE §2):
+
+```
+Sprocket.App ──► Sprocket.Playback ──► Sprocket.Render ──► Sprocket.Core
+     │              │      │              │
+     │              │      └──► Sprocket.Audio ──► Sprocket.Core
+     │              └──► Sprocket.Media ──────────► Sprocket.Core
+     └──► (Persistence, later) ──► Sprocket.Core
+```
+
+- **`Sprocket.Core`** is the keystone and depends on **nothing** (no native, no UI — its build
+  output is `Sprocket.Core.dll` alone). It holds the pure-data timeline model
+  (`Project → Timeline → Track[] → Clip`), the pure render graph (`RenderGraph.PlanVideoFrame` /
+  `PlanAudioBuffer` produce a serializable plan; a generic executor drives it), the time model, and
+  the **seam interfaces** everyone else implements: `IFrameSource`/`IVideoCompositor` (video),
+  `IPcmReader` (audio PCM pull), `IClock`/`IMasterClock` (transport). Keep native/GPU/FFmpeg types
+  out of Core.
+- **`Sprocket.Media`** — Sdcb.FFmpeg interop: `MediaSource` (probe/decode/seek), `AudioSource`
+  (`IPcmReader`, resamples to project rate via libswresample), `VideoFramePool`, `VideoDecodeRing`
+  (one worker → bounded `Channel<>`), `HardwareContext` (hw-accel decode behind `IHardwareContext`,
+  always with software fallback). **No SkiaSharp/UI** — pixels stay native.
+- **`Sprocket.Audio`** — `AudioMixer`, `AudioEngine` (the **master clock**), `OpenAlAudioOutput`
+  behind `IAudioOutput`. **Depends only on Core, not Media** — the FFmpeg audio decode lives in
+  Media and is wired to the mixer by the `Sprocket.App` composition root, keeping the mixer/clock
+  FFmpeg-free.
+- **`Sprocket.Render`** — SkiaSharp compositing (`FramePresenter`); effects as `SKRuntimeEffect`
+  (SkSL) shaders are added in step 7.
+- **`Sprocket.Playback`** — `PlaybackEngine` (clock-driven pump that drops/holds frames for A/V
+  sync), `SoftwareClock`, `IVideoFrameFeed`.
+- **`Sprocket.App`** — Avalonia UI shell + composition root that wires the concrete implementations
+  to Core's seams.
+- **`Sprocket.Spike`** — the standalone de-risk spike from PLAN step 1. **Not part of the app**;
+  leave it as the reference artifact.
+
+Cross-cutting design facts that aren't obvious from any one file:
+
+- **Time is `long` ticks at `Timecode.TicksPerSecond = 240000`** (exact for 48 kHz audio and all
+  common + NTSC frame rates). Frame rates are `Rational`, never `double`. Never use `double`
+  seconds for positions/durations — it desyncs long timelines (ARCHITECTURE §3).
+- **Audio is the master clock.** The audio device's played-frame count is converted to ticks to
+  drive video sync; the render pump drops frames when behind and holds when ahead (§6, §8).
+- **The same render graph serves preview and export**, and is a pure function of (project, time) —
+  this determinism is what makes golden-frame testing possible. Don't add hidden state to it.
+- **Non-destructive by construction:** edits change a `Clip`'s `SourceIn/Out`, `TimelineStart`, or
+  `Effects` list; source bytes are never written.
+- **Undo/redo is a first-class requirement** (PLAN step 10): every model mutation is meant to go
+  through a command stack — there should be no direct-mutation path that bypasses it.
+- **Avalonia↔Skia GPU seam:** compose on Avalonia's **shared `GRContext`** obtained via
+  `ISkiaSharpApiLeaseFeature.Lease()` inside an `ICustomDrawOperation`, on the render thread (§10).
+  Never touch `GRContext` off that thread.
+- **New features land on existing seams, not rewrites** (§17): hardware decode = new
+  `IFrameSource`/`IHardwareContext`; color grading / transform = new effect-chain stage; proxy
+  media = alternate `IFrameSource` (export always pulls full-res originals); plugins implement the
+  existing `IVideoEffect`.
+
+## Version pinning (do not bump casually)
+
+Versions were verified together by the spike (ARCHITECTURE §14). In particular **SkiaSharp is
+pinned to 3.119.4 to match Avalonia 12.0.5's transitive SkiaSharp** — a newer SkiaSharp loads a
+second, incompatible Skia assembly and the GPU lease's types stop matching. Avalonia 12.0.5,
+Sdcb.FFmpeg 7.0.0 + runtime 7.1.0 (FFmpeg 7.1), Silk.NET.OpenAL 2.23 round out the locked stack.
+On Linux/macOS there is **no Sdcb.FFmpeg runtime NuGet** — FFmpeg 7 `.so`/`.dylib` files must be
+bundled per RID (§11).

@@ -35,21 +35,27 @@
 
 ## 2. Module / project layout
 
+Projects marked *(planned)* are designed-for but not yet created; the rest exist in
+`Sprocket.slnx` today.
+
 ```
-Sprocket.sln
+Sprocket.slnx
 ├── src/
 │   ├── Sprocket.Core         // timeline model, render graph, time model. No native deps. No UI.
 │   ├── Sprocket.Media        // FFmpeg (Sdcb.FFmpeg) interop: decode, seek, encode, hw-accel.
 │   ├── Sprocket.Render       // SkiaSharp compositing + effects (SKRuntimeEffect shaders).
 │   ├── Sprocket.Audio        // mixer + IAudioOutput (Silk.NET.OpenAL). Master clock.
 │   ├── Sprocket.Playback     // playback engine: scheduling, ring buffers, A/V sync, transport.
-│   ├── Sprocket.Persistence  // project (de)serialization to JSON.
-│   ├── Sprocket.Plugins      // (later) IVideoEffect contract + AssemblyLoadContext host.
+│   ├── Sprocket.Persistence  // (planned, PLAN step 9) project (de)serialization to JSON.
+│   ├── Sprocket.Plugins      // (planned, PLAN step 23) IVideoEffect contract + AssemblyLoadContext host.
 │   └── Sprocket.App          // Avalonia UI (MVVM): timeline control, preview surface, panels.
+│       (Sprocket.Spike — standalone PLAN step 1 de-risk artifact, not part of the app)
 └── tests/
     ├── Sprocket.Core.Tests        // headless: render-graph resolution, trim, fades, time math.
     ├── Sprocket.Media.Tests       // decode/seek correctness against known fixtures.
-    └── Sprocket.Render.Tests      // golden-frame: effects produce expected pixels.
+    ├── Sprocket.Audio.Tests       // mixer/clock against fakes; AudioSource decode/resample/seek.
+    └── Sprocket.Playback.Tests    // clock, pump drop/hold, present pipeline.
+    (Sprocket.Render.Tests — planned: golden-frame, effects produce expected pixels)
 ```
 
 **Dependency direction (acyclic):**
@@ -59,8 +65,8 @@ Sprocket.App ──► Sprocket.Playback ──► Sprocket.Render ──► Spr
      │              │      │              │
      │              │      └──► Sprocket.Audio ──► Sprocket.Core
      │              └──► Sprocket.Media ──────────► Sprocket.Core
-     └──► Sprocket.Persistence ──► Sprocket.Core
-                Sprocket.Plugins ──► Sprocket.Core
+     └──► Sprocket.Persistence ──► Sprocket.Core   (planned)
+                Sprocket.Plugins ──► Sprocket.Core   (planned)
 ```
 
 **`Sprocket.Core` is the keystone and depends on nothing.** It defines the data model and the
