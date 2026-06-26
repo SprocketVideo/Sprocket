@@ -579,6 +579,34 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     dylibs under `Contents/Frameworks` (resolved via `@loader_path`), **code-signed and notarized**,
     shipped for Apple Silicon (`osx-arm64`) and Intel (`osx-x64`). CI builds on win/linux/macOS runners;
     a smoke launch + sample export validates each artifact.
+26. **Log media & color management (D-Log).** Support DJI **D-Log / D-Log M / D-Log 2** as a
+    per-clip **input color transform**, landing on the existing effect seam
+    ([ARCHITECTURE §18](ARCHITECTURE.md), §7, §17) — **not** via FFmpeg's `lut3d`/`WriteableBitmap`,
+    which would break [§1](ARCHITECTURE.md) (managed per-frame pixels + CPU round-trip) and
+    [§5](ARCHITECTURE.md) (preview/export divergence). All color math stays on the GPU in Skia,
+    like brightness/fade. Pieces:
+    - **Metadata probe (Media).** Extend `ProbedMediaInfo` with color transfer / primaries / space
+      and a format-metadata dictionary; read them in `MediaSource.Probe` from the codec parameters
+      and `AVFormatContext`/`AVStream` metadata. Auto-detect the DJI log profile on import; fall
+      back to a manual per-clip tag.
+    - **Color-transform effect (Core + Render).** New built-in effect id `builtin.colortransform`
+      (params: source profile, target space, bypass) added to `EffectTypeIds`; an SkSL stage in
+      `SkiaEffectPipeline` that samples a **3D LUT packed into a 2D texture** (trilinear) supplied as
+      a `uniform shader` child — chained like brightness/fade. The detected transform is
+      **prepended** to the clip's effect stack so the input transform runs first.
+    - **LUT bundling.** DJI official `.cube` files as `EmbeddedResource`s in `Sprocket.Render`,
+      decoded once into the packed LUT texture and cached (first data-asset precedent; today all
+      effects are inline SkSL strings).
+    - **Inspector (depends on step 16).** A COLOR-section "Input transform / color space" control to
+      set or override the per-clip log profile; auto-set from detection.
+    - **Export.** Bake the transform in (default, via the same render graph) or pass through the log
+      encoding — a per-export toggle.
+    - **Scopes (with/after step 17).** A log ↔ transformed toggle for waveform/monitor so colorists
+      can read either space.
+    - **Persistence.** The effect serializes for free via the existing `EffectInstance` JSON; the
+      new `ProbedMediaInfo` color fields are additive (nullable/defaulted, no schema bump).
+    - **Upgrade path.** Full scene-linear / OpenColorIO color management remains the later step-23
+      upgrade ([ARCHITECTURE §18](ARCHITECTURE.md)).
 
 Open product questions (e.g. the mockup's user-avatar / account affordance, full panel docking)
 are tracked in [UI.md §5](UI.md).

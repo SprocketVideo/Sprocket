@@ -259,8 +259,10 @@ frame because SkiaSharp snapshots uniforms at that call. This is small, bounded,
 pixel data — acceptable under the rule in §1. Pool/reuse uniform buffers to minimize it.
 
 **Color management (forward-looking):** tag `SKImage`s with an `SKColorSpace` (sRGB for the
-slice). When OpenColorIO is added later it sits as a stage in the effect chain via a C-ABI
-P/Invoke wrapper — no C++/CLI.
+slice). **Log-encoded input transforms (DJI D-Log et al.) are GPU SkSL effect-chain stages**
+backed by embedded 3D LUTs — they land on this exact seam, not on a separate FFmpeg/CPU pipeline
+(see [§18](#18-log-media--color-management-d-log)). When OpenColorIO is added later it sits as a
+stage in the effect chain via a C-ABI P/Invoke wrapper — no C++/CLI.
 
 ---
 
@@ -377,7 +379,11 @@ Using **Sdcb.FFmpeg 7.x** (library-level libav bindings). Key types: `FormatCont
 wrapper, `MediaDictionary` for options.
 
 - **`MediaSource`** wraps a `FormatContext`: probe (duration, streams, fps, sample rate),
-  expose a video `IFrameSource` and an audio PCM source.
+  expose a video `IFrameSource` and an audio PCM source. The probe also reads the video stream's
+  **color transfer / primaries / space** (the `AVColorTransferCharacteristic`/`color_primaries`/
+  `color_space` codec-parameter fields) and the `AVFormatContext`/`AVStream` **metadata
+  dictionary**, surfaced on `ProbedMediaInfo` so a log profile (D-Log) can be auto-detected on
+  import ([§18](#18-log-media--color-management-d-log)).
 - **Decode loop:** `ReadPacket` → `SendPacket` → `ReceiveFrame` (N frames per packet);
   `packet.Unref()` in `finally`. Reuse a pooled `Frame`.
 - **Pixel conversion:** swscale YUV420p/NV12 → RGBA/BGRA into a pooled **native** buffer;
@@ -488,7 +494,8 @@ The slice intentionally omits: multiple overlapping clips/transitions per track,
 decode/encode, OpenColorIO color grading, the plugin host, and proxy media. Each slots into
 an existing seam without redesign — transitions extend clip resolution in the render graph;
 hardware accel is a new `IFrameSource`/`IHardwareContext` impl; color grading is another
-effect-chain stage; plugins implement the existing `IVideoEffect`. The seams (`IFrameSource`,
+effect-chain stage; **log media (D-Log) is an input color-transform effect-chain stage** (§18);
+plugins implement the existing `IVideoEffect`. The seams (`IFrameSource`,
 `IVideoEffect`, `IAudioOutput`, `IHardwareContext`, `IClock`) exist precisely so these land as
 additions, not rewrites.
 
@@ -501,3 +508,62 @@ the render graph addresses sources through `IFrameSource` and clips reference a 
 (not a decoder), proxy generation + a "use proxies" toggle land as a Media-layer addition with
 no change to `Sprocket.Core`. Determinism (§1.6) still holds — the *active* source for a given
 render mode is a pure input to `RenderFrame`.
+
+---
+
+## 18. Log media & color management (D-Log)
+
+DJI drones (and most cinema cameras) record in a **logarithmic gamma** — for DJI, **D-Log**, with
+the variants **D-Log M** (milder curve, newer drones) and **D-Log 2** (wider gamut). A log curve
+compresses highlights and shadows into a flat, low-contrast image to preserve dynamic range; it
+must be converted to a display color space (Rec.709) by a color transform before it looks correct.
+Supporting it is fundamentally a **color-pipeline** problem, and Sprocket already has the right
+seam for it.
+
+**It lives on the effect chain, as an input transform.** A log decode is a new built-in
+`IVideoEffect` (`builtin.colortransform`) realised as an `SKRuntimeEffect` (SkSL) fragment shader,
+exactly like `Brightness`/`Fade` (§7). It is **prepended to the clip's effect stack** so the
+log→Rec.709 decode runs *first*, ahead of any creative grade — the professional "input transform →
+working space → grade" ordering — achieved with **zero new render-graph machinery**: it is simply
+the effect at index 0, resolved and chained by `RenderGraph` like any other (§5 step 2d). Because
+the same render graph drives preview and export (§5), the transform is identical in both; because
+it is a pure function of (project, time) it preserves golden-frame determinism (§1.6, §6 of PLAN
+verification).
+
+**Why *not* FFmpeg's `lut3d` filter.** A tempting shortcut is to run FFmpeg's `lut3d`/`zscale`
+filter and push the baked frames to an Avalonia `WriteableBitmap`. **Sprocket rejects this.** A
+`WriteableBitmap` is a managed CPU bitmap, so an FFmpeg-filter→bitmap path reintroduces exactly the
+**per-frame managed pixel copy + CPU round-trip** that §1 (the non-negotiable performance rule)
+exists to forbid, and it splits color into a side pipeline that would make preview and export
+diverge, breaking §5. FFmpeg's `lut3d` also only reads a LUT from a *file path* (forcing temp-file
+extraction). All color math therefore stays **on the GPU in Skia**, consistent with every other
+effect — FFmpeg's role remains decode/encode only (§11).
+
+**3D LUTs in Skia (the mechanism).** The transform uses DJI's official `.cube` 3D LUTs (accurate,
+and the only public source for the exact M/2 curves). Skia's `SKRuntimeEffect` has no native
+3D-texture child, so the N³ LUT is **packed into a 2D texture** (N tiles of N×N — the standard
+layout) supplied to the shader as a `uniform shader lut` child; the SkSL does manual **trilinear**
+interpolation between the two bracketing blue slices. This keeps the transform a single GPU pass
+and reuses the existing shader-graph chaining (effect N's `src` child = effect N-1's output, §7).
+The same packed-LUT sampler serves any future creative LUT. The `.cube` files ship as
+`EmbeddedResource`s in `Sprocket.Render` — the first bundled data asset (today all effects are
+inline SkSL strings) — decoded once into the packed texture and cached for reuse.
+
+**Variant detection.** DJI writes its color profile into container metadata. The Media-layer probe
+reads the video stream's color transfer/primaries/space and the format/stream metadata dictionary
+(§11) and surfaces them on `ProbedMediaInfo`; the app maps a detected `D-Log` / `D-Log M` /
+`D-Log 2` profile to the matching embedded LUT and auto-inserts the input transform on import. When
+detection is absent or wrong, the profile is a **manual per-clip override** in the Inspector
+(PLAN step 16). The chosen transform is just an `EffectInstance`, so it serializes with the project
+for free (§12); the new `ProbedMediaInfo` color fields are additive (nullable/defaulted, no schema
+bump).
+
+**Export & scopes.** Export **bakes** the transform in by default (it is an ordinary effect-chain
+stage in the same graph) or, as a per-export toggle, **passes through** the original log encoding
+for downstream grading. Waveform/monitor scopes (PLAN step 17) gain a **log ↔ transformed** toggle
+so colorists can read either space.
+
+**Upgrade path.** This LUT-based approach is the pragmatic 90% solution. A full scene-linear,
+OpenColorIO/ACES color-managed pipeline remains the later upgrade (PLAN step 23); OCIO would slot
+in as another effect-chain stage via a C-ABI P/Invoke wrapper — no C++/CLI — exactly as §7's color
+note and §17 anticipate. Nothing here forecloses it.
