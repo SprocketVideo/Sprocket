@@ -160,6 +160,42 @@ End-to-end on **both** Windows 11 and Linux:
      - **Fixture:** tests generate a deterministic 320×240@30 / 3 s / GOP-12 + 48 kHz clip via the `ffmpeg`
        CLI (cached in the test output dir).
 4. Skia preview surface + transport; software-clock playback (video only).
+   - **✅ DONE (`src/Sprocket.Render`, `src/Sprocket.Playback`, `src/Sprocket.App`; 27 tests in
+     `tests/Sprocket.Playback.Tests`).** Three new projects realize the playback path (ARCHITECTURE.md
+     §8/§10) honouring the dependency graph of §2 — Render → Core + SkiaSharp only (no Avalonia/Media);
+     Playback → Core/Media/Render; App → all. Delivered:
+     - **`Sprocket.Render.FramePresenter`** — wraps a decoded native RGBA buffer with `SKImage.FromPixels`
+       (no managed copy, §1) and draws it scaled-to-fit (letterboxed) onto the `SKCanvas` leased from
+       Avalonia, uploading to the shared `GRContext` on draw (§10). The `IVideoCompositor<SKImage>` seam
+       impl + SkSL effects are deferred to steps 7/14 — one opaque video layer needs only a fit-draw, which
+       keeps the hot loop allocation-clean (the spike's measured result).
+     - **`SoftwareClock`** — a play/pause/seekable `IClock` driven by a monotonic elapsed source (Stopwatch),
+       re-anchored on every transport op so it never accumulates drift within a play span. The slice's
+       stand-in **master clock**; step 5 swaps in the audio device clock behind the same `IClock`.
+     - **`PlaybackEngine`** — drives one video track from the clock, keeping the presented frame in sync via
+       a background pump that **drops** frames when behind and **holds** when ahead (§8). Transport
+       (`Play`/`Pause`/`SeekTo`/`TogglePlayPause`) is UI-thread-callable; seeks forward to the feed and the
+       pump force-presents the post-seek frame (frame-accurate scrub, paused or playing). The live frame is
+       read via `UseCurrentFrame`, which holds a lock for the draw so the pump can't recycle the native
+       buffer mid-present. Pure decisions (clamp / reached-end / promote) live in `PlaybackMath`; frame
+       supply sits behind `IVideoFrameFeed` (`RingVideoFrameFeed` adapts `VideoDecodeRing`) so the engine is
+       testable and a proxy/hardware feed slots in later (§17).
+     - **`Sprocket.App`** — a minimal Avalonia shell (grows into the full panelled shell at step 11; the
+       spike stays the de-risk artifact). A `PreviewSurface` custom control draws the engine's current frame
+       inside an `ISkiaSharpApiLease` (GPU); a transport bar (play/pause, position scrubber + time readout,
+       Space to toggle) drives the engine. Opens a media path from the command line or a generated 1080p
+       sample, building a one-video-track project over it.
+     - **Tests (27):** `SoftwareClock` deterministic via an injected elapsed source (start-paused, advance,
+       freeze-on-pause, seek, rate); `PlaybackMath` (clamp/end/promote); the `PlaybackEngine` pump stepped
+       deterministically over the real fixture (presents first frame, seek lands the target frame, holds when
+       ahead, drops to catch up, reaches end → stops + signals); `FramePresenter.ComputeFitRect` letterbox
+       math; plus a **live-pump integration** pair running the real `Start()` → background pump →
+       `FramePresenter` offscreen-raster render → `DisposeAsync` and asserting a non-blank frame + a different
+       frame after a live seek (all waits bounded so a stuck pump/worker fails fast rather than hanging).
+     - **Note:** the windowed GPU preview is display-bound and rests on the spike's proven Avalonia+Skia
+       lease path (step 1); the offscreen-raster integration test covers the decode→pump→present→dispose
+       pipeline headlessly. (A no-GUI CLI smoke was dropped — `Sprocket.App` is a `WinExe` with no reliable
+       console — in favour of that test-host coverage.)
 5. Audio: `IAudioOutput` + mixer; switch to audio master clock; A/V sync.
 6. Hardware-accel decode path behind `IHardwareContext` (CUDA/VAAPI/D3D11VA), with software fallback.
 7. Effects (brightness, fade) + audio volume/fade in mixer.

@@ -13,10 +13,6 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        // No-GUI smoke check of the playback path (decode → pump → present), for CI / headless boxes.
-        if (Array.IndexOf(args, "--smoke") >= 0)
-            return HeadlessSmoke.Run(args);
-
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         return 0;
     }
