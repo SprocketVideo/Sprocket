@@ -115,7 +115,47 @@ End-to-end on **both** Windows 11 and Linux:
      on a real Linux desktop session with a GPU; the headless check validates the media+Skia
      stack but uses an offscreen raster surface, not the windowed GL/Vulkan compositor.
 2. Timeline data model + RenderGraph in `Sprocket.Core` (unit-tested, headless).
+   - **✅ DONE (`src/Sprocket.Core`, 42 headless tests in `tests/Sprocket.Core.Tests`).** Zero
+     native/UI deps confirmed (output is `Sprocket.Core.dll` alone). Delivered:
+     - **Time model:** `Rational` (reduced, AVRational-style) and `Timecode` (`long` ticks).
+       `TicksPerSecond` set to **240000**, not the doc's example 90000 — 240000 is exact for both
+       48 kHz audio (5 ticks/sample) and all common + NTSC frame rates (30000/1001 → 8008
+       ticks/frame), so frame/sample boundaries round-trip losslessly (audio is the master clock).
+       ARCHITECTURE.md §3 updated to record the decision.
+     - **Data model:** `Project → MediaPool/Timeline/Settings`, `Timeline → Track[]` (z-ordered),
+       `VideoTrack`/`AudioTrack`, non-destructive `Clip` (SourceIn/Out, TimelineStart, derived
+       Duration), `EffectInstance`, and `AnimatableValue` (constant or keyframed, Hold/Linear) so the
+       slice's fade and all future keyframing share one mechanism (§9).
+     - **Render graph:** `RenderGraph.PlanVideoFrame`/`PlanAudioBuffer` resolve a pure, serializable
+       plan (clip resolution, trim→source mapping, effect-stack order, fade ramps, gain/mute/solo);
+       a generic `Render<TImage>` executor drives the `IFrameSource<T>`/`IVideoCompositor<T>` seams so
+       the Render layer binds `TImage = SKImage` while tests use a fake. `IClock` defined for §8.
+     - Tests cover: rational reduction/overflow, frame & sample round-trips, animation
+       interp/clamp/hold, clip trim & containment, clip resolution + overlap determinism, layer
+       z-order, effect-stack order & param evaluation-at-t, executor op-ordering, audio gain/mute/solo
+       and fade ramps. PLAN verification §"Correctness" (RenderGraph headless tests) satisfied.
 3. `MediaSource` decode + seek (keyframe seek then decode-to-target); ring-buffer feed.
+   - **✅ DONE (`src/Sprocket.Media`, 13 tests in `tests/Sprocket.Media.Tests`).** New project depends
+     only on `Sprocket.Core` + Sdcb.FFmpeg — **no SkiaSharp/UI** (decoded pixels stay native, §1).
+     Delivered:
+     - **`MediaSource`** — opens/probes a file (`ProbedMediaInfo`: duration, fps as `Rational`, W/H,
+       audio sample-rate/channels), decodes the video stream with the `ReadFrame → SendPacket →
+       ReceiveFrame` loop plus an end-of-stream flush packet to drain buffered frames.
+     - **Seek** — `SeekTo(Timecode)` does keyframe seek (`AVSEEK_FLAG.Backward`) → `avcodec_flush_buffers`
+       → **decode-to-target** discard (frames before the target are dropped *before* swscale, so no wasted
+       RGBA conversion). Verified frame-accurate mid-GOP (GOP=12): seeking to frame 40/50/60 lands exactly
+       that frame's PTS; seeking between frames returns the next frame.
+     - **`MediaTime`** — the one place FFmpeg's stream time base meets Core's tick clock (PTS↔`Timecode`,
+       `Int128` intermediates; Core never sees an `AVRational`).
+     - **`VideoFrame`/`VideoFramePool`** — pooled native RGBA buffers (pixels by pointer, reused across
+       decodes) so the decode path is allocation-free in steady state (§8 frame pooling).
+     - **`VideoDecodeRing`** — one background worker fills a **bounded** `Channel<>` (backpressure caps
+       read-ahead, §8). Seek is **generation-tagged**: `RequestSeek` bumps a generation + signals the
+       worker, which re-seeks; stale buffered frames are discarded by the reader (no producer/consumer
+       drain race). Worker **parks** at EOF (doesn't complete the channel) so scrub-back resumes; verified
+       ordered feed, tight-capacity backpressure, seek-discards-stale, seek-after-EOF, clean dispose.
+     - **Fixture:** tests generate a deterministic 320×240@30 / 3 s / GOP-12 + 48 kHz clip via the `ffmpeg`
+       CLI (cached in the test output dir).
 4. Skia preview surface + transport; software-clock playback (video only).
 5. Audio: `IAudioOutput` + mixer; switch to audio master clock; A/V sync.
 6. Hardware-accel decode path behind `IHardwareContext` (CUDA/VAAPI/D3D11VA), with software fallback.

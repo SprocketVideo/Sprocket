@@ -71,8 +71,13 @@ headlessly and keeps native/GPU concerns out of the domain types.
 
 Sloppy time is the #1 source of A/V drift. Rules:
 
-- **Canonical timeline unit: `long` ticks at a fixed high resolution** (e.g. a global
-  `TimeBase` of 1/90000, the MPEG standard, or 1/1000000). Avoid `double` seconds for
+- **Canonical timeline unit: `long` ticks at a fixed high resolution.** Implemented as
+  `Timecode.TicksPerSecond = 240000` (`Sprocket.Core.Timing.Timecode`). 240000 is an exact
+  multiple of 48 kHz audio (5 ticks/sample) *and* of every common frame rate including the NTSC
+  rationals (30000/1001 → 8008 ticks/frame, 24000/1001, 60000/1001) and 24/25/30/50/60, so both
+  frame and sample boundaries land on whole ticks and round-trip losslessly. The MPEG 1/90000 base
+  was considered but rejected: it is not divisible by 48000 (1.875 ticks/sample) and audio is the
+  master clock (§8), where sample-exactness matters most. Avoid `double` seconds for
   positions/durations — accumulating float error desyncs long timelines.
 - **Wrap it in a `readonly struct Timecode { long Ticks; }`** with explicit conversions to
   frames (given a frame rate) and audio samples (given a sample rate). All arithmetic in ticks.

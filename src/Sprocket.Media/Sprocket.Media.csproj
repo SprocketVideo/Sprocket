@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sprocket.Media — FFmpeg (Sdcb.FFmpeg) interop: open/probe a source, decode video
+    frames to native RGBA, seek frame-accurately, and feed a bounded ring buffer
+    (ARCHITECTURE.md §8, §11). Depends only on Sprocket.Core for the data/time model.
+
+    Deliberately has NO SkiaSharp / UI dependency: decoded pixels live in FFmpeg's native
+    AVFrame buffers and are exposed by pointer (the no-managed-pixels rule, §1). The
+    Render/Playback layer wraps those pointers with SKImage.FromPixels inside the GPU lease.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Library-level libav* bindings. Stack versions pinned by the architecture spike
+         (ARCHITECTURE.md §14). On Windows the runtime NuGet supplies the FFmpeg 7.1 DLLs;
+         on Linux the app must bundle FFmpeg 7 .so files on the loader path (§11). -->
+    <PackageReference Include="Sdcb.FFmpeg" Version="7.0.0" />
+    <PackageReference Include="Sdcb.FFmpeg.runtime.windows-x64" Version="7.1.0" />
+  </ItemGroup>
+
+</Project>

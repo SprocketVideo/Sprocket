@@ -1,3 +1,11 @@
 .impeccable/hook.cache.json
-src/Sprocket.Spike/bin
-src/Sprocket.Spike/obj
+src/Sprocket.Spike/bin/
+src/Sprocket.Spike/obj/
+src/Sprocket.Core/obj/
+tests/Sprocket.Core.Tests/bin/
+tests/Sprocket.Core.Tests/obj/
+src/Sprocket.Core/bin/
+src/Sprocket.Media/obj/
+src/Sprocket.Media/bin/
+tests/Sprocket.Media.Tests/bin/
+tests/Sprocket.Media.Tests/obj/
