@@ -22,13 +22,29 @@ internal static class MediaBootstrap
     /// null engine/project and an error message.</summary>
     public readonly record struct Result(PlaybackEngine? Engine, Project? Project, string Status);
 
-    /// <summary>Opens <c>args[0]</c> (if it is an existing file) or a generated sample, and builds the engine.</summary>
+    /// <summary>
+    /// Opens <c>args[0]</c> (if it is an existing file) or a generated sample and builds the engine over it.
+    /// If opening fails — a bad file, or no <c>ffmpeg</c> to generate the sample — the app must not dead-end:
+    /// it falls back to an empty, importable project (ARCHITECTURE.md §15) so File ▸ Import / drag-drop still
+    /// work and can bring the editor to life, with the reason shown in the status line.
+    /// </summary>
     public static Result Create(string[] args)
     {
+        string? path = args.Length > 0 && File.Exists(args[0]) ? args[0] : null;
         try
         {
-            string path = args.Length > 0 && File.Exists(args[0]) ? args[0] : SampleClip.EnsureExists();
+            return CreateWithMedia(path ?? SampleClip.EnsureExists());
+        }
+        catch (Exception ex)
+        {
+            return CreateEmpty(path, ex.Message);
+        }
+    }
 
+    /// <summary>Builds a playable session over one opened media file (the populated slice project).</summary>
+    private static Result CreateWithMedia(string path)
+    {
+        {
             // Probe once for format; the engine/mixer open their own per-source decoders via the factories below.
             ProbedMediaInfo info;
             using (MediaSource probe = MediaSource.Open(path))
@@ -69,10 +85,26 @@ internal static class MediaBootstrap
                 (audioWired ? "audio master clock" : "no audio (software clock)");
             return new Result(engine, project, status);
         }
-        catch (Exception ex)
-        {
-            return new Result(null, null, $"Could not open media: {ex.Message}");
-        }
+    }
+
+    /// <summary>
+    /// Builds an empty but fully-functional session — default settings, one empty video + audio track, a
+    /// video-only software clock — so the editor opens ready to import into rather than dead-ending. Used when
+    /// no media could be opened (a bad startup file, or no <c>ffmpeg</c> to generate the sample).
+    /// </summary>
+    private static Result CreateEmpty(string? attemptedPath, string? error)
+    {
+        var project = new Project(); // default 1080p / 30 fps / 48 kHz timeline
+        project.Timeline.Tracks.Add(new VideoTrack { Name = "V1" });
+        project.Timeline.Tracks.Add(new AudioTrack { Name = "A1" });
+
+        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id), (IMasterClock?)null);
+        engine.Start();
+
+        string status = attemptedPath is not null
+            ? $"Could not open {Path.GetFileName(attemptedPath)}: {error}  ·  opened an empty project — use File ▸ Import to add media"
+            : "No media loaded — use File ▸ Import to add a video";
+        return new Result(engine, project, status);
     }
 
     /// <summary>
