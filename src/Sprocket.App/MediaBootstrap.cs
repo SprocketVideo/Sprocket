@@ -185,28 +185,82 @@ internal static class SampleClip
     {
         string dir = Path.Combine(AppContext.BaseDirectory, "assets");
         string path = Path.Combine(dir, "sample.mp4");
-        if (File.Exists(path))
+
+        // Reuse a cached sample only if it actually opens. A partial/corrupt file left by an earlier
+        // interrupted generation (e.g. the app was killed mid-encode) must not be handed back — it would
+        // fail at open with a bare "Invalid data" and the cache would keep failing on every launch.
+        if (File.Exists(path) && CanOpen(path))
             return path;
 
         Directory.CreateDirectory(dir);
+        Generate(path);
+        return path;
+    }
+
+    /// <summary>True if the file can be opened and has a decodable video stream.</summary>
+    private static bool CanOpen(string path)
+    {
+        try
+        {
+            using MediaSource source = MediaSource.Open(path, HardwareAccelMode.Disabled);
+            return source.HasVideo;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Generates the sample clip via the ffmpeg CLI, writing to a temp file and promoting it into place only
+    /// after a clean exit — so an interrupted or failed run never leaves a corrupt <c>sample.mp4</c> behind.
+    /// </summary>
+    private static void Generate(string path)
+    {
+        string temp = Path.Combine(Path.GetDirectoryName(path)!, $"sample.{Guid.NewGuid():N}.tmp.mp4");
         var psi = new ProcessStartInfo("ffmpeg",
             "-y -f lavfi -i testsrc2=size=1920x1080:rate=30:duration=6 " +
             "-f lavfi -i sine=frequency=440:sample_rate=48000:duration=6 " +
-            $"-c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{path}\"")
+            $"-c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardError = true,
         };
 
-        using Process? p = Process.Start(psi)
-            ?? throw new InvalidOperationException(
-                "No media path given and the ffmpeg CLI was not found to generate a sample clip. " +
-                "Pass a video file path as the first argument.");
-        p.WaitForExit();
+        string stderr;
+        int exitCode;
+        try
+        {
+            using Process? p = Process.Start(psi)
+                ?? throw new InvalidOperationException(
+                    "No media path given and the ffmpeg CLI was not found to generate a sample clip. " +
+                    "Pass a video file path as the first argument.");
+            stderr = p.StandardError.ReadToEnd(); // drain before WaitForExit to avoid a full-buffer deadlock
+            p.WaitForExit();
+            exitCode = p.ExitCode;
+        }
+        catch
+        {
+            TryDelete(temp);
+            throw;
+        }
 
-        if (!File.Exists(path))
-            throw new InvalidOperationException("ffmpeg failed to generate the sample clip.");
-        return path;
+        if (exitCode != 0 || !File.Exists(temp) || new FileInfo(temp).Length == 0)
+        {
+            TryDelete(temp);
+            string tail = stderr.Length > 500 ? stderr[^500..] : stderr;
+            throw new InvalidOperationException(
+                $"ffmpeg failed to generate the sample clip (exit code {exitCode}).{(tail.Length > 0 ? $"\n{tail}" : "")}");
+        }
+
+        // Promote atomically, replacing any stale/corrupt cached file.
+        File.Move(temp, path, overwrite: true);
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch { /* best-effort cleanup */ }
     }
 }
