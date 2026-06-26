@@ -7,11 +7,17 @@
 # zips each bundle into dist/. One managed build serves all three OSes; only the bundled native libs
 # differ per RID (ARCHITECTURE.md §11, §14).
 #
-#   pwsh scripts/release.ps1                       # build + bundle every RID into ./dist
+#   pwsh scripts/release.ps1                       # bump patch, build + bundle every RID into ./dist
 #   pwsh scripts/release.ps1 -Rids win-x64         # one RID only
-#   pwsh scripts/release.ps1 -Version 0.3.0        # stamp a version into the artifact names
+#   pwsh scripts/release.ps1 -NoBump               # release the current version without bumping
+#   pwsh scripts/release.ps1 -Version 0.3.0        # publish an exact version (no bump / rewrite)
 #   pwsh scripts/release.ps1 -NoZip                # leave the publish folders, skip archiving
 #   pwsh scripts/release.ps1 -NoFFmpeg             # publish only, skip FFmpeg native bundling
+#
+# Versioning: the X.Y.Z version lives in Directory.Build.props (<VersionPrefix>) as the single source
+# of truth. Each release bumps the patch (third) number there and writes it back; the version is
+# stamped into the published assemblies, the executable, and the artifact names. Bump major/minor by
+# hand in Directory.Build.props.
 #
 # FFmpeg natives (ARCHITECTURE.md §11) — the bindings need FFmpeg 7.1 shared libs at runtime, found
 # by the OS loader in the app directory (the app sets no RootPath). They are sourced per RID:
@@ -29,14 +35,19 @@ param(
     # Runtime identifiers to publish. Defaults to the full cross-platform matrix.
     [string[]] $Rids = @('win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64'),
 
-    # Version string stamped into the zip names (e.g. 0.3.0). Defaults to a date-based dev tag.
-    [string] $Version = "0.0.0-dev",
+    # Exact version to publish (e.g. 0.3.0). When given, it is used verbatim and the source version
+    # is NOT bumped or rewritten. When omitted, the patch number in Directory.Build.props is bumped.
+    [string] $Version,
 
     # Build configuration.
     [string] $Configuration = 'Release',
 
     # Output directory for the published bundles and zips, relative to the repo root.
     [string] $OutDir = 'dist',
+
+    # Publish at the current Directory.Build.props version without bumping the patch (e.g. to
+    # re-cut an artifact, or to release the version exactly as set). Ignored if -Version is given.
+    [switch] $NoBump,
 
     # Skip zipping; leave the raw publish folders in place.
     [switch] $NoZip,
@@ -54,6 +65,38 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $appProject = Join-Path $repoRoot 'src/Sprocket.App/Sprocket.App.csproj'
 $distRoot = Join-Path $repoRoot $OutDir
 $ffCache = Join-Path $distRoot '.ffmpeg-cache'
+$propsFile = Join-Path $repoRoot 'Directory.Build.props'
+
+# Read the X.Y.Z version from Directory.Build.props (<VersionPrefix>).
+function Get-BaseVersion {
+    $content = Get-Content $propsFile -Raw
+    if ($content -match '<VersionPrefix>\s*([^<\s]+)\s*</VersionPrefix>') { return $Matches[1] }
+    throw "No <VersionPrefix> found in $propsFile"
+}
+
+# Write a new X.Y.Z version back into <VersionPrefix>, preserving the rest of the file verbatim.
+function Set-BaseVersion([string] $v) {
+    $content = Get-Content $propsFile -Raw
+    $updated = [regex]::Replace($content, '(<VersionPrefix>)\s*[^<\s]+\s*(</VersionPrefix>)', "`${1}$v`${2}")
+    Set-Content -Path $propsFile -Value $updated -NoNewline
+}
+
+# Resolve the version to publish: an explicit -Version wins (no rewrite); otherwise bump the patch
+# (third) number in Directory.Build.props and write it back, unless -NoBump was given.
+if (-not $Version) {
+    $base = Get-BaseVersion
+    if ($NoBump) {
+        $Version = $base
+    }
+    else {
+        $parts = $base.Split('.')
+        if ($parts.Count -lt 3) { throw "VersionPrefix '$base' is not in X.Y.Z form." }
+        $parts[2] = [string]([int]$parts[2] + 1)
+        $Version = ($parts[0..2] -join '.')
+        Set-BaseVersion $Version
+        Write-Host "Bumped version: $base -> $Version (written to Directory.Build.props)" -ForegroundColor Cyan
+    }
+}
 
 # RID -> BtbN FFmpeg-Builds platform token for the *-gpl-shared archives.
 $btbnPlatform = @{

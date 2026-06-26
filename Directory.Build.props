@@ -1,0 +1,19 @@
+<Project>
+
+  <!--
+    Central version + shared metadata, inherited automatically by every project in the tree.
+
+    The version here is the single source of truth. `scripts/release.ps1` increments the patch
+    (third) number on each release, writes it back to this file, and stamps it into the published
+    assemblies + executable + artifact names. Bump the major/minor by hand when you cut a new
+    minor/major line; the script only ever touches the patch.
+
+    Local `dotnet build` uses whatever value is set here as-is (no auto-increment), so incremental
+    builds stay deterministic.
+  -->
+  <PropertyGroup>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Product>Sprocket</Product>
+  </PropertyGroup>
+
+</Project>

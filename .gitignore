@@ -4,3 +4,4 @@
 # Build output — ignore for every project (src and tests), current and future.
 **/bin/
 **/obj/
+dist/
