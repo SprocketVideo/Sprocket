@@ -19,10 +19,12 @@
 3. **Non-destructive by construction.** Source media is read-only. An edit changes the
    *description* of how to reconstruct a frame, never the source. A frame at timeline time
    `t` is computed on demand from the project graph.
-4. **One managed codebase, two OSes.** Platform differences (audio backend, hardware-accel
-   device, file dialogs) sit behind C# interfaces selected at runtime. **No C++/CLI** — all
-   native interop is P/Invoke against a C ABI. Inherently-divergent paths (hardware accel)
-   always have a software fallback.
+4. **One managed codebase, three OSes (Windows 11, Linux, macOS).** Platform differences (audio
+   backend, hardware-accel device, file dialogs, native-lib packaging) sit behind C# interfaces
+   selected at runtime. **No C++/CLI** — all native interop is P/Invoke against a C ABI, so the
+   same managed assemblies run on all three; only the bundled native libraries differ per
+   RID (`win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`). Inherently-divergent paths (hardware
+   accel) always have a software fallback.
 5. **The same render graph serves preview and export.** Preview = the graph driven in real
    time at 1080p/proxy with frame-dropping allowed. Export = the same graph driven offline,
    deterministically, at full resolution with no drops. Effects are written once.
@@ -201,6 +203,12 @@ For each output buffer request (from the audio device callback):
   decode, via libswresample, so the mixer only ever sums uniform float32 buffers.
 - **The audio device callback is the heartbeat.** Its consumed-sample count *is* the master
   clock (§8).
+- **Output device behind `IAudioOutput`.** The slice uses Silk.NET.OpenAL (OpenAL Soft), whose
+  native package ships `win-x64`, `linux-*`, **`osx-x64` and `osx-arm64`** binaries — so the same
+  output works on all three OSes. On macOS this rides OpenAL Soft (Apple's system OpenAL is
+  deprecated); a native **CoreAudio** `IAudioOutput` is a later, optional swap if lower latency is
+  wanted. *(Implemented PLAN step 5: `OpenAlAudioOutput`, the `AudioMixer`, and the `AudioEngine`
+  master clock whose `Now` derives from the device's played-frame count.)*
 
 ---
 
@@ -337,10 +345,12 @@ Verified mechanism (Avalonia 12 / SkiaSharp 4.x):
 | `SKImage.FromPixels(info, ptr, rowBytes)` | no managed copy; Skia uploads to GPU on demand | Wrap a native RGBA buffer from swscale. **Slice default** — satisfies the no-managed-pixels rule; the GPU upload is unavoidable for software decode. |
 | `SKImage.FromPixelCopy(…)` | full copy into Skia heap | **Avoid.** |
 
-**Backend reality:** Avalonia defaults to OpenGL (via ANGLE) on Windows and OpenGL/Vulkan on
-Linux; Avalonia 12 supports Vulkan. The slice doesn't depend on which — `FromPixels` works on
-all. True zero-copy hardware-decode interop (DMA-BUF→Vulkan on Linux, D3D11 shared handle on
-Windows) is backend-specific and deferred to the hardware-accel milestone (PLAN step 6).
+**Backend reality:** Avalonia defaults to OpenGL (via ANGLE) on Windows, OpenGL/Vulkan on
+Linux, and **Metal (via ANGLE/MoltenVK) on macOS**; Avalonia 12 supports Vulkan. The slice
+doesn't depend on which — `FromPixels` works on all, and the `ISkiaSharpApiLeaseFeature` lease
+exposes the shared `GRContext` identically on each backend. True zero-copy hardware-decode interop
+(DMA-BUF→Vulkan on Linux, D3D11 shared handle on Windows, IOSurface/VideoToolbox on macOS) is
+backend-specific and deferred to the hardware-accel milestone (PLAN step 6).
 
 ---
 
@@ -360,18 +370,28 @@ wrapper, `MediaDictionary` for options.
 - **Encoder** (export): mirror in reverse — frames → encoder → muxer; pick H.264 encoder
   (`libx264` software for the slice; `h264_nvenc`/`h264_vaapi` later).
 - **Hardware accel (later, behind `IHardwareContext`):** `av_hwdevice_ctx_create(type…)`,
-  attach to `CodecContext.HwDeviceCtx`, decode to GPU frame, then either
-  `av_hwframe_transfer_data` (simple, costs a copy) or map to a GPU texture for zero-copy
-  (`FromTexture`). Runtime probe of available device types; **always** fall back to software.
+  attach to `CodecContext.HwDeviceContext`, set the decoder's `get_format` to the hw pixel
+  format, decode to a GPU frame, then either `av_hwframe_transfer_data` (simple, costs a copy)
+  or map to a GPU texture for zero-copy (`FromTexture`). Runtime probe of available device types
+  per OS — **Windows:** D3D11VA / CUDA / QSV / DXVA2; **Linux:** VAAPI / CUDA / VDPAU;
+  **macOS:** VideoToolbox — and **always** fall back to software when none is usable.
 
-**Native binaries (verified on both OSes):** `Sdcb.FFmpeg.runtime.windows-x64` NuGet supplies
-the FFmpeg 7.1 DLLs on Windows. **On Linux, Sprocket must ship its own FFmpeg 7 `.so` files** —
-there is no Sdcb.FFmpeg Linux runtime NuGet, and distro packages drift (Ubuntu 24.04 ships
-FFmpeg 6.1 = `libav*.so.60`, ABI-incompatible with Sdcb 7.0 which loads `…so.61`). Bundle a
-FFmpeg 7.x shared build next to the app (or on the loader path / `LD_LIBRARY_PATH`); Sdcb
-constructs the versioned soname (`libavcodec.so.61`, etc.) from its `LibraryVersionMap` and the
-OS loader resolves it. This was confirmed end-to-end in a .NET 10 container: decode + SkSL +
-Skia render produced a **byte-identical PNG to the Windows build**. **Licensing:** an x264-enabled
+**Native binaries (per-RID bundling).** `Sdcb.FFmpeg.runtime.windows-x64` NuGet supplies the
+FFmpeg 7.1 DLLs on Windows. **On Linux and macOS, Sprocket must ship its own FFmpeg 7 shared
+libraries** — there is no Sdcb.FFmpeg Linux or macOS runtime NuGet, and OS packages drift (Ubuntu
+24.04 ships FFmpeg 6.1 = `libav*.so.60`, ABI-incompatible with Sdcb 7.0 which loads `…so.61`;
+Homebrew tracks the latest major and Apple ships none). Bundle a FFmpeg 7.x shared build per RID:
+- **Linux** (`linux-x64`): `libav*.so.61` etc. on the loader path / `LD_LIBRARY_PATH`.
+- **macOS** (`osx-x64` and `osx-arm64`): `libav*.61.dylib` etc. next to the executable inside the
+  `.app` bundle (`Contents/MacOS` or `Contents/Frameworks`, found via `@loader_path`/`DYLD_*`).
+  Ship a build per architecture (Apple Silicon `arm64` is the default; `x64` for Intel Macs).
+
+Sdcb constructs the versioned library name (`libavcodec.so.61`, `libavcodec.61.dylib`, etc.) from
+its `LibraryVersionMap` and the OS loader resolves it. The Linux path was confirmed end-to-end in a
+.NET 10 container: decode + SkSL + Skia render produced a **byte-identical PNG to the Windows
+build**; the macOS path uses the same code and rests on packaging the dylibs (PLAN step 25) +
+on-device verification. **Skia natives** come from `SkiaSharp.NativeAssets.{Win32,Linux,macOS}`
+per RID; the managed `SkiaSharp` stays pinned to 3.119.4 (§14). **Licensing:** an x264-enabled
 build is GPL (the verified Linux build was BtbN `gpl-shared`); choose the build and the product's
 license deliberately before any distribution.
 
@@ -405,11 +425,11 @@ license deliberately before any distribution.
 
 | Component | Version | Notes |
 |---|---|---|
-| .NET | 10 (LTS) | Server/Background GC; `Span`, SIMD intrinsics, source-gen JSON. |
-| Avalonia | 12.0.5 | `ISkiaSharpApiLeaseFeature.Lease()` → `GrContext`+`SkCanvas`; `CompositionCustomVisualHandler`. Vulkan supported. |
-| SkiaSharp | **3.119.4** | Pinned to Avalonia 12.0.5's transitive SkiaSharp so the lease's Skia types match (a newer feed loads a 2nd incompatible assembly). `SKRuntimeEffect.CreateShader` (SkSL), `SKImage.FromTexture`/`FromPixels`, GPU surfaces. |
-| Sdcb.FFmpeg | 7.0.0 (FFmpeg 7.1) | `FormatContext`/`CodecContext`/`Packet`/`Frame`; `Frame.Data` = `IntPtr[]`. Win binaries via `Sdcb.FFmpeg.runtime.windows-x64`; **Linux must bundle FFmpeg 7 `.so` (see §11)** — no Sdcb Linux runtime NuGet, distro versions vary. |
-| Silk.NET.OpenAL | 2.23 | Cross-platform audio out; behind `IAudioOutput`. (Silk.NET 2.x in limited maintenance — abstract it.) |
+| .NET | 10 (LTS) | Server/Background GC; `Span`, SIMD intrinsics, source-gen JSON. Single managed build runs on `win-x64`/`linux-x64`/`osx-x64`/`osx-arm64`. |
+| Avalonia | 12.0.5 | `ISkiaSharpApiLeaseFeature.Lease()` → `GrContext`+`SkCanvas`; `CompositionCustomVisualHandler`. Native desktop on Windows/Linux/**macOS** (Metal/OpenGL); Vulkan supported. |
+| SkiaSharp | **3.119.4** | Pinned to Avalonia 12.0.5's transitive SkiaSharp so the lease's Skia types match (a newer feed loads a 2nd incompatible assembly). `SKRuntimeEffect.CreateShader` (SkSL), `SKImage.FromTexture`/`FromPixels`, GPU surfaces. Natives per RID via `SkiaSharp.NativeAssets.{Win32,Linux,macOS}`. |
+| Sdcb.FFmpeg | 7.0.0 (FFmpeg 7.1) | `FormatContext`/`CodecContext`/`Packet`/`Frame`; `Frame.Data` = `IntPtr[]`. Win binaries via `Sdcb.FFmpeg.runtime.windows-x64`; **Linux & macOS must bundle FFmpeg 7 `.so`/`.dylib` (see §11)** — no Sdcb Linux/macOS runtime NuGet, OS versions vary. |
+| Silk.NET.OpenAL | 2.23 | Cross-platform audio out behind `IAudioOutput`; `Silk.NET.OpenAL.Soft.Native` 1.23.1 ships `win`/`linux`/**`osx-x64`+`osx-arm64`** binaries. (Silk.NET 2.x in limited maintenance — abstracted; macOS CoreAudio is an optional later swap.) |
 
 ---
 
@@ -433,8 +453,10 @@ license deliberately before any distribution.
 | A/V drift over long timelines | Tick-based time (§3); audio master clock (§8); rational frame rates. |
 | Avalonia/Skia GPU lease misuse (wrong thread) | All compose work inside the render-thread lease (§10); never touch `GRContext` off-thread. |
 | FFmpeg native frame leaks across threads | Strict ref/unref ownership protocol (§8); cancellation drains in-flight frames. |
-| Zero-copy hardware interop complexity | Slice uses `FromPixels` (software path); defer `FromTexture`/DMA-BUF/D3D11 to the hw milestone with software fallback retained. |
+| Zero-copy hardware interop complexity | Slice uses `FromPixels` (software path); defer `FromTexture`/DMA-BUF/D3D11/IOSurface to the hw milestone with software fallback retained. |
 | FFmpeg GPL vs LGPL licensing | Decide build + product license before distribution (§11). |
+| macOS packaging (`.app` bundle, FFmpeg dylibs, code signing/notarization) | Bundle per-RID FFmpeg 7 dylibs via the loader path (§11); produce a signed/notarized `.app` in the distribution step (PLAN step 25). Universal vs per-arch (`osx-arm64`/`osx-x64`) decided there. |
+| Native-lib drift across the three OSes | Single managed build; only per-RID natives differ. CI builds/runs on win/linux/macOS runners; the headless render path is byte-identical across OSes (verified win↔linux). |
 
 ---
 

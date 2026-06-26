@@ -5,7 +5,7 @@
 
 ## Context
 
-Greenfield project (empty repo). The goal is a cross-platform (Windows 11 + Linux)
+Greenfield project (empty repo). The goal is a cross-platform (Windows 11 + Linux + macOS)
 non-destructive video editor in C# / .NET 10 with multiple video & audio tracks,
 hardware-accelerated decode/encode, GPU effects (brightness/color/contrast), fades,
 audio volume mixing, and an eventual plugin system, leveraging OSS (FFmpeg, Skia) for
@@ -24,9 +24,14 @@ compute" pattern.
   compositing + shader effects). Drop to raw GPU (Silk.NET/Vulkan) later only for measured hotspots.
 - **First milestone:** Vertical slice — 1 video track + 1 audio track, import, trim, one
   effect (brightness), a fade, playback, export.
-- **OS-specific code** is acceptable behind a C# interface when a Linux equivalent exists
-  (mandatory for hardware accel). **No C++/CLI** — native wrapping must be plain P/Invoke
-  against a C ABI so one managed codebase serves both OSes.
+- **OS-specific code** is acceptable behind a C# interface when a per-OS equivalent exists
+  (mandatory for hardware accel: D3D11VA/CUDA/QSV on Windows, VAAPI/CUDA on Linux, VideoToolbox
+  on macOS). **No C++/CLI** — native wrapping must be plain P/Invoke against a C ABI so one
+  managed codebase serves all three OSes; only the bundled native libraries differ per RID.
+- **Three target OSes: Windows 11, Linux, macOS** (`win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`).
+  The managed assemblies are identical everywhere; FFmpeg is bundled per-RID (`.dll`/`.so`/`.dylib`,
+  see [ARCHITECTURE §11](ARCHITECTURE.md)) since there is no Sdcb runtime NuGet for Linux/macOS.
+  macOS ships as a signed/notarized `.app` bundle (build order step 25).
 
 ## The non-negotiable performance rule
 
@@ -80,7 +85,8 @@ opacity/gain ramp over a time range (video alpha via shader; audio gain in the m
 
 ## Vertical-slice milestone (definition of done)
 
-End-to-end on **both** Windows 11 and Linux:
+End-to-end on **all three** of Windows 11, Linux, and macOS (the slice is developed on Windows;
+Linux and macOS rest on bundling the native libs + on-device verification — see step 1 and step 25):
 1. Create a project; add 1 video track + 1 audio track.
 2. Import a media file (`MediaSource` opens via Sdcb.FFmpeg, reports duration/streams).
 3. Place a clip; set in/out trim (non-destructive — source untouched).
@@ -116,7 +122,10 @@ End-to-end on **both** Windows 11 and Linux:
      runtime DLLs on Windows — do not depend on the distro package. See ARCHITECTURE.md §11.
    - **Remaining (lower risk):** confirm the full Avalonia GPU compositor (shared `GRContext`)
      on a real Linux desktop session with a GPU; the headless check validates the media+Skia
-     stack but uses an offscreen raster surface, not the windowed GL/Vulkan compositor.
+     stack but uses an offscreen raster surface, not the windowed GL/Vulkan compositor. **macOS:**
+     run the same headless check + windowed compositor (Metal) on `osx-arm64`/`osx-x64` once the
+     FFmpeg dylibs are bundled (step 25) — the render path is the identical managed code, so the
+     risk is packaging the natives, not the pipeline.
 2. Timeline data model + RenderGraph in `Sprocket.Core` (unit-tested, headless).
    - **✅ DONE (`src/Sprocket.Core`, 42 headless tests in `tests/Sprocket.Core.Tests`).** Zero
      native/UI deps confirmed (output is `Sprocket.Core.dll` alone). Delivered:
@@ -238,7 +247,10 @@ End-to-end on **both** Windows 11 and Linux:
        Audio 16, Playback 27).
      - **Note:** audio uses a stereo 16-bit device path for the slice (OpenAL Soft's portable format); float32
        output and sample-exact device-offset interpolation are easy later refinements behind `IAudioOutput`.
-6. Hardware-accel decode path behind `IHardwareContext` (CUDA/VAAPI/D3D11VA), with software fallback.
+6. Hardware-accel decode path behind `IHardwareContext` (D3D11VA/CUDA/QSV on Windows, VAAPI/CUDA on
+   Linux, VideoToolbox on macOS), with software fallback. Runtime-probe available device types per OS;
+   decode to a GPU frame, download via `av_hwframe_transfer_data`, then swscale → RGBA (zero-copy
+   `FromTexture` deferred). Fall back to the software decode path whenever no device is usable.
 7. Effects (brightness, fade) + audio volume/fade in mixer.
 8. Export pipeline (full-res encode).
 9. Project save/load (JSON).
@@ -294,6 +306,16 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
 23. **Plugins & advanced color.** Plugin host (collectible `AssemblyLoadContext`,
     [ARCHITECTURE §13](ARCHITECTURE.md)), then OpenColorIO/OFX and color grading beyond the
     basics.
+24. **Cross-platform native-lib bundling.** Make the build self-contained per RID: copy the FFmpeg 7
+    `.dll`/`.so`/`.dylib` set and `SkiaSharp.NativeAssets.{Win32,Linux,macOS}` + OpenAL Soft natives
+    into the publish output for `win-x64`, `linux-x64`, `osx-x64`, `osx-arm64` so the app runs with no
+    system FFmpeg ([ARCHITECTURE §11](ARCHITECTURE.md)). Needed for the slice to *run* on Linux/macOS
+    at all; promoted to its own step because it gates every on-device verification.
+25. **Packaging & distribution (incl. macOS executable).** Produce a runnable artifact per OS: a
+    Windows folder/installer, a Linux AppImage/tarball, and a **macOS `.app` bundle** with the FFmpeg
+    dylibs under `Contents/Frameworks` (resolved via `@loader_path`), **code-signed and notarized**,
+    shipped for Apple Silicon (`osx-arm64`) and Intel (`osx-x64`). CI builds on win/linux/macOS runners;
+    a smoke launch + sample export validates each artifact.
 
 Open product questions (e.g. the mockup's user-avatar / account affordance, full panel docking)
 are tracked in [UI.md §5](UI.md).
@@ -303,14 +325,16 @@ are tracked in [UI.md §5](UI.md).
 - **Performance claim:** run the spike under a memory profiler (dotnet-counters / dotMemory);
   assert ~0 Gen0 allocations per frame in the render loop; confirm GPU upload path (no CPU
   pixel loops). Measure sustained 1080p preview fps.
-- **Cross-platform:** CI matrix builds + runs the headless `Sprocket.Core` tests on
-  windows-latest and ubuntu-latest; manually run the app + export on a real Linux box and Win 11.
+- **Cross-platform:** CI matrix builds + runs the headless tests on windows-latest, ubuntu-latest,
+  and macos-latest (the latter covers `osx-arm64`); manually run the app + export on a real Linux box,
+  Win 11, and a Mac. The render path is byte-identical across OSes (verified Win↔Linux via the headless
+  PNG hash; macOS to be confirmed once the dylibs are bundled, steps 24–25).
 - **Correctness:** unit tests for RenderGraph (clip resolution, trim, effect-stack order,
   fade ramps) headlessly; golden-frame test comparing exported frames against expected output.
 - **A/V sync:** export a clip with a known audio/video sync marker (clap/flash) and verify
   alignment; check drift over a multi-minute clip.
-- **Hardware accel:** verify decode uses the GPU (nvidia-smi / vainfo / GPU usage) and that
-  software fallback engages when no device is present.
+- **Hardware accel:** verify decode uses the GPU (nvidia-smi / vainfo / macOS `VideoToolbox` via
+  GPU usage) and that software fallback engages when no device is present.
 
 ## Top risks
 

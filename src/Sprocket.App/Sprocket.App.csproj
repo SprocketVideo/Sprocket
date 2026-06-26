@@ -24,9 +24,11 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.5" />
 
     <!-- Pinned to Avalonia 12.0.5's transitive SkiaSharp so the lease's Skia types match
-         Sprocket.Render's (ARCHITECTURE.md §14). -->
+         Sprocket.Render's (ARCHITECTURE.md §14). Skia natives ship per-RID; Windows comes via
+         the main package, Linux + macOS via the native-asset packages. -->
     <PackageReference Include="SkiaSharp" Version="3.119.4" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="3.119.4" />
 
     <!-- The FFmpeg native runtime must land next to the exe for decode to load. Sprocket.Media
          brings the bindings transitively; reference the Windows runtime here so its DLLs are
