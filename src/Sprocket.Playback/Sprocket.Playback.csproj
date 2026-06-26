@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sprocket.Playback — the playback engine: transport (play/pause/seek), the playback clock,
+    and the video pump that keeps the presented frame synced to that clock by dropping/holding
+    frames (ARCHITECTURE.md §8). For the slice (PLAN.md step 4) the clock is a software stopwatch
+    clock; PLAN step 5 swaps in the audio device clock as the master without touching the pump.
+
+    Depends on Sprocket.Core (model/time), Sprocket.Media (decode/ring), and Sprocket.Render
+    (presentation) per the dependency graph in ARCHITECTURE.md §2. Holds no Avalonia/UI reference.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
+    <ProjectReference Include="..\Sprocket.Media\Sprocket.Media.csproj" />
+    <ProjectReference Include="..\Sprocket.Render\Sprocket.Render.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The deterministic-pump tests step the engine one iteration at a time. -->
+    <InternalsVisibleTo Include="Sprocket.Playback.Tests" />
+  </ItemGroup>
+
+</Project>

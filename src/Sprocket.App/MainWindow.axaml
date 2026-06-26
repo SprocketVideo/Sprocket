@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Sprocket.App"
+        x:Class="Sprocket.App.MainWindow"
+        Width="1280" Height="800"
+        Title="Sprocket"
+        Background="#0E0E12">
+  <DockPanel>
+
+    <!-- Status strip (top): media info / errors. Engine/runtime text is debug-only per UI.md §3.7. -->
+    <Border DockPanel.Dock="Top" Background="#16161C" Padding="14,8">
+      <TextBlock x:Name="StatusText"
+                 Foreground="#9AA4B2"
+                 FontSize="12"
+                 Text="" />
+    </Border>
+
+    <!-- Transport (bottom): play/pause, position, scrubber, duration. -->
+    <Border DockPanel.Dock="Bottom" Background="#16161C" Padding="14,10">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto" VerticalAlignment="Center">
+        <Button x:Name="PlayPauseButton" Grid.Column="0"
+                Width="44" Height="36"
+                Padding="0"
+                HorizontalContentAlignment="Center"
+                VerticalContentAlignment="Center"
+                FontSize="15"
+                Content="▶" />
+        <TextBlock x:Name="PositionText" Grid.Column="1"
+                   Margin="14,0,10,0"
+                   VerticalAlignment="Center"
+                   FontFamily="Cascadia Code,Consolas,monospace"
+                   Foreground="#D5DBE6"
+                   Text="0:00.00" />
+        <Slider x:Name="Scrubber" Grid.Column="2"
+                Minimum="0" Maximum="1" Value="0"
+                VerticalAlignment="Center" />
+        <TextBlock x:Name="DurationText" Grid.Column="3"
+                   Margin="10,0,0,0"
+                   VerticalAlignment="Center"
+                   FontFamily="Cascadia Code,Consolas,monospace"
+                   Foreground="#8A93A2"
+                   Text="0:00.00" />
+      </Grid>
+    </Border>
+
+    <!-- Program monitor (fills the rest). -->
+    <local:PreviewSurface x:Name="Preview" />
+
+  </DockPanel>
+</Window>

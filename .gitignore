@@ -9,3 +9,11 @@ src/Sprocket.Media/obj/
 src/Sprocket.Media/bin/
 tests/Sprocket.Media.Tests/bin/
 tests/Sprocket.Media.Tests/obj/
+src/Sprocket.App/bin/
+src/Sprocket.App/obj/
+src/Sprocket.Playback/bin/
+src/Sprocket.Playback/obj/
+src/Sprocket.Render/bin/
+src/Sprocket.Render/obj/
+tests/Sprocket.Playback.Tests/bin/
+tests/Sprocket.Playback.Tests/obj/

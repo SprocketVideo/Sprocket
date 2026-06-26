@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sprocket.App — the Avalonia UI shell. For the vertical slice (PLAN.md step 4) it hosts the
+    Skia preview surface + a transport bar driving the PlaybackEngine (video-only, software clock).
+    It grows into the full panelled editor shell at PLAN step 11; the spike (Sprocket.Spike) stays
+    as the de-risk artifact and is not part of the app.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.5" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.5" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.5" />
+
+    <!-- Pinned to Avalonia 12.0.5's transitive SkiaSharp so the lease's Skia types match
+         Sprocket.Render's (ARCHITECTURE.md §14). -->
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+
+    <!-- The FFmpeg native runtime must land next to the exe for decode to load. Sprocket.Media
+         brings the bindings transitively; reference the Windows runtime here so its DLLs are
+         copied into the app output (on Linux the FFmpeg 7 .so files are bundled per §11). -->
+    <PackageReference Include="Sdcb.FFmpeg.runtime.windows-x64" Version="7.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
+    <ProjectReference Include="..\Sprocket.Media\Sprocket.Media.csproj" />
+    <ProjectReference Include="..\Sprocket.Render\Sprocket.Render.csproj" />
+    <ProjectReference Include="..\Sprocket.Playback\Sprocket.Playback.csproj" />
+  </ItemGroup>
+
+</Project>

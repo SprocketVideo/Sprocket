@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sprocket.Render — SkiaSharp presentation + (later) GPU compositing/effects.
+    For the vertical slice's "video only" playback (PLAN.md step 4) this is just the
+    FramePresenter: wrap a decoded native RGBA buffer as an SKImage and draw it,
+    scaled-to-fit, onto whatever SKCanvas the caller leases from Avalonia (ARCHITECTURE.md §10).
+
+    Depends only on Sprocket.Core + SkiaSharp — no Avalonia, no FFmpeg/Media. The decoded
+    pixels are passed in by pointer (the no-managed-pixels rule, §1); Render never copies them
+    onto the managed heap. The IVideoCompositor<SKImage> seam impl + SkSL effects land here at
+    PLAN steps 7 (effects) / 14 (multiple tracks), reusing the same project.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pinned to the SkiaSharp version Avalonia 12.0.5 is built against so the types
+         produced here match the ones the ISkiaSharpApiLeaseFeature hands back in the app
+         (ARCHITECTURE.md §14). A mismatched feed would load a second, incompatible assembly. -->
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+  </ItemGroup>
+
+</Project>
