@@ -48,4 +48,35 @@ public class FramePresenterTests
         SKRect fit = FramePresenter.ComputeFitRect(SKRect.Create(0, 0, boundsW, boundsH), frameW, frameH);
         Assert.Equal(SKRect.Empty, fit);
     }
+
+    [Fact]
+    public void Zoom_Fit_Matches_ComputeFitRect()
+    {
+        SKRect bounds = SKRect.Create(0, 0, 640, 480);
+        Assert.Equal(
+            FramePresenter.ComputeFitRect(bounds, 1920, 1080),
+            FramePresenter.ComputeZoomRect(bounds, 1920, 1080, MonitorZoom.Fit));
+    }
+
+    [Theory]
+    [InlineData(MonitorZoom.Percent50, 0.5f)]
+    [InlineData(MonitorZoom.Percent100, 1f)]
+    [InlineData(MonitorZoom.Percent200, 2f)]
+    public void Zoom_Percent_Scales_Native_Size_And_Centres(MonitorZoom zoom, float scale)
+    {
+        // A 200×100 frame in a 400×400 bounds, centred at the requested scale (may overflow → clipped).
+        SKRect r = FramePresenter.ComputeZoomRect(SKRect.Create(0, 0, 400, 400), 200, 100, zoom);
+        float w = 200 * scale, h = 100 * scale;
+        Assert.Equal(w, r.Width, 3);
+        Assert.Equal(h, r.Height, 3);
+        Assert.Equal((400 - w) / 2f, r.Left, 3);
+        Assert.Equal((400 - h) / 2f, r.Top, 3);
+    }
+
+    [Fact]
+    public void Zoom_Returns_Empty_For_Degenerate_Inputs()
+    {
+        Assert.Equal(SKRect.Empty, FramePresenter.ComputeZoomRect(SKRect.Create(0, 0, 0, 100), 1920, 1080, MonitorZoom.Fit));
+        Assert.Equal(SKRect.Empty, FramePresenter.ComputeZoomRect(SKRect.Create(0, 0, 100, 100), 0, 1080, MonitorZoom.Percent100));
+    }
 }

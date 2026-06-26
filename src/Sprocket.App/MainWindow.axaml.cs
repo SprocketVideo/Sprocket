@@ -17,6 +17,7 @@ using Sprocket.Core.Timing;
 using Sprocket.Export;
 using Sprocket.Persistence;
 using Sprocket.Playback;
+using Sprocket.Render;
 
 namespace Sprocket.App;
 
@@ -36,6 +37,15 @@ public partial class MainWindow : Window
     private ThumbnailService? _thumbnails;
     private MediaBrowserPanel? _mediaBrowser;
     private InspectorPanel? _inspector;
+
+    // Dual monitors (PLAN.md step 17): the Program monitor wraps the main engine; the Source monitor previews
+    // the selected clip's source. The transport bar drives whichever is active.
+    private ProgramMonitor? _program;
+    private SourceMonitor? _source;
+    private IMonitor? _active;
+    private Button? _playPause;
+    private Slider? _scrubber;
+    private TextBlock? _positionText, _durationText;
 
     private bool _suppressSeek;        // guards programmatic scrubber updates from re-triggering a seek
     private bool _exporting;
@@ -123,6 +133,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _thumbnails?.Dispose(); // releases the cached thumbnail bitmaps
+        _ = _source?.DisposeAsync(); // tears down the Source monitor's decoder/engine if one is open
         base.OnClosed(e);
     }
 
@@ -257,52 +268,148 @@ public partial class MainWindow : Window
 
     private void WireTransport()
     {
-        var playPause = this.FindControl<Button>("PlayPauseButton")!;
-        var scrubber = this.FindControl<Slider>("Scrubber")!;
-        var positionText = this.FindControl<TextBlock>("PositionText")!;
-        var durationText = this.FindControl<TextBlock>("DurationText")!;
-        var preview = this.FindControl<PreviewSurface>("Preview")!;
+        _playPause = this.FindControl<Button>("PlayPauseButton")!;
+        _scrubber = this.FindControl<Slider>("Scrubber")!;
+        _positionText = this.FindControl<TextBlock>("PositionText")!;
+        _durationText = this.FindControl<TextBlock>("DurationText")!;
 
-        preview.Attach(_engine!);
+        // The Program monitor composites the timeline at the sequence resolution; the Source monitor previews a
+        // single selected clip's source (built lazily when its tab is opened).
+        var preview = this.FindControl<PreviewSurface>("Preview")!;
+        var sourceSurface = this.FindControl<PreviewSurface>("SourceSurface")!;
+        (int seqW, int seqH) = (_project!.Timeline.Resolution.Width, _project.Timeline.Resolution.Height);
+        _program = new ProgramMonitor(_engine!, preview, seqW, seqH);
+        _source = new SourceMonitor(sourceSurface);
+        _active = _program;
+
         WireTimeline();
+        WireMonitorTabs(preview, sourceSurface);
+        WireZoomAndGuides(preview, sourceSurface);
 
         _exportButton!.Click += (_, _) => _ = ExportAsync();
         WireAddTrackButton();
 
-        Timecode duration = _engine!.Duration;
-        scrubber.Maximum = Math.Max(1, duration.Ticks);
-        durationText.Text = FormatTime(duration);
-        positionText.Text = FormatTime(Timecode.Zero);
+        // Transport buttons drive the active monitor.
+        _playPause.Click += (_, _) => _active!.TogglePlayPause();
+        this.FindControl<Button>("JumpStartButton")!.Click += (_, _) => _active!.JumpToStart();
+        this.FindControl<Button>("JumpEndButton")!.Click += (_, _) => _active!.JumpToEnd();
+        this.FindControl<Button>("StepBackButton")!.Click += (_, _) => _active!.StepFrame(-1);
+        this.FindControl<Button>("StepForwardButton")!.Click += (_, _) => _active!.StepFrame(+1);
 
-        playPause.Click += (_, _) => _engine.TogglePlayPause();
-        this.FindControl<Button>("JumpStartButton")!.Click += (_, _) => _engine.SeekTo(Timecode.Zero);
-        this.FindControl<Button>("JumpEndButton")!.Click += (_, _) => _engine.SeekTo(_engine.Duration);
-
-        scrubber.ValueChanged += (_, e) =>
+        _scrubber.ValueChanged += (_, e) =>
         {
             if (_suppressSeek)
                 return;
-            _engine.SeekTo(new Timecode((long)e.NewValue));
+            _active!.SeekTo(new Timecode((long)e.NewValue));
         };
 
-        _engine.PositionChanged += pos => Dispatcher.UIThread.Post(() =>
-        {
-            _suppressSeek = true;
-            scrubber.Value = Math.Clamp(pos.Ticks, 0, scrubber.Maximum);
-            _suppressSeek = false;
-            positionText.Text = FormatTime(pos);
-            _inspector?.OnPlayheadMoved(); // animated parameter values track the playhead
-        });
-
-        _engine.StateChanged += state => Dispatcher.UIThread.Post(() =>
-        {
-            playPause.Content = state == PlaybackState.Playing ? "❚❚" : "▶";
-            _engineStateText!.Text = state == PlaybackState.Playing ? "Playing" : "Paused";
-        });
+        // Both monitors report position/state; the readouts update only for the active one. The Inspector tracks
+        // the Program playhead specifically (its keyframes edit the timeline at that time).
+        WireMonitorReadouts(_program, isProgram: true);
+        WireMonitorReadouts(_source, isProgram: false);
+        RefreshTransportForActive();
 
         // Optional timed auto-exit for unattended profiling runs: SPROCKET_APP_SECONDS=12
         if (int.TryParse(Environment.GetEnvironmentVariable("SPROCKET_APP_SECONDS"), out int seconds) && seconds > 0)
             DispatcherTimer.RunOnce(Close, TimeSpan.FromSeconds(seconds));
+    }
+
+    /// <summary>Routes a monitor's position/state events to the transport readouts, but only while it is the
+    /// active monitor. The Program monitor additionally drives the Inspector's playhead.</summary>
+    private void WireMonitorReadouts(IMonitor monitor, bool isProgram)
+    {
+        monitor.PositionChanged += pos => Dispatcher.UIThread.Post(() =>
+        {
+            if (isProgram)
+                _inspector?.OnPlayheadMoved(); // animated parameter values track the Program playhead
+            if (!ReferenceEquals(_active, monitor))
+                return;
+            _suppressSeek = true;
+            _scrubber!.Value = Math.Clamp(pos.Ticks, 0, _scrubber.Maximum);
+            _suppressSeek = false;
+            _positionText!.Text = FormatTime(pos);
+        });
+
+        monitor.StateChanged += state => Dispatcher.UIThread.Post(() =>
+        {
+            if (!ReferenceEquals(_active, monitor))
+                return;
+            _playPause!.Content = state == PlaybackState.Playing ? "❚❚" : "▶";
+            _engineStateText!.Text = state == PlaybackState.Playing ? "Playing" : "Paused";
+        });
+    }
+
+    /// <summary>Switches between the Program and Source monitors (UI.md §3.4): toggles the visible surface,
+    /// builds/frees the Source engine, pauses the outgoing monitor, and re-points the transport readouts.</summary>
+    private void WireMonitorTabs(PreviewSurface preview, PreviewSurface sourceSurface)
+    {
+        var programTab = this.FindControl<RadioButton>("ProgramTab")!;
+        var sourceTab = this.FindControl<RadioButton>("SourceTab")!;
+
+        programTab.IsCheckedChanged += (_, _) =>
+        {
+            if (programTab.IsChecked != true)
+                return;
+            _source!.Deactivate();
+            _active = _program!;
+            preview.IsVisible = true;
+            sourceSurface.IsVisible = false;
+            RefreshTransportForActive();
+        };
+
+        sourceTab.IsCheckedChanged += (_, _) =>
+        {
+            if (sourceTab.IsChecked != true)
+                return;
+            _program!.Pause();
+            _source!.Activate();
+            _active = _source;
+            preview.IsVisible = false;
+            sourceSurface.IsVisible = true;
+            RefreshTransportForActive();
+        };
+    }
+
+    /// <summary>Binds the <c>Fit ▾</c> zoom level and the safe-area/framing-grid toggle to both surfaces, so the
+    /// setting persists across a tab switch.</summary>
+    private void WireZoomAndGuides(PreviewSurface preview, PreviewSurface sourceSurface)
+    {
+        var zoomBox = this.FindControl<ComboBox>("ZoomBox")!;
+        zoomBox.SelectionChanged += (_, _) =>
+        {
+            MonitorZoom zoom = zoomBox.SelectedIndex switch
+            {
+                1 => MonitorZoom.Percent50,
+                2 => MonitorZoom.Percent100,
+                3 => MonitorZoom.Percent200,
+                _ => MonitorZoom.Fit,
+            };
+            preview.Zoom = zoom;
+            sourceSurface.Zoom = zoom;
+        };
+
+        var guides = this.FindControl<ToggleButton>("GuidesToggle")!;
+        guides.IsCheckedChanged += (_, _) =>
+        {
+            bool show = guides.IsChecked == true;
+            preview.ShowGuides = show;
+            sourceSurface.ShowGuides = show;
+        };
+    }
+
+    /// <summary>Re-points the transport readouts (scrubber range, position/duration text, play glyph, state) at
+    /// the currently active monitor — after a tab switch or a Source-clip change.</summary>
+    private void RefreshTransportForActive()
+    {
+        IMonitor m = _active!;
+        _suppressSeek = true;
+        _scrubber!.Maximum = Math.Max(1, m.Duration.Ticks);
+        _scrubber.Value = Math.Clamp(m.Position.Ticks, 0, _scrubber.Maximum);
+        _suppressSeek = false;
+        _positionText!.Text = FormatTime(m.Position);
+        _durationText!.Text = FormatTime(m.Duration);
+        _playPause!.Content = m.State == PlaybackState.Playing ? "❚❚" : "▶";
+        _engineStateText!.Text = m.State == PlaybackState.Playing ? "Playing" : "Paused";
     }
 
     /// <summary>
@@ -337,7 +444,14 @@ public partial class MainWindow : Window
         {
             _mediaBrowser?.SetSelectedClip(clip); // the Effects browser applies to this clip
             _inspector?.SetSelectedClip(clip);    // the Inspector edits this clip's properties
-            string? name = clip is null ? null : Path.GetFileName(_project!.MediaPool.Get(clip.MediaRefId)?.AbsolutePath ?? "clip");
+
+            // The Source monitor previews the selected clip's source (rebuilds lazily only while its tab is open).
+            MediaRef? media = clip is null ? null : _project!.MediaPool.Get(clip.MediaRefId);
+            _source?.SetSource(media);
+            if (ReferenceEquals(_active, _source))
+                RefreshTransportForActive();
+
+            string? name = media is null ? null : Path.GetFileName(media.AbsolutePath ?? "clip");
             SetStatus(name is null ? "" : $"Selected: {name}");
         };
     }
@@ -516,7 +630,7 @@ public partial class MainWindow : Window
 
     private void SetEnabled(bool enabled)
     {
-        foreach (string name in new[] { "PlayPauseButton", "JumpStartButton", "JumpEndButton", "Scrubber", "AddTrackButton" })
+        foreach (string name in new[] { "PlayPauseButton", "JumpStartButton", "JumpEndButton", "StepBackButton", "StepForwardButton", "Scrubber", "AddTrackButton" })
             if (this.FindControl<Control>(name) is { } c)
                 c.IsEnabled = enabled;
         if (_exportButton is not null)

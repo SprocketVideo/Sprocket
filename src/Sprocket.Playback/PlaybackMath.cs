@@ -17,6 +17,23 @@ internal static class PlaybackMath
         return position > duration ? duration : position;
     }
 
+    /// <summary>
+    /// The timeline position <paramref name="delta"/> whole frames away from <paramref name="position"/> at
+    /// <paramref name="fps"/>, clamped to <c>[0, <paramref name="duration"/>]</c> (PLAN.md step 17 frame-step
+    /// transport). The current position is floored to its containing frame index first, so stepping is always
+    /// on exact frame boundaries regardless of where a scrub left the playhead.
+    /// </summary>
+    public static Timecode StepFrame(Timecode position, Rational fps, int delta, Timecode duration)
+    {
+        if (fps.Num <= 0 || fps.Den <= 0)
+            return ClampToTimeline(position, duration);
+
+        long target = position.ToFrameIndex(fps) + delta;
+        if (target < 0)
+            target = 0;
+        return ClampToTimeline(Timecode.FromFrames(target, fps), duration);
+    }
+
     /// <summary>Whether playback has reached the end of the timeline at <paramref name="position"/>.</summary>
     public static bool ReachedEnd(Timecode position, Timecode duration) =>
         duration.Ticks > 0 && position >= duration;

@@ -696,6 +696,47 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
 17. **Monitors.** Dual **Source / Program** monitors (same render graph, second surface),
     safe-area / framing-grid overlay, **Fit** zoom, and full transport (jump-to-start/end,
     frame-step, play/pause).
+    - **✅ DONE (`Sprocket.Playback` + `Sprocket.Render` + `Sprocket.App`; 11 new tests — Playback +9, Render +2,
+      all green).** The Program monitor's placeholder header/transport grew into the dual-monitor surface of
+      [UI.md §3.4](UI.md): a Source tab, the safe-area/framing-grid overlay, the `Fit ▾` zoom, and the full
+      `⏮ ◀◀ ▶ ▶▶ ⏭` transport. Honours the §2 graph (the zoom/overlay math is pure in **Render**; the second
+      monitor reuses the existing playback/render seams in **App** — a "new feature on an existing seam", §17).
+      Delivered:
+      - **Full transport — frame-step (Playback).** `PlaybackEngine.StepFrame(±1)` pauses if playing then seeks
+        to the frame-aligned neighbour; the snap-to-frame-grid + clamp math lives in the pure
+        `PlaybackMath.StepFrame` (floors the position to its frame index first, so a scrubbed mid-frame playhead
+        still steps on the frame grid). The transport bar gains **◀◀ / ▶▶** buttons beside the existing
+        jump-to-start/end + play/pause.
+      - **`Fit ▾` zoom (Render + App).** `FramePresenter.ComputeZoomRect` extends the existing letterbox fit with
+        fixed **50% / 100% / 200%** scales (native-size, centred, overflow clipped) behind a new `MonitorZoom`
+        enum; a `Fit ▾` `ComboBox` in the monitor header drives it. `PreviewSurface` gained a `Zoom` property and
+        an explicit logical **frame size** (`SetFrameSize`) so every layer now composites into one shared zoom
+        rect (the sequence resolution for Program, the source resolution for Source) instead of fitting each layer
+        independently — more correct for mixed-resolution tracks and the anchor for the overlay.
+      - **Safe-area / framing-grid overlay (Render + App).** `MonitorOverlay` draws a rule-of-thirds grid plus
+        **action-safe (93%)** and **title-safe (90%)** guide rectangles over the frame rect as thin translucent
+        strokes (never touching the decoded pixels, §1); the inset geometry (`ComputeSafeAreas`) is pure. A
+        **Guides** toggle in the header switches it on both surfaces.
+      - **Dual Source / Program monitors (App).** A small `IMonitor` abstraction unifies the transport over two
+        implementations: **`ProgramMonitor`** (a thin adapter over the app's main multi-track engine) and
+        **`SourceMonitor`** (owns a *rebuildable* single-feed `PlaybackEngine` over a throwaway one-clip project
+        spanning the selected source — the **same render graph**, ARCHITECTURE.md §5). The Source engine is built
+        **lazily** only while its tab is open (a decoder is opened on activate and freed on deactivate) and is
+        video-only on a `SoftwareClock`. **Program / Source** header tabs swap the visible `PreviewSurface`, pause
+        the outgoing monitor, and re-point the one transport bar at the active monitor; selecting a timeline clip
+        feeds its source to the Source monitor. The Inspector keeps tracking the **Program** playhead regardless of
+        which monitor is shown.
+      - **Pure, tested helpers + manual-verified UI (the project's established split).** Tests (11): Playback —
+        `PlaybackMath.StepFrame` (advance/retreat one frame, mid-frame snap-to-grid, clamp at both ends, degenerate
+        frame-rate no-op) and `FramePresenter.ComputeZoomRect` (Fit == fit-rect, 50/100/200% scale + centre,
+        degenerate → empty); Render — `MonitorOverlay.ComputeSafeAreas` (documented insets, concentric, title
+        inside action, degenerate → empty). The tab switching, transport routing, source-engine lifecycle, and
+        overlay/zoom *drawing* are UI/decode-bound and rest on these + manual verification (the App is a UI-bound
+        `WinExe`). Clean build (0 warnings); a `SPROCKET_APP_SECONDS=5` smoke launch starts the shell with both
+        monitors wired and tears down cleanly (exit 0). Full suite: **269 tests green** (Core 85, Media 24,
+        Render 18, Audio 16, Playback 40, Export 6, Persistence 12, App 68).
+      - **Note:** the Source monitor previews video only — source-audio scrub and an independent in/out-marker
+        overlay (to mark a source span before placing it) are small follow-ons behind the same `IMonitor` seam.
 18. **Proxy media (render performance).** Generate lower-resolution proxies and edit/preview
     against them via an alternate `IFrameSource`, with a "use proxies" toggle; **export still
     pulls full-resolution originals** ([ARCHITECTURE §17](ARCHITECTURE.md)). Committed feature

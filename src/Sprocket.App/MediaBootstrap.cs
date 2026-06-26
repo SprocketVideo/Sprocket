@@ -117,9 +117,14 @@ internal static class MediaBootstrap
 
     /// <summary>Opens a video frame feed for a source, or <c>null</c> for an offline / no-video source (the engine
     /// then contributes no layer for that track). Each call opens its own decoder; the feed owns + disposes it.</summary>
-    private static IVideoFrameFeed? OpenVideoFeed(Project project, MediaRefId id)
+    private static IVideoFrameFeed? OpenVideoFeed(Project project, MediaRefId id) =>
+        OpenVideoFeed(project.MediaPool.Get(id));
+
+    /// <summary>Opens a standalone video frame feed for a single source (reused by the Source monitor, PLAN.md
+    /// step 17), or <c>null</c> for an offline / no-video source. Each call opens its own decoder; the feed owns
+    /// + disposes it.</summary>
+    internal static IVideoFrameFeed? OpenVideoFeed(MediaRef? media)
     {
-        MediaRef? media = project.MediaPool.Get(id);
         if (media is not { Info.HasVideo: true })
             return null;
         try

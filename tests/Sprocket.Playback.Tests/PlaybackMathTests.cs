@@ -7,6 +7,7 @@ namespace Sprocket.Playback.Tests;
 public class PlaybackMathTests
 {
     private static readonly Timecode Duration = Timecode.FromSeconds(10);
+    private static readonly Rational Fps30 = new(30, 1);
 
     [Theory]
     [InlineData(-5, 0)]   // negative clamps to zero
@@ -49,5 +50,40 @@ public class PlaybackMathTests
         Timecode target = Timecode.FromSeconds(2);
         // A frame just past the target normally holds, but after a seek it is force-presented.
         Assert.True(PlaybackMath.ShouldPromote(Timecode.FromSeconds(2.5), target, forcePresent: true));
+    }
+
+    [Fact]
+    public void StepFrame_Advances_And_Retreats_One_Frame()
+    {
+        // Frame 30 of 30 fps = 1.0 s. Stepping ±1 lands exactly on the neighbouring frame boundaries.
+        Timecode at1s = Timecode.FromFrames(30, Fps30);
+        Assert.Equal(Timecode.FromFrames(31, Fps30).Ticks, PlaybackMath.StepFrame(at1s, Fps30, +1, Duration).Ticks);
+        Assert.Equal(Timecode.FromFrames(29, Fps30).Ticks, PlaybackMath.StepFrame(at1s, Fps30, -1, Duration).Ticks);
+    }
+
+    [Fact]
+    public void StepFrame_Snaps_A_Mid_Frame_Position_To_The_Frame_Grid()
+    {
+        // A position partway through frame 10 floors to frame 10, then steps to 11 / 9.
+        Timecode midFrame10 = Timecode.FromFrames(10, Fps30) + new Timecode(123);
+        Assert.Equal(Timecode.FromFrames(11, Fps30).Ticks, PlaybackMath.StepFrame(midFrame10, Fps30, +1, Duration).Ticks);
+        Assert.Equal(Timecode.FromFrames(9, Fps30).Ticks, PlaybackMath.StepFrame(midFrame10, Fps30, -1, Duration).Ticks);
+    }
+
+    [Fact]
+    public void StepFrame_Clamps_At_Both_Ends()
+    {
+        Assert.Equal(Timecode.Zero.Ticks, PlaybackMath.StepFrame(Timecode.Zero, Fps30, -1, Duration).Ticks);
+
+        // 10 s at 30 fps = frame 300; stepping forward at the end clamps to the duration.
+        Timecode end = Timecode.FromFrames(300, Fps30);
+        Assert.Equal(Duration.Ticks, PlaybackMath.StepFrame(end, Fps30, +1, Duration).Ticks);
+    }
+
+    [Fact]
+    public void StepFrame_Is_A_Clamped_NoOp_For_A_Degenerate_Frame_Rate()
+    {
+        Timecode pos = Timecode.FromSeconds(3);
+        Assert.Equal(pos.Ticks, PlaybackMath.StepFrame(pos, new Rational(0, 1), +1, Duration).Ticks);
     }
 }

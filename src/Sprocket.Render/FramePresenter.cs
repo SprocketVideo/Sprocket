@@ -2,6 +2,22 @@ using SkiaSharp;
 
 namespace Sprocket.Render;
 
+/// <summary>Monitor zoom level for the preview surface (PLAN.md step 17, the <c>Fit ▾</c> control).</summary>
+public enum MonitorZoom
+{
+    /// <summary>Largest size that fits the surface, aspect preserved (letterboxed). The default.</summary>
+    Fit,
+
+    /// <summary>Half the source's native pixel size.</summary>
+    Percent50,
+
+    /// <summary>1:1 — one source pixel per surface pixel (may overflow the surface, which clips).</summary>
+    Percent100,
+
+    /// <summary>Twice the source's native pixel size.</summary>
+    Percent200,
+}
+
 /// <summary>
 /// Draws one decoded RGBA8888 video frame onto an <see cref="SKCanvas"/>, scaled to fit (letterboxed,
 /// aspect preserved) into a target rectangle. This is the slice's preview presentation step
@@ -60,6 +76,33 @@ public static class FramePresenter
             return SKRect.Empty;
 
         float scale = Math.Min(bounds.Width / width, bounds.Height / height);
+        float w = width * scale;
+        float h = height * scale;
+        float x = bounds.Left + (bounds.Width - w) / 2f;
+        float y = bounds.Top + (bounds.Height - h) / 2f;
+        return SKRect.Create(x, y, w, h);
+    }
+
+    /// <summary>
+    /// The centred destination rectangle for a <paramref name="width"/>×<paramref name="height"/> frame at the
+    /// requested <paramref name="zoom"/>: <see cref="MonitorZoom.Fit"/> letterboxes to <paramref name="bounds"/>
+    /// (<see cref="ComputeFitRect"/>); the fixed percentages scale the native size and centre it (overflow is
+    /// clipped by the surface). Pure — exposed for unit testing without a canvas (PLAN.md step 17).
+    /// </summary>
+    public static SKRect ComputeZoomRect(SKRect bounds, int width, int height, MonitorZoom zoom)
+    {
+        if (width <= 0 || height <= 0 || bounds.Width <= 0 || bounds.Height <= 0)
+            return SKRect.Empty;
+
+        if (zoom == MonitorZoom.Fit)
+            return ComputeFitRect(bounds, width, height);
+
+        float scale = zoom switch
+        {
+            MonitorZoom.Percent50 => 0.5f,
+            MonitorZoom.Percent200 => 2f,
+            _ => 1f, // Percent100
+        };
         float w = width * scale;
         float h = height * scale;
         float x = bounds.Left + (bounds.Width - w) / 2f;

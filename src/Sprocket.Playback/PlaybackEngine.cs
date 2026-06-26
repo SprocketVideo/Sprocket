@@ -230,6 +230,19 @@ public sealed class PlaybackEngine : IAsyncDisposable
     }
 
     /// <summary>
+    /// Steps the playhead <paramref name="delta"/> whole frames (PLAN.md step 17): pauses playback if running,
+    /// then seeks to the frame-aligned position. The pump force-presents the post-seek frame so a single step is
+    /// frame-accurate. Negative <paramref name="delta"/> steps backward; clamped to the timeline ends.
+    /// </summary>
+    public void StepFrame(int delta)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (State == PlaybackState.Playing)
+            Pause();
+        SeekTo(PlaybackMath.StepFrame(Position, _project.Timeline.FrameRate, delta, Duration));
+    }
+
+    /// <summary>
     /// Invokes <paramref name="use"/> with the composited video layers (bottom→top in z-order), holding the frame
     /// lock for the duration so the pump cannot recycle a native buffer. Keep the callback short and do not retain
     /// the layers beyond it. The list is empty when no track has a frame to show.

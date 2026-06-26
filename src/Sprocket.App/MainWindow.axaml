@@ -147,34 +147,50 @@
           <DockPanel>
             <Border DockPanel.Dock="Top" Classes="paneHeader">
               <Grid ColumnDefinitions="Auto,*,Auto">
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                  <TextBlock Classes="title" Text="Program" />
-                  <TextBlock Text="Source" Foreground="{DynamicResource FaintText}" FontSize="12"
-                             VerticalAlignment="Center" />
+                <!-- Dual-monitor tabs: Program (composited timeline) / Source (raw clip), UI.md §3.4. -->
+                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                  <RadioButton x:Name="ProgramTab" Classes="tool" GroupName="Monitor" Content="Program" IsChecked="True" />
+                  <RadioButton x:Name="SourceTab" Classes="tool" GroupName="Monitor" Content="Source" />
                 </StackPanel>
-                <TextBlock Grid.Column="2" Text="Fit" Foreground="{DynamicResource FaintText}" FontSize="12"
-                           VerticalAlignment="Center" />
+                <!-- Safe-area / framing-grid overlay toggle + the Fit ▾ zoom level. -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <ToggleButton x:Name="GuidesToggle" Content="Guides" FontSize="12" Padding="8,3" />
+                  <ComboBox x:Name="ZoomBox" MinWidth="76" FontSize="12" SelectedIndex="0">
+                    <ComboBoxItem>Fit</ComboBoxItem>
+                    <ComboBoxItem>50%</ComboBoxItem>
+                    <ComboBoxItem>100%</ComboBoxItem>
+                    <ComboBoxItem>200%</ComboBoxItem>
+                  </ComboBox>
+                </StackPanel>
               </Grid>
             </Border>
 
             <!-- Transport (under the monitor, UI.md §3.4). -->
             <Border DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Padding="10,8"
                     BorderBrush="{DynamicResource Edge}" BorderThickness="0,1,0,0">
-              <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" VerticalAlignment="Center">
-                <Button x:Name="JumpStartButton" Grid.Column="0" Classes="transport" Content="⏮" Margin="0,0,4,0" />
-                <Button x:Name="PlayPauseButton" Grid.Column="1" Classes="transport" Content="▶" />
-                <Button x:Name="JumpEndButton" Grid.Column="2" Classes="transport" Content="⏭" Margin="4,0,0,0" />
-                <TextBlock x:Name="PositionText" Grid.Column="3" Margin="14,0,10,0" VerticalAlignment="Center"
+              <!-- Full transport (UI.md §3.4): ⏮ ◀◀ ▶ ▶▶ ⏭ — jump-to-start, frame-step back, play/pause,
+                   frame-step forward, jump-to-end. Drives whichever monitor (Program/Source) is active. -->
+              <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" VerticalAlignment="Center">
+                <Button x:Name="JumpStartButton" Grid.Column="0" Classes="transport" Content="⏮" />
+                <Button x:Name="StepBackButton" Grid.Column="1" Classes="transport" Content="◀◀" Margin="4,0,0,0" />
+                <Button x:Name="PlayPauseButton" Grid.Column="2" Classes="transport" Content="▶" Margin="4,0,0,0" />
+                <Button x:Name="StepForwardButton" Grid.Column="3" Classes="transport" Content="▶▶" Margin="4,0,0,0" />
+                <Button x:Name="JumpEndButton" Grid.Column="4" Classes="transport" Content="⏭" Margin="4,0,0,0" />
+                <TextBlock x:Name="PositionText" Grid.Column="5" Margin="14,0,10,0" VerticalAlignment="Center"
                            FontFamily="Cascadia Code,Consolas,monospace" Foreground="{DynamicResource Text}"
                            Text="0:00.00" />
-                <Slider x:Name="Scrubber" Grid.Column="4" Minimum="0" Maximum="1" Value="0" VerticalAlignment="Center" />
-                <TextBlock x:Name="DurationText" Grid.Column="5" Margin="10,0,0,0" VerticalAlignment="Center"
+                <Slider x:Name="Scrubber" Grid.Column="6" Minimum="0" Maximum="1" Value="0" VerticalAlignment="Center" />
+                <TextBlock x:Name="DurationText" Grid.Column="7" Margin="10,0,0,0" VerticalAlignment="Center"
                            FontFamily="Cascadia Code,Consolas,monospace" Foreground="{DynamicResource MutedText}"
                            Text="0:00.00" />
               </Grid>
             </Border>
 
-            <local:PreviewSurface x:Name="Preview" />
+            <!-- Both monitors present through a PreviewSurface; only the active tab's surface is visible. -->
+            <Grid>
+              <local:PreviewSurface x:Name="Preview" />
+              <local:PreviewSurface x:Name="SourceSurface" IsVisible="False" />
+            </Grid>
           </DockPanel>
         </Border>
 
