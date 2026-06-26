@@ -16,6 +16,9 @@ making non-trivial changes:
 The project is mid-build: the vertical slice (PLAN steps 1–6) is done; steps 7–9 (effects, export,
 save/load) and the post-slice UI build-out (steps 10+) remain.
 
+Do not commit `.NET` build artifacts: never add any `/bin` or `/obj` directory, or anything under
+them, to version control.
+
 ## Commands
 
 ```bash
