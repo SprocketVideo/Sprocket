@@ -722,10 +722,11 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         **`SourceMonitor`** (owns a *rebuildable* single-feed `PlaybackEngine` over a throwaway one-clip project
         spanning the selected source — the **same render graph**, ARCHITECTURE.md §5). The Source engine is built
         **lazily** only while its tab is open (a decoder is opened on activate and freed on deactivate) and is
-        video-only on a `SoftwareClock`. **Program / Source** header tabs swap the visible `PreviewSurface`, pause
-        the outgoing monitor, and re-point the one transport bar at the active monitor; selecting a timeline clip
-        feeds its source to the Source monitor. The Inspector keeps tracking the **Program** playhead regardless of
-        which monitor is shown.
+        video-only on a `SoftwareClock`. Both monitors present through **one shared `PreviewSurface`** (so the
+        program preview's GPU custom-draw tree is unchanged from step 11); the **Program / Source** header tabs
+        swap which engine is attached to it, pause the outgoing monitor, and re-point the one transport bar at the
+        active monitor. Selecting a timeline clip feeds its source to the Source monitor. The Inspector keeps
+        tracking the **Program** playhead regardless of which monitor is shown.
       - **Pure, tested helpers + manual-verified UI (the project's established split).** Tests (11): Playback —
         `PlaybackMath.StepFrame` (advance/retreat one frame, mid-frame snap-to-grid, clamp at both ends, degenerate
         frame-rate no-op) and `FramePresenter.ComputeZoomRect` (Fit == fit-rect, 50/100/200% scale + centre,

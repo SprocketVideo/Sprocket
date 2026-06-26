@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     private ProgramMonitor? _program;
     private SourceMonitor? _source;
     private IMonitor? _active;
+    private PreviewSurface? _preview;
     private Button? _playPause;
     private Slider? _scrubber;
     private TextBlock? _positionText, _durationText;
@@ -274,17 +275,21 @@ public partial class MainWindow : Window
         _durationText = this.FindControl<TextBlock>("DurationText")!;
 
         // The Program monitor composites the timeline at the sequence resolution; the Source monitor previews a
-        // single selected clip's source (built lazily when its tab is opened).
-        var preview = this.FindControl<PreviewSurface>("Preview")!;
-        var sourceSurface = this.FindControl<PreviewSurface>("SourceSurface")!;
+        // single selected clip's source (built lazily when its tab is opened). Both present through the one shared
+        // surface; the active tab decides which engine is attached to it.
+        _preview = this.FindControl<PreviewSurface>("Preview")!;
         (int seqW, int seqH) = (_project!.Timeline.Resolution.Width, _project.Timeline.Resolution.Height);
-        _program = new ProgramMonitor(_engine!, preview, seqW, seqH);
-        _source = new SourceMonitor(sourceSurface);
+        _program = new ProgramMonitor(_engine!, seqW, seqH);
+        _source = new SourceMonitor();
         _active = _program;
 
+        // Re-bind the surface whenever the active monitor's engine is replaced (the Source monitor rebuilds).
+        _source.EngineChanged += () => Dispatcher.UIThread.Post(() => { if (ReferenceEquals(_active, _source)) BindActiveToSurface(); });
+        BindActiveToSurface(); // attach the program engine to the surface
+
         WireTimeline();
-        WireMonitorTabs(preview, sourceSurface);
-        WireZoomAndGuides(preview, sourceSurface);
+        WireMonitorTabs();
+        WireZoomAndGuides();
 
         _exportButton!.Click += (_, _) => _ = ExportAsync();
         WireAddTrackButton();
@@ -339,9 +344,24 @@ public partial class MainWindow : Window
         });
     }
 
-    /// <summary>Switches between the Program and Source monitors (UI.md §3.4): toggles the visible surface,
-    /// builds/frees the Source engine, pauses the outgoing monitor, and re-points the transport readouts.</summary>
-    private void WireMonitorTabs(PreviewSurface preview, PreviewSurface sourceSurface)
+    /// <summary>Attaches the active monitor's current engine to the shared surface at its logical frame size, or
+    /// clears the surface if the monitor has nothing loaded.</summary>
+    private void BindActiveToSurface()
+    {
+        if (_active!.CurrentEngine is { } engine)
+        {
+            _preview!.SetFrameSize(_active.FrameWidth, _active.FrameHeight);
+            _preview.Attach(engine);
+        }
+        else
+        {
+            _preview!.Detach();
+        }
+    }
+
+    /// <summary>Switches between the Program and Source monitors (UI.md §3.4): pauses the outgoing monitor,
+    /// builds/frees the Source engine, re-binds the shared surface, and re-points the transport readouts.</summary>
+    private void WireMonitorTabs()
     {
         var programTab = this.FindControl<RadioButton>("ProgramTab")!;
         var sourceTab = this.FindControl<RadioButton>("SourceTab")!;
@@ -352,8 +372,7 @@ public partial class MainWindow : Window
                 return;
             _source!.Deactivate();
             _active = _program!;
-            preview.IsVisible = true;
-            sourceSurface.IsVisible = false;
+            BindActiveToSurface();
             RefreshTransportForActive();
         };
 
@@ -362,39 +381,30 @@ public partial class MainWindow : Window
             if (sourceTab.IsChecked != true)
                 return;
             _program!.Pause();
-            _source!.Activate();
-            _active = _source;
-            preview.IsVisible = false;
-            sourceSurface.IsVisible = true;
+            _active = _source!;
+            _source!.Activate(); // raises EngineChanged → binds the surface
+            BindActiveToSurface();
             RefreshTransportForActive();
         };
     }
 
-    /// <summary>Binds the <c>Fit ▾</c> zoom level and the safe-area/framing-grid toggle to both surfaces, so the
-    /// setting persists across a tab switch.</summary>
-    private void WireZoomAndGuides(PreviewSurface preview, PreviewSurface sourceSurface)
+    /// <summary>Binds the <c>Fit ▾</c> zoom level and the safe-area/framing-grid toggle to the shared surface.</summary>
+    private void WireZoomAndGuides()
     {
         var zoomBox = this.FindControl<ComboBox>("ZoomBox")!;
         zoomBox.SelectionChanged += (_, _) =>
         {
-            MonitorZoom zoom = zoomBox.SelectedIndex switch
+            _preview!.Zoom = zoomBox.SelectedIndex switch
             {
                 1 => MonitorZoom.Percent50,
                 2 => MonitorZoom.Percent100,
                 3 => MonitorZoom.Percent200,
                 _ => MonitorZoom.Fit,
             };
-            preview.Zoom = zoom;
-            sourceSurface.Zoom = zoom;
         };
 
         var guides = this.FindControl<ToggleButton>("GuidesToggle")!;
-        guides.IsCheckedChanged += (_, _) =>
-        {
-            bool show = guides.IsChecked == true;
-            preview.ShowGuides = show;
-            sourceSurface.ShowGuides = show;
-        };
+        guides.IsCheckedChanged += (_, _) => _preview!.ShowGuides = guides.IsChecked == true;
     }
 
     /// <summary>Re-points the transport readouts (scrubber range, position/duration text, play glyph, state) at

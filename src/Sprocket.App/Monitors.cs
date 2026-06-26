@@ -9,13 +9,21 @@ namespace Sprocket.App;
 
 /// <summary>
 /// A previewable, transport-driven monitor (PLAN.md step 17): the Program monitor (the composited timeline) and
-/// the Source monitor (a raw single-clip preview) present through the same <see cref="PreviewSurface"/> + render
-/// graph and expose an identical transport, so one transport bar can drive whichever monitor is active (UI.md
-/// §3.4). Position/state events let the shell update its readouts only for the active monitor.
+/// the Source monitor (a raw single-clip preview) are presented through one shared <see cref="PreviewSurface"/>
+/// + render graph and expose an identical transport, so one transport bar can drive whichever monitor is active
+/// (UI.md §3.4). The shell binds <see cref="CurrentEngine"/> (at <see cref="FrameWidth"/>×<see cref="FrameHeight"/>)
+/// to the surface and re-binds when <see cref="EngineChanged"/> fires; position/state events let the shell update
+/// its readouts only for the active monitor.
 /// </summary>
 internal interface IMonitor
 {
-    PreviewSurface Surface { get; }
+    /// <summary>The engine to present, or <c>null</c> when nothing is loaded (the surface shows its background).</summary>
+    PlaybackEngine? CurrentEngine { get; }
+
+    /// <summary>The logical frame size to composite into (the sequence resolution / the source resolution).</summary>
+    int FrameWidth { get; }
+    int FrameHeight { get; }
+
     Timecode Position { get; }
     Timecode Duration { get; }
     PlaybackState State { get; }
@@ -30,6 +38,10 @@ internal interface IMonitor
 
     event Action<Timecode>? PositionChanged;
     event Action<PlaybackState>? StateChanged;
+
+    /// <summary>Raised when <see cref="CurrentEngine"/> is replaced (the Source monitor rebuilds/tears down its
+    /// engine); the shell re-binds the surface. The Program monitor never raises it.</summary>
+    event Action? EngineChanged;
 }
 
 /// <summary>The Program monitor: a thin transport adapter over the app's main <see cref="PlaybackEngine"/>, which
@@ -38,15 +50,16 @@ internal sealed class ProgramMonitor : IMonitor
 {
     private readonly PlaybackEngine _engine;
 
-    public ProgramMonitor(PlaybackEngine engine, PreviewSurface surface, int frameWidth, int frameHeight)
+    public ProgramMonitor(PlaybackEngine engine, int frameWidth, int frameHeight)
     {
         _engine = engine;
-        Surface = surface;
-        surface.SetFrameSize(frameWidth, frameHeight);
-        surface.Attach(engine);
+        FrameWidth = frameWidth;
+        FrameHeight = frameHeight;
     }
 
-    public PreviewSurface Surface { get; }
+    public PlaybackEngine? CurrentEngine => _engine;
+    public int FrameWidth { get; }
+    public int FrameHeight { get; }
     public Timecode Position => _engine.Position;
     public Timecode Duration => _engine.Duration;
     public PlaybackState State => _engine.State;
@@ -70,6 +83,8 @@ internal sealed class ProgramMonitor : IMonitor
         add => _engine.StateChanged += value;
         remove => _engine.StateChanged -= value;
     }
+
+    public event Action? EngineChanged { add { } remove { } } // the program engine is fixed
 }
 
 /// <summary>
@@ -87,15 +102,16 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
     private MediaRef? _shown;     // the source the current engine is decoding
     private bool _active;
 
-    public SourceMonitor(PreviewSurface surface) => Surface = surface;
-
-    public PreviewSurface Surface { get; }
+    public PlaybackEngine? CurrentEngine => _engine;
+    public int FrameWidth => _shown?.Info.Width ?? 0;
+    public int FrameHeight => _shown?.Info.Height ?? 0;
     public Timecode Position => _engine?.Position ?? Timecode.Zero;
     public Timecode Duration => _engine?.Duration ?? Timecode.Zero;
     public PlaybackState State => _engine?.State ?? PlaybackState.Stopped;
 
     public event Action<Timecode>? PositionChanged;
     public event Action<PlaybackState>? StateChanged;
+    public event Action? EngineChanged;
 
     /// <summary>Sets the source to preview (typically the selected clip's media). Rebuilds the engine if the
     /// Source tab is currently active; otherwise the build is deferred to <see cref="Activate"/>.</summary>
@@ -144,15 +160,14 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
 
         _engine = engine;
         _shown = media;
-        Surface.SetFrameSize(media.Info.Width, media.Info.Height);
-        Surface.Attach(engine);
+        EngineChanged?.Invoke(); // shell binds it to the shared surface
         StateChanged?.Invoke(engine.State);
         PositionChanged?.Invoke(engine.Position);
     }
 
     private void Teardown()
     {
-        Surface.Detach();
+        bool hadEngine = _engine is not null;
         if (_engine is { } engine)
         {
             engine.PositionChanged -= OnEnginePosition;
@@ -161,6 +176,8 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
             _ = engine.DisposeAsync(); // fire-and-forget: stops the pump + disposes the feed
         }
         _shown = null;
+        if (hadEngine)
+            EngineChanged?.Invoke(); // shell detaches the surface
     }
 
     private void OnEnginePosition(Timecode t) => PositionChanged?.Invoke(t);
@@ -192,7 +209,6 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        Surface.Detach();
         if (_engine is { } engine)
         {
             engine.PositionChanged -= OnEnginePosition;

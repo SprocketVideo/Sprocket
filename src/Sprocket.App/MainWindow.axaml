@@ -186,11 +186,9 @@
               </Grid>
             </Border>
 
-            <!-- Both monitors present through a PreviewSurface; only the active tab's surface is visible. -->
-            <Grid>
-              <local:PreviewSurface x:Name="Preview" />
-              <local:PreviewSurface x:Name="SourceSurface" IsVisible="False" />
-            </Grid>
+            <!-- Both monitors (Program/Source) present through this one surface; the active tab swaps the
+                 engine it is attached to (PLAN.md step 17). -->
+            <local:PreviewSurface x:Name="Preview" />
           </DockPanel>
         </Border>
 
