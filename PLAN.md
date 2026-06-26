@@ -377,6 +377,32 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     and an edit-history surface. First-class requirement per [BRIEF.md](BRIEF.md) /
     [ARCHITECTURE §4](ARCHITECTURE.md); doing it first means all later editing features are
     undoable by construction.
+    - **✅ DONE (`src/Sprocket.Core/Commands`; 19 tests in `tests/Sprocket.Core.Tests/CommandTests.cs`).** The
+      inverse-command stack now exists in **Core** (it operates on the pure-data model and depends on nothing,
+      §2) so all later editing lands on it. Delivered:
+      - **`IEditCommand`** (`Label`/`Apply`/`Revert`/`TryMergeWith`) + an `EditCommand` base that opts out of
+        merging by default. Inverse-command rather than snapshot: the model is plain data with no native handles,
+        so capturing the few changed fields is cheaper than cloning the graph and reverses exactly (§4).
+      - **`EditHistory`** — the stack: `Execute` applies + records and clears the redo stack (linear undo);
+        `Undo`/`Redo`; `CanUndo`/`CanRedo`; `UndoLabel`/`RedoLabel` and `UndoLabels`/`RedoLabels` for an
+        edit-history surface; a `Changed` event for UI binding; `Clear` (e.g. on project load). **Coalescing is
+        scoped:** `BeginCoalescing()` returns an `IDisposable` (open on a slider/drag pointer-down, dispose on
+        pointer-up) inside which consecutive commands that agree via `TryMergeWith` collapse into one undo
+        entry — so a drag is a single step, but two separate gestures on the same control are not. Scopes nest.
+        Not thread-safe by design: the UI thread owns the model (§8); decode/render/audio threads only read it.
+      - **Command set** covering today's model mutations so editing is undoable from the start: a generic
+        `SetPropertyCommand<T>` (get/set delegates + optional merge key — one type for any scalar: clip move,
+        track gain/opacity/mute/solo/enabled), plus structural commands `AddClip`/`RemoveClip`,
+        `TrimClip` (two-field, coalescing), `AddEffect`/`RemoveEffect`, `SetEffectParameter` (coalescing on the
+        same effect+param — the slider-drag case), and `AddTrack`/`RemoveTrack`. The remove/track commands
+        capture and restore the original list index so z-order and effect-stack order survive undo (§5d).
+      - **Tests (19):** stack mechanics (execute/undo/redo, redo-discarded-on-new-edit, labels, `Changed` fired,
+        `Clear`); coalescing merges only inside a scope and only across equal merge keys; and each concrete
+        command applies + reverses exactly against the real model (add/remove restoring index, two-end trim,
+        param revert-to-absent vs revert-to-previous, drag-coalesces-to-one-entry, z-order preserved). Wiring
+        the editing **UI** through the stack arrives with the timeline control + editing tools (steps 12–13);
+        the App's current bootstrap builds the slice project directly (no in-app edit actions to undo yet). Full
+        suite: **153 tests green** (Core 61, Media 24, Render 8, Audio 16, Playback 27, Export 6, Persistence 11).
 11. **App UI shell.** Frameless Avalonia window with custom chrome + inline menu bar
     (`File · Edit · Clip · Sequence · Effects · View · Window · Help`); **splitter-resizable**
     Project / Program / Inspector / Timeline panes ([UI.md §1](UI.md)); project title + autosave
