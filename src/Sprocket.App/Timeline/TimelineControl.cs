@@ -83,6 +83,9 @@ public sealed class TimelineControl : Control
     private bool _panning;
     private double _panPressX, _panOrigScroll;
 
+    // Drag-and-drop preview: the X of the drop indicator while a bin tile / effect hovers (PLAN.md step 16b).
+    private double? _dropPreviewX;
+
     /// <summary>Raised when the selected clip changes (for the Inspector / header). Null = nothing selected.</summary>
     public event Action<Clip?>? SelectedClipChanged;
 
@@ -119,6 +122,13 @@ public sealed class TimelineControl : Control
     {
         ClipToBounds = true;
         Focusable = true;
+
+        // Drop target for media-bin tiles (place a clip) and Effects-browser rows (append an effect), PLAN.md
+        // step 16b. The browser sets the payload under a DragFormats key; we route by which format is present.
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DropEvent, OnDrop);
+        AddHandler(DragDrop.DragLeaveEvent, (_, _) => ClearDropPreview());
     }
 
     /// <summary>Binds the timeline to a project, the shared edit history, and the playback engine. Call once.</summary>
@@ -225,6 +235,16 @@ public sealed class TimelineControl : Control
         DrawClips(ctx, size, lanes);
         DrawHeaders(ctx, lanes);
         DrawPlayhead(ctx, size);
+        DrawDropPreview(ctx, size);
+    }
+
+    // A dashed accent line where a dragged bin tile would place a clip (PLAN.md step 16b).
+    private void DrawDropPreview(DrawingContext ctx, Size size)
+    {
+        if (_dropPreviewX is not { } x || x < HeaderWidth || x > size.Width)
+            return;
+        var pen = new Pen(Accent, 1.5) { DashStyle = new DashStyle([3, 3], 0) };
+        ctx.DrawLine(pen, new Point(x, RulerHeight), new Point(x, size.Height));
     }
 
     private void DrawRuler(DrawingContext ctx, Size size)
@@ -715,6 +735,116 @@ public sealed class TimelineControl : Control
             {
                 if (ReferenceEquals(c, dragged))
                     continue;
+                points.Add(c.TimelineStart.Ticks);
+                points.Add(c.TimelineEnd.Ticks);
+            }
+        return points;
+    }
+
+    // ── Drag-and-drop (media bin → lane, effect → clip) ─────────────────────────────────────────────
+
+    /// <summary>Raised when a clip is placed by a media-bin drop, so the shell can refresh the timeline header.</summary>
+    public event Action? ClipPlaced;
+
+    private void OnDragOver(object? sender, DragEventArgs e)
+    {
+        bool media = e.DataTransfer.Contains(DragFormats.MediaRefId);
+        bool effect = e.DataTransfer.Contains(DragFormats.EffectId);
+        if (!media && !effect)
+        {
+            e.DragEffects = DragDropEffects.None;
+            ClearDropPreview();
+            return;
+        }
+
+        e.DragEffects = DragDropEffects.Copy;
+        // Show the indicator at the snapped drop start (media) or just the cursor (effect lands on a clip).
+        double x = e.GetPosition(this).X;
+        _dropPreviewX = x < HeaderWidth ? null : x;
+        InvalidateVisual();
+    }
+
+    private void OnDrop(object? sender, DragEventArgs e)
+    {
+        ClearDropPreview();
+        if (_project is null || _history is null)
+            return;
+
+        Point p = e.GetPosition(this);
+        if (p.X < HeaderWidth)
+            return;
+
+        if (e.DataTransfer.Contains(DragFormats.MediaRefId))
+            DropMedia(e.DataTransfer.TryGetValue(DragFormats.MediaRefId), p);
+        else if (e.DataTransfer.Contains(DragFormats.EffectId))
+            DropEffect(e.DataTransfer.TryGetValue(DragFormats.EffectId), p);
+    }
+
+    private void ClearDropPreview()
+    {
+        if (_dropPreviewX is null)
+            return;
+        _dropPreviewX = null;
+        InvalidateVisual();
+    }
+
+    /// <summary>Places a clip for the dropped source on the lane under the cursor (with a linked companion on
+    /// the first track of the other kind when the source has both A/V), via <see cref="ClipPlacement"/>.</summary>
+    private void DropMedia(string? idText, Point p)
+    {
+        if (!Guid.TryParse(idText, out Guid guid))
+            return;
+        MediaRef? media = _project!.MediaPool.Get(new MediaRefId(guid));
+        if (media is null)
+            return;
+
+        (Track? dropped, bool isVideoLane) = TrackAndKindAtY(p.Y);
+        VideoTrack? videoTarget = dropped as VideoTrack ?? _project.Timeline.VideoTracks.FirstOrDefault();
+        AudioTrack? audioTarget = dropped as AudioTrack ?? _project.Timeline.AudioTracks.FirstOrDefault();
+        bool primaryIsVideo = dropped is VideoTrack || (dropped is null && media.Info.HasVideo);
+
+        long dropTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, HeaderWidth);
+        long durationTicks = media.Info.Duration.Ticks;
+        long start = ClipPlacement.SnapStart(
+            dropTicks, durationTicks, DropSnapPoints(), Snapping, SnapTolerancePx, _pxPerSecond);
+
+        ClipPlacement.PlacementResult? result = ClipPlacement.BuildPlaceCommand(
+            media, videoTarget, audioTarget, start, Linked, primaryIsVideo);
+        if (result is null)
+            return;
+
+        Execute(result.Value.Command);
+        Select(result.Value.PrimaryClip);
+        ClipPlaced?.Invoke();
+    }
+
+    /// <summary>Appends the dropped effect to the clip under the cursor (PLAN.md step 16b).</summary>
+    private void DropEffect(string? effectId, Point p)
+    {
+        if (string.IsNullOrEmpty(effectId))
+            return;
+        if (!TryHitClip(p, out Clip? clip, out _) || clip is null)
+            return;
+
+        EffectInstance instance = EffectCatalog.Find(effectId)?.CreateInstance() ?? new EffectInstance(effectId);
+        Execute(new AddEffectCommand(clip, instance));
+        Select(clip);
+    }
+
+    private (Track? track, bool isVideo) TrackAndKindAtY(double y)
+    {
+        List<(Track track, bool isVideo)> lanes = Lanes();
+        int i = LaneAtY(y);
+        return i >= 0 && i < lanes.Count ? lanes[i] : (null, false);
+    }
+
+    // Snap candidates for a drop: every clip edge plus the playhead and the origin (no clip is being dragged).
+    private IReadOnlyList<long> DropSnapPoints()
+    {
+        var points = new List<long> { 0, _playhead.Ticks };
+        foreach (Track track in _project!.Timeline.Tracks)
+            foreach (Clip c in track.Clips)
+            {
                 points.Add(c.TimelineStart.Ticks);
                 points.Add(c.TimelineEnd.Ticks);
             }

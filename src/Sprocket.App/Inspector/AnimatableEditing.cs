@@ -78,4 +78,82 @@ public static class AnimatableEditing
 
         return AnimatableValue.Animated(keyframes);
     }
+
+    /// <summary>
+    /// Moves the keyframe at <paramref name="from"/> to <paramref name="to"/> (its value and interpolation
+    /// preserved), keeping the rest. If a keyframe already sits at <paramref name="to"/> it is overwritten by
+    /// the moved one. A no-op when there is no keyframe at <paramref name="from"/> or the value isn't animated.
+    /// Used to drag a keyframe along the keyframe lane (PLAN.md step 16b).
+    /// </summary>
+    public static AnimatableValue MoveKeyframe(AnimatableValue current, Timecode from, Timecode to)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        if (!current.IsAnimated || from.Ticks == to.Ticks)
+            return current;
+
+        Keyframe? moved = null;
+        var kept = new List<Keyframe>(current.Keyframes.Count);
+        foreach (Keyframe k in current.Keyframes)
+        {
+            if (k.Time.Ticks == from.Ticks)
+                moved = k;
+            else if (k.Time.Ticks != to.Ticks) // drop any keyframe sitting at the destination
+                kept.Add(k);
+        }
+        if (moved is not { } m)
+            return current;
+
+        kept.Add(m with { Time = to });
+        return AnimatableValue.Animated(kept);
+    }
+
+    /// <summary>
+    /// Removes the keyframe at <paramref name="time"/> (PLAN.md step 16b). If it was the last remaining
+    /// keyframe the value collapses back to a constant equal to its evaluated value (an animated value must
+    /// keep at least one keyframe). A no-op when no keyframe sits at <paramref name="time"/>.
+    /// </summary>
+    public static AnimatableValue RemoveKeyframe(AnimatableValue current, Timecode time)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        if (!current.IsAnimated)
+            return current;
+
+        var kept = new List<Keyframe>(current.Keyframes.Count);
+        foreach (Keyframe k in current.Keyframes)
+            if (k.Time.Ticks != time.Ticks)
+                kept.Add(k);
+
+        if (kept.Count == current.Keyframes.Count)
+            return current; // nothing matched
+        if (kept.Count == 0)
+            return AnimatableValue.Constant(current.Evaluate(time));
+        return AnimatableValue.Animated(kept);
+    }
+
+    /// <summary>
+    /// Sets the interpolation mode of the keyframe at <paramref name="time"/> (the Hold↔Linear toggle,
+    /// PLAN.md step 16b), preserving its value and the other keyframes. A no-op when no keyframe sits there.
+    /// </summary>
+    public static AnimatableValue SetInterpolation(AnimatableValue current, Timecode time, Interpolation mode)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        if (!current.IsAnimated)
+            return current;
+
+        var keyframes = new List<Keyframe>(current.Keyframes.Count);
+        bool changed = false;
+        foreach (Keyframe k in current.Keyframes)
+        {
+            if (k.Time.Ticks == time.Ticks && k.Interpolation != mode)
+            {
+                keyframes.Add(k with { Interpolation = mode });
+                changed = true;
+            }
+            else
+            {
+                keyframes.Add(k);
+            }
+        }
+        return changed ? AnimatableValue.Animated(keyframes) : current;
+    }
 }

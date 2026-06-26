@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Sprocket.App.Inspector;
 using Sprocket.App.MediaBrowser;
@@ -129,6 +130,7 @@ public partial class MainWindow : Window
 
     private void WireMenu()
     {
+        this.FindControl<MenuItem>("ImportMenuItem")!.Click += (_, _) => _ = ImportDialogAsync();
         this.FindControl<MenuItem>("SaveMenuItem")!.Click += (_, _) => Save();
         this.FindControl<MenuItem>("ExportMenuItem")!.Click += (_, _) => _ = ExportAsync();
         this.FindControl<MenuItem>("ExitMenuItem")!.Click += (_, _) => Close();
@@ -158,6 +160,11 @@ public partial class MainWindow : Window
         else if (ctrl && e.Key == Key.E)
         {
             _ = ExportAsync();
+            e.Handled = true;
+        }
+        else if (ctrl && e.Key == Key.I)
+        {
+            _ = ImportDialogAsync();
             e.Handled = true;
         }
         else if (ctrl && e.Key == Key.Z && shift) // Ctrl+Shift+Z = redo
@@ -227,6 +234,7 @@ public partial class MainWindow : Window
         var itemsText = this.FindControl<TextBlock>("ProjectItemsText")!;
         browser.ItemCountChanged += n => itemsText.Text = n == 1 ? "1 item" : $"{n} items";
         browser.Status += SetStatus;
+        browser.FilesDropped += paths => Import(paths); // OS file-drop onto the bin (PLAN.md step 16b)
         browser.Attach(_project, _history, _thumbnails);
     }
 
@@ -305,6 +313,7 @@ public partial class MainWindow : Window
     {
         var timeline = this.FindControl<TimelineControl>("Timeline")!;
         timeline.Attach(_project!, _history, _engine);
+        timeline.ClipPlaced += UpdateTimelineHeader; // a media-bin drop may extend the timeline
 
         this.FindControl<Button>("ZoomInButton")!.Click += (_, _) => timeline.ZoomIn();
         this.FindControl<Button>("ZoomOutButton")!.Click += (_, _) => timeline.ZoomOut();
@@ -387,6 +396,62 @@ public partial class MainWindow : Window
         bool dirty = _history.UndoCount != _savedUndoCount;
         _saveStateText!.Text = dirty ? "• unsaved changes" : "• all changes saved";
         UpdateTimelineHeader();
+    }
+
+    // ── Import ──────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Opens a file picker and imports the chosen media into the project's <see cref="Core.Model.MediaPool"/>
+    /// (PLAN.md step 16b). Each file is probed + added through the command stack (undoable); the bin refreshes
+    /// so the imported source's thumbnail/badges appear (step 15). OS file-drop onto the bin shares
+    /// <see cref="Import"/>.
+    /// </summary>
+    private async Task ImportDialogAsync()
+    {
+        if (_project is null)
+            return;
+
+        IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import Media",
+            AllowMultiple = true,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Media files")
+                {
+                    Patterns = ["*.mp4", "*.mov", "*.mkv", "*.m4v", "*.avi", "*.webm", "*.wav", "*.mp3", "*.aac", "*.flac", "*.m4a"],
+                },
+                FilePickerFileTypes.All,
+            ],
+        });
+
+        var paths = new List<string>();
+        foreach (IStorageFile file in files)
+            if (file.TryGetLocalPath() is { } path)
+                paths.Add(path);
+        if (paths.Count > 0)
+            Import(paths);
+    }
+
+    /// <summary>Imports the given paths into the project and refreshes the media bin (PLAN.md step 16b).</summary>
+    private void Import(IReadOnlyList<string> paths)
+    {
+        if (_project is null)
+            return;
+
+        int added = 0, failed = 0;
+        foreach (string path in paths)
+        {
+            if (MediaImport.TryImport(_project, _history, path) is not null)
+                added++;
+            else
+                failed++;
+        }
+
+        _mediaBrowser?.Refresh();
+        SetStatus(failed == 0
+            ? $"Imported {added} file{(added == 1 ? "" : "s")}."
+            : $"Imported {added}, skipped {failed} (could not open).");
     }
 
     // ── File ops ────────────────────────────────────────────────────────────────────────────────────

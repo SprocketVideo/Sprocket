@@ -636,6 +636,63 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         `SPROCKET_APP_SECONDS=5` smoke launch starts the shell with the Inspector wired and tears down cleanly
         (exit 0). Full suite: **241 tests green** (Core 84, Media 24, Render 16, Audio 16, Playback 31, Export 6,
         Persistence 12, App 52).
+16b. **Direct-manipulation editing & keyframe editor (follow-on to 15/16).** The conveniences that the
+    bin + inspector + timeline make obvious but that steps 15/16 deferred. Lands entirely on existing
+    seams + commands ([ARCHITECTURE §17](ARCHITECTURE.md)) — no model redesign:
+    - **Drag media bin → timeline.** Drag a `MediaRef` tile from `MediaBrowserPanel` onto a
+      `TimelineControl` lane to place a new `Clip` (snapped, on a compatible track kind), via the existing
+      `AddClipCommand` (and a linked companion `AddClipCommand` in a `CompositeCommand` when the source has
+      both A/V, reusing the step-13 link-group logic). Replaces today's "bootstrap builds the clips" with
+      real placement; multi-track compositing/mixing (step 14) becomes visually rich once distinct clips can
+      land on the new tracks.
+    - **Drag effect → clip.** Drag an `EffectCatalog` row from the Effects browser onto a timeline clip (or
+      the Inspector) to append it via `AddEffectCommand`, complementing today's double-click-applies-to-
+      selection.
+    - **File import (dialog + drag-drop from OS).** A `File ▸ Import…` dialog and OS file-drop onto the bin
+      that probe via `MediaSource` and add to the `MediaPool` (the bin/thumbnail/badge path from step 15 then
+      lights up for arbitrary media, not just the bootstrapped source).
+    - **Keyframe track editor.** A richer keyframe surface than step 16's per-parameter ◇/◆ toggle: a
+      collapsible per-parameter lane (in the Inspector or a timeline drawer) showing keyframes on the time
+      axis, with add / move / delete and Hold↔Linear interpolation toggle — all editing the existing
+      `AnimatableValue` through `SetEffectParameterCommand` (the keyframe math already lives in
+      `AnimatableEditing`). The per-keyframe `Interpolation` mode is already in the model; this exposes it.
+    Sequenced here because it directly extends 15/16; it can also slot later without blocking 17+ (monitors,
+    proxies, generators) since none of those depend on it.
+    - **✅ DONE (`Sprocket.Core/Commands` + `Sprocket.App/{DragFormats,MediaImport}` + `Timeline/ClipPlacement` +
+      `Inspector/{KeyframeLaneMath,KeyframeLane}` and wiring; 17 new tests — Core +1, App +16, all green).** All
+      four direct-manipulation conveniences now land on existing seams + commands (ARCHITECTURE.md §17) with no
+      model redesign. Delivered:
+      - **Drag media bin → timeline.** Bin tiles are drag sources (Avalonia 12 `DataTransfer` / `DoDragDropAsync`
+        under a typed `DataFormat<string>` in `DragFormats`); `TimelineControl` is a drop target that places a new
+        clip on the lane under the cursor via the pure, tested **`ClipPlacement`** helper — `SnapStart` snaps the
+        drop's leading *or* trailing edge to clip edges / playhead / origin, and `BuildPlaceCommand` issues a single
+        `AddClipCommand` or, for an A/V source, a linked companion clip on the first track of the other kind wrapped
+        in a `CompositeCommand` with a shared link group (reusing the step-13 link logic). A dashed accent
+        drop-indicator previews the landing position; the placed clip is selected. The bootstrap still seeds the
+        sample clip, so drag-placement is additive (the new `+ Track` lanes start empty and fill by dragging).
+      - **Drag effect → clip.** Effects-browser rows are drag sources (effect-id payload); dropping on a timeline
+        clip appends the effect via `AddEffectCommand` (hit-tested with the existing `TryHitClip`), complementing
+        the step-15 double-click-applies-to-selection.
+      - **File import (dialog + OS drag-drop).** **File ▸ Import Media…** (`Ctrl+I`) opens a `StorageProvider`
+        picker, and OS file-drop onto the bin both route through **`MediaImport.TryImport`**, which probes via
+        `MediaSource` and adds a `MediaRef` through the new Core **`AddMediaCommand`** (undoable, dedupes by path,
+        offline-tolerant §15); the bin then refreshes so the imported source's thumbnail/badges appear (step 15).
+      - **Keyframe track editor.** A per-parameter **`KeyframeLane`** appears under an animated parameter's slider
+        in the Inspector: keyframes drawn on the clip's timeline range (diamonds = Linear, squares = Hold) with the
+        playhead marked. **Drag** a keyframe to move it (one coalesced undo entry), **double-click** empty space to
+        add at that time, **double-click** a keyframe to toggle Hold↔Linear, **right-click** to delete — all editing
+        the existing `AnimatableValue` through `SetEffectParameterCommand` (step 10). The keyframe transforms
+        (`MoveKeyframe` / `RemoveKeyframe` — collapsing to a constant when the last one goes / `SetInterpolation`)
+        joined the pure **`AnimatableEditing`** helper, and the lane geometry/hit-testing lives in the pure
+        **`KeyframeLaneMath`** (mirroring the step-12 `TimelineMath` split).
+      - **Tests (17):** Core — `AddMediaCommand` apply/undo/redo. App — `ClipPlacement` (start/trailing-edge snap,
+        origin clamp + off-switch, A/V linked pair, video-only single clip, no-compatible-track null, unlinked pair)
+        and the keyframe helpers (move preserving value/order, move-onto overwrites, no-op for missing, remove keeps
+        rest, remove-last → constant, Hold/Linear toggle, `KeyframeLaneMath` round-trip / clamp / nearest-within-
+        tolerance). The drag/drop plumbing + lane drawing rest on these + manual verification (the App is a UI-bound
+        `WinExe`). Clean build (0 warnings); a `SPROCKET_APP_SECONDS=5` smoke launch starts the shell and tears down
+        cleanly (exit 0). Full suite: **258 tests green** (Core 85, Media 24, Render 16, Audio 16, Playback 31,
+        Export 6, Persistence 12, App 68).
 17. **Monitors.** Dual **Source / Program** monitors (same render graph, second surface),
     safe-area / framing-grid overlay, **Fit** zoom, and full transport (jump-to-start/end,
     frame-step, play/pause).

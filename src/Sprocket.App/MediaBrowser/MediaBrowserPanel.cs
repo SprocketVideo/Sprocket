@@ -3,10 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
 
@@ -60,6 +63,9 @@ public sealed class MediaBrowserPanel : UserControl
 
     /// <summary>Raised with the media-bin item count when the bin is (re)populated, for the pane header.</summary>
     public event Action<int>? ItemCountChanged;
+
+    /// <summary>Raised when OS files are dropped on the bin (PLAN.md step 16b); the shell imports them.</summary>
+    public event Action<IReadOnlyList<string>>? FilesDropped;
 
     private enum Tab { Media, Effects, Transitions, Audio }
 
@@ -119,6 +125,11 @@ public sealed class MediaBrowserPanel : UserControl
         root.Children.Add(_content);
         Content = root;
 
+        // OS file-drop onto the bin imports media (PLAN.md step 16b); the shell does the probe + add.
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragOverEvent, OnFilesDragOver);
+        AddHandler(DragDrop.DropEvent, OnFilesDrop);
+
         SelectTab(Tab.Media);
     }
 
@@ -137,6 +148,26 @@ public sealed class MediaBrowserPanel : UserControl
 
     /// <summary>Sets the clip the Effects browser will apply effects to (driven by the timeline selection).</summary>
     public void SetSelectedClip(Clip? clip) => _selectedClip = clip;
+
+    /// <summary>Re-reads the <see cref="MediaPool"/> into the bin (after an import or undo, PLAN.md step 16b).</summary>
+    public void Refresh() => RebuildGrids();
+
+    // ── OS file drop (import) ─────────────────────────────────────────────────────────────────────────
+
+    private void OnFilesDragOver(object? sender, DragEventArgs e) =>
+        e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;
+
+    private void OnFilesDrop(object? sender, DragEventArgs e)
+    {
+        if (!e.DataTransfer.Contains(DataFormat.File))
+            return;
+        var paths = new List<string>();
+        foreach (IStorageItem item in e.DataTransfer.TryGetFiles() ?? [])
+            if (item is IStorageFile file && file.TryGetLocalPath() is { } path)
+                paths.Add(path);
+        if (paths.Count > 0)
+            FilesDropped?.Invoke(paths);
+    }
 
     // ── Tabs ────────────────────────────────────────────────────────────────────────────────────────
 
@@ -254,7 +285,7 @@ public sealed class MediaBrowserPanel : UserControl
         stack.Children.Add(nameText);
         stack.Children.Add(badges);
 
-        return new Border
+        var tile = new Border
         {
             Width = TileWidth,
             Margin = new Avalonia.Thickness(4),
@@ -263,6 +294,10 @@ public sealed class MediaBrowserPanel : UserControl
             CornerRadius = new Avalonia.CornerRadius(5),
             Child = stack,
         };
+        ToolTip.SetTip(tile, "Drag onto a timeline track to place a clip.");
+        // Drag the source onto the timeline to place a clip (PLAN.md step 16b).
+        EnableDrag(tile, DragFormats.MediaRefId, () => media.Id.Value.ToString());
+        return tile;
     }
 
     private async void LoadThumb(Border holder, Task<Bitmap?> task)
@@ -331,7 +366,46 @@ public sealed class MediaBrowserPanel : UserControl
             Child = new StackPanel { Children = { header, desc } },
         };
         row.DoubleTapped += (_, _) => ApplyEffect(effect);
+        ToolTip.SetTip(row, "Double-click to add to the selected clip, or drag onto a timeline clip.");
+        // Drag the effect onto a timeline clip to append it (PLAN.md step 16b), complementing double-click.
+        EnableDrag(row, DragFormats.EffectId, () => effect.Id);
         return row;
+    }
+
+    // ── Drag source ─────────────────────────────────────────────────────────────────────────────────
+
+    // Pending-drag state: a press arms a drag that only begins once the pointer moves past a small threshold,
+    // so a plain click (double-click to apply an effect, selecting a tile) still works. Avalonia 12's
+    // DoDragDropAsync needs the originating PointerPressedEventArgs, so we hold it until the move fires.
+    private Point _dragStart;
+    private PointerPressedEventArgs? _pressedArgs;
+
+    /// <summary>Makes <paramref name="source"/> a drag source carrying <paramref name="payloadFactory"/>'s string
+    /// under <paramref name="format"/> once the pointer moves past a threshold.</summary>
+    private void EnableDrag(Control source, DataFormat<string> format, Func<string> payloadFactory)
+    {
+        source.PointerPressed += (_, e) =>
+        {
+            if (e.GetCurrentPoint(source).Properties.IsLeftButtonPressed)
+            {
+                _pressedArgs = e;
+                _dragStart = e.GetPosition(this);
+            }
+        };
+        source.PointerMoved += (_, e) =>
+        {
+            if (_pressedArgs is not { } pressed || !e.GetCurrentPoint(source).Properties.IsLeftButtonPressed)
+                return;
+            Point p = e.GetPosition(this);
+            if (Math.Abs(p.X - _dragStart.X) < 4 && Math.Abs(p.Y - _dragStart.Y) < 4)
+                return;
+
+            _pressedArgs = null;
+            var data = new DataTransfer();
+            data.Add(DataTransferItem.Create(format, payloadFactory()));
+            _ = DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Copy); // fire-and-forget; result not needed
+        };
+        source.PointerReleased += (_, _) => _pressedArgs = null;
     }
 
     private void ApplyEffect(EffectDescriptor effect)

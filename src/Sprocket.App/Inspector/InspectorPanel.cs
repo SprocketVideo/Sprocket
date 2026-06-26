@@ -249,11 +249,20 @@ public sealed class InspectorPanel : UserControl
         top.Children.Add(rightGroup);
         top.Children.Add(label);
 
+        // Keyframe lane (PLAN.md step 16b): shown only when the parameter is animated. It edits the same
+        // AnimatableValue through the command stack; a keyframe drag coalesces to one undo entry.
+        var lane = new KeyframeLane { IsVisible = false };
+        lane.DragStarted += BeginDrag;
+        lane.DragEnded += EndDrag;
+        lane.Edited += (next, coalescing) => ExecuteParam(effect, p.Name, next, coalescing);
+
         var stack = new StackPanel();
         stack.Children.Add(top);
         stack.Children.Add(slider);
+        stack.Children.Add(lane);
 
-        // Refresher: re-read the model value at the playhead and update the widgets (suppressed) + the keyframe glyph.
+        // Refresher: re-read the model value at the playhead and update the widgets (suppressed) + the keyframe
+        // glyph + the lane.
         _valueRefreshers.Add(() =>
         {
             AnimatableValue value = ParamValue(effect, p);
@@ -264,6 +273,10 @@ public sealed class InspectorPanel : UserControl
             _suppress = false;
             keyButton.Content = value.IsAnimated ? "◆" : "◇";
             keyButton.Foreground = value.IsAnimated ? Accent : FaintText;
+
+            lane.IsVisible = value.IsAnimated;
+            if (value.IsAnimated && _clip is { } clip)
+                lane.Update(value, clip.TimelineStart.Ticks, clip.TimelineEnd.Ticks, _playhead().Ticks);
         });
 
         return stack;
@@ -325,21 +338,30 @@ public sealed class InspectorPanel : UserControl
 
     private void CommitValue(EffectInstance effect, EffectParameterDescriptor p, double value, bool coalescing)
     {
-        if (_history is null)
-            return;
-
         AnimatableValue current = ParamValue(effect, p);
         AnimatableValue next = AnimatableEditing.SetValueAt(current, _playhead(), value);
+        ExecuteParam(effect, p.Name, next, coalescing);
+    }
+
+    /// <summary>
+    /// Runs a parameter edit through the command stack. <paramref name="coalescing"/> (true mid-drag) keeps the
+    /// panel in editing mode so <see cref="OnHistoryChanged"/> refreshes values rather than rebuilding the
+    /// section out from under an active gesture. Shared by the slider/numeric editors and the keyframe lane.
+    /// </summary>
+    private void ExecuteParam(EffectInstance effect, string name, AnimatableValue next, bool coalescing)
+    {
+        if (_history is null)
+            return;
 
         bool wasEditing = _editing;
         _editing = true; // a single discrete commit shouldn't trigger a rebuild mid-update either
         try
         {
-            _history.Execute(new SetEffectParameterCommand(effect, p.Name, next));
+            _history.Execute(new SetEffectParameterCommand(effect, name, next));
         }
         finally
         {
-            _editing = coalescing && wasEditing; // stay in editing mode only while a drag scope is open
+            _editing = coalescing && wasEditing; // stay in editing mode only while a drag/lane scope is open
         }
         RefreshValues();
     }

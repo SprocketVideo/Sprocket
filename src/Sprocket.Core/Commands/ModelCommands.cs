@@ -8,6 +8,21 @@ namespace Sprocket.Core.Commands;
 // commands here cover the list/structure mutations and the multi-field clip trim that don't fit that shape.
 // All run through EditHistory so the editor is undoable by construction (PLAN.md step 10).
 
+/// <summary>
+/// Imports a source into the project's <see cref="MediaPool"/>; undo removes it again (PLAN.md step 16b).
+/// Import goes through the command stack like every other model mutation (step 10), so it is undoable and
+/// flips the dirty indicator. Clips reference media by id, so undoing an import while a clip still uses the
+/// source leaves that clip offline (renders as black/silence, §15) rather than corrupting the model.
+/// </summary>
+public sealed class AddMediaCommand(MediaPool pool, MediaRef media) : EditCommand("Import media")
+{
+    /// <inheritdoc />
+    public override void Apply() => pool.Add(media);
+
+    /// <inheritdoc />
+    public override void Revert() => pool.Remove(media.Id);
+}
+
 /// <summary>Adds a clip to a track; undo removes it.</summary>
 public sealed class AddClipCommand(Track track, Clip clip) : EditCommand("Add clip")
 {

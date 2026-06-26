@@ -35,6 +35,8 @@
 
         <Menu Grid.Column="1" VerticalAlignment="Center" Background="Transparent" Margin="6,0,0,0">
           <MenuItem Header="_File">
+            <MenuItem x:Name="ImportMenuItem" Header="_Import Media…" InputGesture="Ctrl+I" />
+            <Separator />
             <MenuItem x:Name="SaveMenuItem" Header="_Save Project" InputGesture="Ctrl+S" />
             <MenuItem x:Name="ExportMenuItem" Header="_Export…" InputGesture="Ctrl+E" />
             <Separator />

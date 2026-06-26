@@ -169,6 +169,27 @@ public class ModelCommandTests
     private static Clip MakeClip() =>
         new(MediaRefId.New(), Timecode.FromSeconds(0), Timecode.FromSeconds(5), Timecode.FromSeconds(2));
 
+    private static MediaRef MakeMedia() =>
+        new(MediaRefId.New(), "/tmp/a.mp4",
+            new ProbedMediaInfo(Timecode.FromSeconds(10), true, new Rational(30, 1), 1920, 1080, true, 48000, 2));
+
+    [Fact]
+    public void AddMedia_And_Undo()
+    {
+        var pool = new MediaPool();
+        MediaRef media = MakeMedia();
+        var history = new EditHistory();
+
+        history.Execute(new AddMediaCommand(pool, media));
+        Assert.Same(media, pool.Get(media.Id));
+
+        history.Undo();
+        Assert.Null(pool.Get(media.Id));
+
+        history.Redo();
+        Assert.Same(media, pool.Get(media.Id));
+    }
+
     [Fact]
     public void AddClip_And_Undo()
     {
