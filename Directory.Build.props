@@ -12,8 +12,42 @@
     builds stay deterministic.
   -->
   <PropertyGroup>
-    <VersionPrefix>0.1.13</VersionPrefix>
+    <VersionPrefix>0.1.14</VersionPrefix>
     <Product>Sprocket</Product>
   </PropertyGroup>
+
+  <!--
+    Embed each assembly's own (managed) debug symbols *into* the assembly instead of emitting a
+    loose .pdb next to it. The symbols then travel inside the single-file exe (the managed DLLs are
+    bundled into it during publish), so there are no stray Sprocket*.pdb files in the output and
+    stack traces still carry line numbers. Native PDBs (libSkiaSharp.pdb / libHarfBuzzSharp.pdb from
+    the SkiaSharp packages) can't be embedded into a managed assembly — they are stripped instead by
+    the targets below.
+  -->
+  <PropertyGroup>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <!--
+    Keep the SkiaSharp / HarfBuzzSharp native debug-symbol files out of build *and* publish output.
+    They ride along with the native libs from the NuGet packages (filenames start with "lib"), are
+    not embeddable into the managed exe, and only add loose clutter next to Sprocket.exe.
+  -->
+  <Target Name="StripNativeSymbolsFromBuild"
+          AfterTargets="ResolveAssemblyReferences"
+          BeforeTargets="GetCopyToOutputDirectoryItems">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+          Condition="'%(Extension)' == '.pdb' and $([System.String]::Copy('%(Filename)').StartsWith('lib'))" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="StripNativeSymbolsFromPublish"
+          AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+          Condition="'%(Extension)' == '.pdb' and $([System.String]::Copy('%(Filename)').StartsWith('lib'))" />
+    </ItemGroup>
+  </Target>
 
 </Project>

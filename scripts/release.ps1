@@ -210,7 +210,9 @@ foreach ($rid in $Rids) {
         "-p:Version=$Version",
         '-p:PublishSingleFile=true',
         '-p:IncludeNativeLibrariesForSelfExtract=true',
-        '-p:DebugType=none',
+        # Managed symbols are embedded into the assemblies (which are bundled into the single-file
+        # exe) — see Directory.Build.props. No loose .pdb files ship.
+        '-p:DebugType=embedded',
         '--nologo'
     )
 
