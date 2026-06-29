@@ -769,7 +769,9 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
 18. **Proxy media (render performance).** Generate lower-resolution proxies and edit/preview
     against them via an alternate `IFrameSource`, with a "use proxies" toggle; **export still
     pulls full-resolution originals** ([ARCHITECTURE §17](ARCHITECTURE.md)). Committed feature
-    per [BRIEF.md](BRIEF.md).
+    per [BRIEF.md](BRIEF.md). Proxies are encoded with a **fast, hardware/all-intra, possibly
+    OS-specific** codec (speed over size, like the render-cache intermediates of step 23c;
+    [ARCHITECTURE §11](ARCHITECTURE.md) "Preview vs. delivery codecs").
 19. **Generators & adjustment layers.** Title/text **generator clips** (a generator `IFrameSource`
     feeding the render graph). **Adjustment layers**, modelled like Premiere: a synthetic Project-bin
     item with no source media, placed on a track as an ordinary clip, whose **effect stack applies to
@@ -813,7 +815,27 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     `Logo_Anim.mov` flagged `Alpha`).
 21. **Transitions.** Transition library (Project panel **Transitions** tab) + overlapping-clip
     resolution in the render graph ([ARCHITECTURE §17](ARCHITECTURE.md)).
-22. **Export presets & status-bar telemetry.** Export dropdown with presets; status bar
+21b. **Broad media format support (import coverage + export format/codec matrix).** Open and write the
+    **common containers and codecs**, not just the slice's H.264/AAC MP4. *Import* is mainly a
+    coverage/robustness task — `MediaSource`/`AudioSource` decode through Sdcb.FFmpeg (steps 2–3), which
+    already handles most formats — so this verifies and hardens a **support matrix**: containers
+    **MP4 / MOV / MKV / WebM / AVI / MXF / TS**; video **H.264, HEVC, AV1, VP9, MPEG-2, ProRes,
+    DNxHD/HR**; audio **AAC, MP3, PCM/WAV, FLAC, AC-3, Opus**; plus **10–12-bit, 4:2:2 / 4:4:4, HDR
+    transfer, alpha, and variable-frame-rate (VFR)** sources — with file-dialog extension filters and
+    graceful unsupported/offline handling (§15). *Export* generalises the step-8 `MediaEncoder` from its
+    hard-wired H.264/AAC into a **container × video-codec × audio-codec matrix** with quality/bitrate,
+    pixel-format/bit-depth, and frame-rate controls; **hardware encoders** (NVENC / QSV / AMF /
+    VideoToolbox) behind the existing `IHardwareContext` with a software (x264 / x265 / SVT-AV1) fallback.
+    Export still renders through the **same render graph** at full resolution — only the muxer/encoder
+    back end changes (§5/§17). **Export resolution is capped at 4K for now** (≤ 3840×2160 UHD /
+    4096×2160 DCI; higher tiers — 5K/6K/8K — may be enabled later); this is an **export-side limit
+    only** — import, the timeline, and sequence canvas sizes are unrestricted. This matrix is for
+    **import and final delivery**; *preview/cache* intermediates instead pick fast, OS-specific codecs
+    (step 23c). **Licensing:** codec choice interacts
+    with the FFmpeg build's LGPL/GPL split (x264/x265 → GPL) — decide the bundled build before
+    distribution ([ARCHITECTURE §11](ARCHITECTURE.md)).
+22. **Export presets & status-bar telemetry.** Export dropdown with presets (saved selections over the
+    step-21b format/codec matrix); status bar
     surfacing engine state, GPU / hardware-accel status, live fps, resolution, and duration
     ([ARCHITECTURE §15](ARCHITECTURE.md)) — **no framework/runtime text** in the UI ([UI.md §3.7](UI.md)).
 23. **Plugins & advanced color management.** Plugin host (collectible `AssemblyLoadContext`,
@@ -849,7 +871,12 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     to the parent graph as **just another `IFrameSource`** (video — rendered to a fast all-intra
     intermediate via `MediaEncoder`, or a short GPU texture ring) / **`IPcmReader`** (audio — cached PCM,
     i.e. "freezing" a track, valuable for non-deterministic native plugins), the same seam media, proxies
-    (§17) and nested sequences already use — so **no new render-graph machinery**. Cache entries are keyed
+    (§17) and nested sequences already use — so **no new render-graph machinery**. Intermediates are
+    encoded for **speed, not size** — all-intra and **hardware where available**, and the codec **may
+    vary by host OS** (e.g. ProRes/VideoToolbox on macOS, NVENC/QSV on Windows, VAAPI on Linux, MJPEG /
+    x264 *ultrafast* as the cross-platform fallback; audio as uncompressed PCM) since the cache is local
+    and regenerable — with **no effect on export determinism** ([ARCHITECTURE §11](ARCHITECTURE.md)
+    "Preview vs. delivery codecs", §1.6). Cache entries are keyed
     by a **content hash of the cached subtree's serializable state** (the persist DTO, §12) + range +
     render settings; any model edit (always via the command stack, §4) re-hashes and marks the affected
     range **dirty** (exact invalidation, no stale frames). A **render bar** over the ruler shows rendered

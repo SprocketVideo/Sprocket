@@ -397,6 +397,31 @@ wrapper, `MediaDictionary` for options.
   per OS — **Windows:** D3D11VA / CUDA / QSV / DXVA2; **Linux:** VAAPI / CUDA / VDPAU;
   **macOS:** VideoToolbox — and **always** fall back to software when none is usable.
 
+**Format coverage — import & export (PLAN step 21b).** Decode is format-agnostic: libav* opens the
+common containers (MP4 / MOV / MKV / WebM / AVI / MXF / TS) and codecs (H.264, HEVC, AV1, VP9,
+MPEG-2, ProRes, DNxHD/HR; audio AAC / MP3 / PCM / FLAC / AC-3 / Opus), including 10–12-bit,
+4:2:2 / 4:4:4, HDR transfer, alpha, and variable-frame-rate sources — swscale normalises whatever
+pixel format arrives into the pooled RGBA buffer, so nothing downstream is aware of the source
+format. Export generalises the slice's hard-wired H.264/AAC encoder into a **container ×
+video-codec × audio-codec matrix** (the back end the step-22 presets select from): muxer and
+encoders chosen per export with quality/bitrate, pixel-format/bit-depth, and frame-rate controls;
+hardware encoders (NVENC / QSV / AMF / VideoToolbox) behind `IHardwareContext` with a software
+(x264 / x265 / SVT-AV1) fallback. The render graph is unchanged — only the muxer/encoder back end
+varies (§5/§17). **Export resolution is capped at 4K for now** (≤ 3840×2160 UHD / 4096×2160 DCI;
+5K/6K/8K may be enabled later) — an **export-side limit only**; import, the timeline, and sequence
+canvas sizes are unrestricted.
+
+**Preview vs. delivery codecs.** Encoding done *for playback* — proxies (§17) and
+render-cache/freeze intermediates (§20) — optimises for **encode + decode speed and instant scrub,
+not size or final quality**: prefer **all-intra** (no inter-frame dependencies) and **hardware**
+encoders, and it is fine for the codec to **vary by host OS**, because these artifacts are local,
+regenerable, and never shipped (export always re-renders full-res from originals, §17/§20).
+Practical picks, chosen by a runtime encoder probe behind `IHardwareContext`: **macOS** ProRes
+(proxy/LT) or HEVC/H.264 via VideoToolbox; **Windows** H.264/HEVC via NVENC / QSV / AMF (D3D11);
+**Linux** VAAPI H.264/HEVC or NVENC; cross-platform CPU fallback **MJPEG or x264 *ultrafast*** (all
+intra). Audio intermediates are simplest as **uncompressed PCM**. Because the choice only affects a
+throwaway cache, it has **no bearing on export determinism** (§1.6).
+
 **Native binaries (per-RID bundling).** `Sdcb.FFmpeg.runtime.windows-x64` NuGet supplies the
 FFmpeg 7.1 DLLs on Windows. **On Linux and macOS, Sprocket must ship its own FFmpeg 7 shared
 libraries** — there is no Sdcb.FFmpeg Linux or macOS runtime NuGet, and OS packages drift (Ubuntu
@@ -670,7 +695,9 @@ rendered intermediate.
 - **Video:** render the subgraph once to a **fast all-intra intermediate** on disk (via the existing
   `MediaEncoder`, §11) for longer ranges, or a **bounded GPU/host texture ring** for short scrub
   ranges, and read it back through a cache `IFrameSource`. Pixels stay native/GPU (§1) — the
-  intermediate decodes through the normal native path, never a managed per-frame array.
+  intermediate decodes through the normal native path, never a managed per-frame array. The
+  intermediate codec is chosen for **speed and may vary by host OS** (§11 "Preview vs. delivery
+  codecs") — the cache is local and regenerable, so this never affects export.
 - **Audio:** render a clip/track/sequence/bus chain once to **cached PCM** (disk or memory) and read
   it back through a cache `IPcmReader`. This is **"freezing"** a track — especially valuable for the
   CPU-heavy and non-deterministic native plugins of §19.
