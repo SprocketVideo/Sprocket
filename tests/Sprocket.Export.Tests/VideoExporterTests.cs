@@ -160,6 +160,30 @@ public sealed class VideoExporterTests
     }
 
     [Fact]
+    public void Export_OddTimelineResolution_ProducesEvenPlayableMp4()
+    {
+        // 4:2:0 H.264 needs even dimensions; a timeline with odd width/height (cropped / phone / screen-capture
+        // sources) must export — rounded down to even (≤ 1px crop) — not crash the encoder. 321×241 → 320×240.
+        var timeline = new Timeline(
+            new Rational(ExportFixture.Fps, 1),
+            new Resolution(ExportFixture.Width + 1, ExportFixture.Height + 1),
+            ExportFixture.SampleRate);
+        var project = new Project(timeline);
+        var track = new VideoTrack { Name = "V1" };
+        var spec = new GeneratorSpec(GeneratorTypeIds.SolidColor).SetString(GeneratorParamNames.Color, "#FF3366CC");
+        track.Clips.Add(Clip.CreateGenerator(spec, Timecode.FromSeconds(1), Timecode.Zero));
+        timeline.Tracks.Add(track);
+
+        using var output = new TempFile();
+        VideoExporter.Export(project, output.Path);
+
+        using MediaSource decoded = MediaSource.Open(output.Path, HardwareAccelMode.Disabled);
+        Assert.True(decoded.Info.HasVideo);
+        Assert.Equal(ExportFixture.Width, decoded.Info.Width);   // 321 → 320
+        Assert.Equal(ExportFixture.Height, decoded.Info.Height); // 241 → 240
+    }
+
+    [Fact]
     public void Export_EmptyTimeline_Throws()
     {
         var timeline = new Timeline(new Rational(30, 1), new Resolution(320, 240), 48000);

@@ -66,12 +66,18 @@ public static class VideoExporter
         if (fps.Num <= 0 || fps.Den <= 0)
             throw new ArgumentException("The timeline has no valid frame rate.", nameof(project));
 
-        Resolution resolution = timeline.Resolution;
+        // 4:2:0 H.264 needs even dimensions; round the sequence resolution down to even (≤ 1px crop) so an
+        // odd-sized timeline (common with cropped / phone / screen-capture sources) exports instead of the
+        // encoder rejecting it. The offscreen surface is created at the same even size, so render and encode agree.
+        int outWidth = timeline.Resolution.Width & ~1;
+        int outHeight = timeline.Resolution.Height & ~1;
+        if (outWidth <= 0 || outHeight <= 0)
+            throw new ArgumentException("The timeline resolution is too small to export.", nameof(project));
         int sampleRate = timeline.SampleRate > 0 ? timeline.SampleRate : 48000;
 
         bool wantAudio = HasAudibleAudio(project);
 
-        var video = new VideoEncoderSettings(resolution.Width, resolution.Height, fps, options.VideoBitRate, options.GopSize);
+        var video = new VideoEncoderSettings(outWidth, outHeight, fps, options.VideoBitRate, options.GopSize);
         AudioEncoderSettings? audio = wantAudio
             ? new AudioEncoderSettings(sampleRate, channels, options.AudioBitRate)
             : null;
@@ -87,11 +93,11 @@ public static class VideoExporter
         {
             encoder = MediaEncoder.Create(outputPath, video, audio);
 
-            var info = new SKImageInfo(resolution.Width, resolution.Height, SKColorType.Rgba8888, SKAlphaType.Premul);
+            var info = new SKImageInfo(outWidth, outHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
             surface = SKSurface.Create(info)
                 ?? throw new InvalidOperationException("Failed to create the offscreen export surface.");
             pipeline = new SkiaEffectPipeline();
-            var fullRect = SKRect.Create(0, 0, resolution.Width, resolution.Height);
+            var fullRect = SKRect.Create(0, 0, outWidth, outHeight);
 
             if (encoder.HasAudio)
             {

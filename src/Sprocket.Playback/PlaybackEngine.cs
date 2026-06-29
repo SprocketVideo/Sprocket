@@ -99,6 +99,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private CancellationTokenSource? _pumpCts;
     private Task? _pump;
     private bool _started;
+    private bool _suspended;
     private bool _disposed;
 
     /// <summary>
@@ -518,6 +519,79 @@ public sealed class PlaybackEngine : IAsyncDisposable
             StateChanged?.Invoke(state);
     }
 
+    /// <summary>
+    /// Quiesces <b>every in-process decode pipeline this engine drives</b> so an in-process export muxer can run
+    /// as the only libav* activity in the process: a second concurrent libav* pipeline crashes the muxer with a
+    /// native access violation (the hazard <c>ProxyTranscoder</c> documents — which is why proxy encoding shells
+    /// out). It pauses the audio master clock (its feeder then idles without mixing/decoding), stops the pump, and
+    /// tears down the per-track decode-ring workers. <see cref="Pause"/> is <b>not</b> sufficient: it only pauses
+    /// the clock — the pump and the decode-ring workers keep running. The playhead position is preserved; call
+    /// <see cref="Resume"/> to restart playback (paused) afterwards. Idempotent.
+    /// </summary>
+    /// <remarks>The factory (app) engine recreates and re-seeks its feeds on <see cref="Resume"/>; a fixed-feed
+    /// engine cannot rebuild its single feed, so it keeps it and relies on the bounded decode ring parking once the
+    /// pump stops consuming.</remarks>
+    public async Task SuspendAsync()
+    {
+        // Lifecycle coordination (often from an export's finally): no-op rather than throw if torn down already
+        // (e.g. File ▸ New disposed this engine while an export was in flight).
+        if (_disposed || _suspended)
+            return;
+        _suspended = true;
+
+        // Stop advancing and pause the audio device clock; the audio feeder then idles without mixing/decoding.
+        _clock.Pause();
+        SetState(PlaybackState.Paused);
+
+        // Stop the pump so it issues no further decode reads, reconciles, or feed rebuilds.
+        await StopPumpAsync().ConfigureAwait(false);
+
+        // Tear down the decode-ring workers so NO in-process FFmpeg decode runs alongside the export muxer. Only
+        // the factory engine can rebuild its feeds on Resume (the pump's reconcile recreates the players); a
+        // fixed feed is left in place — its worker parks once the stopped pump no longer drains the ring.
+        if (_reconcile)
+        {
+            List<VideoTrackPlayer> stale;
+            lock (_frameGate)
+            {
+                stale = [.. _players];
+                _players.Clear();
+            }
+            foreach (VideoTrackPlayer player in stale)
+                await player.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Restarts the pump after <see cref="SuspendAsync"/>, rebuilding the feeds and presenting the frame at the
+    /// preserved playhead. Leaves the transport paused (the caller resumes play if desired). Idempotent.
+    /// </summary>
+    public void Resume()
+    {
+        // Symmetric with SuspendAsync: tolerate a teardown that happened during the suspended window.
+        if (_disposed || !_suspended)
+            return;
+        _suspended = false;
+
+        _pumpCts = new CancellationTokenSource();
+        _pump = Task.Run(() => PumpLoopAsync(_pumpCts.Token));
+        SeekTo(Position); // re-seek so the rebuilt players decode + force-present the current frame
+    }
+
+    /// <summary>Cancels the pump and awaits its exit, then clears its handles. Shared by suspend and dispose.</summary>
+    private async Task StopPumpAsync()
+    {
+        _pumpCts?.Cancel();
+        if (_pump is not null)
+        {
+            try { await _pump.ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+        }
+        _pump = null;
+        _pumpCts?.Dispose();
+        _pumpCts = null;
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
@@ -525,12 +599,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
             return;
         _disposed = true;
 
-        _pumpCts?.Cancel();
-        if (_pump is not null)
-        {
-            try { await _pump.ConfigureAwait(false); }
-            catch (OperationCanceledException) { }
-        }
+        await StopPumpAsync().ConfigureAwait(false);
 
         foreach (VideoTrackPlayer player in _players)
             await player.DisposeAsync().ConfigureAwait(false);
@@ -542,7 +611,5 @@ public sealed class PlaybackEngine : IAsyncDisposable
             await asyncClock.DisposeAsync().ConfigureAwait(false);
         else if (_clock is IDisposable syncClock)
             syncClock.Dispose();
-
-        _pumpCts?.Dispose();
     }
 }

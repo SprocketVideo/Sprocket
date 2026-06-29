@@ -102,6 +102,10 @@ public sealed unsafe class MediaEncoder : IDisposable
         ArgumentException.ThrowIfNullOrEmpty(path);
         if (video.Width <= 0 || video.Height <= 0)
             throw new ArgumentOutOfRangeException(nameof(video), "Output dimensions must be positive.");
+        // 4:2:0 H.264 (yuv420p) subsamples chroma 2×2, so both dimensions must be even. libx264 rejects odd
+        // dimensions at Open; fail here with a clear managed error instead (callers should pass even sizes).
+        if ((video.Width & 1) != 0 || (video.Height & 1) != 0)
+            throw new ArgumentException("Output dimensions must be even for 4:2:0 H.264 encoding.", nameof(video));
         if (video.FrameRate.Num <= 0 || video.FrameRate.Den <= 0)
             throw new ArgumentOutOfRangeException(nameof(video), "Output frame rate must be positive.");
 

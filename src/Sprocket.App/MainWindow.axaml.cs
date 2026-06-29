@@ -354,7 +354,7 @@ public partial class MainWindow : Window
         else if (shift && e.Key == Key.M) { JumpToMarker(+1); e.Handled = true; }
         else if (e.Key == Key.M) { AddMarker(); e.Handled = true; }
         else if (shift && e.Key == Key.Z) { _timeline?.ZoomToFit(); e.Handled = true; }
-        else if (e.Key == Key.Space) { _active?.TogglePlayPause(); e.Handled = true; }
+        else if (e.Key == Key.Space) { if (!_exporting) _active?.TogglePlayPause(); e.Handled = true; }
     }
 
     private bool IsTypingInTextBox() =>
@@ -1241,8 +1241,16 @@ public partial class MainWindow : Window
             return;
 
         _exporting = true;
-        _exportButton!.IsEnabled = false;
-        _engine?.Pause();
+        SetEnabled(false); // gate transport + tab-switching: no new in-process decode pipeline may start mid-export
+
+        // The export runs an in-process FFmpeg muxer; a second concurrent libav* pipeline crashes it with a native
+        // access violation (ProxyTranscoder documents the same hazard, which is why it shells out). So quiesce
+        // every in-process decode pipeline first — Pause() is not enough (the pump + decode-ring workers keep
+        // running). Suspend the Program engine and tear down the Source monitor's decoder if its tab is open.
+        bool sourceWasActive = ReferenceEquals(_active, _source);
+        _source?.Deactivate();
+        if (_engine is not null)
+            await _engine.SuspendAsync();
 
         string outputPath = Path.Combine(AppContext.BaseDirectory, "export.mp4");
         var progress = new Progress<double>(p => SetStatus($"Exporting… {p * 100:0}%"));
@@ -1258,8 +1266,11 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _engine?.Resume();      // restart the Program pump (feeds rebuild + re-present the current frame)
+            if (sourceWasActive)
+                _source?.Activate(); // reopen the Source monitor's decoder if it was showing
             _exporting = false;
-            _exportButton!.IsEnabled = true;
+            SetEnabled(true);
         }
     }
 
@@ -1267,7 +1278,9 @@ public partial class MainWindow : Window
 
     private void SetEnabled(bool enabled)
     {
-        foreach (string name in new[] { "PlayPauseButton", "JumpStartButton", "JumpEndButton", "StepBackButton", "StepForwardButton", "Scrubber", "AddTrackButton" })
+        // ProgramTab/SourceTab are included so a tab switch can't spin up the Source monitor's decoder while an
+        // export's in-process muxer is running (a second concurrent libav* pipeline crashes the muxer).
+        foreach (string name in new[] { "PlayPauseButton", "JumpStartButton", "JumpEndButton", "StepBackButton", "StepForwardButton", "Scrubber", "AddTrackButton", "ProgramTab", "SourceTab" })
             if (this.FindControl<Control>(name) is { } c)
                 c.IsEnabled = enabled;
         if (_exportButton is not null)

@@ -495,6 +495,16 @@ directory and preferred when present; missing media loads offline rather than fa
   dropped frames, decode-queue depth, A/V drift, GC gen0 rate — surfaced in a debug overlay.
 - **Cancellation:** every worker honors a `CancellationToken`; seeking/stop drains queues
   cleanly and unrefs all in-flight frames (no leaked native buffers).
+- **One in-process libav\* pipeline at a time.** Driving a second concurrent libav\* muxer/encoder
+  in-process *while the live decode/compositor pipeline is running* triggers a **native access
+  violation in the muxer** (`av_interleaved_write_frame`, `0xC0000005`). The invariant worth
+  remembering: **only one in-process libav\* pipeline at a time.** It's now enforced for both
+  **proxies** (out-of-process — generated via the `ffmpeg` CLI, §11/§17) and **export** (suspend-during
+  — `Sprocket.App` calls `PlaybackEngine.SuspendAsync()` to stop the pump, tear down the decode-ring
+  workers, and idle the audio master clock for the duration of the in-process encode/mux, then
+  `Resume()`s, §8). Export must quiesce **every** live decode pipeline first — the Program engine and,
+  when its tab is open, the Source monitor (PLAN step 17). Note `Pause()` is *not* sufficient: it pauses
+  only the clock; the pump and decode-ring workers keep decoding.
 
 ---
 
