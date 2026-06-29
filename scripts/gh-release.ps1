@@ -117,10 +117,23 @@ if ($Rids -contains 'osx-x64' -or $Rids -contains 'osx-arm64') {
 # ---- Build -----------------------------------------------------------------------------------
 Write-Step 'Building release bundles (release.ps1)'
 
+# Resolve the prerelease suffix to stamp into the build so it surfaces in the in-app About box and
+# the artifact names — matching the suffix carried by the git tag. A full release ($NotPreRelease)
+# carries none; an explicit -Tag uses the part after "v<version>-"; otherwise the -PreReleaseLabel.
+$versionSuffix = ''
+if (-not $NotPreRelease) {
+    if ($Tag) {
+        if ($Tag -match '^v?\d+\.\d+\.\d+-(.+)$') { $versionSuffix = $Matches[1] }
+    } else {
+        $versionSuffix = $PreReleaseLabel
+    }
+}
+
 $releaseArgs = @{
     Rids          = $Rids
     Configuration = $Configuration
 }
+if ($versionSuffix)    { $releaseArgs.VersionSuffix = $versionSuffix }
 if ($NoBump)           { $releaseArgs.NoBump = $true }
 if ($OsxX64FFmpegUrl)  { $releaseArgs.OsxX64FFmpegUrl = $OsxX64FFmpegUrl }
 if ($OsxArm64FFmpegUrl){ $releaseArgs.OsxArm64FFmpegUrl = $OsxArm64FFmpegUrl }

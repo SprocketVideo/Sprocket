@@ -39,6 +39,12 @@ param(
     # is NOT bumped or rewritten. When omitted, the patch number in Directory.Build.props is bumped.
     [string] $Version,
 
+    # Optional prerelease suffix (e.g. alpha.1, beta.2, rc.1). When given it is appended to the
+    # published version as "<version>-<suffix>" so it flows into the assembly's InformationalVersion
+    # (and thus the in-app About box) and the artifact names. It is NOT written to
+    # Directory.Build.props — only stamped into the published build.
+    [string] $VersionSuffix,
+
     # Build configuration.
     [string] $Configuration = 'Release',
 
@@ -97,6 +103,11 @@ if (-not $Version) {
         Write-Host "Bumped version: $base -> $Version (written to Directory.Build.props)" -ForegroundColor Cyan
     }
 }
+
+# The full display/stamp version: the X.Y.Z source version plus any prerelease suffix. This is what
+# gets stamped into the assemblies (InformationalVersion -> About box) and the artifact names; the
+# numeric AssemblyVersion/FileVersion still derive from the X.Y.Z prefix.
+$fullVersion = if ($VersionSuffix) { "$Version-$VersionSuffix" } else { $Version }
 
 # RID -> BtbN FFmpeg-Builds platform token for the *-gpl-shared archives.
 $btbnPlatform = @{
@@ -182,7 +193,7 @@ if (-not (Test-Path $appProject)) {
 }
 
 Write-Host "Sprocket release build" -ForegroundColor Cyan
-Write-Host "  version:       $Version"
+Write-Host "  version:       $fullVersion"
 Write-Host "  configuration: $Configuration"
 Write-Host "  runtimes:      $($Rids -join ', ')"
 Write-Host "  ffmpeg:        $(if ($NoFFmpeg) { 'skipped (-NoFFmpeg)' } else { 'bundled' })"
@@ -199,7 +210,7 @@ $results = @()
 
 foreach ($rid in $Rids) {
     Write-Host "==> publishing $rid" -ForegroundColor Green
-    $publishDir = Join-Path $distRoot "Sprocket-$Version-$rid"
+    $publishDir = Join-Path $distRoot "Sprocket-$fullVersion-$rid"
 
     $publishArgs = @(
         'publish', $appProject,
@@ -207,7 +218,7 @@ foreach ($rid in $Rids) {
         '-r', $rid,
         '--self-contained', 'true',
         '-o', $publishDir,
-        "-p:Version=$Version",
+        "-p:Version=$fullVersion",
         '-p:PublishSingleFile=true',
         '-p:IncludeNativeLibrariesForSelfExtract=true',
         # Managed symbols are embedded into the assemblies (which are bundled into the single-file
