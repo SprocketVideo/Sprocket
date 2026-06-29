@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -137,6 +138,13 @@ public partial class MainWindow : Window
         var titleBar = this.FindControl<Border>("TitleBar")!;
         titleBar.PointerPressed += (_, e) =>
         {
+            // The menu bar lives inside this draggable title-bar Border, and a drop-down item's press
+            // bubbles up the logical tree through the Menu to here. Starting a window move-drag for it would
+            // call Pointer.Capture(null) and tear down the capture the menu needs to deliver the click — so
+            // every menu command would silently do nothing (keyboard accelerators were unaffected). Only the
+            // bare caption is draggable: skip the drag for any press that originates within the menu.
+            if (e.Source is ILogical src && src.GetSelfAndLogicalAncestors().OfType<Menu>().Any())
+                return;
             if (e.GetCurrentPoint(titleBar).Properties.IsLeftButtonPressed)
                 BeginMoveDrag(e);
         };
