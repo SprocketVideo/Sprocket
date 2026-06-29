@@ -65,6 +65,7 @@ public partial class MainWindow : Window
     private MenuItem? _undoMenuItem, _redoMenuItem;
     private Button? _exportButton, _maxButton;
     private Control? _root;
+    private WindowState _lastNonMinimizedState = WindowState.Normal; // persisted on close (ignores Minimized)
 
     // Command-menu items refreshed on submenu open (context-enabling) + the View toggles / panes.
     private MenuItem? _cutMenuItem, _copyMenuItem, _pasteMenuItem, _deleteMenuItem;
@@ -110,6 +111,9 @@ public partial class MainWindow : Window
         _redoMenuItem = this.FindControl<MenuItem>("RedoMenuItem")!;
         _exportButton = this.FindControl<Button>("ExportButton")!;
         _maxButton = this.FindControl<Button>("MaxButton")!;
+
+        // Reopen the way the user left it: centred (WindowStartupLocation in XAML) unless they had it maximized.
+        WindowState = WindowStateStore.Load();
 
         WireWindowChrome();
         WireMenu();
@@ -168,11 +172,14 @@ public partial class MainWindow : Window
             _root.Margin = WindowState == WindowState.Maximized ? OffScreenMargin : default;
             if (_maxButton is not null)
                 _maxButton.Content = WindowState == WindowState.Maximized ? "❐" : "▢";
+            if (WindowState != WindowState.Minimized)
+                _lastNonMinimizedState = WindowState; // remember the real state to persist (not a transient minimize)
         }
     }
 
     protected override void OnClosed(EventArgs e)
     {
+        WindowStateStore.Save(_lastNonMinimizedState); // remember maximized-or-not for next launch
         _thumbnails?.Dispose(); // releases the cached thumbnail bitmaps
         _ = _source?.DisposeAsync(); // tears down the Source monitor's decoder/engine if one is open
         base.OnClosed(e);
