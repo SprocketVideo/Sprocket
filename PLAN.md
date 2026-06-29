@@ -31,7 +31,7 @@ compute" pattern.
 - **Three target OSes: Windows 11, Linux, macOS** (`win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`).
   The managed assemblies are identical everywhere; FFmpeg is bundled per-RID (`.dll`/`.so`/`.dylib`,
   see [ARCHITECTURE §11](ARCHITECTURE.md)) since there is no Sdcb runtime NuGet for Linux/macOS.
-  macOS ships as a signed/notarized `.app` bundle (build order step 25).
+  macOS ships as a signed/notarized `.app` bundle (build order step 36).
 
 ## The non-negotiable performance rule
 
@@ -86,7 +86,7 @@ opacity/gain ramp over a time range (video alpha via shader; audio gain in the m
 ## Vertical-slice milestone (definition of done)
 
 End-to-end on **all three** of Windows 11, Linux, and macOS (the slice is developed on Windows;
-Linux and macOS rest on bundling the native libs + on-device verification — see step 1 and step 25):
+Linux and macOS rest on bundling the native libs + on-device verification — see step 1 and step 36):
 1. Create a project; add 1 video track + 1 audio track.
 2. Import a media file (`MediaSource` opens via Sdcb.FFmpeg, reports duration/streams).
 3. Place a clip; set in/out trim (non-destructive — source untouched).
@@ -124,7 +124,7 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
      on a real Linux desktop session with a GPU; the headless check validates the media+Skia
      stack but uses an offscreen raster surface, not the windowed GL/Vulkan compositor. **macOS:**
      run the same headless check + windowed compositor (Metal) on `osx-arm64`/`osx-x64` once the
-     FFmpeg dylibs are bundled (step 25) — the render path is the identical managed code, so the
+     FFmpeg dylibs are bundled (step 36) — the render path is the identical managed code, so the
      risk is packaging the natives, not the pipeline.
 2. Timeline data model + RenderGraph in `Sprocket.Core` (unit-tested, headless).
    - **✅ DONE (`src/Sprocket.Core`, 42 headless tests in `tests/Sprocket.Core.Tests`).** Zero
@@ -270,7 +270,7 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
        skips the frame rather than crashing. Frame PTS and seek (decode-to-target) are unchanged.
      - **Verified on this Windows machine:** the bundled FFmpeg exposes CUDA/VAAPI/DXVA2/QSV/D3D11VA/Vulkan/
        D3D12VA; `Auto` selected **D3D11VA** and decoded the fixture on the GPU. Linux/macOS rest on the same
-       managed code + bundled libs (steps 24–25) + on-device verification.
+       managed code + bundled libs (steps 35–36) + on-device verification.
      - **Tests (6, deterministic regardless of GPU):** software mode uses no device and decodes in order; auto
        mode decodes whether or not hardware engages; **the hardware and software paths produce identical frame
        PTS** (so the GPU path never breaks frame-accuracy — this comparison ran hardware-vs-software here);
@@ -565,13 +565,13 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
       - **Effect registry (Core, §4/§7):** `EffectCatalog` + `EffectDescriptor` (id, display name,
         `EffectCategory`, description, and a default-instance factory) — the "`IVideoEffect` registry" the
         Effects browser lists over. Today it registers the two slice effects (Brightness → Color, Fade → Video);
-        the Transform/Color effects (step 16) and plugins (step 23) register here as they land, so every browser
+        the Transform/Color effects (step 16) and plugins (step 33) register here as they land, so every browser
         and the Inspector draw from one list instead of hard-coding the built-ins. `Find`/`DisplayName` fall back
         to the raw id for unregistered (plugin) effects so they still label.
       - **Tabbed media browser (`MediaBrowserPanel`, built in code like `TimelineControl`/`PreviewSurface`):**
         **Media** (poster/waveform thumbnails + metadata badges + a live search filter), **Effects** (the catalog,
         **double-click adds the effect to the selected timeline clip** via `AddEffectCommand` — undoable, dirty
-        flips), a deferred **Transitions** placeholder (honest — step 21), and an **Audio** tab listing the bin's
+        flips), a deferred **Transitions** placeholder (honest — step 25), and an **Audio** tab listing the bin's
         audio sources as waveforms. The timeline's `SelectedClipChanged` feeds the browser the apply target;
         the pane header's item count and status hints route back to the shell.
       - **Thumbnails (`ThumbnailService`):** a poster frame (software-decode one frame via `MediaSource`, seek a
@@ -582,7 +582,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         service); poster decode forces the software path for determinism. Disposed with the window.
       - **Pure, tested helpers (App, mirroring the step-12 `TimelineMath` split):** `MediaBadges` (duration +
         resolution tier `4K/1080p/720p/W×H` for video, format tag for audio — the **Alpha** badge's slot waits on
-        the premultiplied-alpha path, step 20), `WaveformBuilder` (interleaved PCM → mono-mixed per-bucket peaks
+        the premultiplied-alpha path, step 26), `WaveformBuilder` (interleaved PCM → mono-mixed per-bucket peaks
         in [0,1]), and `MediaSearch` (case-insensitive substring filter). The thumbnail decode + the panel's
         rendering rest on these + manual verification (the App is a UI-bound `WinExe`).
       - **Tests (28):** `EffectCatalog` (built-ins present, `Find`/`DisplayName` incl. unknown-id fallback,
@@ -618,7 +618,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
       - **Type-driven parameter metadata (Core, §4):** `EffectParameterDescriptor` (name, label, default, min,
         max, step, optional unit) added to every `EffectDescriptor`, and `EffectDescriptor.CreateInstance()` now
         builds a fresh instance by setting **each declared parameter to its default** (no per-effect factory
-        duplication). The Inspector — and any future plugin (step 23) — gets its editing UI for free from this
+        duplication). The Inspector — and any future plugin (step 33) — gets its editing UI for free from this
         list. `EffectCatalog` now registers Transform + Color alongside the slice effects.
       - **`InspectorPanel` (App, built in code like `TimelineControl`/`MediaBrowserPanel`):** a read-only **Clip**
         section (source / start / duration / trim) plus one **collapsible `Expander` section per effect**, each
@@ -717,7 +717,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     (layout), **Help** (About — no framework/runtime text, [UI.md §3.7](UI.md)). Every editing action
     routes through the step-10 `EditHistory` so it stays undoable; items are context-enabled (greyed out
     when they don't apply), and an item whose feature lands later (e.g. **Sequence ▸ New / Settings /
-    Nest** → step 19b) stays visibly disabled rather than silently dead. A smoke pass confirms Save /
+    Nest** → step 23) stays visibly disabled rather than silently dead. A smoke pass confirms Save /
     Open / Export run from the menus, not just the toolbar buttons.
     - **✅ DONE (`src/Sprocket.App`: `MainWindow.axaml`/`.cs`, `App.axaml.cs`, `MediaBootstrap.cs`,
       `Timeline/TimelineControl.cs`, new `ClipboardOps.cs` + `Dialogs.cs`; 9 new tests in
@@ -756,7 +756,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         text-field guard** so editing/transport keys don't steal input from the bin search box or the Inspector
         numeric fields (the `InputGesture` text on each menu item is the display label). Edit/Clip/Effects/View
         menus refresh their item enable/checked state on **submenu-open**, so they reflect the live selection /
-        clipboard / toggle state without per-edit bookkeeping. **Sequence** stays wholly disabled until step 19b.
+        clipboard / toggle state without per-edit bookkeeping. **Sequence** stays wholly disabled until step 23.
       - **Pure, tested helper + manual/smoke verification (the project's established split).** `ClipboardOps`
         (clip deep-copy, paste placement, and the group-nudge origin clamp) is Avalonia-free and covered by **9
         headless tests** (copy clones effects + clears link + is insulated from later edits, paste places/clamps +
@@ -912,11 +912,11 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
       Per-`MediaRef` state None → Queued → Building → Ready/Failed; the preview source resolver prefers a
       Ready proxy, while export ignores proxies entirely (determinism unaffected, §1.6).
     - **Background generation.** A **bounded**-worker proxy service encodes off the hot path (leaves
-      cores for decode/render/audio), using **hardware / all-intra / OS-specific** codecs (step 23c,
+      cores for decode/render/audio), using **hardware / all-intra / OS-specific** codecs (step 32,
       [ARCHITECTURE §11](ARCHITECTURE.md) "Preview vs. delivery codecs"). A **priority queue** builds
       media on the timeline / near the playhead / in the active sequence first, then the rest of the bin.
       Proxies persist in the local, regenerable cache dir (same store family as the render cache §20 /
-      the per-user sidecar of step 19c), survive restarts, and cancel/resume cleanly.
+      the per-user sidecar of step 28), survive restarts, and cancel/resume cleanly.
     - **Resolution = a fixed tier, not the live window.** The preview window resizes constantly and
       proxies are expensive + persisted, so key them to a **stable target**: default
       **`min(½ source, 1080p)`** (1080p is the locked preview ceiling — higher is wasted), and **skip
@@ -931,7 +931,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
       heavy-source jank** — it slots into the same best-available order (quality > draft > original) as
       just another `IFrameSource`, with no redesign.
     Note: this is **source-clip** proxying; proxying a whole **nested sequence / composited output** is
-    the render cache / pre-render (§20, step 23c) — same background-encode + fast-codec infrastructure,
+    the render cache / pre-render (§20, step 32) — same background-encode + fast-codec infrastructure,
     different unit.
     - **✅ DONE (`Sprocket.Core/Model/ProxyPolicy.cs` + `ProjectSettings`; `Sprocket.Playback` invalidation hook;
       `Sprocket.App/Proxy/{ProxyCache,ProxyTranscoder,ProxyService}` + bootstrap wiring; 19 new tests — Core +9,
@@ -979,7 +979,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         correctly generated **no** proxy. Clean build (0 warnings). Full suite: **335 tests green** (Core 112,
         Media 24, Render 18, Audio 16, Persistence 16, App 99, Export 6, Playback 44).
       - **Deferred (noted, on the same seam):** the **fast draft tier** (only if profiling shows heavy-source jank),
-        **hardware / all-intra** proxy codecs (step 23c), **zoom-to-100/200% falling back to the original** when a
+        **hardware / all-intra** proxy codecs (step 32), **zoom-to-100/200% falling back to the original** when a
         view out-resolves the proxy (the resolver would need the live zoom), and **Source-monitor proxying** (it
         previews on originals today) — none requires a redesign.
 19. **Generators & adjustment layers.** Title/text **generator clips** (a generator `IFrameSource`
@@ -1002,7 +1002,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
       - **`GeneratorSpec` + `GeneratorCatalog` (Core):** a generator carries a type id, **string** params (text,
         colour `#AARRGGBB`) and **numeric animatable** params (font size) — reusing `AnimatableValue` so a
         generator parameter keyframes. `GeneratorCatalog` is the registry the bin/menu list over (built-ins:
-        **Title**, **Color Matte**), mirroring `EffectCatalog`; a plugin generator (step 23) registers here too.
+        **Title**, **Color Matte**), mirroring `EffectCatalog`; a plugin generator (step 33) registers here too.
       - **Render graph (Core, §5):** `PlanVideoFrame` emits a `LayerKind` per layer — `Generator` carries the
         `ResolvedGenerator` (params evaluated at *t*), `Adjustment` carries only its resolved effect stack. The
         generic `Render<TImage>` executor draws a generator via a new `IVideoCompositor.CreateGeneratorFrame` seam
@@ -1035,7 +1035,77 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         Audio 16, Playback 45, Export 8, Persistence 18, App 99). Clean build (0 warnings), smoke launch starts +
         tears down cleanly. **Note:** the windowed preview rests on manual verification as before; the export +
         Render-raster paths cover the pixels deterministically.
-19b. **Sequences (nesting / compound clips).** Generalise the project's single `Timeline` to
+### Reprioritization (recorded 2026-06-29): editorial workflow completeness
+
+Steps 1–19 are complete: the vertical slice plus the full editing shell, timeline, inspector,
+keyframes, monitors, proxies, and **generators + adjustment layers (step 19)**. With the render,
+playback, export, proxy, keyframe, and color/audio **seams** all proven, the largest remaining gap
+versus Premiere, Resolve, and Final Cut is **not** rendering or core extensibility — Sprocket already
+has the right seams for those. The real gap is **editorial workflow completeness**: the everyday-cutting
+features that make the editor feel professional rather than unfinished. The post-19 order below is
+reprioritized around that gap.
+
+The **must-have-for-1.0** additions (mainstream pro-NLE baseline) are: **retime/speed controls**,
+**markers/comments**, **ripple/roll trim modes**, **autosave/crash recovery**, **batch relink +
+offline recovery**, **interchange** (EDL at minimum, then FCPXML/XML), **batch export + review
+outputs** (queued exports, burn-ins, handles), **loudness metering/normalization**, and **multicam +
+clip sync**. Real-time collaboration, hosted review systems, and advanced AI tooling are
+**product-platform expansions, not core-editor 1.0 parity**, and stay out of the 1.0 set.
+
+The reordering keeps the existing architecture direction; each step still lands on an existing seam
+([ARCHITECTURE §17](ARCHITECTURE.md)) and none requires a redesign. The high-value, low-risk editorial
+features come first (markers/autosave, retime, ripple/roll), then sequences and multicam (which build
+on synced/nested structure), then broad media + interchange + relink, then delivery (export queue) and
+audio loudness, with plugins, render cache, advanced color, packaging, and log/HDR refinement last.
+Tags reference the [UI.md §4 checklist](UI.md).
+
+20. **Markers & comments + autosave / crash recovery.** Two table-stakes additions — review/coordination
+    infrastructure and reliability — both landing cleanly on the done model, command stack, and
+    persistence with no redesign:
+    - **Markers & comments.** A `Marker { Tick, Name, Comment, Color, optional span }` on the
+      timeline/sequence and on clips (`Clip.Markers`), added / moved / deleted through the step-10
+      command stack so they are undoable, drawn on the ruler and clip bodies ([UI.md §3.6](UI.md)),
+      navigable (jump-to-prev/next, reusing the step-16d keyframe-navigation pattern), and listed in a
+      markers panel. Sequence and clip markers serialize additively into the project JSON
+      (schema-versioned, §12).
+    - **Autosave & crash recovery.** A periodic, debounced background write of the project to a
+      **sidecar autosave file** (the project is pure data; serialization already exists, step 9), driven
+      off the `EditHistory.Changed` / dirty signal so it only writes when there are unsaved edits and
+      never blocks the UI thread. On launch, detect a newer autosave than the saved project (or an
+      autosave with no clean save) and offer recovery. Writes are atomic (temp file → promote), like the
+      proxy / render-cache stores, so a crash mid-write never corrupts the project. This is table-stakes
+      reliability, not a nice-to-have.
+21. **Retime & speed controls.** Per-clip speed as a first-class, non-destructive property — the most
+    important missing editorial feature — landing on the existing clip / render-graph / time model:
+    - **Model.** A `Clip.SpeedRatio` (and a `Reverse` flag) as a `Rational` / `AnimatableValue` so the
+      timeline→source time map is `sourceTime = SourceIn + (t − TimelineStart) × speed` (constant speed)
+      or an integrated map when speed is keyframed (**speed ramps**). The clip's timeline duration
+      derives from the retimed source span; **freeze frame** = speed 0 over a span (hold one source
+      frame); **reverse** = negative mapping. All changes route through the command stack (undoable) and
+      serialize additively (§12).
+    - **Render graph (§5).** `PlanVideoFrame` / `PlanAudioBuffer` apply the time map when resolving a
+      clip's source time, so preview and export stay identical and deterministic, with no per-frame
+      managed pixels (§1). Frame interpolation for smooth slow-motion (blend / optical-flow) is a later
+      quality tier behind the same seam — ship nearest-source-frame first.
+    - **Audio.** Retimed audio resamples in the mixer (pitch-preserving time-stretch is a later DSP
+      refinement, step 31); reverse plays the source backward.
+    - **UI.** The **Clip ▸ Speed/Duration** menu item (built but disabled at step 16c) + an inspector
+      control + a speed-ramp keyframe lane (reusing step-16b/16d keyframing).
+22. **Ripple / roll / slide editing.** Trim modes that preserve timeline continuity — basic editor
+    ergonomics — extending the step-12/13 timeline tools (Select / Blade / Slip already exist). Each is a
+    new pure timeline operation issued as a command (or `CompositeCommand`) so it stays undoable:
+    - **Ripple trim / delete** — trimming a clip's edge (or deleting a clip) shifts all downstream clips
+      on the track (optionally all tracks — "ripple all") to close / open the gap, keeping the sequence
+      contiguous.
+    - **Roll edit** — adjust the cut point between two adjacent clips, moving the shared edge so one
+      clip's out and the next clip's in change together while their combined duration (and everything
+      downstream) stays fixed.
+    - **Slide** — move a clip along the timeline while its neighbours absorb the change (the complement
+      of the existing slip).
+    The geometry / clamping lives in the pure `TimelineMath` (the step-12 split), headless-tested; the
+    tool palette gains ripple / roll affordances ([UI.md §3.2](UI.md)). Linked A/V (step 13) participates
+    so a ripple moves companion audio too.
+23. **Sequences (nesting / compound clips).** Generalise the project's single `Timeline` to
     **multiple named sequences**, and let a whole sequence be **placed inside another sequence as a
     clip** (Premiere "nested sequence" / Final Cut "compound clip"). To the render graph a
     nested-sequence clip is just another `IFrameSource` / `IPcmReader` that renders the child sequence's
@@ -1051,26 +1121,28 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     badge / settings (placeholders from step 11, [UI.md §2](UI.md)) drive create / nest / open /
     settings. Sequences serialize as part of the project JSON (additive, schema-versioned, §12).
     Depends only on the done model + render graph — grouped here with the other non-raw-media building
-    blocks (generators, adjustment layers), but can be pulled earlier. Heavy nests can be **pre-rendered**
-    so they don't recompute each playback pass (step 23c, [ARCHITECTURE §20](ARCHITECTURE.md)).
-19c. **Collaboration-ready project format & multi-user groundwork.** Keep all project data in a
-    **diff/merge-friendly text format** — JSON since step 9; extend the discipline so one logical edit
-    is a small, localized diff (stable key/array ordering, no volatile fields) and project files
-    version-control and merge cleanly between users. **Separate asset paths from the project file:** the
-    shared, diffable project file references each source by stable `MediaRef` **Id** only, while the
-    **absolute/local path to each asset lives in a separate per-user sidecar** (a "media link" / asset
-    map, not normally committed or merged) — so pulling a collaborator's project-file change never forces
-    you to relocate your own clips, because your local link file still resolves the Ids. This refactors
-    step 9's "relative + absolute path stored in the project file" into **Id-in-project +
-    path-in-sidecar**, staying offline-tolerant ([ARCHITECTURE §12](ARCHITECTURE.md), [§15](ARCHITECTURE.md)).
-    Full multi-user editing (presence, locking, or CRDT / operational-transform merge) is a larger later
-    effort this format enables; the actionable deliverable here is the **format split**, which is additive
-    and worth doing early so the project file stays a clean shared artifact.
-20. **Alpha-channel media compositing.** Premultiplied-alpha path through the render graph (e.g.
-    `Logo_Anim.mov` flagged `Alpha`).
-21. **Transitions.** Transition library (Project panel **Transitions** tab) + overlapping-clip
+    blocks (generators, adjustment layers), and foundational for the compound editorial workflows below
+    (multicam, render cache). Heavy nests can be **pre-rendered** so they don't recompute each playback
+    pass (step 32, [ARCHITECTURE §20](ARCHITECTURE.md)).
+24. **Multicam editing & clip sync.** Synced multi-angle editing — a major omission for interview,
+    live-event, documentary, and studio / YouTube workflows — placed immediately after sequences because
+    synced source groups and nested editorial structure (step 23) now exist to build on:
+    - **Clip sync.** Align a set of source clips by **timecode, in/out markers, or audio-waveform
+      cross-correlation** into a synced group (the audio-analysis path reuses the step-15 waveform / PCM
+      reading). Sync offsets are model data, undoable.
+    - **Multicam source.** A **multicam clip** = a synced angle group exposed to the render graph as a
+      single `IFrameSource` / `IPcmReader` (the same seam nested sequences and proxies use, §17) whose
+      active angle is selectable over time — built naturally on the step-23 nested-sequence machinery (a
+      multicam source is a specialized synced sequence).
+    - **Angle editing.** A multicam monitor view (an angle grid in the Program / Source monitor, step 17)
+      with **live angle cutting** — switching the active angle at the playhead lays down cuts via the
+      command stack; angle switches and per-cut effect / audio overrides are model edits. Export resolves
+      the chosen angles through the same render graph (deterministic).
+25. **Transitions.** Transition library (Project panel **Transitions** tab) + overlapping-clip
     resolution in the render graph ([ARCHITECTURE §17](ARCHITECTURE.md)).
-21b. **Broad media format support (import coverage + export format/codec matrix).** Open and write the
+26. **Alpha-channel media compositing.** Premultiplied-alpha path through the render graph (e.g.
+    `Logo_Anim.mov` flagged `Alpha`).
+27. **Broad media format support (import coverage + export format/codec matrix).** Open and write the
     **common containers and codecs**, not just the slice's H.264/AAC MP4. *Import* is mainly a
     coverage/robustness task — `MediaSource`/`AudioSource` decode through Sdcb.FFmpeg (steps 2–3), which
     already handles most formats — so this verifies and hardens a **support matrix**: containers
@@ -1086,17 +1158,59 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     4096×2160 DCI; higher tiers — 5K/6K/8K — may be enabled later); this is an **export-side limit
     only** — import, the timeline, and sequence canvas sizes are unrestricted. This matrix is for
     **import and final delivery**; *preview/cache* intermediates instead pick fast, OS-specific codecs
-    (step 23c). **Licensing:** codec choice interacts
+    (step 32). **Licensing:** codec choice interacts
     with the FFmpeg build's LGPL/GPL split (x264/x265 → GPL) — decide the bundled build before
     distribution ([ARCHITECTURE §11](ARCHITECTURE.md)).
-22. **Export presets & status-bar telemetry.** Export dropdown with presets (saved selections over the
-    step-21b format/codec matrix); status bar
-    surfacing engine state, GPU / hardware-accel status, live fps, resolution, and duration
-    ([ARCHITECTURE §15](ARCHITECTURE.md)) — **no framework/runtime text** in the UI ([UI.md §3.7](UI.md)).
-23. **Plugins & advanced color management.** Plugin host (collectible `AssemblyLoadContext`,
-    [ARCHITECTURE §13](ARCHITECTURE.md)), then OpenColorIO / ACES / OFX scene-linear color management.
-    (The creative color-grading toolset — wheels, curves, qualifiers, scopes — is its own step, 23d.)
-23b. **Audio effects & plugin hosting (VST3 / AU).** Give audio an effect chain mirroring video's
+28. **Interchange & relink workflow (EDL / FCPXML / XML, batch relink, collab-ready format).** Pulled
+    earlier than the specialized finishing work because it becomes necessary the moment projects leave
+    the original machine or asset paths change. Three strands, all additive on the persistence and
+    media-pool seams:
+    - **Interchange export / import.** At minimum **EDL** (CMX3600) export of the active sequence; then
+      **FCPXML / Final Cut XML** and Premiere / Resolve **XML** for round-tripping cuts (clips, in/out,
+      track layout, basic transitions) with other NLEs. A pure mapper between the `Project` / `Sequence`
+      model and each interchange format (Core / Persistence), tested against known fixtures; lossy fields
+      are reported, not silently dropped.
+    - **Batch relink & offline recovery.** A relink workflow that re-points many `MediaRef`s at once when
+      assets move (pick a new root folder → match by filename / path / size, preview matches, apply),
+      strengthening the step-9 offline-tolerant load: offline clips stay in the project rendering as
+      black / silence (§15) and surface in a "missing media" list that the relink dialog drives.
+    - **Collab-ready format split.** Separate asset paths from the shared project file: the diffable
+      project JSON references each source by stable `MediaRef` **Id** only, while the
+      **absolute/local path lives in a per-user sidecar "media link" file** (not normally committed or
+      merged) — so pulling a collaborator's project-file change never forces you to relocate your own
+      clips, because your local link file still resolves the Ids. This refactors step 9's "relative +
+      absolute path stored in the project file" into **Id-in-project + path-in-sidecar**, and keeps each
+      logical edit a small, localized, stable-ordered diff so projects version-control and merge cleanly
+      ([ARCHITECTURE §12](ARCHITECTURE.md), [§15](ARCHITECTURE.md)). Full multi-user editing (presence,
+      locking, or CRDT / operational-transform merge) is a larger later product-platform effort this
+      format enables — **not** in the 1.0 set; the actionable deliverable here is the **format split**.
+29. **Export queue, burn-ins, handles & presets + status-bar telemetry.** Standard delivery workflow on
+    top of the step-8 export path and the step-27 format/codec matrix:
+    - **Export queue.** Queue multiple export jobs (different sequences / in-out ranges / presets) that
+      run sequentially on the background export path with per-job progress and cancel.
+    - **Burn-ins & handles.** Optional **burn-in overlays** (timecode, clip name, watermark) baked by an
+      effect-stack stage on the export render (§5/§7, so they're deterministic and never touch preview's
+      hot path) and **handles** (extra frames before / after each clip's in/out) for review / conform
+      outputs.
+    - **Presets.** An export dropdown of saved selections over the step-27 matrix (container × codec ×
+      quality × resolution / frame-rate), user-definable and persisted.
+    - **Status-bar telemetry.** Surface engine state, GPU / hardware-accel status, live fps, resolution,
+      and duration ([ARCHITECTURE §15](ARCHITECTURE.md)) — **no framework/runtime text** in the UI
+      ([UI.md §3.7](UI.md)).
+30. **Audio loudness metering, normalization & editorial audio polish.** The delivery-grade audio
+    visibility that effects alone don't provide — the first of the two audio-post layers (the second is
+    plugin hosting + deeper DSP, step 31):
+    - **Loudness metering.** Real-time **LUFS** metering (integrated / short-term / momentary) + true-peak
+      per the EBU R128 / ITU-R BS.1770 model, plus channel meters, computed on the
+      [ARCHITECTURE §6](ARCHITECTURE.md) audio path without per-buffer managed allocation, displayed in
+      the audio mixer / meters UI.
+    - **Normalization.** Loudness normalization to a target (e.g. −14 / −16 / −23 LUFS) applied as a
+      computed gain at clip / track / master scope, plus a per-clip gain-match pass — all model gain (the
+      mixer already does gain/fade, step 5), undoable.
+    - **Editorial audio polish.** Audio meters, per-track gain / pan controls, and the **Audio** tab /
+      mixer surface ([UI.md §3.3](UI.md)) brought to editorial completeness.
+31. **Audio effects & plugin hosting (VST3 / AU).** The deeper audio-post layer (loudness
+    metering/normalization is the earlier step 30). Give audio an effect chain mirroring video's
     `IVideoEffect` stack: a new Core **`IAudioEffect`** seam and an audio effect chain on audio **clips,
     tracks, sequences, and the master bus**, run by the `AudioMixer` as a per-buffer DSP pass in the
     [ARCHITECTURE §6](ARCHITECTURE.md) audio path (allocation-free on the audio thread, processing blocks
@@ -1106,20 +1220,20 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     (macOS-only). Per the **no-C++/CLI** rule ([ARCHITECTURE §1](ARCHITECTURE.md), [§13](ARCHITECTURE.md))
     each format is reached through a thin **native C-ABI bridge shim** (the VST3 SDK is C++/COM-style and
     AU is Obj-C — each wrapped to a flat C ABI the way the FFmpeg/Skia natives are), one bridge per
-    format, bundled per RID alongside the other natives (steps 24–25). Plugins are scanned and
+    format, bundled per RID alongside the other natives (steps 35–36). Plugins are scanned and
     instantiated **off** the audio thread; the host can open a plugin's own editor GUI in a window.
     **Parameter automation** rides the existing `AnimatableValue` / keyframe mechanism (step 16d), so
     plugin parameters keyframe like any other effect. **Persistence:** an audio effect serializes as
     plugin id + an opaque **state blob** (e.g. VST3 component/controller state) + its automation —
     additive and schema-versioned (§12); a missing plugin loads **offline** (the chain bypasses it)
     rather than failing the load (§15). Builds on the audio mixer (steps 5/7) and the plugin host
-    (step 23). **Licensing:** the VST3 SDK is GPLv3-or-Steinberg-dual-licensed — choose the license
+    (step 33). **Licensing:** the VST3 SDK is GPLv3-or-Steinberg-dual-licensed — choose the license
     deliberately before distribution (cf. the FFmpeg LGPL/GPL note). A track or chain can also be
-    **frozen** (pre-rendered) via the render cache (step 23c) so heavy or non-deterministic plugins
+    **frozen** (pre-rendered) via the render cache (step 32) so heavy or non-deterministic plugins
     aren't recomputed every playback pass.
-23c. **Preview render cache (pre-render / "freeze").** Expensive subgraphs — nested sequences
-    (step 19b), adjustment-layer spans (step 19), deep effect chains, and audio plugin chains
-    (step 23b) — shouldn't be recomputed every playback pass. Because the render graph is a **pure,
+32. **Preview render cache (pre-render / "freeze").** Expensive subgraphs — nested sequences
+    (step 23), adjustment-layer spans (step 19), deep effect chains, and audio plugin chains
+    (step 31) — shouldn't be recomputed every playback pass. Because the render graph is a **pure,
     deterministic function of (project, t)** with no hidden state ([ARCHITECTURE §5](ARCHITECTURE.md),
     [§6](ARCHITECTURE.md), §1.6), a computed range can be cached and replayed, then invalidated when the
     edit that produced it changes. The cache reuses the existing seams: a rendered range is exposed back
@@ -1137,13 +1251,16 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     range **dirty** (exact invalidation, no stale frames). A **render bar** over the ruler shows rendered
     vs. needs-render ranges (green/yellow/red), with *Render In to Out* / *Render Selection* /
     *Render Audio* / *Delete Render Files* commands. The cache is a **local derived artifact** kept in a
-    cache dir beside the project (not in the diffable project file, not merged — cf. step 19c) and is
+    cache dir beside the project (not in the diffable project file, not merged — cf. step 28) and is
     always **safely discardable**. **Export ignores the preview cache by default** and re-renders full-res
     originals (§17) so output stays deterministic; reusing a full-quality cache is an opt-in. Lands on the
-    done render graph + the `IFrameSource` / `IPcmReader` seams; full value comes once sequences (19b) and
-    audio effects (23b) exist, hence its place here, but the video side can ship with 19b.
+    done render graph + the `IFrameSource` / `IPcmReader` seams; full value comes once sequences (step 23)
+    and audio effects (step 31) exist, hence its place here, but the video side can ship with step 23.
     [ARCHITECTURE §20](ARCHITECTURE.md).
-23d. **Color grading.** A professional grading toolset on top of the step-16 `Color` effect, all as
+33. **Plugins & advanced color management.** Plugin host (collectible `AssemblyLoadContext`,
+    [ARCHITECTURE §13](ARCHITECTURE.md)), then OpenColorIO / ACES / OFX scene-linear color management.
+    (The creative color-grading toolset — wheels, curves, qualifiers, scopes — is its own step, 34.)
+34. **Color grading.** A professional grading toolset on top of the step-16 `Color` effect, all as
     SkSL effect-chain stages (§7) so preview and export stay identical and GPU-resident (§1, §5):
     **lift / gamma / gain color wheels** (shadows / mids / highlights), **RGB + per-channel curves**,
     **HSL secondaries / qualifiers** (key a hue/sat/luma range and grade only that), **white balance**
@@ -1151,20 +1268,20 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     `EffectCatalog`, keyframeable via `AnimatableValue` (step 16d) and edited in the type-driven Inspector
     (step 16). Reference **scopes** — waveform / vectorscope / RGB parade / histogram — computed from the
     rendered frame (extending the step-17 monitor scopes) to grade against. Composes with the input color
-    transform / log handling (step 26) and the advanced OCIO / ACES color management (step 23). Lands
+    transform / log handling (step 37) and the advanced OCIO / ACES color management (step 33). Lands
     entirely on the existing effect seam ([ARCHITECTURE §7](ARCHITECTURE.md), [§17](ARCHITECTURE.md)) — no
     render-graph redesign; builds on the done effect pipeline, so it can be pulled earlier if prioritized.
-24. **Cross-platform native-lib bundling.** Make the build self-contained per RID: copy the FFmpeg 7
+35. **Cross-platform native-lib bundling.** Make the build self-contained per RID: copy the FFmpeg 7
     `.dll`/`.so`/`.dylib` set and `SkiaSharp.NativeAssets.{Win32,Linux,macOS}` + OpenAL Soft natives
     into the publish output for `win-x64`, `linux-x64`, `osx-x64`, `osx-arm64` so the app runs with no
     system FFmpeg ([ARCHITECTURE §11](ARCHITECTURE.md)). Needed for the slice to *run* on Linux/macOS
     at all; promoted to its own step because it gates every on-device verification.
-25. **Packaging & distribution (incl. macOS executable).** Produce a runnable artifact per OS: a
+36. **Packaging & distribution (incl. macOS executable).** Produce a runnable artifact per OS: a
     Windows folder/installer, a Linux AppImage/tarball, and a **macOS `.app` bundle** with the FFmpeg
     dylibs under `Contents/Frameworks` (resolved via `@loader_path`), **code-signed and notarized**,
     shipped for Apple Silicon (`osx-arm64`) and Intel (`osx-x64`). CI builds on win/linux/macOS runners;
     a smoke launch + sample export validates each artifact.
-26. **Log media & color management (D-Log).** Support DJI **D-Log / D-Log M / D-Log 2** as a
+37. **Log media & color management (D-Log).** Support DJI **D-Log / D-Log M / D-Log 2** as a
     per-clip **input color transform**, landing on the existing effect seam
     ([ARCHITECTURE §18](ARCHITECTURE.md), §7, §17) — **not** via FFmpeg's `lut3d`/`WriteableBitmap`,
     which would break [§1](ARCHITECTURE.md) (managed per-frame pixels + CPU round-trip) and
@@ -1190,7 +1307,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
       can read either space.
     - **Persistence.** The effect serializes for free via the existing `EffectInstance` JSON; the
       new `ProbedMediaInfo` color fields are additive (nullable/defaulted, no schema bump).
-    - **Upgrade path.** Full scene-linear / OpenColorIO color management remains the later step-23
+    - **Upgrade path.** Full scene-linear / OpenColorIO color management remains the later step-33
       upgrade ([ARCHITECTURE §18](ARCHITECTURE.md)).
 
 Open product questions (e.g. the mockup's user-avatar / account affordance, full panel docking)
@@ -1204,7 +1321,7 @@ are tracked in [UI.md §5](UI.md).
 - **Cross-platform:** CI matrix builds + runs the headless tests on windows-latest, ubuntu-latest,
   and macos-latest (the latter covers `osx-arm64`); manually run the app + export on a real Linux box,
   Win 11, and a Mac. The render path is byte-identical across OSes (verified Win↔Linux via the headless
-  PNG hash; macOS to be confirmed once the dylibs are bundled, steps 24–25).
+  PNG hash; macOS to be confirmed once the dylibs are bundled, steps 35–36).
 - **Correctness:** unit tests for RenderGraph (clip resolution, trim, effect-stack order,
   fade ramps) headlessly; golden-frame test comparing exported frames against expected output.
 - **A/V sync:** export a clip with a known audio/video sync marker (clap/flash) and verify
