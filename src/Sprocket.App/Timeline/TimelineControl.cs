@@ -53,6 +53,7 @@ public sealed class TimelineControl : Control
     private static readonly IBrush ToggleOn = Brush("#6C5CE7");
     private static readonly IBrush ToggleOff = Brush("#2A2A33");
     private static readonly Pen GridPen = new(Brush("#24242E"), 1);
+    private static readonly IBrush MarkerLine = Brush("#33FFFFFF");
     private static readonly Pen EdgePen = new(Brush("#2A2A33"), 1);
     private static readonly Pen PlayheadPen = new(Brush("#6C5CE7"), 1.5);
     private static readonly Pen SelectPen = new(Brush("#6C5CE7"), 2);
@@ -333,6 +334,53 @@ public sealed class TimelineControl : Control
             new(c, c.SourceIn, c.SourceOut, new Timecode(c.TimelineStart.Ticks + delta), "Nudge clip");
     }
 
+    // ── Markers (PLAN.md step 20) ────────────────────────────────────────────────────────────────────
+
+    /// <summary>The colour band for a marker — shared by the ruler/clip drawing and the markers panel.</summary>
+    public static IBrush MarkerBrush(MarkerColor color) => color switch
+    {
+        MarkerColor.Cyan => CyanMarker,
+        MarkerColor.Green => GreenMarker,
+        MarkerColor.Yellow => YellowMarker,
+        MarkerColor.Orange => OrangeMarker,
+        MarkerColor.Red => RedMarker,
+        MarkerColor.Magenta => MagentaMarker,
+        MarkerColor.Purple => PurpleMarker,
+        MarkerColor.White => WhiteMarker,
+        _ => BlueMarker,
+    };
+
+    private static readonly IBrush BlueMarker = Brush("#4C9AFF");
+    private static readonly IBrush CyanMarker = Brush("#2BD9D9");
+    private static readonly IBrush GreenMarker = Brush("#3FB950");
+    private static readonly IBrush YellowMarker = Brush("#E3C341");
+    private static readonly IBrush OrangeMarker = Brush("#E58A2E");
+    private static readonly IBrush RedMarker = Brush("#E5534B");
+    private static readonly IBrush MagentaMarker = Brush("#D957C8");
+    private static readonly IBrush PurpleMarker = Brush("#9A6CE7");
+    private static readonly IBrush WhiteMarker = Brush("#E6EAF0");
+
+    /// <summary>
+    /// Adds a sequence marker at the playhead (the Premiere 'M' convention), undoable through the command stack.
+    /// Returns the new marker (so the caller can offer to name it) or <see langword="null"/> when not ready.
+    /// </summary>
+    public Marker? AddMarkerAtPlayhead()
+    {
+        if (_history is null || _project is null)
+            return null;
+        var marker = new Marker(_playhead);
+        Execute(new AddMarkerCommand(_project.Timeline.Markers, marker));
+        return marker;
+    }
+
+    /// <summary>Removes a sequence marker through the command stack (for the markers panel).</summary>
+    public void RemoveMarker(Marker marker)
+    {
+        if (_history is null || _project is null)
+            return;
+        Execute(new RemoveMarkerCommand(_project.Timeline.Markers, marker));
+    }
+
     /// <summary>Unlinks the selected clip and its companions (clears their link group) as one undo entry (step 13).</summary>
     public void UnlinkSelected()
     {
@@ -457,9 +505,72 @@ public sealed class TimelineControl : Control
 
         DrawRuler(ctx, size);
         DrawClips(ctx, size, lanes);
+        DrawSequenceMarkers(ctx, size);
         DrawHeaders(ctx, lanes);
         DrawPlayhead(ctx, size);
         DrawDropPreview(ctx, size);
+    }
+
+    // Sequence markers on the ruler (PLAN.md step 20): a coloured flag in the ruler with a faint line down the
+    // lanes; span markers add a translucent band across the ruler.
+    private void DrawSequenceMarkers(DrawingContext ctx, Size size)
+    {
+        if (_project is null || _project.Timeline.Markers.Count == 0)
+            return;
+        using var _ = ctx.PushClip(new Rect(_headerWidth, 0, size.Width - _headerWidth, size.Height));
+        foreach (Marker marker in _project.Timeline.Markers)
+        {
+            double x = TimelineMath.XAtTicks(marker.Time.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+            if (x < _headerWidth - 1 || x > size.Width)
+                continue;
+            IBrush brush = MarkerBrush(marker.Color);
+
+            if (marker.IsSpan)
+            {
+                double xEnd = TimelineMath.XAtTicks(marker.End.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+                ctx.FillRectangle(new ImmutableSolidColorBrush(((ISolidColorBrush)brush).Color, 0.18),
+                    new Rect(x, 0, Math.Max(1, xEnd - x), RulerHeight));
+            }
+
+            ctx.DrawLine(new Pen(MarkerLine, 1), new Point(x, RulerHeight), new Point(x, size.Height));
+            // A small pennant in the ruler.
+            var flag = new StreamGeometry();
+            using (StreamGeometryContext g = flag.Open())
+            {
+                g.BeginFigure(new Point(x, 4), true);
+                g.LineTo(new Point(x + 9, 4));
+                g.LineTo(new Point(x + 9, 12));
+                g.LineTo(new Point(x, 16));
+                g.EndFigure(true);
+            }
+            ctx.DrawGeometry(brush, null, flag);
+        }
+    }
+
+    // Clip markers on the clip body (PLAN.md step 20). A clip marker's time is within the clip's source, so its
+    // timeline position is TimelineStart + (Time - SourceIn); only those inside the visible source span draw.
+    private void DrawClipMarkers(DrawingContext ctx, Clip clip, Rect rect)
+    {
+        if (clip.Markers.Count == 0)
+            return;
+        foreach (Marker marker in clip.Markers)
+        {
+            if (marker.Time < clip.SourceIn || marker.Time >= clip.SourceOut)
+                continue;
+            long timelineTicks = clip.TimelineStart.Ticks + (marker.Time.Ticks - clip.SourceIn.Ticks);
+            double x = TimelineMath.XAtTicks(timelineTicks, _pxPerSecond, _scrollX, _headerWidth);
+            IBrush brush = MarkerBrush(marker.Color);
+            // A small triangle pinned to the bottom edge of the clip.
+            var tri = new StreamGeometry();
+            using (StreamGeometryContext g = tri.Open())
+            {
+                g.BeginFigure(new Point(x - 4, rect.Bottom), true);
+                g.LineTo(new Point(x + 4, rect.Bottom));
+                g.LineTo(new Point(x, rect.Bottom - 6));
+                g.EndFigure(true);
+            }
+            ctx.DrawGeometry(brush, null, tri);
+        }
     }
 
     // A dashed accent line where a dragged bin tile would place a clip (PLAN.md step 16b).
@@ -521,6 +632,7 @@ public sealed class TimelineControl : Control
                     else
                         DrawWaveform(ctx, rect);
                     ctx.DrawText(Label(ClipName(clip), 11, Text), new Point(rect.X + 6, rect.Y + 4));
+                    DrawClipMarkers(ctx, clip, rect);
                 }
 
                 if (ReferenceEquals(clip, _selected))

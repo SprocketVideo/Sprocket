@@ -362,6 +362,79 @@ public sealed class SetEffectParameterCommand : EditCommand
     }
 }
 
+/// <summary>
+/// Adds a marker to a marker list (a <see cref="Timeline.Markers"/> sequence list or a <see cref="Clip.Markers"/>
+/// clip list); undo removes it (PLAN.md step 20). Markers go through the command stack like every other model
+/// mutation so they are undoable and flip the dirty indicator.
+/// </summary>
+public sealed class AddMarkerCommand(IList<Marker> markers, Marker marker) : EditCommand("Add marker")
+{
+    /// <inheritdoc />
+    public override void Apply() => markers.Add(marker);
+
+    /// <inheritdoc />
+    public override void Revert() => markers.Remove(marker);
+}
+
+/// <summary>Removes a marker from its list; undo re-inserts it at the same position.</summary>
+public sealed class RemoveMarkerCommand(IList<Marker> markers, Marker marker) : EditCommand("Remove marker")
+{
+    private int _index = -1;
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _index = markers.IndexOf(marker);
+        if (_index >= 0)
+            markers.RemoveAt(_index);
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        if (_index < 0)
+            return;
+        markers.Insert(Math.Min(_index, markers.Count), marker);
+    }
+}
+
+/// <summary>
+/// Moves a marker to a new time (a ruler/clip-body drag). Coalesces with further moves of the same marker so a
+/// drag is one undo entry, mirroring the clip-placement command (PLAN.md step 20).
+/// </summary>
+public sealed class MoveMarkerCommand : EditCommand
+{
+    private readonly Marker _marker;
+    private readonly Timecode _oldTime;
+    private Timecode _newTime;
+
+    /// <summary>Captures the marker's current time and records the new one to apply.</summary>
+    public MoveMarkerCommand(Marker marker, Timecode newTime) : base("Move marker")
+    {
+        ArgumentNullException.ThrowIfNull(marker);
+        _marker = marker;
+        _oldTime = marker.Time;
+        _newTime = newTime;
+    }
+
+    /// <inheritdoc />
+    public override void Apply() => _marker.Time = _newTime;
+
+    /// <inheritdoc />
+    public override void Revert() => _marker.Time = _oldTime;
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        if (next is MoveMarkerCommand other && ReferenceEquals(other._marker, _marker))
+        {
+            _newTime = other._newTime;
+            return true;
+        }
+        return false;
+    }
+}
+
 /// <summary>Adds a track to the timeline (appended on top in z-order); undo removes it.</summary>
 public sealed class AddTrackCommand(Timeline timeline, Track track) : EditCommand("Add track")
 {

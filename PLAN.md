@@ -1075,6 +1075,50 @@ Tags reference the [UI.md §4 checklist](UI.md).
       autosave with no clean save) and offer recovery. Writes are atomic (temp file → promote), like the
       proxy / render-cache stores, so a crash mid-write never corrupts the project. This is table-stakes
       reliability, not a nice-to-have.
+    - **✅ DONE (`Sprocket.Core/Model/{Marker,MarkerNavigation}` + `Commands/ModelCommands` markers; `Sprocket.Persistence`
+      markers + new `Autosave.cs`; `Sprocket.App/{AutosaveService,MarkerListFormat}` + timeline/menu/recovery wiring;
+      23 new tests — Core +9, Persistence +10, App +4, all green).** Both halves land on the done model, command
+      stack, and persistence with no redesign. Delivered:
+      - **Marker model (Core, §4):** a mutable `Marker { Time, Name, Comment, Color, Duration }` (a non-zero
+        `Duration` ⇒ a span marker; `IsSpan`/`End`/`Clone`) with a `MarkerColor` enum (the standard NLE palette,
+        Blue default). `Timeline.Markers` holds sequence markers (timeline positions); `Clip.Markers` holds clip
+        markers (positioned within the clip's source, so they move/trim with it). Plain data, so command undo is a
+        simple field capture.
+      - **Commands (Core, step 10):** `AddMarkerCommand` / `RemoveMarkerCommand` (list ops, restoring index on undo)
+        + `MoveMarkerCommand` (coalescing per marker so a drag is one undo entry) — all through `EditHistory`, so
+        markers are undoable and flip the dirty indicator. Name/comment/colour edits reuse `SetPropertyCommand<T>`.
+      - **Navigation (Core):** `MarkerNavigation.Previous/Next` find the nearest marker strictly before/after a
+        time — the same pure, headless-tested pattern as `KeyframeNavigation` (step 16d).
+      - **Persistence:** a `MarkerDto` plus additive, nullable `Markers` lists on `TimelineDto` and `ClipDto`
+        (`WhenWritingNull` ⇒ a marker-less project serializes byte-identically and pre-step-20 files load with no
+        markers — **no schema bump**, §12). Sequence + clip markers round-trip field-for-field (time, name, comment,
+        colour, span).
+      - **Autosave + crash recovery (Persistence + App):** a new `Autosave` static class does the **atomic** sidecar
+        write (serialize → sibling temp file → move-with-overwrite, so a crash mid-write never corrupts the recovery
+        file) and exposes the pure `AutosaveRecovery.ShouldOffer` decision (offer when an autosave exists and is newer
+        than the clean save — or there is no clean save). The App-layer **`AutosaveService`** subscribes to
+        `EditHistory.Changed`, marks the document dirty, and a 5 s debounce timer writes **only when dirty** —
+        snapshotting the project on the UI thread (where the model lives, §8) then pushing the disk write to a
+        background thread, so editing never blocks the UI. A saved project autosaves beside its file; an untitled one
+        autosaves to a per-user slot. A clean **Save** clears the dirty flag and deletes the sidecar; **File ▸ Open**
+        checks for a newer sidecar and **prompts to recover** (loading the autosave, relinking media against the
+        project dir).
+      - **App UI (manual-verified, the project's established split):** sequence markers draw as coloured **pennants
+        on the ruler** (span markers add a translucent band + a faint line down the lanes); clip markers draw as small
+        coloured **triangles on the clip body**. **M** adds a marker at the playhead; **Shift+M / Ctrl+Shift+M** jump
+        to the next/previous marker (seeking the Program monitor, mirroring keyframe nav). A **Markers** header button
+        opens the **markers panel** — an add-at-playhead action + one row per marker (colour chip, click-to-seek, ✕ to
+        remove). The pure row formatter (`MarkerListFormat.Describe`) is split out and unit-tested like `TimelineMath`.
+      - **Tests (23):** Core — marker span/clone/validation, Add/Remove/Move commands apply+revert (index restore,
+        drag-coalesces-to-one-entry, no cross-marker merge), and `MarkerNavigation` nearest/strict/null-at-ends;
+        Persistence — sequence+clip marker round-trip, marker-less omits the field, pre-step-20 loads with none, plus
+        autosave atomic write/overwrite/delete and the `ShouldOffer` truth table; App — `MarkerListFormat` (name,
+        unnamed fallback, span suffix, whitespace-name). Clean build (0 warnings); a `SPROCKET_APP_SECONDS=5` smoke
+        launch starts the shell with markers + autosave wired and tears down cleanly (exit 0). Full suite: **378 tests
+        green** (Core 131, Media 24, Render 23, Audio 16, Playback 45, Export 8, Persistence 28, App 103).
+      - **Deferred (noted, on the same seam):** marker **rename / colour-change UI** (the model + commands exist; the
+        panel lists & removes today), **clip-marker carry-over across a blade split**, and **untitled-project recovery
+        on launch** (the untitled slot is written + recoverable, but launch only checks an opened project's sidecar).
 21. **Retime & speed controls.** Per-clip speed as a first-class, non-destructive property — the most
     important missing editorial feature — landing on the existing clip / render-graph / time model:
     - **Model.** A `Clip.SpeedRatio` (and a `Reverse` flag) as a `Rational` / `AnimatableValue` so the

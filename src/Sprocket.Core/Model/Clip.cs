@@ -95,6 +95,10 @@ public sealed class Clip
     /// <summary>Ordered effect stack, applied bottom→top (ARCHITECTURE.md §5d).</summary>
     public List<EffectInstance> Effects { get; } = new();
 
+    /// <summary>Clip markers, positioned within the clip's source (so they move/trim with the clip). Edited
+    /// through the command stack, drawn on the clip body, and listed in the markers panel (PLAN.md step 20).</summary>
+    public List<Marker> Markers { get; } = new();
+
     /// <summary>Duration on the timeline, derived from the trimmed source span.</summary>
     public Timecode Duration => SourceOut - SourceIn;
 

@@ -101,7 +101,20 @@ public static class ProjectSerializer
         var tracks = new List<TrackDto>();
         foreach (Track track in t.Tracks)
             tracks.Add(ToDto(track));
-        return new TimelineDto(ToDto(t.FrameRate), new ResolutionDto(t.Resolution.Width, t.Resolution.Height), t.SampleRate, tracks);
+        return new TimelineDto(ToDto(t.FrameRate), new ResolutionDto(t.Resolution.Width, t.Resolution.Height),
+            t.SampleRate, tracks, ToMarkerList(t.Markers));
+    }
+
+    /// <summary>Converts a marker list to DTOs, returning <see langword="null"/> when empty so a marker-less
+    /// timeline/clip serializes byte-identically to a pre-step-20 file (WhenWritingNull).</summary>
+    private static List<MarkerDto>? ToMarkerList(List<Marker> markers)
+    {
+        if (markers.Count == 0)
+            return null;
+        var list = new List<MarkerDto>(markers.Count);
+        foreach (Marker m in markers)
+            list.Add(new MarkerDto(m.Time.Ticks, m.Name, m.Comment, m.Color, m.Duration.Ticks));
+        return list;
     }
 
     private static TrackDto ToDto(Track track)
@@ -128,7 +141,7 @@ public static class ProjectSerializer
         GeneratorDto? generator = c.Generator is null ? null : ToDto(c.Generator);
         return new ClipDto(
             c.MediaRefId.Value, c.SourceIn.Ticks, c.SourceOut.Ticks, c.TimelineStart.Ticks, effects,
-            c.LinkGroupId, kind, generator);
+            c.LinkGroupId, kind, generator, ToMarkerList(c.Markers));
     }
 
     private static GeneratorDto ToDto(GeneratorSpec g)
@@ -203,7 +216,17 @@ public static class ProjectSerializer
         var timeline = new Timeline(FromDto(t.FrameRate), new Resolution(t.Resolution.Width, t.Resolution.Height), t.SampleRate);
         foreach (TrackDto track in t.Tracks)
             timeline.Tracks.Add(FromDto(track));
+        AddMarkers(timeline.Markers, t.Markers);
         return timeline;
+    }
+
+    /// <summary>Restores markers (if any) into a model marker list. Null/absent (pre-step-20 files) leaves it empty.</summary>
+    private static void AddMarkers(List<Marker> target, List<MarkerDto>? dtos)
+    {
+        if (dtos is null)
+            return;
+        foreach (MarkerDto m in dtos)
+            target.Add(new Marker(new Timecode(m.TimeTicks), m.Name, m.Comment, m.Color, new Timecode(m.DurationTicks)));
     }
 
     private static Track FromDto(TrackDto t)
@@ -237,6 +260,7 @@ public static class ProjectSerializer
         clip.LinkGroupId = c.LinkGroupId;
         foreach (EffectDto e in c.Effects)
             clip.Effects.Add(FromDto(e));
+        AddMarkers(clip.Markers, c.Markers);
         return clip;
     }
 

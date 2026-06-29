@@ -267,7 +267,7 @@
       <Border Grid.Row="2" Classes="pane">
         <DockPanel>
           <Border DockPanel.Dock="Top" Classes="paneHeader">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
               <TextBlock x:Name="TimelineHeader" Classes="title" Text="Timeline" />
               <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
                           Margin="0,0,10,0">
@@ -282,7 +282,10 @@
                         StrokeLineCap="Round" Width="16" Height="16" Stretch="None" />
                 </Button>
               </StackPanel>
-              <Button x:Name="AddTrackButton" Grid.Column="3" Content="+ Track" FontSize="12" Padding="10,3"
+              <Button x:Name="MarkersButton" Grid.Column="3" Content="Markers" FontSize="12" Padding="10,3"
+                      Margin="0,0,6,0" VerticalAlignment="Center"
+                      ToolTip.Tip="Markers panel (M adds at the playhead; Shift+M / Ctrl+Shift+M navigate)" />
+              <Button x:Name="AddTrackButton" Grid.Column="4" Content="+ Track" FontSize="12" Padding="10,3"
                       VerticalAlignment="Center" />
             </Grid>
           </Border>

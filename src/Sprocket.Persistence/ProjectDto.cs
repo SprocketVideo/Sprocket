@@ -37,7 +37,10 @@ internal sealed record TimelineDto(
     RationalDto FrameRate,
     ResolutionDto Resolution,
     int SampleRate,
-    List<TrackDto> Tracks);
+    List<TrackDto> Tracks,
+    // Sequence markers (PLAN.md step 20). Additive + nullable: a marker-less timeline writes null (WhenWritingNull)
+    // so pre-20 files load with no markers and a project with none serializes byte-identically.
+    List<MarkerDto>? Markers = null);
 
 /// <summary>A track in z-order. <see cref="Kind"/> discriminates video vs audio; the unused fields for the
 /// other kind are simply ignored (kept flat for a simple, robust format).</summary>
@@ -72,7 +75,18 @@ internal sealed record ClipDto(
     // Clip kind + generator (PLAN.md step 19). Additive + nullable: a plain media clip writes neither (Kind null
     // ⇒ Media on load), so pre-19 files load unchanged and media-only projects serialize byte-identically.
     ClipKind? Kind = null,
-    GeneratorDto? Generator = null);
+    GeneratorDto? Generator = null,
+    // Clip markers (PLAN.md step 20). Additive + nullable: a marker-less clip writes null (WhenWritingNull).
+    List<MarkerDto>? Markers = null);
+
+/// <summary>A marker (PLAN.md step 20): a time, optional name/comment, colour band, and an optional span
+/// (<see cref="DurationTicks"/> &gt; 0). Colour serializes as a string enum.</summary>
+internal sealed record MarkerDto(
+    long TimeTicks,
+    string Name,
+    string Comment,
+    MarkerColor Color,
+    long DurationTicks);
 
 /// <summary>A generator clip's procedural source (PLAN.md step 19): a type id, string parameters (text, colour
 /// hex), and numeric animatable parameters. Present only on generator clips.</summary>

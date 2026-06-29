@@ -34,6 +34,10 @@ public sealed class Timeline
     /// <summary>Tracks in z-order (index 0 = bottom, last = top).</summary>
     public List<Track> Tracks { get; } = new();
 
+    /// <summary>Sequence markers pinned to timeline positions (PLAN.md step 20). Edited through the command
+    /// stack; drawn on the ruler, navigable, and listed in the markers panel. Unordered — navigation sorts.</summary>
+    public List<Marker> Markers { get; } = new();
+
     /// <summary>The video tracks, bottom→top.</summary>
     public IEnumerable<VideoTrack> VideoTracks => Tracks.OfType<VideoTrack>();
 

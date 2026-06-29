@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
@@ -37,6 +38,7 @@ public partial class MainWindow : Window
     private readonly Project? _project;
     private readonly Proxy.ProxyService? _proxy; // session proxy service (PLAN.md step 18); owned by App
     private readonly EditHistory _history = new();
+    private AutosaveService? _autosave; // periodic debounced autosave (PLAN.md step 20)
 
     private ThumbnailService? _thumbnails;
     private MediaBrowserPanel? _mediaBrowser;
@@ -132,6 +134,12 @@ public partial class MainWindow : Window
         _history.Changed += OnHistoryChanged;
         OnHistoryChanged(); // initialise menu-enable + save-state
 
+        // Autosave (PLAN.md step 20): a debounced sidecar write driven off the dirty signal. Beside the project
+        // file once it has one, else a per-user untitled slot — so a crash before the first manual save is still
+        // recoverable. Independent of playback, so it runs even when no engine is available.
+        if (_project is not null)
+            _autosave = new AutosaveService(_project, _history, () => _currentProjectPath);
+
         if (_engine is null)
         {
             // No media: the shell still renders; just disable the live controls.
@@ -187,6 +195,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         WindowStateStore.Save(_lastNonMinimizedState); // remember maximized-or-not for next launch
+        _autosave?.Dispose(); // stop the autosave timer for this session
         _thumbnails?.Dispose(); // releases the cached thumbnail bitmaps
         _ = _source?.DisposeAsync(); // tears down the Source monitor's decoder/engine if one is open
         base.OnClosed(e);
@@ -319,6 +328,8 @@ public partial class MainWindow : Window
         if (ctrl && shift && e.Key == Key.Z) { _history.Redo(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.Z) { _history.Undo(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.Y) { _history.Redo(); e.Handled = true; return; }
+        // Jump to the previous marker (Premiere's Ctrl+Shift+M). Add (M) / next (Shift+M) are below the text guard.
+        if (ctrl && shift && e.Key == Key.M) { JumpToMarker(-1); e.Handled = true; return; }
         // Timeline zoom (Resolve/FCP convention). Ctrl++/Ctrl+- are safe with a focused text field; the bare
         // Shift+Z "zoom to fit" is gated below the text-box guard. OemPlus/OemMinus are the main-row =/- keys;
         // Add/Subtract are the numpad equivalents.
@@ -339,6 +350,9 @@ public partial class MainWindow : Window
         // Jump-to-previous/next-keyframe of the selected clip (Premiere uses [ / ], step 16d).
         else if (e.Key == Key.OemOpenBrackets) { JumpToKeyframe(-1); e.Handled = true; }
         else if (e.Key == Key.OemCloseBrackets) { JumpToKeyframe(+1); e.Handled = true; }
+        // Markers (PLAN.md step 20): add at the playhead (M), jump to the next (Shift+M; previous is Ctrl+Shift+M).
+        else if (shift && e.Key == Key.M) { JumpToMarker(+1); e.Handled = true; }
+        else if (e.Key == Key.M) { AddMarker(); e.Handled = true; }
         else if (shift && e.Key == Key.Z) { _timeline?.ZoomToFit(); e.Handled = true; }
         else if (e.Key == Key.Space) { _active?.TogglePlayPause(); e.Handled = true; }
     }
@@ -362,6 +376,32 @@ public partial class MainWindow : Window
             : KeyframeNavigation.NextKeyframe(clip, now);
         if (target is { } t)
             _program.SeekTo(t);
+    }
+
+    /// <summary>Adds a sequence marker at the playhead (PLAN.md step 20) and reports it on the status strip.</summary>
+    private void AddMarker()
+    {
+        if (_timeline?.AddMarkerAtPlayhead() is { } marker)
+            SetStatus($"Marker added at {FormatTime(marker.Time)}");
+    }
+
+    /// <summary>
+    /// Seeks the Program playhead to the previous (<paramref name="direction"/> &lt; 0) or next sequence marker
+    /// (PLAN.md step 20), mirroring the keyframe navigation. A no-op when there is no marker in that direction.
+    /// </summary>
+    private void JumpToMarker(int direction)
+    {
+        if (_project is null || _program is null)
+            return;
+        Timecode now = _program.Position;
+        Marker? target = direction < 0
+            ? MarkerNavigation.Previous(_project.Timeline.Markers, now)
+            : MarkerNavigation.Next(_project.Timeline.Markers, now);
+        if (target is { } m)
+        {
+            _program.SeekTo(m.Time);
+            SetStatus(MarkerListFormat.Describe(m, _project.Timeline.Markers.IndexOf(m)));
+        }
     }
 
     /// <summary>Enables the keyframe-jump buttons only when the selection has keyframes to navigate.</summary>
@@ -478,6 +518,7 @@ public partial class MainWindow : Window
 
         _exportButton!.Click += (_, _) => _ = ExportAsync();
         WireAddTrackButton();
+        WireMarkersButton();
 
         // Transport buttons drive the active monitor.
         _playPause.Click += (_, _) => _active!.TogglePlayPause();
@@ -780,6 +821,87 @@ public partial class MainWindow : Window
         _history.Execute(new AddTrackCommand(_project.Timeline, track));
     }
 
+    // ── Markers panel (PLAN.md step 20) ─────────────────────────────────────────────────────────────
+
+    /// <summary>Attaches a flyout to the <c>Markers</c> header button: the markers panel — an "add at playhead"
+    /// action plus one row per sequence marker (click to seek, ✕ to remove). Rebuilt each time it opens so it
+    /// reflects the current marker list.</summary>
+    private void WireMarkersButton()
+    {
+        var button = this.FindControl<Button>("MarkersButton");
+        if (button is null)
+            return;
+        var flyout = new Flyout { Placement = PlacementMode.BottomEdgeAlignedRight };
+        flyout.Opened += (_, _) => flyout.Content = BuildMarkersPanel();
+        button.Flyout = flyout;
+    }
+
+    /// <summary>Builds the markers-panel content (PLAN.md step 20, UI.md §3.6): an add-at-playhead button and a
+    /// scrollable list of the sequence markers, each seeking on click with a remove (✕) button.</summary>
+    private Control BuildMarkersPanel()
+    {
+        var root = new StackPanel { Spacing = 6, MinWidth = 260, MaxWidth = 320, Margin = new Thickness(4) };
+        root.Children.Add(new TextBlock
+        {
+            Text = "Markers", FontWeight = Avalonia.Media.FontWeight.SemiBold, FontSize = 12,
+        });
+
+        var addButton = new Button { Content = "+ Add at playhead", FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+        addButton.Click += (_, _) => { AddMarker(); if (this.FindControl<Button>("MarkersButton")?.Flyout is Flyout f) f.Content = BuildMarkersPanel(); };
+        root.Children.Add(addButton);
+
+        var markers = _project?.Timeline.Markers ?? [];
+        if (markers.Count == 0)
+        {
+            root.Children.Add(new TextBlock
+            {
+                Text = "No markers yet. Press M to add one at the playhead.",
+                FontSize = 11, Foreground = Avalonia.Media.Brushes.Gray, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            });
+            return root;
+        }
+
+        var list = new StackPanel { Spacing = 2 };
+        // Show markers in time order without mutating the model list.
+        var ordered = markers.Select((m, i) => (Marker: m, Index: i)).OrderBy(x => x.Marker.Time.Ticks).ToList();
+        foreach ((Marker marker, int index) in ordered)
+        {
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("8,*,Auto") };
+
+            row.Children.Add(new Border
+            {
+                Width = 8, Height = 8, CornerRadius = new CornerRadius(2), VerticalAlignment = VerticalAlignment.Center,
+                Background = TimelineControl.MarkerBrush(marker.Color),
+            });
+
+            var seek = new Button
+            {
+                Content = MarkerListFormat.Describe(marker, index),
+                FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left, Background = Avalonia.Media.Brushes.Transparent,
+                Margin = new Thickness(4, 0, 0, 0),
+            };
+            Marker captured = marker;
+            seek.Click += (_, _) => { _program?.SeekTo(captured.Time); };
+            Grid.SetColumn(seek, 1);
+            row.Children.Add(seek);
+
+            var remove = new Button { Content = "✕", FontSize = 11, Padding = new Thickness(6, 2) };
+            ToolTip.SetTip(remove, "Remove marker");
+            remove.Click += (_, _) => { _timeline?.RemoveMarker(captured); if (this.FindControl<Button>("MarkersButton")?.Flyout is Flyout f) f.Content = BuildMarkersPanel(); };
+            Grid.SetColumn(remove, 2);
+            row.Children.Add(remove);
+
+            list.Children.Add(row);
+        }
+
+        root.Children.Add(new ScrollViewer
+        {
+            MaxHeight = 280, Content = list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+        });
+        return root;
+    }
+
     // ── Context-enabling: refresh menu items on submenu open ────────────────────────────────────────
 
     private void RefreshEditMenu()
@@ -977,13 +1099,52 @@ public partial class MainWindow : Window
 
         try
         {
-            Project project = ProjectSerializer.Load(path);
-            SessionRequested?.Invoke(new SessionRequest(project, $"Opened {Path.GetFileName(path)}", path));
+            bool recover = await ShouldRecoverAsync(path);
+            Project project;
+            string status;
+            if (recover)
+            {
+                // Load the newer autosave instead, resolving relative media against the project's own directory
+                // (the sidecar was written with the project path, so its relative paths match).
+                string autosavePath = Autosave.SidecarPath(path);
+                project = ProjectSerializer.Deserialize(
+                    File.ReadAllText(autosavePath), Path.GetDirectoryName(Path.GetFullPath(path)));
+                status = $"Recovered {Path.GetFileName(path)} from autosave";
+            }
+            else
+            {
+                project = ProjectSerializer.Load(path);
+                status = $"Opened {Path.GetFileName(path)}";
+            }
+            SessionRequested?.Invoke(new SessionRequest(project, status, path));
         }
         catch (Exception ex)
         {
             SetStatus($"Open failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Crash recovery (PLAN.md step 20): if a newer autosave sidecar sits beside the project being opened, ask
+    /// whether to recover it. The decision is the pure <see cref="AutosaveRecovery"/>; this just gathers the
+    /// filesystem timestamps and shows the prompt. Returns <c>true</c> to load the autosave instead.
+    /// </summary>
+    private async Task<bool> ShouldRecoverAsync(string projectPath)
+    {
+        string autosavePath = Autosave.SidecarPath(projectPath);
+        var state = new AutosaveRecovery.State(
+            File.Exists(autosavePath),
+            File.Exists(autosavePath) ? File.GetLastWriteTimeUtc(autosavePath) : default,
+            File.Exists(projectPath),
+            File.Exists(projectPath) ? File.GetLastWriteTimeUtc(projectPath) : default);
+        if (!AutosaveRecovery.ShouldOffer(state))
+            return false;
+
+        return await ConfirmDialog.Show(
+            this, "Recover unsaved changes?",
+            "A more recent autosave was found for this project — it may contain changes that weren't saved before "
+            + "the app last closed. Recover it, or open the last saved version?",
+            "Recover", "Open saved version");
     }
 
     /// <summary>
@@ -1034,6 +1195,10 @@ public partial class MainWindow : Window
         {
             ProjectSerializer.Save(_project!, path);
             _savedUndoCount = _history.UndoCount;
+            // A clean save makes the autosave stale: clear the dirty flag and drop the sidecar so launch won't
+            // offer to recover an older copy (PLAN.md step 20).
+            _autosave?.ClearDirty();
+            Autosave.Delete(Autosave.SidecarPath(path));
             OnHistoryChanged(); // refresh the dirty indicator
             SetStatus($"Saved → {path}");
         }
