@@ -35,6 +35,7 @@ public partial class MainWindow : Window
 {
     private readonly PlaybackEngine? _engine;
     private readonly Project? _project;
+    private readonly Proxy.ProxyService? _proxy; // session proxy service (PLAN.md step 18); owned by App
     private readonly EditHistory _history = new();
 
     private ThumbnailService? _thumbnails;
@@ -94,11 +95,13 @@ public partial class MainWindow : Window
     // Parameterless ctor for the XAML designer / tooling.
     public MainWindow() : this(null, null, string.Empty, null) { }
 
-    public MainWindow(PlaybackEngine? engine, Project? project, string status, string? projectPath = null)
+    public MainWindow(PlaybackEngine? engine, Project? project, string status, string? projectPath = null,
+        Proxy.ProxyService? proxy = null)
     {
         AvaloniaXamlLoader.Load(this);
         _engine = engine;
         _project = project;
+        _proxy = proxy;
         _currentProjectPath = projectPath;
 
         _root = this.FindControl<Control>("Root");
@@ -487,6 +490,17 @@ public partial class MainWindow : Window
         // engine keeps the transport alive rather than dying, so surface the reason instead of swallowing it.
         _engine!.PumpError += ex => Dispatcher.UIThread.Post(() => SetStatus($"Playback recovered from an error: {ex.Message}"));
 
+        // Preview proxies (PLAN.md step 18): the engine already switches onto a proxy transparently when one is
+        // ready (wired in the bootstrap); here we just reflect progress in the status bar without interrupting flow.
+        if (_proxy is { Enabled: true })
+        {
+            _proxy.ProxyReady += _ => Dispatcher.UIThread.Post(() =>
+            {
+                if (_proxy.StatusSummary() is { } summary)
+                    SetStatus(summary);
+            });
+        }
+
         // Optional timed auto-exit for unattended profiling runs: SPROCKET_APP_SECONDS=12
         if (int.TryParse(Environment.GetEnvironmentVariable("SPROCKET_APP_SECONDS"), out int seconds) && seconds > 0)
             DispatcherTimer.RunOnce(Close, TimeSpan.FromSeconds(seconds));
@@ -835,6 +849,8 @@ public partial class MainWindow : Window
         }
 
         _mediaBrowser?.Refresh();
+        if (added > 0)
+            _proxy?.Enqueue(_project); // queue proxies for any newly-imported heavy sources (PLAN.md step 18)
 
         if (failures.Count == 0)
             SetStatus($"Imported {added} file{(added == 1 ? "" : "s")}.");

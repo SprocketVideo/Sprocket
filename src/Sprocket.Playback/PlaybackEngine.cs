@@ -81,6 +81,9 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private readonly object _frameGate = new();
     private readonly List<VideoTrackPlayer> _players = [];
 
+    private readonly object _invalidateGate = new();
+    private readonly HashSet<MediaRefId> _invalidatedSources = [];
+
     private readonly object _transportGate = new();
     private PlaybackState _state = PlaybackState.Stopped;
     private bool _endHandled;
@@ -234,6 +237,20 @@ public sealed class PlaybackEngine : IAsyncDisposable
     }
 
     /// <summary>
+    /// Signals that <paramref name="id"/>'s best-available source file has changed (a preview proxy became ready,
+    /// PLAN.md step 18). The next pump rebuilds the feed of any track currently decoding that source, so the
+    /// preview transparently switches to the proxy without a seek or a clip edit. Safe to call from any thread;
+    /// a no-op for the fixed-feed (slice/test) engine.
+    /// </summary>
+    public void InvalidateSource(MediaRefId id)
+    {
+        if (!_reconcile)
+            return;
+        lock (_invalidateGate)
+            _invalidatedSources.Add(id);
+    }
+
+    /// <summary>
     /// Steps the playhead <paramref name="delta"/> whole frames (PLAN.md step 17): pauses playback if running,
     /// then seeks to the frame-aligned position. The pump force-presents the post-seek frame so a single step is
     /// frame-accurate. Negative <paramref name="delta"/> steps backward; clamped to the timeline ends.
@@ -364,6 +381,8 @@ public sealed class PlaybackEngine : IAsyncDisposable
         if (_reconcile)
             await ReconcilePlayersAsync().ConfigureAwait(false);
 
+        ApplyInvalidations();
+
         Timecode pos = PlaybackMath.ClampToTimeline(_clock.Now, Duration);
 
         bool promoted = false;
@@ -375,6 +394,27 @@ public sealed class PlaybackEngine : IAsyncDisposable
 
         PositionChanged?.Invoke(pos);
         HandleEnd(pos);
+    }
+
+    /// <summary>Drains the pending source invalidations (from <see cref="InvalidateSource"/>) and asks any player
+    /// currently decoding one of those sources to rebuild its feed on this pump. Runs on the pump thread, so the
+    /// players' source comparison stays single-threaded.</summary>
+    private void ApplyInvalidations()
+    {
+        MediaRefId[] ids;
+        lock (_invalidateGate)
+        {
+            if (_invalidatedSources.Count == 0)
+                return;
+            ids = [.. _invalidatedSources];
+            _invalidatedSources.Clear();
+        }
+
+        foreach (VideoTrackPlayer player in _players)
+        {
+            if (player.FeedSource is { } src && Array.IndexOf(ids, src) >= 0)
+                player.RequestRebuild();
+        }
     }
 
     /// <summary>Adds players for newly-added video tracks and disposes players for removed ones, so runtime

@@ -129,4 +129,34 @@ public class MultiTrackPlaybackTests
 
         Assert.Equal(2, LayerCount(engine));
     }
+
+    [Fact]
+    public async Task InvalidateSource_Rebuilds_The_Feed_On_The_Next_Pump()
+    {
+        // Step 18: when a source's best-available file changes (a proxy became ready), InvalidateSource makes the
+        // engine rebuild that source's feed transparently — so the factory is invoked again for the same source.
+        using var cts = new CancellationTokenSource(Timeout);
+        (Project project, Func<MediaRefId, IVideoFrameFeed?> inner) = BuildSession(videoTracks: 1);
+        MediaRefId id = project.MediaPool.Items.First().Id;
+
+        int opens = 0;
+        Func<MediaRefId, IVideoFrameFeed?> counting = mediaId => { opens++; return inner(mediaId); };
+        await using var engine = new PlaybackEngine(project, counting, new SoftwareClock(() => TimeSpan.Zero));
+
+        engine.SeekTo(Timecode.Zero);
+        await engine.PumpOnceAsync(forcePresent: true, cts.Token);
+        Assert.Equal(1, opens); // feed opened once for the source
+
+        // A pump with nothing invalidated must NOT reopen the feed.
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        Assert.Equal(1, opens);
+
+        // Signal the source changed (proxy ready): the next pump rebuilds the feed.
+        engine.InvalidateSource(id);
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        Assert.Equal(2, opens);
+
+        // Still composites the layer after the rebuild.
+        Assert.Equal(1, LayerCount(engine));
+    }
 }

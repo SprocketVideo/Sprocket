@@ -26,6 +26,7 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
     private bool _feedStarted;
     private bool _needsSeek = true;    // a fresh player (or one after a seek) must seek before presenting
     private bool _atEof;               // the feed reached end-of-stream; hold (don't re-read) until a seek resumes it
+    private bool _needsRebuild;        // the source's best-available file changed (e.g. a proxy became ready)
 
     private VideoFrame? _current;      // presented frame; guarded by _frameGate
     private VideoFrame? _next;         // pump-thread-only prefetch
@@ -60,6 +61,21 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
 
     /// <summary>Forces the next pump to re-seek the feed (called by the engine when the playhead jumps).</summary>
     public void MarkNeedsSeek() => _needsSeek = true;
+
+    /// <summary>Which source this player's feed currently decodes (factory mode), or <c>null</c> if it has no
+    /// feed yet. Read on the pump thread.</summary>
+    public MediaRefId? FeedSource => _feedSource;
+
+    /// <summary>
+    /// Requests that this player rebuild its feed on the next pump — used when a source's best-available file
+    /// changes underneath it (a proxy became ready, PLAN.md step 18), so the preview transparently switches
+    /// without a clip-source change. No-op in fixed-feed mode (the slice/test single feed). Called on the pump thread.
+    /// </summary>
+    public void RequestRebuild()
+    {
+        if (_feedFactory is not null)
+            _needsRebuild = true;
+    }
 
     /// <summary>
     /// Advances this track's frame toward the playhead <paramref name="pos"/>: (re)targets the feed to the
@@ -141,11 +157,13 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         if (_feedFactory is null)
             return _feed is not null; // fixed feed: source assumed constant
 
-        if (_feed is not null && _feedSource == sourceId)
+        if (_feed is not null && _feedSource == sourceId && !_needsRebuild)
             return true;
 
-        // The active clip's source changed: tear down the old feed and build one for the new source.
+        // Either the active clip's source changed, or the source's best-available file changed under us (a proxy
+        // became ready). Tear down the old feed and build one for the (possibly same) source.
         DisposeFeed();
+        _needsRebuild = false;
         _feed = _feedFactory(sourceId);
         _feedSource = sourceId;
         _feedStarted = false;

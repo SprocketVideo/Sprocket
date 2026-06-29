@@ -94,7 +94,13 @@ internal sealed record RationalDto(int Num, int Den);
 
 internal sealed record ResolutionDto(int Width, int Height);
 
-internal sealed record SettingsDto(double MasterGainDb);
+/// <summary>Project settings. <see cref="UseProxies"/>/<see cref="ProxyTier"/> are additive (PLAN.md step 18):
+/// they carry constructor defaults so pre-18 files (which omit them) load with proxies on at the Half tier, and a
+/// project at those defaults still serializes them explicitly — the defaults just guarantee a safe load.</summary>
+internal sealed record SettingsDto(
+    double MasterGainDb,
+    bool UseProxies = true,
+    ProxyTier ProxyTier = ProxyTier.Half);
 
 /// <summary>Source-generated JSON for the DTO graph: trim/AOT-friendly, enums as strings, indented output.</summary>
 [JsonSourceGenerationOptions(

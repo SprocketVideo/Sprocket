@@ -218,6 +218,38 @@ public class ProjectSerializerTests
     }
 
     [Fact]
+    public void Proxy_Settings_Round_Trip()
+    {
+        var project = new Project();
+        project.Settings.UseProxies = false;
+        project.Settings.ProxyTier = ProxyTier.Quarter;
+
+        Project loaded = RoundTrip(project);
+        Assert.False(loaded.Settings.UseProxies);
+        Assert.Equal(ProxyTier.Quarter, loaded.Settings.ProxyTier);
+    }
+
+    [Fact]
+    public void Pre_Step18_File_Without_Proxy_Settings_Loads_With_Defaults()
+    {
+        // A settings block from before step 18 carries only masterGainDb; the additive proxy fields must default
+        // to on / Half rather than failing the load.
+        const string json = """
+            {
+              "schemaVersion": 1,
+              "media": [],
+              "timeline": { "frameRate": { "num": 30, "den": 1 }, "resolution": { "width": 1920, "height": 1080 }, "sampleRate": 48000, "tracks": [] },
+              "settings": { "masterGainDb": -3.0 }
+            }
+            """;
+
+        Project loaded = ProjectSerializer.Deserialize(json);
+        Assert.Equal(-3.0, loaded.Settings.MasterGainDb);
+        Assert.True(loaded.Settings.UseProxies);
+        Assert.Equal(ProxyTier.Half, loaded.Settings.ProxyTier);
+    }
+
+    [Fact]
     public void Unknown_Schema_Version_Throws()
     {
         string json = ProjectSerializer.Serialize(BuildRichProject())

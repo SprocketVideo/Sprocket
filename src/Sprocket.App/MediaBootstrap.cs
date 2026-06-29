@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using Sprocket.App.Proxy;
 using Sprocket.Audio;
 using Sprocket.Core.Audio;
 using Sprocket.Core.Model;
@@ -18,9 +19,10 @@ namespace Sprocket.App;
 /// </summary>
 internal static class MediaBootstrap
 {
-    /// <summary>The created engine, the project it plays (for export), and a human-readable status line; or a
-    /// null engine/project and an error message.</summary>
-    public readonly record struct Result(PlaybackEngine? Engine, Project? Project, string Status);
+    /// <summary>The created engine, the project it plays (for export), a human-readable status line, and the
+    /// session's proxy service (PLAN.md step 18; null when there is no project); or a null engine/project and an
+    /// error message. The caller owns and disposes <see cref="Proxy"/> alongside the engine.</summary>
+    public readonly record struct Result(PlaybackEngine? Engine, Project? Project, string Status, ProxyService? Proxy = null);
 
     /// <summary>
     /// Opens <c>args[0]</c> (if it is an existing file) or a generated sample and builds the engine over it.
@@ -74,16 +76,22 @@ internal static class MediaBootstrap
             // (audio is the master, ARCHITECTURE.md §8); otherwise the software wall-clock (video-only).
             (IMasterClock? clock, bool audioWired) = TryCreateAudioClock(project, mediaId, sampleRate, linkGroup);
 
+            // Default-on preview proxies (PLAN.md step 18): the feed factory resolves each source to its proxy
+            // when one is ready, else the original — so heavy sources preview immediately and switch transparently.
+            var proxy = new ProxyService(project.Settings.UseProxies, project.Settings.ProxyTier);
+
             // Multi-track preview (PLAN.md step 14): a per-source feed factory lets the engine composite N video
             // tracks; each opens its own decoder. Tracks added at runtime (+ Track) are picked up by the pump.
-            var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id), clock); // engine owns + disposes the clock
+            var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), clock); // engine owns + disposes the clock
+            proxy.ProxyReady += engine.InvalidateSource; // switch the preview onto a proxy the moment it is ready
             engine.Start();
+            proxy.Enqueue(project);
 
             string status =
                 $"{Path.GetFileName(path)}  ·  {info.Width}×{info.Height}  ·  " +
                 $"{Fps(info.FrameRate):0.##} fps  ·  {info.Duration.ToSeconds():0.0}s  ·  " +
                 (audioWired ? "audio master clock" : "no audio (software clock)");
-            return new Result(engine, project, status);
+            return new Result(engine, project, status, proxy);
         }
     }
 
@@ -98,13 +106,15 @@ internal static class MediaBootstrap
         project.Timeline.Tracks.Add(new VideoTrack { Name = "V1" });
         project.Timeline.Tracks.Add(new AudioTrack { Name = "A1" });
 
-        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id), (IMasterClock?)null);
+        var proxy = new ProxyService(project.Settings.UseProxies, project.Settings.ProxyTier);
+        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), (IMasterClock?)null);
+        proxy.ProxyReady += engine.InvalidateSource;
         engine.Start();
 
         string status = attemptedPath is not null
             ? $"Could not open {Path.GetFileName(attemptedPath)}: {error}  ·  opened an empty project — use File ▸ Import to add media"
             : "No media loaded — use File ▸ Import to add a video";
-        return new Result(engine, project, status);
+        return new Result(engine, project, status, proxy);
     }
 
     /// <summary>
@@ -118,9 +128,12 @@ internal static class MediaBootstrap
         ArgumentNullException.ThrowIfNull(project);
 
         (IMasterClock? clock, _) = TryCreateAudioClockForProject(project);
-        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id), clock); // engine owns + disposes the clock
+        var proxy = new ProxyService(project.Settings.UseProxies, project.Settings.ProxyTier);
+        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), clock); // engine owns + disposes the clock
+        proxy.ProxyReady += engine.InvalidateSource;
         engine.Start();
-        return new Result(engine, project, status);
+        proxy.Enqueue(project);
+        return new Result(engine, project, status, proxy);
     }
 
     /// <summary>
@@ -195,20 +208,23 @@ internal static class MediaBootstrap
     }
 
     /// <summary>Opens a video frame feed for a source, or <c>null</c> for an offline / no-video source (the engine
-    /// then contributes no layer for that track). Each call opens its own decoder; the feed owns + disposes it.</summary>
-    private static IVideoFrameFeed? OpenVideoFeed(Project project, MediaRefId id) =>
-        OpenVideoFeed(project.MediaPool.Get(id));
+    /// then contributes no layer for that track). The feed opens the source's best-available file — its proxy when
+    /// ready, else the original (PLAN.md step 18). Each call opens its own decoder; the feed owns + disposes it.</summary>
+    private static IVideoFrameFeed? OpenVideoFeed(Project project, MediaRefId id, ProxyService? proxy) =>
+        OpenVideoFeed(project.MediaPool.Get(id), proxy);
 
     /// <summary>Opens a standalone video frame feed for a single source (reused by the Source monitor, PLAN.md
-    /// step 17), or <c>null</c> for an offline / no-video source. Each call opens its own decoder; the feed owns
-    /// + disposes it.</summary>
-    internal static IVideoFrameFeed? OpenVideoFeed(MediaRef? media)
+    /// step 17), or <c>null</c> for an offline / no-video source. When <paramref name="proxy"/> is given it opens
+    /// the best-available file (proxy when ready, else original); otherwise the original. Each call opens its own
+    /// decoder; the feed owns + disposes it.</summary>
+    internal static IVideoFrameFeed? OpenVideoFeed(MediaRef? media, ProxyService? proxy = null)
     {
         if (media is not { Info.HasVideo: true })
             return null;
+        string path = proxy?.BestPath(media) ?? media.AbsolutePath;
         try
         {
-            return new RingVideoFrameFeed(new VideoDecodeRing(MediaSource.Open(media.AbsolutePath)));
+            return new RingVideoFrameFeed(new VideoDecodeRing(MediaSource.Open(path)));
         }
         catch
         {

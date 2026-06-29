@@ -7,6 +7,16 @@ public sealed class ProjectSettings
 {
     /// <summary>Master output gain in decibels, applied to the final audio mix (0 dB = unity).</summary>
     public double MasterGainDb { get; set; }
+
+    /// <summary>
+    /// Whether the preview uses lower-resolution proxies when available (PLAN.md step 18). Default-on: <em>on</em>
+    /// means "use a proxy once one is ready, else the original", so playback is never interrupted while proxies
+    /// build in the background. Export always pulls full-resolution originals regardless (ARCHITECTURE.md §17).
+    /// </summary>
+    public bool UseProxies { get; set; } = true;
+
+    /// <summary>The resolution tier proxies are generated at (PLAN.md step 18). Default <see cref="ProxyTier.Half"/>.</summary>
+    public ProxyTier ProxyTier { get; set; } = ProxyTier.Half;
 }
 
 /// <summary>

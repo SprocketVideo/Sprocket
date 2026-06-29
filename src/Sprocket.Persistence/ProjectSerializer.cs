@@ -75,7 +75,8 @@ public static class ProjectSerializer
         foreach (MediaRef m in project.MediaPool.Items)
             media.Add(ToDto(m, projectDir));
 
-        return new ProjectDto(SchemaVersion, media, ToDto(project.Timeline), new SettingsDto(project.Settings.MasterGainDb));
+        return new ProjectDto(SchemaVersion, media, ToDto(project.Timeline),
+            new SettingsDto(project.Settings.MasterGainDb, project.Settings.UseProxies, project.Settings.ProxyTier));
     }
 
     private static MediaRefDto ToDto(MediaRef media, string? projectDir)
@@ -158,6 +159,8 @@ public static class ProjectSerializer
         foreach (MediaRefDto m in dto.Media)
             project.MediaPool.Add(FromDto(m, projectDir));
         project.Settings.MasterGainDb = dto.Settings.MasterGainDb;
+        project.Settings.UseProxies = dto.Settings.UseProxies;
+        project.Settings.ProxyTier = dto.Settings.ProxyTier;
         return project;
     }
 

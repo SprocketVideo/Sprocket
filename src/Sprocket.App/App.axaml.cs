@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Sprocket.App.Proxy;
 using Sprocket.Core.Model;
 using Sprocket.Playback;
 
@@ -12,6 +13,7 @@ public partial class App : Application
 {
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private PlaybackEngine? _engine; // the live session's engine; swapped on File ▸ New / Open (PLAN.md step 16c)
+    private ProxyService? _proxy;    // the live session's proxy service (PLAN.md step 18); swapped alongside the engine
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -21,19 +23,21 @@ public partial class App : Application
         {
             _desktop = desktop;
             MediaBootstrap.Result result = MediaBootstrap.Create(desktop.Args ?? []);
+            _proxy = result.Proxy;
             // The classic-desktop lifetime shows desktop.MainWindow itself, so don't call Show() for the first one.
-            desktop.MainWindow = BuildWindow(result.Engine, result.Project, result.Status, projectPath: null);
+            desktop.MainWindow = BuildWindow(result.Engine, result.Project, result.Status, projectPath: null, result.Proxy);
             desktop.ShutdownRequested += OnShutdownRequested;
         }
 
         base.OnFrameworkInitializationCompleted();
     }
 
-    /// <summary>Builds a shell window over a session and tracks the session engine for teardown / reload.</summary>
-    private MainWindow BuildWindow(PlaybackEngine? engine, Project? project, string status, string? projectPath)
+    /// <summary>Builds a shell window over a session and tracks the session engine + proxy service for teardown / reload.</summary>
+    private MainWindow BuildWindow(PlaybackEngine? engine, Project? project, string status, string? projectPath, ProxyService? proxy)
     {
         _engine = engine;
-        var window = new MainWindow(engine, project, status, projectPath);
+        _proxy = proxy;
+        var window = new MainWindow(engine, project, status, projectPath, proxy);
         window.SessionRequested += OnSessionRequested;
         return window;
     }
@@ -50,19 +54,22 @@ public partial class App : Application
 
         Window? oldWindow = _desktop.MainWindow;
         PlaybackEngine? oldEngine = _engine;
+        ProxyService? oldProxy = _proxy;
 
         MediaBootstrap.Result result = MediaBootstrap.CreateForProject(request.Project, request.Status);
-        MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath);
+        MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath, result.Proxy);
         _desktop.MainWindow = window;
         window.Show();
 
         oldWindow?.Close();
+        oldProxy?.Dispose(); // stop the previous session's proxy worker before its engine tears down
         if (oldEngine is not null)
             await oldEngine.DisposeAsync();
     }
 
     private async void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
+        _proxy?.Dispose();
         if (_engine is { } engine)
             await engine.DisposeAsync();
     }
