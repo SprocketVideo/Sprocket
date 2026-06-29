@@ -165,6 +165,25 @@ public sealed class TimelineControl : Control
     /// <summary>Zooms out.</summary>
     public void ZoomOut() => SetZoom(_pxPerSecond * 0.8, AnchorX());
 
+    /// <summary>
+    /// Zooms so the whole sequence fits the viewport width and scrolls back to the start (View ▸ Zoom to Fit,
+    /// Shift+Z) — the Resolve/FCP "frame the timeline" command. No-op on an empty timeline or before layout.
+    /// </summary>
+    public void ZoomToFit()
+    {
+        if (_project is null)
+            return;
+        long durTicks = _project.Timeline.Duration.Ticks;
+        double view = Bounds.Width - HeaderWidth - 24; // small right inset so the tail isn't flush to the edge
+        if (durTicks <= 0 || view <= 0)
+            return;
+        double seconds = (double)durTicks / Timecode.TicksPerSecond;
+        _pxPerSecond = Math.Clamp(view / seconds, MinPxPerSecond, MaxPxPerSecond);
+        _scrollX = 0;
+        ClampScroll();
+        InvalidateVisual();
+    }
+
     private double AnchorX() => TimelineMath.XAtTicks(_playhead.Ticks, _pxPerSecond, _scrollX, HeaderWidth);
 
     private void OnHistoryChanged()

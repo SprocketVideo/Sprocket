@@ -85,8 +85,12 @@
           <!-- Effects menu is populated from EffectCatalog at runtime (WireCommandMenus). -->
           <MenuItem x:Name="EffectsMenu" Header="Effe_cts" />
           <MenuItem x:Name="ViewMenu" Header="_View">
+            <!-- Ctrl++/Ctrl+- are handled in OnKeyDown; we don't set InputGesture here because Avalonia would
+                 render the OemPlus/OemMinus enum names (e.g. "Ctrl+OemPlus"). The clean shortcut text lives in
+                 the timeline zoom buttons' tooltips instead. Shift+Z renders cleanly so it keeps its gesture. -->
             <MenuItem x:Name="ZoomInMenuItem" Header="Zoom _In" />
             <MenuItem x:Name="ZoomOutMenuItem" Header="Zoom _Out" />
+            <MenuItem x:Name="ZoomToFitMenuItem" Header="Zoom to _Fit" InputGesture="Shift+Z" />
             <Separator />
             <MenuItem x:Name="SnappingMenuItem" Header="_Snapping" ToggleType="CheckBox" />
             <MenuItem x:Name="GuidesMenuItem" Header="_Guides" ToggleType="CheckBox" />
@@ -264,8 +268,16 @@
               <TextBlock x:Name="TimelineHeader" Classes="title" Text="Timeline" />
               <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
                           Margin="0,0,10,0">
-                <Button x:Name="ZoomOutButton" Content="⊟" FontSize="13" Padding="6,1" VerticalAlignment="Center" />
-                <Button x:Name="ZoomInButton" Content="⊞" FontSize="13" Padding="6,1" VerticalAlignment="Center" />
+                <Button x:Name="ZoomOutButton" Padding="6,3" VerticalAlignment="Center" ToolTip.Tip="Zoom Out (Ctrl+-)">
+                  <Path Data="M12,7 A5,5 0 1,1 2,7 A5,5 0 1,1 12,7 M10.9,10.9 L15,15 M4,7 L10,7"
+                        Stroke="{DynamicResource MutedText}" StrokeThickness="1.4"
+                        StrokeLineCap="Round" Width="16" Height="16" Stretch="None" />
+                </Button>
+                <Button x:Name="ZoomInButton" Padding="6,3" VerticalAlignment="Center" ToolTip.Tip="Zoom In (Ctrl+=)">
+                  <Path Data="M12,7 A5,5 0 1,1 2,7 A5,5 0 1,1 12,7 M10.9,10.9 L15,15 M4,7 L10,7 M7,4 L7,10"
+                        Stroke="{DynamicResource MutedText}" StrokeThickness="1.4"
+                        StrokeLineCap="Round" Width="16" Height="16" Stretch="None" />
+                </Button>
               </StackPanel>
               <Button x:Name="AddTrackButton" Grid.Column="3" Content="+ Track" FontSize="12" Padding="10,3"
                       VerticalAlignment="Center" />

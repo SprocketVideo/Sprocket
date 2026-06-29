@@ -458,8 +458,13 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         whole drag is **one undo entry** and the model updates live. **Snapping** (to other clip edges, the
         playhead, and t=0, within 8 px) honours the action-bar toggle; the M/S/enable toggles issue
         `SetPropertyCommand<bool>`s. Selection drives a status hint (and feeds the Inspector at step 16).
-      - **Zoom + scroll:** ⊟ / ⊞ buttons and **Ctrl+wheel** zoom (anchored so the tick under the cursor/playhead
-        stays put, 8–600 px/s); the wheel scrolls horizontally, clamped to content.
+      - **Zoom + scroll:** magnifier −/+ buttons (with `Ctrl+-`/`Ctrl+=` tooltips), the **Ctrl+wheel** and
+        **Zoom-tool** click, and **`Ctrl+-`/`Ctrl+=`** keys all zoom (anchored so the tick under the
+        cursor/playhead stays put, 8–600 px/s); the wheel scrolls horizontally, clamped to content. A
+        **`TimelineControl.ZoomToFit`** (View ▸ Zoom to Fit, **`Shift+Z`** — the Resolve/FCP convention) frames
+        the whole sequence to the viewport width and scrolls back to the start. (Menu items for plain
+        Zoom In/Out carry no `InputGesture` label because Avalonia renders `=`/`-` as their raw `OemPlus`/
+        `OemMinus` enum names; the clean shortcut text lives in the buttons' tooltips.)
       - **New Core primitive:** `SetClipPlacementCommand` sets a clip's source in/out **and** timeline start
         atomically (the move/trim/slip primitive), coalescing per clip — joining the step-10 command set.
       - **Tested geometry:** the tick↔pixel mapping, snapping, edge hit-testing, and ruler-interval selection

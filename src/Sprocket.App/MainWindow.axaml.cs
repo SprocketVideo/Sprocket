@@ -266,6 +266,7 @@ public partial class MainWindow : Window
         // ── View ──
         this.FindControl<MenuItem>("ZoomInMenuItem")!.Click += (_, _) => _timeline?.ZoomIn();
         this.FindControl<MenuItem>("ZoomOutMenuItem")!.Click += (_, _) => _timeline?.ZoomOut();
+        this.FindControl<MenuItem>("ZoomToFitMenuItem")!.Click += (_, _) => _timeline?.ZoomToFit();
         _snappingMenuItem = this.FindControl<MenuItem>("SnappingMenuItem")!;
         _guidesMenuItem = this.FindControl<MenuItem>("GuidesMenuItem")!;
         _showProjectMenuItem = this.FindControl<MenuItem>("ShowProjectMenuItem")!;
@@ -297,6 +298,11 @@ public partial class MainWindow : Window
         if (ctrl && shift && e.Key == Key.Z) { _history.Redo(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.Z) { _history.Undo(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.Y) { _history.Redo(); e.Handled = true; return; }
+        // Timeline zoom (Resolve/FCP convention). Ctrl++/Ctrl+- are safe with a focused text field; the bare
+        // Shift+Z "zoom to fit" is gated below the text-box guard. OemPlus/OemMinus are the main-row =/- keys;
+        // Add/Subtract are the numpad equivalents.
+        if (ctrl && (e.Key == Key.OemPlus || e.Key == Key.Add)) { _timeline?.ZoomIn(); e.Handled = true; return; }
+        if (ctrl && (e.Key == Key.OemMinus || e.Key == Key.Subtract)) { _timeline?.ZoomOut(); e.Handled = true; return; }
 
         // Below here are transport / editing keys that must not steal input from a focused text field
         // (the media-bin search box, the Inspector numeric boxes).
@@ -312,6 +318,7 @@ public partial class MainWindow : Window
         // Jump-to-previous/next-keyframe of the selected clip (Premiere uses [ / ], step 16d).
         else if (e.Key == Key.OemOpenBrackets) { JumpToKeyframe(-1); e.Handled = true; }
         else if (e.Key == Key.OemCloseBrackets) { JumpToKeyframe(+1); e.Handled = true; }
+        else if (shift && e.Key == Key.Z) { _timeline?.ZoomToFit(); e.Handled = true; }
         else if (e.Key == Key.Space) { _active?.TogglePlayPause(); e.Handled = true; }
     }
 
