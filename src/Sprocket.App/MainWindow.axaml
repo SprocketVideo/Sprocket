@@ -8,6 +8,7 @@
         MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Title="Sprocket"
+        Icon="/Assets/sprocket.png"
         Background="{DynamicResource WindowBg}"
         WindowDecorations="BorderOnly">
 
@@ -26,10 +27,9 @@
       <Grid ColumnDefinitions="Auto,Auto,*,Auto">
 
         <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="12,0,6,0" VerticalAlignment="Center">
-          <Border Width="22" Height="22" Background="{DynamicResource Accent}" CornerRadius="5" Margin="0,0,8,0">
-            <TextBlock Text="S" Foreground="White" FontWeight="Bold" FontSize="13"
-                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-          </Border>
+          <Image Source="/Assets/sprocket.png" Width="22" Height="22" Margin="0,0,8,0"
+                 VerticalAlignment="Center" />
+
           <TextBlock Text="Sprocket" Foreground="{DynamicResource Text}" FontWeight="SemiBold"
                      FontSize="13" VerticalAlignment="Center" />
         </StackPanel>

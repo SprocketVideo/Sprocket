@@ -1,8 +1,11 @@
+using System;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 
 namespace Sprocket.App;
 
@@ -21,28 +24,28 @@ internal static class Palette
     public static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#4227a3"));
 }
 
+/// <summary>The app icon, loaded once from the embedded avares resource and shared by the About box and any
+/// code-built dialog windows. (MainWindow / its taskbar icon are wired directly in MainWindow.axaml.)</summary>
+internal static class AppIcon
+{
+    public static readonly Bitmap Bitmap =
+        new(AssetLoader.Open(new Uri("avares://Sprocket/Assets/sprocket.png")));
+
+    public static WindowIcon Window => new(Bitmap);
+}
+
 /// <summary>The "About Sprocket" box. Deliberately carries no framework / runtime text (UI.md §3.7) — just the
 /// product name, the app's own version, and a one-line description.</summary>
 internal static class AboutDialog
 {
     public static Task Show(Window owner)
     {
-        var logo = new Border
+        var logo = new Image
         {
-            Width = 40,
-            Height = 40,
-            Background = Palette.Accent,
-            CornerRadius = new CornerRadius(9),
+            Width = 48,
+            Height = 48,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Child = new TextBlock
-            {
-                Text = "S",
-                Foreground = Brushes.White,
-                FontWeight = FontWeight.Bold,
-                FontSize = 22,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
+            Source = AppIcon.Bitmap,
         };
 
         var close = new Button
@@ -58,6 +61,7 @@ internal static class AboutDialog
         var dialog = new Window
         {
             Title = "About Sprocket",
+            Icon = AppIcon.Window,
             Width = 380,
             Height = 240,
             CanResize = false,
@@ -73,7 +77,7 @@ internal static class AboutDialog
                     logo,
                     Centered("Sprocket", 20, FontWeight.SemiBold, Palette.Text),
                     Centered($"Version {Program.AppVersion}", 12, FontWeight.Normal, Palette.MutedText),
-                    Centered("A non-destructive, cross-platform video editor.", 12, FontWeight.Normal, Palette.MutedText),
+                    Centered("A cross-platform, non-destructive video editor — free and open source.", 12, FontWeight.Normal, Palette.MutedText),
                     close,
                 },
             },
@@ -121,6 +125,7 @@ internal static class ConfirmDialog
         var dialog = new Window
         {
             Title = title,
+            Icon = AppIcon.Window,
             Width = 400,
             Height = 170,
             CanResize = false,

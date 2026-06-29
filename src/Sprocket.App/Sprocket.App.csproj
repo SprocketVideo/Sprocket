@@ -18,7 +18,15 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Embedded in the Windows PE binary; this is the icon file browsers / the taskbar show.
+         Windows-only — Linux/macOS app icons are handled by per-RID packaging (PLAN.md steps 24-25). -->
+    <ApplicationIcon>Assets/sprocket.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <!-- App icon assets, served to the UI as avares:// resources (window icon, header badge, About box). -->
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.0.5" />

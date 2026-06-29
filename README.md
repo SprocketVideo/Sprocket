@@ -1,6 +1,11 @@
+<img src="screenshots/sprocket-icon.png" alt="Sprocket icon" width="96" align="left" />
+
 # Sprocket
 
-**A cross-platform, non-destructive video editor built on .NET 10 and C#.**
+**A cross-platform, non-destructive video editor — free and open source.**
+
+<br clear="left" />
+
 
 Sprocket runs on Windows 11, Linux, and macOS from a single managed codebase. It pairs a pure-data
 timeline model with GPU compositing (SkiaSharp) and library-level FFmpeg decode/encode, so C# acts
