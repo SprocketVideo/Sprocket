@@ -10,19 +10,43 @@ namespace Sprocket.Core.Rendering;
 /// resolution is pure data it is reused identically for preview and export and is trivial to unit-test
 /// headlessly — no Skia, no FFmpeg, no GPU.
 /// </summary>
+/// <remarks>
+/// A nested-sequence clip (PLAN.md step 23) resolves <b>recursively</b>: the planner descends into the child
+/// sequence at the mapped time, producing a nested plan carried on the layer — "the graph already turns a
+/// (timeline, t) into a frame" (ARCHITECTURE.md §5/§17). The recursion tracks the sequences on the current path
+/// so a cycle (a sequence containing itself, directly or transitively) contributes nothing instead of looping
+/// forever, and stops at <see cref="SequenceGraph.MaxNestingDepth"/>.
+/// </remarks>
 public static class RenderGraph
 {
     /// <summary>
-    /// Resolves the composited-frame plan at timeline time <paramref name="t"/>: for each enabled
-    /// video track, bottom→top, find the active clip, map the time into its source, and evaluate its
-    /// effect stack. Tracks with no active clip contribute no layer.
+    /// Resolves the composited-frame plan for the project's <see cref="Project.ActiveSequence"/> at timeline
+    /// time <paramref name="t"/>.
     /// </summary>
     public static VideoFramePlan PlanVideoFrame(Project project, Timecode t)
     {
         ArgumentNullException.ThrowIfNull(project);
+        return PlanVideoFrame(project, project.ActiveSequence, t);
+    }
 
+    /// <summary>
+    /// Resolves the composited-frame plan for <paramref name="sequence"/> at timeline time <paramref name="t"/>:
+    /// for each enabled video track, bottom→top, find the active clip, map the time into its source, and evaluate
+    /// its effect stack. A nested-sequence clip resolves its child recursively (PLAN.md step 23). Tracks with no
+    /// active clip contribute no layer.
+    /// </summary>
+    public static VideoFramePlan PlanVideoFrame(Project project, Sequence sequence, Timecode t)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(sequence);
+        return PlanVideoFrameCore(project, sequence, t, [sequence.Id], depth: 0);
+    }
+
+    private static VideoFramePlan PlanVideoFrameCore(
+        Project project, Sequence sequence, Timecode t, HashSet<SequenceId> path, int depth)
+    {
         var layers = new List<VideoLayer>();
-        foreach (VideoTrack track in project.Timeline.VideoTracks)
+        foreach (VideoTrack track in sequence.Timeline.VideoTracks)
         {
             if (!track.Enabled)
                 continue;
@@ -33,26 +57,65 @@ public static class RenderGraph
 
             Timecode sourceT = clip.MapToSource(t);
             IReadOnlyList<ResolvedEffect> effects = ResolveEffectsCore(clip, t);
-            layers.Add(clip.Kind switch
+            switch (clip.Kind)
             {
-                ClipKind.Generator => new VideoLayer(
-                    default, sourceT, effects, track.Opacity, track.BlendMode,
-                    LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t)),
-                ClipKind.Adjustment => new VideoLayer(
-                    default, sourceT, effects, track.Opacity, track.BlendMode, LayerKind.Adjustment),
-                _ => new VideoLayer(clip.MediaRefId, sourceT, effects, track.Opacity, track.BlendMode),
-            });
+                case ClipKind.Generator:
+                    layers.Add(new VideoLayer(
+                        default, sourceT, effects, track.Opacity, track.BlendMode,
+                        LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t)));
+                    break;
+
+                case ClipKind.Adjustment:
+                    layers.Add(new VideoLayer(
+                        default, sourceT, effects, track.Opacity, track.BlendMode, LayerKind.Adjustment));
+                    break;
+
+                case ClipKind.Sequence:
+                    // A valid, in-bounds, non-cyclic nested sequence carries its resolved child plan; a missing /
+                    // cyclic / too-deep reference contributes nothing (renders as empty, like an offline source §15).
+                    if (PlanNestedVideo(project, clip, sourceT, path, depth) is { } nested)
+                        layers.Add(new VideoLayer(
+                            default, sourceT, effects, track.Opacity, track.BlendMode,
+                            LayerKind.Sequence, NestedPlan: nested));
+                    break;
+
+                default:
+                    layers.Add(new VideoLayer(clip.MediaRefId, sourceT, effects, track.Opacity, track.BlendMode));
+                    break;
+            }
         }
 
-        return new VideoFramePlan(project.Timeline.Resolution, t, layers);
+        return new VideoFramePlan(sequence.Timeline.Resolution, t, layers);
+    }
+
+    /// <summary>Resolves the child plan for a nested-sequence clip at the clip-local time <paramref name="childTime"/>,
+    /// or <see langword="null"/> when the reference is missing, would exceed the depth guard, or would form a cycle.</summary>
+    private static VideoFramePlan? PlanNestedVideo(
+        Project project, Clip clip, Timecode childTime, HashSet<SequenceId> path, int depth)
+    {
+        if (clip.SourceSequenceId is not { } childId || depth + 1 > SequenceGraph.MaxNestingDepth)
+            return null;
+        if (project.GetSequence(childId) is not { } child)
+            return null;
+        if (!path.Add(childId))
+            return null; // childId already on the recursion path → cycle
+
+        try
+        {
+            return PlanVideoFrameCore(project, child, childTime, path, depth + 1);
+        }
+        finally
+        {
+            path.Remove(childId); // leave the path as we found it so sibling nests of the same child still resolve
+        }
     }
 
     /// <summary>
-    /// Resolves the audio buffer plan for the half-open range
-    /// <c>[<paramref name="bufferStart"/>, bufferStart + <paramref name="bufferDuration"/>)</c>:
-    /// for each audible audio track (mute/solo honoured), find the active clip, map to source, and
-    /// compute the linear gain at both ends of the buffer (track gain × fade envelope) so the mixer
-    /// can ramp across it.
+    /// Resolves the audio buffer plan for the project's <see cref="Project.ActiveSequence"/> over the half-open
+    /// range <c>[<paramref name="bufferStart"/>, bufferStart + <paramref name="bufferDuration"/>)</c>: for each
+    /// audible audio track (mute/solo honoured), find the active clip, map to source, and compute the linear gain
+    /// at both ends of the buffer (track gain × fade envelope) so the mixer can ramp across it. A nested-sequence
+    /// clip resolves its child's audio recursively (PLAN.md step 23).
     /// </summary>
     public static AudioBufferPlan PlanAudioBuffer(Project project, Timecode bufferStart, Timecode bufferDuration)
     {
@@ -60,11 +123,21 @@ public static class RenderGraph
         if (bufferDuration.Ticks < 0)
             throw new ArgumentOutOfRangeException(nameof(bufferDuration), "Buffer duration must be non-negative.");
 
+        // The project master gain is applied once, at the root; nested sub-mixes carry unity master gain.
+        return PlanAudioBufferCore(
+            project, project.ActiveSequence, bufferStart, bufferDuration,
+            DbToLinear(project.Settings.MasterGainDb), [project.ActiveSequence.Id], depth: 0);
+    }
+
+    private static AudioBufferPlan PlanAudioBufferCore(
+        Project project, Sequence sequence, Timecode bufferStart, Timecode bufferDuration,
+        double masterGainLinear, HashSet<SequenceId> path, int depth)
+    {
         Timecode bufferEnd = bufferStart + bufferDuration;
-        bool anySolo = project.Timeline.AudioTracks.Any(at => at is { Enabled: true, Solo: true });
+        bool anySolo = sequence.Timeline.AudioTracks.Any(at => at is { Enabled: true, Solo: true });
 
         var layers = new List<AudioLayer>();
-        foreach (AudioTrack track in project.Timeline.AudioTracks)
+        foreach (AudioTrack track in sequence.Timeline.AudioTracks)
         {
             if (!track.Enabled || track.Muted)
                 continue;
@@ -78,10 +151,44 @@ public static class RenderGraph
             double trackGain = DbToLinear(track.GainDb);
             double gainStart = trackGain * FadeGain(clip, bufferStart);
             double gainEnd = trackGain * FadeGain(clip, bufferEnd);
-            layers.Add(new AudioLayer(clip.MediaRefId, clip.MapToSource(bufferStart), gainStart, gainEnd, clip.SpeedRatio));
+
+            if (clip.Kind == ClipKind.Sequence)
+            {
+                // A nested sequence's audio is a sub-mix the nesting clip's gain/fade applies over. (Retiming a
+                // nested clip's audio is deferred — the child sub-mix plays at 1×; see PLAN.md step 23.)
+                AudioBufferPlan? nested = PlanNestedAudio(project, clip, bufferStart, bufferDuration, path, depth);
+                if (nested is not null)
+                    layers.Add(new AudioLayer(default, clip.MapToSource(bufferStart), gainStart, gainEnd, clip.SpeedRatio, nested));
+            }
+            else
+            {
+                layers.Add(new AudioLayer(clip.MediaRefId, clip.MapToSource(bufferStart), gainStart, gainEnd, clip.SpeedRatio));
+            }
         }
 
-        return new AudioBufferPlan(bufferStart, bufferDuration, layers, DbToLinear(project.Settings.MasterGainDb));
+        return new AudioBufferPlan(bufferStart, bufferDuration, layers, masterGainLinear);
+    }
+
+    private static AudioBufferPlan? PlanNestedAudio(
+        Project project, Clip clip, Timecode bufferStart, Timecode bufferDuration, HashSet<SequenceId> path, int depth)
+    {
+        if (clip.SourceSequenceId is not { } childId || depth + 1 > SequenceGraph.MaxNestingDepth)
+            return null;
+        if (project.GetSequence(childId) is not { } child)
+            return null;
+        if (!path.Add(childId))
+            return null;
+
+        try
+        {
+            // Map the buffer's start into the child's timeline; the sub-mix is rendered at unity master gain.
+            return PlanAudioBufferCore(
+                project, child, clip.MapToSource(bufferStart), bufferDuration, 1.0, path, depth + 1);
+        }
+        finally
+        {
+            path.Remove(childId);
+        }
     }
 
     /// <summary>
@@ -89,7 +196,8 @@ public static class RenderGraph
     /// content, fold its effect chain, and composite it on. Returns the snapshotted composited frame. This is the
     /// single code path shared by preview and export. Generator layers draw via
     /// <see cref="IVideoCompositor{TImage}.CreateGeneratorFrame"/>; an adjustment layer applies its effects to a
-    /// snapshot of the composite so far and blends the result back (ARCHITECTURE.md §5, PLAN.md step 19).
+    /// snapshot of the composite so far; a nested-sequence layer is rendered <b>recursively</b> from its
+    /// <see cref="VideoLayer.NestedPlan"/> (ARCHITECTURE.md §5, PLAN.md steps 19/23).
     /// </summary>
     public static TImage Render<TImage>(
         VideoFramePlan plan,
@@ -104,11 +212,13 @@ public static class RenderGraph
         foreach (VideoLayer layer in plan.Layers)
         {
             // An adjustment layer has no content of its own: take what is already composited beneath it, run the
-            // layer's effects over that, and blend the graded result back with the layer's opacity/blend.
+            // layer's effects over that, and blend the graded result back with the layer's opacity/blend. A nested
+            // sequence renders its child plan recursively into its own frame, then composites like any layer.
             TImage frame = layer.Kind switch
             {
                 LayerKind.Generator => compositor.CreateGeneratorFrame(layer.Generator!, plan.Resolution, layer.SourceTime),
                 LayerKind.Adjustment => compositor.Snapshot(surface),
+                LayerKind.Sequence => Render(layer.NestedPlan!, frameSource, compositor),
                 _ => frameSource.GetFrame(layer.MediaRefId, layer.SourceTime),
             };
 

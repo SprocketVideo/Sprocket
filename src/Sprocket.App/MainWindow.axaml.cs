@@ -79,6 +79,7 @@ public partial class MainWindow : Window
     // Command-menu items refreshed on submenu open (context-enabling) + the View toggles / panes.
     private MenuItem? _cutMenuItem, _copyMenuItem, _pasteMenuItem, _deleteMenuItem, _rippleDeleteMenuItem;
     private MenuItem? _unlinkMenuItem, _nudgeLeftMenuItem, _nudgeRightMenuItem, _clipSpeedMenuItem;
+    private MenuItem? _nestMenuItem, _openSequenceMenuItem; // Sequence menu (PLAN.md step 23)
     private MenuItem? _snappingMenuItem, _guidesMenuItem, _showProjectMenuItem, _showInspectorMenuItem;
     private System.Collections.Generic.IReadOnlyList<MenuItem> _effectsMenuItems = [];
     private ToggleButton? _snappingToggle, _guidesToggle;
@@ -318,6 +319,14 @@ public partial class MainWindow : Window
         _showInspectorMenuItem.Click += (_, _) => SetPanelVisible(project: false, _showInspectorMenuItem.IsChecked == true);
         this.FindControl<MenuItem>("ViewMenu")!.SubmenuOpened += (_, _) => RefreshViewMenu();
 
+        // ── Sequence (multiple sequences + nested/compound clips, PLAN.md step 23) ──
+        this.FindControl<MenuItem>("NewSequenceMenuItem")!.Click += (_, _) => NewSequence();
+        this.FindControl<MenuItem>("SequenceSettingsMenuItem")!.Click += async (_, _) => await ShowSequenceSettingsAsync();
+        _nestMenuItem = this.FindControl<MenuItem>("NestMenuItem")!;
+        _nestMenuItem.Click += (_, _) => NestSelection();
+        _openSequenceMenuItem = this.FindControl<MenuItem>("OpenSequenceMenuItem")!;
+        this.FindControl<MenuItem>("SequenceMenu")!.SubmenuOpened += (_, _) => RefreshSequenceMenu();
+
         // ── Window ──
         this.FindControl<MenuItem>("ResetLayoutMenuItem")!.Click += (_, _) => ResetLayout();
     }
@@ -442,20 +451,37 @@ public partial class MainWindow : Window
             _projectName = mediaPath is null ? "Untitled" : Path.GetFileNameWithoutExtension(mediaPath);
         }
         UpdateProjectTitle();
-
-        Timeline timeline = _project.Timeline;
-        double fps = Fps(timeline.FrameRate);
-        (int w, int h) = (timeline.Resolution.Width, timeline.Resolution.Height);
-        string resLabel = h switch { 2160 => "4K", 1080 => "1080p", 720 => "720p", _ => $"{w}×{h}" };
-        this.FindControl<TextBlock>("SequenceBadge")!.Text = $"{resLabel} · {fps:0.##}";
-
-        Timecode duration = _engine?.Duration ?? timeline.Duration;
-        _telemetryText!.Text = $"{fps:0.##} fps · {w}×{h} · {FormatTime(duration)}";
-
+        UpdateSequenceBadge();
+        UpdateTelemetry();
         UpdateTimelineHeader();
     }
 
     private void UpdateProjectTitle() => this.FindControl<TextBlock>("ProjectTitleText")!.Text = _projectName;
+
+    /// <summary>The sequence badge: the active sequence's name and render format (PLAN.md step 23). With one
+    /// sequence it reads like the pre-step-23 badge plus the name.</summary>
+    private void UpdateSequenceBadge()
+    {
+        if (_project is null)
+            return;
+        Timeline timeline = _project.Timeline;
+        double fps = Fps(timeline.FrameRate);
+        (int w, int h) = (timeline.Resolution.Width, timeline.Resolution.Height);
+        string resLabel = h switch { 2160 => "4K", 1080 => "1080p", 720 => "720p", _ => $"{w}×{h}" };
+        this.FindControl<TextBlock>("SequenceBadge")!.Text = $"{_project.ActiveSequence.Name} · {resLabel} · {fps:0.##}";
+    }
+
+    /// <summary>The status-bar telemetry: fps · resolution · duration of the active sequence (UI.md §3.7).</summary>
+    private void UpdateTelemetry()
+    {
+        if (_project is null)
+            return;
+        Timeline timeline = _project.Timeline;
+        double fps = Fps(timeline.FrameRate);
+        (int w, int h) = (timeline.Resolution.Width, timeline.Resolution.Height);
+        Timecode duration = _engine?.Duration ?? timeline.Duration;
+        _telemetryText!.Text = $"{fps:0.##} fps · {w}×{h} · {FormatTime(duration)}";
+    }
 
     private void UpdateTimelineHeader()
     {
@@ -1011,6 +1037,12 @@ public partial class MainWindow : Window
 
     private void OnHistoryChanged()
     {
+        // Undoing a sequence-add (or a removal's redo) can strip the sequence that is currently open. Switching the
+        // active sequence is navigation, not part of the command (ARCHITECTURE.md §17), so heal it here: fall back
+        // to a surviving sequence so the editor never points at one no longer in the project (PLAN.md step 23).
+        if (_project is { } project && !project.Sequences.Contains(project.ActiveSequence) && project.Sequences.Count > 0)
+            SwitchToSequence(project.Sequences[^1]);
+
         _undoMenuItem!.IsEnabled = _history.CanUndo;
         _redoMenuItem!.IsEnabled = _history.CanRedo;
         _undoMenuItem.Header = _history.CanUndo ? $"_Undo {_history.UndoLabel}" : "_Undo";
@@ -1026,6 +1058,109 @@ public partial class MainWindow : Window
         // its own media. (_active is non-null only once the transport is wired.)
         if (_active is not null && ReferenceEquals(_active, _program))
             RefreshTransportForActive();
+    }
+
+    // ── Sequences: multiple sequences + nested/compound clips (PLAN.md step 23) ─────────────────────
+
+    /// <summary>Sequence ▸ New Sequence: creates a fresh empty sequence (one video + one audio track, the active
+    /// sequence's render format) through the command stack and opens it. Mirrors Premiere's File ▸ New ▸ Sequence,
+    /// which makes the new sequence the active one.</summary>
+    private void NewSequence()
+    {
+        if (_project is null)
+            return;
+
+        Timeline current = _project.Timeline;
+        var timeline = new Timeline(current.FrameRate, current.Resolution, current.SampleRate);
+        timeline.Tracks.Add(new VideoTrack { Name = "V1" });
+        timeline.Tracks.Add(new AudioTrack { Name = "A1" });
+        var sequence = new Sequence(SequenceId.New(), SequenceNaming.NextUnique(_project, "Sequence"), timeline);
+
+        _history.Execute(new AddSequenceCommand(_project, sequence));
+        SwitchToSequence(sequence);
+        SetStatus($"New sequence: {sequence.Name}");
+    }
+
+    /// <summary>Sequence ▸ Nest: nests the timeline selection (with its linked companions) into a new child
+    /// sequence (PLAN.md step 23). The heavy lifting is the tested <see cref="Core.Model.SequenceNesting"/>; this
+    /// just routes it and reports. A no-op when nothing is selected.</summary>
+    private void NestSelection()
+    {
+        if (_timeline?.NestSelection() is { } child)
+            SetStatus($"Nested selection into {child.Name}");
+    }
+
+    /// <summary>
+    /// Opens a sequence in the timeline in place (PLAN.md step 23): re-points the model's active sequence, re-points
+    /// the Program monitor + preview at its (possibly different) resolution, and rewinds so the engine's pump
+    /// reconciles its per-track players onto the new sequence's tracks. The edit history is shared across sequences,
+    /// so undo/redo keeps working after a switch. <paramref name="sequence"/> must be one of the project's sequences.
+    /// </summary>
+    private void SwitchToSequence(Sequence sequence)
+    {
+        if (_project is null || ReferenceEquals(_project.ActiveSequence, sequence))
+            return;
+
+        _project.ActiveSequence = sequence; // throws if not a member; callers only pass project sequences
+
+        Resolution res = sequence.Timeline.Resolution;
+        _program?.SetFrameSize(res.Width, res.Height);
+        _engine?.SeekTo(Timecode.Zero); // pump reconciles players to the new tracks and presents frame 0
+        if (_active is not null && ReferenceEquals(_active, _program))
+        {
+            BindActiveToSurface();
+            RefreshTransportForActive();
+        }
+
+        _timeline?.OnActiveSequenceChanged(); // drop the (old-sequence) selection + repaint on the new timeline
+        UpdateSequenceBadge();
+        UpdateTelemetry();
+        UpdateTimelineHeader();
+    }
+
+    /// <summary>On Sequence-menu open: enables Nest only with a selection, and (re)builds the Open Sequence
+    /// submenu listing every sequence with the active one checked (PLAN.md step 23).</summary>
+    private void RefreshSequenceMenu()
+    {
+        if (_nestMenuItem is not null)
+            _nestMenuItem.IsEnabled = _timeline?.HasSelection == true;
+
+        if (_openSequenceMenuItem is null || _project is null)
+            return;
+
+        var items = new List<MenuItem>(_project.Sequences.Count);
+        foreach (Sequence seq in _project.Sequences)
+        {
+            Sequence captured = seq; // capture per iteration
+            var item = new MenuItem
+            {
+                Header = seq.Name,
+                ToggleType = MenuItemToggleType.CheckBox,
+                IsChecked = ReferenceEquals(seq, _project.ActiveSequence),
+            };
+            item.Click += (_, _) => SwitchToSequence(captured);
+            items.Add(item);
+        }
+        _openSequenceMenuItem.ItemsSource = items;
+        _openSequenceMenuItem.IsEnabled = items.Count > 0;
+    }
+
+    /// <summary>Sequence ▸ Settings: shows the active sequence's render format and lets the user rename it
+    /// (undoable). The format is fixed after creation in this build (a format change would re-scale every clip's
+    /// geometry), so it is shown read-only — matching how most editors gate sequence-settings changes.</summary>
+    private async Task ShowSequenceSettingsAsync()
+    {
+        if (_project is null)
+            return;
+
+        Sequence active = _project.ActiveSequence;
+        if (await SequenceSettingsDialog.Show(this, active) is not { } newName || newName == active.Name)
+            return;
+
+        _history.Execute(SetPropertyCommand<string>.Create(
+            "Rename sequence", () => active.Name, v => active.Name = v, newName));
+        UpdateSequenceBadge();
+        SetStatus($"Renamed sequence to {newName}");
     }
 
     // ── Import ──────────────────────────────────────────────────────────────────────────────────────

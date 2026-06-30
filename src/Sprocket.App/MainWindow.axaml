@@ -81,11 +81,16 @@
             <MenuItem x:Name="NudgeLeftMenuItem" Header="Nudge _Left" InputGesture="Alt+Left" IsEnabled="False" />
             <MenuItem x:Name="NudgeRightMenuItem" Header="Nudge _Right" InputGesture="Alt+Right" IsEnabled="False" />
           </MenuItem>
-          <!-- Sequences (multiple/nested) land in step 19b — the whole menu stays disabled until then. -->
-          <MenuItem x:Name="SequenceMenu" Header="_Sequence" IsEnabled="False">
-            <MenuItem Header="_New Sequence…" IsEnabled="False" />
-            <MenuItem Header="Sequence _Settings…" IsEnabled="False" />
-            <MenuItem Header="_Nest…" IsEnabled="False" />
+          <!-- Sequences: multiple sequences + nested/compound clips (PLAN.md step 23). New / Open / Settings are
+               always available; Nest enables when a clip is selected; Open Sequence lists every sequence (the
+               active one checked) and is populated on submenu-open in RefreshSequenceMenu. -->
+          <MenuItem x:Name="SequenceMenu" Header="_Sequence">
+            <MenuItem x:Name="NewSequenceMenuItem" Header="_New Sequence" />
+            <MenuItem x:Name="OpenSequenceMenuItem" Header="_Open Sequence" />
+            <Separator />
+            <MenuItem x:Name="NestMenuItem" Header="_Nest" IsEnabled="False" />
+            <Separator />
+            <MenuItem x:Name="SequenceSettingsMenuItem" Header="Sequence _Settings…" />
           </MenuItem>
           <!-- Effects menu is populated from EffectCatalog at runtime (WireCommandMenus). -->
           <MenuItem x:Name="EffectsMenu" Header="Effe_cts" />

@@ -179,9 +179,23 @@ public static class VideoExporter
         Timecode t = Timecode.FromFrames(frameIndex, fps);
         VideoFramePlan plan = RenderGraph.PlanVideoFrame(project, t);
 
-        SKCanvas canvas = surface.Canvas;
-        canvas.Clear(SKColors.Black);
+        surface.Canvas.Clear(SKColors.Black);
+        CompositePlan(project, plan, surface, pipeline, fullRect, providers);
+        surface.Canvas.Flush();
+    }
 
+    /// <summary>
+    /// Composites one resolved plan onto <paramref name="surface"/> (already cleared by the caller): each layer
+    /// bottom→top with its effect chain, opacity, and blend. A nested-sequence layer renders its child plan into a
+    /// transparent offscreen surface and composites the result like any image layer (PLAN.md step 23) — the
+    /// recursive "the graph turns a (timeline, t) into a frame" rule, on the deterministic export path.
+    /// </summary>
+    private static void CompositePlan(
+        Project project, VideoFramePlan plan,
+        SKSurface surface, SkiaEffectPipeline pipeline, SKRect bounds,
+        Dictionary<MediaRefId, ExportFrameProvider?> providers)
+    {
+        SKCanvas canvas = surface.Canvas;
         foreach (VideoLayer layer in plan.Layers)
         {
             switch (layer.Kind)
@@ -189,14 +203,28 @@ public static class VideoExporter
                 case LayerKind.Generator:
                     // A generator fills the sequence frame; render at full resolution then composite (PLAN.md step 19).
                     pipeline.DrawGenerator(
-                        canvas, fullRect, layer.Generator!, (int)fullRect.Width, (int)fullRect.Height,
+                        canvas, bounds, layer.Generator!, (int)bounds.Width, (int)bounds.Height,
                         layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode));
                     break;
 
                 case LayerKind.Adjustment:
                     // Apply the adjustment's effects to everything composited beneath it (PLAN.md step 19).
-                    pipeline.DrawAdjustment(surface, fullRect, layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode));
+                    pipeline.DrawAdjustment(surface, bounds, layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode));
                     break;
+
+                case LayerKind.Sequence:
+                {
+                    // Render the child sequence into its own transparent surface, then composite it like any image
+                    // layer with this (nesting) clip's effect chain / opacity / blend (PLAN.md step 23).
+                    if (RenderNestedSequence(project, layer.NestedPlan!, pipeline, providers) is not { } nestedImage)
+                        break;
+                    using (nestedImage)
+                    {
+                        SKRect dest = FramePresenter.ComputeFitRect(bounds, nestedImage.Width, nestedImage.Height);
+                        pipeline.DrawImageLayer(canvas, dest, nestedImage, layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode));
+                    }
+                    break;
+                }
 
                 default:
                 {
@@ -205,7 +233,7 @@ public static class VideoExporter
                     if (frame is null)
                         continue;
 
-                    SKRect dest = FramePresenter.ComputeFitRect(fullRect, frame.Width, frame.Height);
+                    SKRect dest = FramePresenter.ComputeFitRect(bounds, frame.Width, frame.Height);
                     pipeline.DrawLayer(
                         canvas, dest, frame.Pixels, frame.RowBytes, frame.Width, frame.Height,
                         layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode));
@@ -213,8 +241,25 @@ public static class VideoExporter
                 }
             }
         }
+    }
 
-        canvas.Flush();
+    /// <summary>Renders a nested sequence's plan to a transparent offscreen <see cref="SKImage"/> at the child
+    /// sequence's resolution (recursing for deeper nests), or <see langword="null"/> if the surface can't be made.</summary>
+    private static SKImage? RenderNestedSequence(
+        Project project, VideoFramePlan nestedPlan,
+        SkiaEffectPipeline pipeline, Dictionary<MediaRefId, ExportFrameProvider?> providers)
+    {
+        int w = Math.Max(1, nestedPlan.Resolution.Width);
+        int h = Math.Max(1, nestedPlan.Resolution.Height);
+        var info = new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using SKSurface? nested = SKSurface.Create(info);
+        if (nested is null)
+            return null;
+
+        nested.Canvas.Clear(SKColors.Transparent); // transparent so empty child areas reveal the parent's lower layers
+        CompositePlan(project, nestedPlan, nested, pipeline, SKRect.Create(0, 0, w, h), providers);
+        nested.Canvas.Flush();
+        return nested.Snapshot();
     }
 
     /// <summary>Resolves (and caches) the full-resolution frame provider for a media id, or <see langword="null"/>
@@ -261,20 +306,39 @@ public static class VideoExporter
         }
     }
 
-    /// <summary>Whether the project has any audio track carrying at least one clip whose source has audio.</summary>
-    private static bool HasAudibleAudio(Project project)
+    /// <summary>Whether the export will have audible audio — any enabled audio track (in the active sequence or,
+    /// recursively, a nested one) carrying a clip whose source has audio (PLAN.md step 23).</summary>
+    private static bool HasAudibleAudio(Project project) =>
+        SequenceHasAudio(project, project.ActiveSequence, []);
+
+    private static bool SequenceHasAudio(Project project, Sequence sequence, HashSet<SequenceId> path)
     {
-        foreach (AudioTrack track in project.Timeline.AudioTracks)
+        if (!path.Add(sequence.Id))
+            return false; // cycle guard
+        try
         {
-            if (!track.Enabled)
-                continue;
-            foreach (Clip clip in track.Clips)
+            foreach (AudioTrack track in sequence.Timeline.AudioTracks)
             {
-                if (project.MediaPool.Get(clip.MediaRefId) is { Info.HasAudio: true })
-                    return true;
+                if (!track.Enabled)
+                    continue;
+                foreach (Clip clip in track.Clips)
+                {
+                    if (clip.Kind == ClipKind.Sequence)
+                    {
+                        if (clip.SourceSequenceId is { } id && project.GetSequence(id) is { } child
+                            && SequenceHasAudio(project, child, path))
+                            return true;
+                    }
+                    else if (project.MediaPool.Get(clip.MediaRefId) is { Info.HasAudio: true })
+                        return true;
+                }
             }
+            return false;
         }
-        return false;
+        finally
+        {
+            path.Remove(sequence.Id);
+        }
     }
 
     private static double ComputeProgress(long nextVideoIndex, Rational fps, Timecode duration)

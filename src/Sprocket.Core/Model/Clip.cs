@@ -14,6 +14,11 @@ public enum ClipKind
     /// <summary>An adjustment layer: no content of its own; its effect stack applies to the composite of every
     /// track beneath it for its time span (ARCHITECTURE.md §5, modelled like Premiere).</summary>
     Adjustment,
+
+    /// <summary>A nested sequence / compound clip: the clip's content is another <see cref="Sequence"/> rendered
+    /// at the mapped source time (PLAN.md step 23). The referenced sequence is named by
+    /// <see cref="Clip.SourceSequenceId"/> — a reference, not a copy.</summary>
+    Sequence,
 }
 
 /// <summary>
@@ -21,19 +26,20 @@ public enum ClipKind
 /// The source bytes are never modified: trimming edits <see cref="SourceIn"/>/<see cref="SourceOut"/>,
 /// moving edits <see cref="TimelineStart"/>, and effects are an additive ordered list. The frame at
 /// any timeline time is reconstructed on demand from these descriptors.
-/// A clip may instead be a <see cref="ClipKind.Generator"/> (procedural content) or a
-/// <see cref="ClipKind.Adjustment"/> layer (effects over the tracks below) — both have no source media but
-/// trim / move / stack and carry effects like any clip (PLAN.md step 19).
+/// A clip may instead be a <see cref="ClipKind.Generator"/> (procedural content), a
+/// <see cref="ClipKind.Adjustment"/> layer (effects over the tracks below), or a <see cref="ClipKind.Sequence"/>
+/// (a nested sequence, PLAN.md step 23) — none has source media but all trim / move / stack and carry effects
+/// like any clip (PLAN.md step 19).
 /// </summary>
 public sealed class Clip
 {
     /// <summary>Creates a media clip referencing a source span and placing it on the timeline.</summary>
     public Clip(MediaRefId mediaRefId, Timecode sourceIn, Timecode sourceOut, Timecode timelineStart)
-        : this(ClipKind.Media, mediaRefId, generator: null, sourceIn, sourceOut, timelineStart)
+        : this(ClipKind.Media, mediaRefId, generator: null, sourceSequenceId: null, sourceIn, sourceOut, timelineStart)
     {
     }
 
-    private Clip(ClipKind kind, MediaRefId mediaRefId, GeneratorSpec? generator,
+    private Clip(ClipKind kind, MediaRefId mediaRefId, GeneratorSpec? generator, SequenceId? sourceSequenceId,
         Timecode sourceIn, Timecode sourceOut, Timecode timelineStart)
     {
         if (sourceOut < sourceIn)
@@ -42,6 +48,7 @@ public sealed class Clip
         Kind = kind;
         MediaRefId = mediaRefId;
         Generator = generator;
+        SourceSequenceId = sourceSequenceId;
         SourceIn = sourceIn;
         SourceOut = sourceOut;
         TimelineStart = timelineStart;
@@ -55,7 +62,7 @@ public sealed class Clip
     public static Clip CreateGenerator(GeneratorSpec generator, Timecode duration, Timecode timelineStart)
     {
         ArgumentNullException.ThrowIfNull(generator);
-        return new Clip(ClipKind.Generator, default, generator, Timecode.Zero, duration, timelineStart);
+        return new Clip(ClipKind.Generator, default, generator, sourceSequenceId: null, Timecode.Zero, duration, timelineStart);
     }
 
     /// <summary>
@@ -64,7 +71,16 @@ public sealed class Clip
     /// beneath it over the clip's time span.
     /// </summary>
     public static Clip CreateAdjustment(Timecode duration, Timecode timelineStart) =>
-        new(ClipKind.Adjustment, default, generator: null, Timecode.Zero, duration, timelineStart);
+        new(ClipKind.Adjustment, default, generator: null, sourceSequenceId: null, Timecode.Zero, duration, timelineStart);
+
+    /// <summary>
+    /// Creates a nested-sequence clip (PLAN.md step 23): its content is the sequence identified by
+    /// <paramref name="sourceSequenceId"/>, placed over <c>[0, <paramref name="duration"/>)</c> in the child's
+    /// time. Trimming/slipping behaves like media (the child timeline is the source span); the clip carries
+    /// effects, opacity, and blend like any clip — so editing it edits the nested sequence as one unit.
+    /// </summary>
+    public static Clip CreateSequenceClip(SequenceId sourceSequenceId, Timecode duration, Timecode timelineStart) =>
+        new(ClipKind.Sequence, default, generator: null, sourceSequenceId, Timecode.Zero, duration, timelineStart);
 
     /// <summary>What this clip's frame is reconstructed from.</summary>
     public ClipKind Kind { get; }
@@ -72,6 +88,10 @@ public sealed class Clip
     /// <summary>The generator producing this clip's content, or <see langword="null"/> unless <see cref="Kind"/> is
     /// <see cref="ClipKind.Generator"/>.</summary>
     public GeneratorSpec? Generator { get; }
+
+    /// <summary>The nested sequence this clip renders, or <see langword="null"/> unless <see cref="Kind"/> is
+    /// <see cref="ClipKind.Sequence"/> (PLAN.md step 23). A reference by id into <see cref="Project.Sequences"/>.</summary>
+    public SequenceId? SourceSequenceId { get; }
 
     /// <summary>Which source (by id) this clip draws from. Unused (default) for generator / adjustment clips.</summary>
     public MediaRefId MediaRefId { get; set; }
@@ -148,5 +168,5 @@ public sealed class Clip
     /// new clip keeps a media/generator/adjustment clip's nature (PLAN.md steps 13/19).
     /// </summary>
     internal Clip CloneContentForSpan(Timecode sourceIn, Timecode sourceOut, Timecode timelineStart) =>
-        new(Kind, MediaRefId, Generator?.Clone(), sourceIn, sourceOut, timelineStart) { SpeedRatio = _speedRatio };
+        new(Kind, MediaRefId, Generator?.Clone(), SourceSequenceId, sourceIn, sourceOut, timelineStart) { SpeedRatio = _speedRatio };
 }

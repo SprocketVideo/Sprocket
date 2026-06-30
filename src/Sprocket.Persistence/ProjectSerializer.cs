@@ -75,8 +75,28 @@ public static class ProjectSerializer
         foreach (MediaRef m in project.MediaPool.Items)
             media.Add(ToDto(m, projectDir));
 
-        return new ProjectDto(SchemaVersion, media, ToDto(project.Timeline),
-            new SettingsDto(project.Settings.MasterGainDb, project.Settings.UseProxies, project.Settings.ProxyTier));
+        var settings = new SettingsDto(project.Settings.MasterGainDb, project.Settings.UseProxies, project.Settings.ProxyTier);
+
+        // Single sequence with no nesting → the legacy Timeline-only shape, byte-identical to pre-step-23 files.
+        // Multiple sequences or any nested-sequence clip → the Sequences shape (all sequences + the active id).
+        if (project.Sequences.Count <= 1 && !HasAnySequenceClip(project))
+            return new ProjectDto(SchemaVersion, media, ToDto(project.Timeline), settings);
+
+        var sequences = new List<SequenceDto>(project.Sequences.Count);
+        foreach (Sequence s in project.Sequences)
+            sequences.Add(new SequenceDto(s.Id.Value, s.Name, ToDto(s.Timeline)));
+        return new ProjectDto(SchemaVersion, media, Timeline: null, settings, sequences, project.ActiveSequence.Id.Value);
+    }
+
+    /// <summary>Whether any sequence holds a nested-sequence clip — which forces the multi-sequence wire shape.</summary>
+    private static bool HasAnySequenceClip(Project project)
+    {
+        foreach (Sequence s in project.Sequences)
+            foreach (Track t in s.Timeline.Tracks)
+                foreach (Clip c in t.Clips)
+                    if (c.Kind == ClipKind.Sequence)
+                        return true;
+        return false;
     }
 
     private static MediaRefDto ToDto(MediaRef media, string? projectDir)
@@ -144,7 +164,8 @@ public static class ProjectSerializer
         return new ClipDto(
             c.MediaRefId.Value, c.SourceIn.Ticks, c.SourceOut.Ticks, c.TimelineStart.Ticks, effects,
             c.LinkGroupId, kind, generator, ToMarkerList(c.Markers),
-            retimed ? c.SpeedRatio.Num : null, retimed ? c.SpeedRatio.Den : null);
+            retimed ? c.SpeedRatio.Num : null, retimed ? c.SpeedRatio.Den : null,
+            c.SourceSequenceId?.Value);
     }
 
     private static GeneratorDto ToDto(GeneratorSpec g)
@@ -183,13 +204,40 @@ public static class ProjectSerializer
 
     private static Project FromDto(ProjectDto dto, string? projectDir)
     {
-        var project = new Project(FromDto(dto.Timeline));
+        Project project = BuildSequences(dto);
         foreach (MediaRefDto m in dto.Media)
             project.MediaPool.Add(FromDto(m, projectDir));
         project.Settings.MasterGainDb = dto.Settings.MasterGainDb;
         project.Settings.UseProxies = dto.Settings.UseProxies;
         project.Settings.ProxyTier = dto.Settings.ProxyTier;
         return project;
+    }
+
+    /// <summary>Builds the project's sequences from whichever shape the file uses: the multi-sequence
+    /// <see cref="ProjectDto.Sequences"/> list (preserving each sequence's id so nested-clip references resolve),
+    /// or the legacy single <see cref="ProjectDto.Timeline"/> (pre-step-23 files / single-sequence projects).</summary>
+    private static Project BuildSequences(ProjectDto dto)
+    {
+        if (dto.Sequences is { Count: > 0 } seqDtos)
+        {
+            var project = new Project();
+            project.Sequences.Clear(); // drop the default sequence; restore the persisted ones with their ids
+            Sequence? active = null;
+            foreach (SequenceDto sd in seqDtos)
+            {
+                var seq = new Sequence(new SequenceId(sd.Id), sd.Name, FromDto(sd.Timeline));
+                project.Sequences.Add(seq);
+                if (sd.Id == dto.ActiveSequenceId)
+                    active = seq;
+            }
+            project.ActiveSequence = active ?? project.Sequences[0];
+            return project;
+        }
+
+        if (dto.Timeline is { } tl)
+            return new Project(FromDto(tl)); // single sequence: fresh id + default name
+
+        throw new InvalidDataException("The project file has neither a timeline nor any sequences.");
     }
 
     private static MediaRef FromDto(MediaRefDto m, string? projectDir)
@@ -258,6 +306,8 @@ public static class ProjectSerializer
                 Clip.CreateGenerator(FromDto(c.Generator!), sourceOut, start), sourceIn, sourceOut),
             ClipKind.Adjustment => RestoreSpan(
                 Clip.CreateAdjustment(sourceOut, start), sourceIn, sourceOut),
+            ClipKind.Sequence => RestoreSpan(
+                Clip.CreateSequenceClip(new SequenceId(c.SourceSequenceId ?? Guid.Empty), sourceOut, start), sourceIn, sourceOut),
             _ => new Clip(new MediaRefId(c.MediaRefId), sourceIn, sourceOut, start),
         };
         clip.LinkGroupId = c.LinkGroupId;

@@ -1318,6 +1318,61 @@ Tags reference the [UI.md §4 checklist](UI.md).
     blocks (generators, adjustment layers), and foundational for the compound editorial workflows below
     (multicam, render cache). Heavy nests can be **pre-rendered** so they don't recompute each playback
     pass (step 32, [ARCHITECTURE §20](ARCHITECTURE.md)).
+    - **✅ DONE (Core `Model/{Sequence,Project,Clip,SequenceGraph,SequenceNesting}` + `Rendering/{RenderPlan,RenderGraph}`
+      + `Commands/ModelCommands`; `Sprocket.Audio/AudioMixer`; `Sprocket.Export/VideoExporter`;
+      `Sprocket.Persistence/{ProjectDto,ProjectSerializer}`; `Sprocket.Playback/PlaybackEngine`; App
+      `MainWindow.axaml`/`.cs` + `Timeline/TimelineControl` + `{Monitors,PreviewSurface,Dialogs,SequenceNaming}`;
+      31 new headless tests — Core +21, Persistence +4, App +4, Audio +2 — + 1 sandbox-blocked Export test, all
+      green.)** Multiple named sequences + nested/compound clips land entirely on the existing seams (no redesign,
+      ARCHITECTURE.md §17): a nested-sequence clip is just a `Clip` whose source is a `SequenceId`, and the render
+      graph's existing (project, t) → frame/buffer recursion renders the child. Delivered:
+      - **Model (Core).** `Sequence` (id + name + the existing `Timeline` as its content) and a `SequenceId` value
+        type; `Project` now holds `Sequences` with an `ActiveSequence`, and `Project.Timeline` **delegates to the
+        active sequence** so the whole render/playback/export/App stack addresses it unchanged — multiple sequences
+        are purely additive. `Clip` gains `ClipKind.Sequence` + `SourceSequenceId` and a `CreateSequenceClip`
+        factory. `SequenceGraph` is the pure cycle/reachability reasoning (`WouldCreateCycle`, `MaxNestingDepth = 16`);
+        `SequenceNesting.CreateNest` builds the Premiere "Nest" / FCP "compound clip" edit (selection → new child
+        sequence, one linked V+A nested clip replaces it in the parent) as a single undoable `CompositeCommand`.
+        `AddSequenceCommand` / `RemoveSequenceCommand` (step 10); switching the *active* sequence is navigation, not
+        a command (so undo never strips it — the App self-heals if a sequence-add is undone).
+      - **Render graph (Core).** `PlanVideoFrame` / `PlanAudioBuffer` recurse through nested-sequence layers
+        (`LayerKind.Sequence` / `VideoLayer.NestedPlan`, `AudioLayer.NestedPlan`), carrying a **visited-set on the
+        recursion path for cycle detection** and a **depth guard**; the nested plan inherits the parent layer's
+        effects / opacity / blend (video) and gain envelope (audio), so a nest edits as one unit. Master gain is
+        applied once at the root. The generic `Render<TImage>` executor renders a `Sequence` layer by recursing on
+        its nested plan — the **same code drives preview and export** (determinism preserved).
+      - **Audio (mixer).** `AudioMixer` mixes a nested layer's child sub-mix into per-depth scratch buffers, applies
+        the nesting clip's gain/fade over the whole unit, then hard-limits once at the top — no per-frame managed
+        allocation (§1, §6). (Deferred: a **retimed** nested-sequence clip's audio plays at 1×.)
+      - **Persistence (additive, §12).** `Sequences` + `ActiveSequenceId` + `Clip.SourceSequenceId` serialize only
+        when used: a single-sequence project with no nesting writes the **byte-identical pre-step-23 Timeline-only
+        shape** (no schema bump); nested ids round-trip and resolve by preserved id (dangling refs render as nothing,
+        §15).
+      - **App (UI, manual/smoke-verified).** The **Sequence menu** is live — New Sequence (creates + opens a fresh
+        sequence in the active format), **Nest** (context-enabled with a selection; routes the selection + linked
+        companions through `SequenceNesting`), **Open Sequence ▸** (a submenu of every sequence, active checked,
+        click switches), and **Sequence Settings…** (read-only format + undoable rename). `SwitchToSequence` re-points
+        the model + Program monitor resolution + preview and rewinds so the engine's pump reconciles its players onto
+        the new sequence's tracks; the **sequence badge** now shows the active sequence's name + format. The timeline
+        labels nested clips with the child sequence's name and tints them a distinct teal. **Nested-sequence preview**
+        draws a placeholder fill (live nested compositing in the Program monitor is deferred to the render cache,
+        step 32 — the child renders fully on **export** and when **opened**; both are tested/exercised).
+      - **Tests + verification.** Core `SequenceTests` (model, render-graph recursion + time mapping + effects/opacity,
+        missing-ref, **direct cycle**, **deep-chain depth guard**, nested audio, executor over a fake compositor),
+        Audio `NestedAudioMixerTests` (nested audio reaches the mix; nesting-track gain applies to the whole sub-mix),
+        Persistence `SequencePersistenceTests` (multi-sequence + nested round-trip, active-selection round-trip,
+        single-sequence omits the array, nested writes the sequences shape), App `SequenceNamingTests` (unique /
+        gap-filling / case-insensitive naming). Managed suites green — **Core 169, Audio 21, Render 23,
+        Persistence 34, App 133**. The FFmpeg-native suites (Media/Playback/Export) were not run in this sandbox (a
+        test-host DLL-search limitation blocks loading the bundled FFmpeg-8 natives — the App itself launches fine
+        with them); the Export nested-composite test is written and correct but rests on CI. Clean build (0 warnings)
+        and a `SPROCKET_APP_SECONDS=5` smoke launch starts the shell with the Sequence menu wired and tears down
+        cleanly (exit 0). *Also fixed in passing:* a pre-existing stray-paren syntax error in
+        `Sprocket.App/MediaBootstrap.cs` (the App had not been compiled since it was introduced).
+      - **Deferred (noted, on the same seam):** **live nested-sequence compositing in the Program monitor** (the
+        render cache, step 32 — preview shows a placeholder today; export + open-the-child render fully); a
+        **retimed** nested clip's audio at non-1× speed; and **sequence-format editing** (Settings shows format
+        read-only — a format change would re-scale every clip's geometry).
 24. **Multicam editing & clip sync.** Synced multi-angle editing — a major omission for interview,
     live-event, documentary, and studio / YouTube workflows — placed immediately after sequences because
     synced source groups and nested editorial structure (step 23) now exist to build on:

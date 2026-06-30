@@ -20,26 +20,75 @@ public sealed class ProjectSettings
 }
 
 /// <summary>
-/// The root of the editor's document model (ARCHITECTURE.md §4): the imported media, the timeline
-/// being edited, and project settings. Plain data with no native handles, so it serializes cleanly
-/// and round-trips in tests.
+/// The root of the editor's document model (ARCHITECTURE.md §4): the imported media, the sequences being
+/// edited, and project settings. Plain data with no native handles, so it serializes cleanly and round-trips
+/// in tests.
 /// </summary>
+/// <remarks>
+/// A project holds one or more <see cref="Sequence"/>s (PLAN.md step 23); the <see cref="ActiveSequence"/> is the
+/// one currently open in the timeline. <see cref="Timeline"/> delegates to the active sequence, so the rest of the
+/// stack (render graph, playback, export, the App) addresses the active sequence's timeline exactly as before —
+/// multiple sequences + nesting are an additive layer on top.
+/// </remarks>
 public sealed class Project
 {
-    /// <summary>Creates an empty project with a 1080p / 30fps / 48kHz default timeline.</summary>
+    private Sequence _active;
+
+    /// <summary>Creates an empty project with a single 1080p / 30fps / 48kHz sequence.</summary>
     public Project()
         : this(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000))
     {
     }
 
-    /// <summary>Creates a project with the given timeline.</summary>
-    public Project(Timeline timeline) => Timeline = timeline;
+    /// <summary>Creates a project whose single active sequence wraps the given timeline (named "Sequence 1").</summary>
+    public Project(Timeline timeline)
+        : this(new Sequence(SequenceId.New(), "Sequence 1", timeline))
+    {
+    }
+
+    /// <summary>Creates a project with <paramref name="sequence"/> as its single, active sequence.</summary>
+    public Project(Sequence sequence)
+    {
+        ArgumentNullException.ThrowIfNull(sequence);
+        _active = sequence;
+        Sequences.Add(_active);
+    }
 
     /// <summary>Imported source media, addressed by stable id.</summary>
     public MediaPool MediaPool { get; } = new();
 
-    /// <summary>The timeline being edited.</summary>
-    public Timeline Timeline { get; }
+    /// <summary>All sequences in the project, in creation order. Always contains <see cref="ActiveSequence"/>.</summary>
+    public List<Sequence> Sequences { get; } = new();
+
+    /// <summary>
+    /// The sequence currently open for editing. Setting it must name a sequence that is in
+    /// <see cref="Sequences"/> (switching the open sequence is navigation, not a model edit — it is not undone).
+    /// </summary>
+    public Sequence ActiveSequence
+    {
+        get => _active;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (!Sequences.Contains(value))
+                throw new ArgumentException("The active sequence must be one of the project's sequences.", nameof(value));
+            _active = value;
+        }
+    }
+
+    /// <summary>The active sequence's timeline being edited (ARCHITECTURE.md §4). Shorthand for
+    /// <c>ActiveSequence.Timeline</c>, kept so the render/playback/export stack is unchanged by step 23.</summary>
+    public Timeline Timeline => _active.Timeline;
+
+    /// <summary>Finds a sequence by id, or <see langword="null"/> if no such sequence exists (e.g. a dangling
+    /// nested-clip reference after the child was deleted — rendered as nothing, §15).</summary>
+    public Sequence? GetSequence(SequenceId id)
+    {
+        foreach (Sequence s in Sequences)
+            if (s.Id == id)
+                return s;
+        return null;
+    }
 
     /// <summary>Project-wide settings.</summary>
     public ProjectSettings Settings { get; } = new();

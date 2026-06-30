@@ -309,6 +309,16 @@ public sealed class PlaybackEngine : IAsyncDisposable
                             LayerKind.Adjustment));
                         break;
 
+                    case ClipKind.Sequence:
+                        // A nested-sequence clip (PLAN.md step 23). Live preview compositing of the child sequence
+                        // is deferred to the render cache (step 32); the preview draws a placeholder for the layer
+                        // so the clip reads as present (its full composite renders on export and when the child is
+                        // opened). No decoder, so it is treated as a synthetic clip for repaint purposes.
+                        layers.Add(new PresentedVideoLayer(
+                            0, 0, res.Width, res.Height, clip.MapToSource(pos), effects, track.Opacity, track.BlendMode,
+                            LayerKind.Sequence));
+                        break;
+
                     default:
                         if (FindPlayer(track)?.Current is { } frame)
                             layers.Add(new PresentedVideoLayer(
@@ -427,14 +437,16 @@ public sealed class PlaybackEngine : IAsyncDisposable
         HandleEnd(pos);
     }
 
-    /// <summary>Whether any enabled video track has a generator or adjustment clip active at <paramref name="pos"/>.</summary>
+    /// <summary>Whether any enabled video track has a decoder-less clip — generator, adjustment, or nested
+    /// sequence (PLAN.md step 23) — active at <paramref name="pos"/>; these never "promote" a decoded frame, so the
+    /// preview must be told to repaint for them on play / a forced present.</summary>
     private bool HasActiveSyntheticVideoClip(Timecode pos)
     {
         foreach (VideoTrack track in _project.Timeline.VideoTracks)
         {
             if (!track.Enabled)
                 continue;
-            if (track.ResolveActiveClip(pos) is { Kind: ClipKind.Generator or ClipKind.Adjustment })
+            if (track.ResolveActiveClip(pos) is { Kind: ClipKind.Generator or ClipKind.Adjustment or ClipKind.Sequence })
                 return true;
         }
         return false;

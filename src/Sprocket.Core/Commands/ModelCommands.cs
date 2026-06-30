@@ -751,6 +751,60 @@ public sealed class MoveMarkerCommand : EditCommand
     }
 }
 
+/// <summary>
+/// Adds a sequence to the project; undo removes it (PLAN.md step 23). Creating a sequence — including the
+/// new child sequence a "nest selected clips" gesture builds — goes through the command stack so it is undoable
+/// and flips the dirty indicator. Switching the <em>active</em> sequence is navigation, not a model edit, so it
+/// is not a command; undo therefore never strips the active sequence (the nest flow leaves the parent active).
+/// </summary>
+public sealed class AddSequenceCommand(Project project, Sequence sequence) : EditCommand("Add sequence")
+{
+    /// <inheritdoc />
+    public override void Apply() => project.Sequences.Add(sequence);
+
+    /// <inheritdoc />
+    public override void Revert() => project.Sequences.Remove(sequence);
+}
+
+/// <summary>
+/// Removes a sequence from the project; undo re-inserts it at the same index (PLAN.md step 23). The active
+/// sequence can't be removed (switch away first), and a sequence still referenced by a nested-sequence clip
+/// removes anyway — the dangling reference renders as nothing (§15), and undo restores it.
+/// </summary>
+public sealed class RemoveSequenceCommand : EditCommand
+{
+    private readonly Project _project;
+    private readonly Sequence _sequence;
+    private int _index = -1;
+
+    /// <summary>Captures the sequence to remove.</summary>
+    public RemoveSequenceCommand(Project project, Sequence sequence) : base("Remove sequence")
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(sequence);
+        if (ReferenceEquals(project.ActiveSequence, sequence))
+            throw new InvalidOperationException("The active sequence cannot be removed; switch to another sequence first.");
+        _project = project;
+        _sequence = sequence;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _index = _project.Sequences.IndexOf(_sequence);
+        if (_index >= 0)
+            _project.Sequences.RemoveAt(_index);
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        if (_index < 0)
+            return;
+        _project.Sequences.Insert(Math.Min(_index, _project.Sequences.Count), _sequence);
+    }
+}
+
 /// <summary>Adds a track to the timeline (appended on top in z-order); undo removes it.</summary>
 public sealed class AddTrackCommand(Timeline timeline, Track track) : EditCommand("Add track")
 {

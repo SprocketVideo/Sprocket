@@ -12,8 +12,21 @@ namespace Sprocket.Persistence;
 internal sealed record ProjectDto(
     int SchemaVersion,
     List<MediaRefDto> Media,
-    TimelineDto Timeline,
-    SettingsDto Settings);
+    // The active sequence's timeline — the single-sequence (and pre-step-23) shape. Null when the multi-sequence
+    // <see cref="Sequences"/> shape is used instead.
+    TimelineDto? Timeline,
+    SettingsDto Settings,
+    // Multiple sequences + nesting (PLAN.md step 23). Additive + nullable: a single-sequence project with no
+    // nested-sequence clips writes only Timeline (byte-identical to pre-23 files, no schema bump); a multi-sequence
+    // or nested project writes all Sequences + ActiveSequenceId instead, and omits Timeline.
+    List<SequenceDto>? Sequences = null,
+    Guid? ActiveSequenceId = null);
+
+/// <summary>A named sequence (PLAN.md step 23): a stable id, a display name, and its timeline content.</summary>
+internal sealed record SequenceDto(
+    Guid Id,
+    string Name,
+    TimelineDto Timeline);
 
 /// <summary>An imported source. Stores both an absolute path and, when the project path is known, a path
 /// relative to the project file so a moved project+media folder still relinks (ARCHITECTURE.md §12).</summary>
@@ -81,7 +94,10 @@ internal sealed record ClipDto(
     // Playback speed (retime, PLAN.md step 21). Additive + nullable: a normal-speed (1/1) clip writes neither
     // (WhenWritingNull), so pre-21 files load at 1× and un-retimed projects serialize byte-identically.
     int? SpeedNum = null,
-    int? SpeedDen = null);
+    int? SpeedDen = null,
+    // Nested-sequence source (PLAN.md step 23). Present only on a Kind == Sequence clip; null/absent otherwise,
+    // so non-nesting projects serialize byte-identically (WhenWritingNull).
+    Guid? SourceSequenceId = null);
 
 /// <summary>A marker (PLAN.md step 20): a time, optional name/comment, colour band, and an optional span
 /// (<see cref="DurationTicks"/> &gt; 0). Colour serializes as a string enum.</summary>

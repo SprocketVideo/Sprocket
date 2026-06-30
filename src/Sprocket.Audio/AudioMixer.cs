@@ -47,7 +47,10 @@ public sealed class AudioMixer : IDisposable
 
     private readonly Func<MediaRefId, IPcmReader?> _resolve;
     private readonly Dictionary<MediaRefId, SourceState> _states = new();
-    private float[] _layerScratch = [];
+    // One layer scratch buffer per nesting depth (PLAN.md step 23): mixing a nested-sequence layer recurses, and
+    // each depth needs its own scratch so the sub-mix doesn't clobber the parent's. Index 0 is the (common,
+    // non-nested) top level — kept allocation-free in steady state exactly as before.
+    private readonly List<float[]> _scratchByDepth = new();
     private bool _disposed;
 
     /// <summary>Creates a mixer for the given output format. <paramref name="resolveReader"/> maps a media id to
@@ -87,11 +90,33 @@ public sealed class AudioMixer : IDisposable
         Timecode duration = Timecode.FromSamples(frames, SampleRate);
         AudioBufferPlan plan = RenderGraph.PlanAudioBuffer(project, timelineStart, duration);
 
-        EnsureScratch(frames * Channels);
-        Span<float> layer = _layerScratch.AsSpan(0, frames * Channels);
+        // Sum the plan (recursing into nested sub-mixes), applying each plan's master gain; then hard-limit once
+        // at the very top so nested layers aren't clamped (and distorted) before they're summed.
+        MixPlanInto(destinationInterleaved, plan, frames, depth: 0);
+        HardLimit(destinationInterleaved);
+    }
+
+    /// <summary>
+    /// Sums one buffer plan into <paramref name="dest"/> (overwritten): each media layer's PCM (with its gain
+    /// ramp) plus each nested-sequence layer's recursively-mixed sub-mix (PLAN.md step 23), then scales by the
+    /// plan's master gain. No hard-limit here — that happens once at the top so nested sub-mixes sum cleanly.
+    /// </summary>
+    private void MixPlanInto(Span<float> dest, AudioBufferPlan plan, int frames, int depth)
+    {
+        dest.Clear();
+        Span<float> layer = GetScratch(depth, frames * Channels);
 
         foreach (AudioLayer al in plan.Layers)
         {
+            if (al.NestedPlan is { } nested)
+            {
+                // A nested-sequence layer: mix the child plan into the per-depth scratch, then sum it in under
+                // this layer's (the nesting clip's) gain envelope. (Retimed nested audio plays at 1× — step 23.)
+                MixPlanInto(layer, nested, frames, depth + 1);
+                SumWithRamp(dest, layer, frames, al.GainStartLinear, al.GainEndLinear);
+                continue;
+            }
+
             IPcmReader? reader = ResolvePositioned(al.MediaRefId, al.SourceStart);
             if (reader is null)
                 continue;
@@ -109,10 +134,10 @@ public sealed class AudioMixer : IDisposable
                 ReadResampled(state, layer, frames, al.SpeedRatio.ToDouble());
             }
 
-            SumWithRamp(destinationInterleaved, layer, frames, al.GainStartLinear, al.GainEndLinear);
+            SumWithRamp(dest, layer, frames, al.GainStartLinear, al.GainEndLinear);
         }
 
-        ApplyMasterGainAndClamp(destinationInterleaved, plan.MasterGainLinear);
+        ApplyGain(dest, plan.MasterGainLinear);
     }
 
     /// <summary>Resolves the reader for a media id and seeks it if the requested source time has jumped.</summary>
@@ -213,30 +238,53 @@ public sealed class AudioMixer : IDisposable
         }
     }
 
-    /// <summary>Applies master gain and hard-limits to [-1, 1], vectorised over the whole buffer (§6 SIMD).</summary>
-    private static void ApplyMasterGainAndClamp(Span<float> mix, double masterGainLinear)
+    /// <summary>Scales the buffer by a (master) gain, vectorised over the whole buffer (§6 SIMD). No clamp —
+    /// nested sub-mixes must sum un-clamped; the single hard-limit happens once at the top.</summary>
+    private static void ApplyGain(Span<float> mix, double gainLinear)
     {
-        var gain = (float)masterGainLinear;
+        if (gainLinear == 1.0)
+            return; // unity (the common nested case) — nothing to do
+
+        var gain = (float)gainLinear;
         int width = Vector<float>.Count;
         var gainVec = new Vector<float>(gain);
+
+        int i = 0;
+        for (; i <= mix.Length - width; i += width)
+        {
+            var v = new Vector<float>(mix.Slice(i, width)) * gainVec;
+            v.CopyTo(mix.Slice(i, width));
+        }
+        for (; i < mix.Length; i++)
+            mix[i] *= gain;
+    }
+
+    /// <summary>Hard-limits the final mix to [-1, 1], vectorised over the whole buffer (§6 SIMD).</summary>
+    private static void HardLimit(Span<float> mix)
+    {
+        int width = Vector<float>.Count;
         var lo = new Vector<float>(-1f);
         var hi = new Vector<float>(1f);
 
         int i = 0;
         for (; i <= mix.Length - width; i += width)
         {
-            var v = new Vector<float>(mix.Slice(i, width)) * gainVec;
-            v = Vector.Max(lo, Vector.Min(hi, v));
+            var v = Vector.Max(lo, Vector.Min(hi, new Vector<float>(mix.Slice(i, width))));
             v.CopyTo(mix.Slice(i, width));
         }
         for (; i < mix.Length; i++)
-            mix[i] = Math.Clamp(mix[i] * gain, -1f, 1f);
+            mix[i] = Math.Clamp(mix[i], -1f, 1f);
     }
 
-    private void EnsureScratch(int floats)
+    /// <summary>Returns the layer scratch buffer for <paramref name="depth"/>, growing/creating it as needed so
+    /// each nesting level has its own (the non-nested top level keeps one buffer, allocation-free in steady state).</summary>
+    private Span<float> GetScratch(int depth, int floats)
     {
-        if (_layerScratch.Length < floats)
-            _layerScratch = new float[floats];
+        while (_scratchByDepth.Count <= depth)
+            _scratchByDepth.Add([]);
+        if (_scratchByDepth[depth].Length < floats)
+            _scratchByDepth[depth] = new float[floats];
+        return _scratchByDepth[depth].AsSpan(0, floats);
     }
 
     /// <inheritdoc />

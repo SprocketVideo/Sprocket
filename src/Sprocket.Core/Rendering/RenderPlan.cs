@@ -37,7 +37,7 @@ public sealed record ResolvedGenerator(
         Strings.TryGetValue(name, out string? value) ? value : fallback;
 }
 
-/// <summary>What produces a <see cref="VideoLayer"/>'s pixels (PLAN.md step 19).</summary>
+/// <summary>What produces a <see cref="VideoLayer"/>'s pixels (PLAN.md step 19, step 23).</summary>
 public enum LayerKind
 {
     /// <summary>Decoded source media fetched via <see cref="IFrameSource{TImage}"/>.</summary>
@@ -48,6 +48,10 @@ public enum LayerKind
 
     /// <summary>An adjustment layer: its effects apply to the composite of the layers already drawn beneath it.</summary>
     Adjustment,
+
+    /// <summary>A nested sequence (PLAN.md step 23): its pixels come from rendering <see cref="VideoLayer.NestedPlan"/>
+    /// (the child sequence's resolved plan at the mapped time) and compositing the result like any other layer.</summary>
+    Sequence,
 }
 
 /// <summary>
@@ -64,6 +68,8 @@ public enum LayerKind
 /// <param name="BlendMode">Track blend mode for the composite step.</param>
 /// <param name="Kind">What produces this layer's pixels.</param>
 /// <param name="Generator">The procedural source (generator layers only).</param>
+/// <param name="NestedPlan">The child sequence's resolved frame plan (<see cref="LayerKind.Sequence"/> layers only,
+/// PLAN.md step 23): render it, then apply this layer's effect chain and composite it like any other layer.</param>
 public sealed record VideoLayer(
     MediaRefId MediaRefId,
     Timecode SourceTime,
@@ -71,7 +77,8 @@ public sealed record VideoLayer(
     double Opacity,
     BlendMode BlendMode,
     LayerKind Kind = LayerKind.Media,
-    ResolvedGenerator? Generator = null);
+    ResolvedGenerator? Generator = null,
+    VideoFramePlan? NestedPlan = null);
 
 /// <summary>
 /// A pure description of how to render one composited frame at a given time: the target size and the
@@ -95,12 +102,16 @@ public sealed record VideoFramePlan(Resolution Resolution, Timecode Time, IReadO
 /// <param name="GainEndLinear">Linear gain at the end of the buffer.</param>
 /// <param name="SpeedRatio">Playback speed (source time per timeline time, PLAN.md step 21). 1/1 = normal; the
 /// mixer resamples the source PCM by this factor. Defaults to 1/1 so non-retimed callers are unaffected.</param>
+/// <param name="NestedPlan">The child sequence's resolved audio plan (a nested-sequence layer, PLAN.md step 23):
+/// the mixer mixes it recursively, then applies this layer's gain envelope. <see langword="null"/> for an
+/// ordinary media layer.</param>
 public sealed record AudioLayer(
     MediaRefId MediaRefId,
     Timecode SourceStart,
     double GainStartLinear,
     double GainEndLinear,
-    Rational SpeedRatio);
+    Rational SpeedRatio,
+    AudioBufferPlan? NestedPlan = null);
 
 /// <summary>
 /// A pure description of how to fill one audio output buffer: which source spans to sum and at what

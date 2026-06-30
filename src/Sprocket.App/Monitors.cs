@@ -58,8 +58,18 @@ internal sealed class ProgramMonitor : IMonitor
     }
 
     public PlaybackEngine? CurrentEngine => _engine;
-    public int FrameWidth { get; }
-    public int FrameHeight { get; }
+    public int FrameWidth { get; private set; }
+    public int FrameHeight { get; private set; }
+
+    /// <summary>Re-points the logical frame size after the open (active) sequence's resolution changes (PLAN.md
+    /// step 23). The engine composites at the live <c>project.Timeline.Resolution</c>; this only updates the size
+    /// the preview surface letterboxes / overlays against.</summary>
+    public void SetFrameSize(int frameWidth, int frameHeight)
+    {
+        FrameWidth = frameWidth;
+        FrameHeight = frameHeight;
+    }
+
     public Timecode Position => _engine.Position;
     public Timecode Duration => _engine.Duration;
     public PlaybackState State => _engine.State;

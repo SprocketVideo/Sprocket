@@ -44,6 +44,7 @@ public sealed class TimelineControl : Control
     private static readonly IBrush LaneOdd = Brush("#171720");
     private static readonly IBrush VideoFill = Brush("#2F3A5C");
     private static readonly IBrush AudioFill = Brush("#2C4A39");
+    private static readonly IBrush SequenceFill = Brush("#1F5C63"); // nested-sequence clips (teal, distinct from media)
     private static readonly IBrush ClipDetail = Brush("#4A567E");
     private static readonly IBrush AudioDetail = Brush("#4F7A60");
     private static readonly IBrush Text = Brush("#C9D1DA");
@@ -259,6 +260,22 @@ public sealed class TimelineControl : Control
     {
         _playhead = t;
         Dispatcher.UIThread.Post(InvalidateVisual, DispatcherPriority.Render);
+    }
+
+    /// <summary>
+    /// Resets the timeline's transient view state after the project's open (active) sequence changes (PLAN.md
+    /// step 23): drops the selection (it belonged to the previous sequence) and rewinds the horizontal scroll, then
+    /// repaints against the now-active sequence's tracks. The engine re-seek echoes the playhead back to the start.
+    /// </summary>
+    public void OnActiveSequenceChanged()
+    {
+        _scrollX = 0;
+        if (_selected is not null)
+        {
+            _selected = null;
+            SelectedClipChanged?.Invoke(null);
+        }
+        InvalidateVisual();
     }
 
     // ── Clip editing (Edit / Clip menus, PLAN.md step 16c) ──────────────────────────────────────────
@@ -478,6 +495,32 @@ public sealed class TimelineControl : Control
     public void InsertAdjustmentLayer() =>
         // Fully qualified: a Control already has a `Clip` property (Geometry), which would shadow the model type here.
         InsertSyntheticVideoClip(t => Sprocket.Core.Model.Clip.CreateAdjustment(GeneratorCatalog.DefaultDuration, t), "Insert adjustment layer");
+
+    /// <summary>
+    /// Nests the current selection — and, while <see cref="Linked"/>, its linked companion clips — into a new
+    /// child sequence (PLAN.md step 23, the Premiere "Nest" / Final Cut "compound clip" gesture): the selected
+    /// clips move into a fresh sequence and one nested-sequence clip replaces them in the active sequence, as a
+    /// single undoable edit. The replacement clip becomes the selection. Returns the new child sequence (so the
+    /// shell can offer to open it), or <see langword="null"/> when there is no selection to nest.
+    /// </summary>
+    public Sequence? NestSelection()
+    {
+        if (_selected is null || _history is null || _project is null)
+            return null;
+
+        var clips = new List<Clip> { _selected };
+        if (Linked)
+            clips.AddRange(_project.Timeline.ClipsLinkedTo(_selected).Select(l => l.Clip));
+
+        string name = SequenceNaming.NextUnique(_project, "Nested Sequence");
+        if (SequenceNesting.CreateNest(_project, _project.ActiveSequence, clips, name) is not { } nest)
+            return null;
+
+        Execute(nest.Command);
+        Select(nest.PrimaryClip);
+        ClipPlaced?.Invoke(); // the nested clip can change the active sequence's extent
+        return nest.Child;
+    }
 
     /// <summary>
     /// Adds a synthetic (generator / adjustment) clip at the playhead. It lands on the topmost video track when that
@@ -708,7 +751,8 @@ public sealed class TimelineControl : Control
 
                 var rect = new Rect(x0, top, Math.Max(2, x1 - x0), h);
                 var rounded = new RoundedRect(rect, 4);
-                ctx.DrawRectangle(isVideo ? VideoFill : AudioFill, null, rounded);
+                IBrush fill = clip.Kind == ClipKind.Sequence ? SequenceFill : (isVideo ? VideoFill : AudioFill);
+                ctx.DrawRectangle(fill, null, rounded);
 
                 using (ctx.PushClip(rect))
                 {
@@ -1759,6 +1803,10 @@ public sealed class TimelineControl : Control
                 // Prefer a title's text, else the generator's display name.
                 string text = clip.Generator.GetString(GeneratorParamNames.Text);
                 return string.IsNullOrEmpty(text) ? GeneratorCatalog.DisplayName(clip.Generator.GeneratorTypeId) : text;
+            case ClipKind.Sequence:
+                // A nested-sequence clip is labelled with the child sequence's name; a dangling reference
+                // (the child was deleted) falls back to a neutral label (it renders as nothing, §15).
+                return (clip.SourceSequenceId is { } sid ? _project?.GetSequence(sid)?.Name : null) ?? "Nested sequence";
         }
         MediaRef? media = _project?.MediaPool.Get(clip.MediaRefId);
         return media is null ? "clip" : System.IO.Path.GetFileName(media.AbsolutePath);

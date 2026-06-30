@@ -134,6 +134,51 @@ public sealed class VideoExporterTests
             $"Adjustment brightness 0.3 should darken the composite: graded={gradedMean:0.0}, plain={plainMean:0.0}");
     }
 
+    [Fact]
+    public void Export_NestedSequence_RendersItsComposite()
+    {
+        // PLAN.md step 23: a nested-sequence clip's pixels come from rendering the child sequence. A nested
+        // sequence whose child is a white colour matte must export far brighter than one whose child is black,
+        // proving the child sequence composited on the deterministic export path.
+        using var white = new TempFile();
+        using var black = new TempFile();
+        VideoExporter.Export(BuildNestedGeneratorProject("#FFFFFFFF"), white.Path);
+        VideoExporter.Export(BuildNestedGeneratorProject("#FF000000"), black.Path);
+
+        double whiteMean = FirstFrameMeanRgb(white.Path);
+        double blackMean = FirstFrameMeanRgb(black.Path);
+        Assert.True(whiteMean > blackMean + 120,
+            $"A white nested sequence should export brighter than a black one: white={whiteMean:0.0}, black={blackMean:0.0}");
+
+        // The nested-sequence timeline is a real, correctly-sized, full-length video.
+        using MediaSource decoded = MediaSource.Open(white.Path, HardwareAccelMode.Disabled);
+        Assert.True(decoded.Info.HasVideo);
+        Assert.Equal(ExportFixture.Width, decoded.Info.Width);
+        Assert.InRange(CountVideoFrames(black.Path), 28, 32);
+    }
+
+    /// <summary>A project whose active sequence nests a child sequence (a solid-colour matte) as a single clip.</summary>
+    private static Project BuildNestedGeneratorProject(string colorHex)
+    {
+        var format = (fps: new Rational(ExportFixture.Fps, 1), res: new Resolution(ExportFixture.Width, ExportFixture.Height));
+
+        var childTimeline = new Timeline(format.fps, format.res, ExportFixture.SampleRate);
+        var childTrack = new VideoTrack { Name = "V1" };
+        var spec = new GeneratorSpec(GeneratorTypeIds.SolidColor).SetString(GeneratorParamNames.Color, colorHex);
+        childTrack.Clips.Add(Clip.CreateGenerator(spec, Timecode.FromSeconds(1), Timecode.Zero));
+        childTimeline.Tracks.Add(childTrack);
+        var child = new Sequence(SequenceId.New(), "Child", childTimeline);
+
+        var parentTimeline = new Timeline(format.fps, format.res, ExportFixture.SampleRate);
+        var parent = new Sequence(SequenceId.New(), "Parent", parentTimeline);
+        var project = new Project(parent);
+        project.Sequences.Add(child);
+        var parentTrack = new VideoTrack { Name = "V1" };
+        parentTrack.Clips.Add(Clip.CreateSequenceClip(child.Id, Timecode.FromSeconds(1), Timecode.Zero));
+        parentTimeline.Tracks.Add(parentTrack);
+        return project;
+    }
+
     private static Project BuildGeneratorProject(string colorHex)
     {
         var timeline = new Timeline(new Rational(ExportFixture.Fps, 1), new Resolution(ExportFixture.Width, ExportFixture.Height), ExportFixture.SampleRate);

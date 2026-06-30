@@ -318,12 +318,12 @@ internal static class SampleClip
             "-y " +
             "-f lavfi -i \"life=s=1920x1080:rate=30:ratio=0.08:death_color=0x0f1720:life_color=0x62d2a2:mold=0.8:seed=7,format=yuv420p\" " +
             "-f lavfi -i \"anoisesrc=color=brown:sample_rate=48000:duration=6,volume=0.015\" " +
-            $"-c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"");
+            $"-c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"";
 
         string fallbackArgs =
             "-y -f lavfi -i testsrc2=size=1920x1080:rate=30:duration=6 " +
             "-f lavfi -i sine=frequency=440:sample_rate=48000:duration=6 " +
-            $"-c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"");
+            $"-c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"";
 
         try
         {

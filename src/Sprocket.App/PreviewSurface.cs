@@ -191,6 +191,13 @@ public sealed class PreviewSurface : Control
                                     canvas, dest, l.Pixels, l.RowBytes, l.Width, l.Height,
                                     l.Effects, l.Opacity, ToBlendMode(l.BlendMode));
                                 break;
+
+                            case LayerKind.Sequence:
+                                // Placeholder for a nested-sequence clip: live preview compositing of the child is
+                                // deferred to the render cache (PLAN.md step 32). A muted fill shows the clip is
+                                // present; its full composite renders on export and when the child sequence is opened.
+                                DrawNestedPlaceholder(canvas, dest, l.Opacity);
+                                break;
                         }
                     }
 
@@ -202,6 +209,23 @@ public sealed class PreviewSurface : Control
             {
                 canvas.RestoreToCount(checkpoint);
             }
+        }
+
+        // Nested-sequence preview placeholder (teal, matching the timeline's nested-clip fill): a flat fill plus a
+        // brighter inset border so it reads as "content present, preview deferred" rather than a render glitch.
+        private static void DrawNestedPlaceholder(SKCanvas canvas, SKRect dest, double opacity)
+        {
+            byte a = (byte)Math.Clamp(opacity * 255.0, 0, 255);
+            using var fill = new SKPaint { Color = new SKColor(0x1F, 0x5C, 0x63, a), IsAntialias = true };
+            canvas.DrawRect(dest, fill);
+            using var border = new SKPaint
+            {
+                Color = new SKColor(0x3D, 0x8A, 0x92, a),
+                IsAntialias = true,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = 2,
+            };
+            canvas.DrawRect(dest, border);
         }
 
         private static SKBlendMode ToBlendMode(BlendMode mode) => mode switch

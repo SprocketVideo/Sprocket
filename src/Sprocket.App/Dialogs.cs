@@ -7,6 +7,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 
 namespace Sprocket.App;
@@ -334,6 +335,95 @@ internal static class SpeedDialog
         box.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) Accept(); };
 
         return dialog.ShowDialog<Rational?>(owner);
+    }
+}
+
+/// <summary>
+/// The Sequence ▸ Settings dialog (PLAN.md step 23): shows the sequence's render format (read-only — a format
+/// change would re-scale every clip, deferred) and lets the user rename it. Returns the trimmed new name on Apply,
+/// or <see langword="null"/> on cancel / no change. The undoable rename itself is applied by the caller.
+/// </summary>
+internal static class SequenceSettingsDialog
+{
+    public static Task<string?> Show(Window owner, Sequence sequence)
+    {
+        var nameBox = new TextBox
+        {
+            Text = sequence.Name,
+            Foreground = Palette.Text,
+            Background = Palette.PanelBg,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        Timeline t = sequence.Timeline;
+        double fps = t.FrameRate.Den > 0 ? (double)t.FrameRate.Num / t.FrameRate.Den : 0;
+        string format = $"{t.Resolution.Width}×{t.Resolution.Height}  ·  {fps:0.##} fps  ·  {t.SampleRate / 1000.0:0.#} kHz";
+
+        var apply = new Button
+        {
+            Content = "Apply",
+            Padding = new Thickness(16, 5),
+            Foreground = Brushes.White,
+            Background = Palette.Accent,
+            CornerRadius = new CornerRadius(5),
+        };
+        var cancel = new Button
+        {
+            Content = "Cancel",
+            Padding = new Thickness(16, 5),
+            Foreground = Palette.Text,
+            Background = Palette.PanelBg,
+            CornerRadius = new CornerRadius(5),
+        };
+
+        var dialog = new Window
+        {
+            Title = "Sequence Settings",
+            Icon = AppIcon.Window,
+            Width = 380,
+            Height = 220,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Palette.WindowBg,
+            Content = new DockPanel
+            {
+                Margin = new Thickness(22),
+                Children =
+                {
+                    new StackPanel
+                    {
+                        [DockPanel.DockProperty] = Dock.Bottom,
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Margin = new Thickness(0, 16, 0, 0),
+                        Children = { cancel, apply },
+                    },
+                    new StackPanel
+                    {
+                        Spacing = 6,
+                        Children =
+                        {
+                            new TextBlock { Text = "Name", Foreground = Palette.MutedText, FontSize = 12 },
+                            nameBox,
+                            new TextBlock { Text = "Format", Foreground = Palette.MutedText, FontSize = 12, Margin = new Thickness(0, 10, 0, 0) },
+                            new TextBlock { Text = format, Foreground = Palette.Text, FontSize = 13 },
+                        },
+                    },
+                },
+            },
+        };
+
+        void Accept()
+        {
+            string trimmed = (nameBox.Text ?? string.Empty).Trim();
+            dialog.Close(string.IsNullOrEmpty(trimmed) ? null : trimmed);
+        }
+        apply.Click += (_, _) => Accept();
+        cancel.Click += (_, _) => dialog.Close(null);
+        nameBox.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) Accept(); };
+
+        return dialog.ShowDialog<string?>(owner);
     }
 }
 
