@@ -91,8 +91,10 @@ internal sealed class PlaybackStatsOverlay : Window
             "Frames actually shown per second, averaged over a few seconds. It should match the timeline rate "
             + "during smooth playback; a lower number means the preview can't keep up.");
         _dropped = AddRow(grid, ref row, "Dropped frames",
-            "Frames skipped to stay in sync with the audio clock. This climbs when the preview falls behind; "
-            + "0 is ideal.");
+            "Timeline frames the preview couldn't render in time and had to skip to keep pace with the clock, for "
+            + "the current playback (it resets each time you start playing). Frames a clip drops because its frame "
+            + "rate is higher than the sequence aren't counted — only frames lost to falling behind. This climbs "
+            + "when the preview can't keep up; 0 is ideal.");
         _presented = AddRow(grid, ref row, "Frames shown",
             "Total frames presented to the screen since playback started.");
         _pumpRate = AddRow(grid, ref row, "Pump rate",
@@ -272,11 +274,17 @@ internal sealed class PlaybackStatsOverlay : Window
                 : Bad;
         }
 
-        string dropTotal = stats.FramesDropped.ToString("N0");
-        _dropped.Text = dropRate > 0.05 ? $"{dropTotal}  (+{dropRate:0.0}/s)" : dropTotal;
-        _dropped.Foreground = stats.FramesDropped == 0 ? Good
-            : dropRate > 0.05 ? Bad // actively dropping right now
-            : Warn;                 // dropped earlier but currently steady
+        // Show drops for the CURRENT play span (reset each time playback starts), so a warm-up hiccup banked by an
+        // earlier play doesn't haunt the readout. The rate still comes from the cumulative, monotonic counter (so
+        // the rolling-window delta is clean), but is only surfaced once this span has actually dropped a frame —
+        // otherwise a fresh play would read "0 (+x/s)" in red while the window still straddles the previous span.
+        long spanDrops = stats.FramesDroppedThisSpan;
+        bool activelyDropping = spanDrops > 0 && dropRate > 0.05;
+        string dropTotal = spanDrops.ToString("N0");
+        _dropped.Text = activelyDropping ? $"{dropTotal}  (+{dropRate:0.0}/s)" : dropTotal;
+        _dropped.Foreground = spanDrops == 0 ? Good
+            : activelyDropping ? Bad // actively dropping right now
+            : Warn;                  // dropped earlier this play span but currently steady
 
         _pumpRate.Text = pumpRate < 0 ? "—" : $"{pumpRate:0} /s";
     }

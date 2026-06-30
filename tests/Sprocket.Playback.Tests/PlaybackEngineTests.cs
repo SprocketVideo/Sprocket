@@ -131,10 +131,56 @@ public class PlaybackEngineTests
         await engine.PumpOnceAsync(forcePresent: false, cts.Token);
 
         PlaybackStatistics stats = engine.GetStatistics();
-        // Frames 1..30 were promoted to land on frame 30; the 29 intermediates were dropped.
+        // The playhead jumped from timeline frame 0 to frame 30 in one (non-forced) present, so the 29 timeline
+        // frames it skipped over without presenting are counted as drops. (Here the source rate equals the
+        // sequence rate, so this also equals the number of decoded source frames skipped.)
         Assert.Equal(29, stats.FramesDropped);
         Assert.Equal(2, stats.FramesPresented);   // forced frame 0 + the catch-up present
         Assert.Equal(2, stats.PumpIterations);
+    }
+
+    [Fact]
+    public async Task Dropped_Frames_This_Span_Resets_On_Play_While_Cumulative_Persists()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var elapsed = TimeSpan.Zero;
+        (Project project, RingVideoFrameFeed feed) = BuildSession();
+        var clock = new SoftwareClock(() => elapsed);
+        await using var engine = new PlaybackEngine(project, feed, clock);
+
+        feed.Start();
+        engine.SeekTo(Timecode.Zero);
+        await engine.PumpOnceAsync(forcePresent: true, cts.Token); // baseline at frame 0
+
+        // A play span that falls behind: clock jumps to frame 30, skipping 29.
+        clock.Start();
+        elapsed = TimeSpan.FromSeconds(1.0);
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        PlaybackStatistics s1 = engine.GetStatistics();
+        Assert.Equal(29, s1.FramesDropped);
+        Assert.Equal(29, s1.FramesDroppedThisSpan);
+
+        // Starting a new play span resets the per-span count but not the cumulative one.
+        engine.Play();
+        PlaybackStatistics s2 = engine.GetStatistics();
+        Assert.Equal(29, s2.FramesDropped);
+        Assert.Equal(0, s2.FramesDroppedThisSpan);
+
+        // The first present of the new span is startup catch-up (re-baseline) — it must NOT count, even though
+        // the playhead jumped from frame 30 to frame 48.
+        elapsed = TimeSpan.FromSeconds(1.6); // frame 48
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        PlaybackStatistics s3 = engine.GetStatistics();
+        Assert.Equal(29, s3.FramesDropped);
+        Assert.Equal(0, s3.FramesDroppedThisSpan);
+
+        // A genuine fall-behind within the span now accumulates afresh (frame 48 → 60 skips 11), and adds to the
+        // cumulative total too.
+        elapsed = TimeSpan.FromSeconds(2.0); // frame 60
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        PlaybackStatistics s4 = engine.GetStatistics();
+        Assert.Equal(11, s4.FramesDroppedThisSpan);
+        Assert.Equal(40, s4.FramesDropped); // 29 (first span) + 11 (this span)
     }
 
     [Fact]

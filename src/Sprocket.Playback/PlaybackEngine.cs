@@ -67,9 +67,16 @@ public readonly record struct PresentedFrame(
 /// </summary>
 /// <param name="PumpIterations">Total pump ticks run (each reconciles + advances every track toward the clock).</param>
 /// <param name="FramesPresented">Pump ticks that produced a new/updated composite — i.e. the preview repaints.</param>
-/// <param name="FramesDropped">Decoded frames skipped to catch up to the clock when the pump fell behind
-/// (ARCHITECTURE.md §8). A healthy preview drops ~0; a rising count is the signature of playback stutter.</param>
-public readonly record struct PlaybackStatistics(long PumpIterations, long FramesPresented, long FramesDropped);
+/// <param name="FramesDropped">Timeline frames the preview could not present in time and had to skip to keep pace
+/// with the clock (ARCHITECTURE.md §8), <b>cumulative since the engine was created</b>. Counted in sequence frames
+/// off the playhead, so frames a faster-than-sequence source is correctly downsampled past are NOT counted — only a
+/// genuine present-cadence shortfall is. Monotonic, so consumers can derive a drops/second rate from the delta
+/// between two snapshots.</param>
+/// <param name="FramesDroppedThisSpan">As <paramref name="FramesDropped"/>, but reset at the start of each play span
+/// (every <see cref="Play"/>). This is the count to surface as "dropped frames" — a warm-up hiccup banked during an
+/// earlier play no longer haunts the readout once a fresh playback begins. A healthy preview shows ~0.</param>
+public readonly record struct PlaybackStatistics(
+    long PumpIterations, long FramesPresented, long FramesDropped, long FramesDroppedThisSpan);
 
 /// <summary>
 /// The playback engine (PLAN.md steps 4/14): drives every enabled video track from a master
@@ -118,7 +125,10 @@ public sealed class PlaybackEngine : IAsyncDisposable
     // Diagnostics counters (cumulative; written on the pump thread, read via Interlocked in GetStatistics).
     private long _pumpCount;
     private long _presentCount;
-    private long _dropCount;
+    private long _dropCount;      // cumulative since creation (monotonic; for rate derivation)
+    private long _dropCountSpan;  // reset on each Play(); the count to display (current play span only)
+    private long _lastPresentedFrame = -1; // timeline frame index of the last present (pump thread only); -1 = no baseline yet
+    private volatile bool _dropBaselineReset; // set by Play(): the next present re-baselines drops (skip startup catch-up)
     private CancellationTokenSource? _pumpCts;
     private Task? _pump;
     private bool _started;
@@ -204,7 +214,8 @@ public sealed class PlaybackEngine : IAsyncDisposable
     public PlaybackStatistics GetStatistics() => new(
         Interlocked.Read(ref _pumpCount),
         Interlocked.Read(ref _presentCount),
-        Interlocked.Read(ref _dropCount));
+        Interlocked.Read(ref _dropCount),
+        Interlocked.Read(ref _dropCountSpan));
 
     /// <summary>
     /// The decode info (codec + hardware device) of the top-most enabled video track with an active clip at the
@@ -252,6 +263,14 @@ public sealed class PlaybackEngine : IAsyncDisposable
         if (PlaybackMath.ReachedEnd(Position, Duration))
             SeekTo(Timecode.Zero);
 
+        // The audio master clock starts advancing immediately, but the first video frame of a play span may still
+        // be decoding (cold decode warm-up, or the ring re-priming after a pause). The pump's first present then
+        // catches up by a frame or two — expected startup catch-up, not a render stutter — so re-baseline the drop
+        // accounting on that present rather than banking it as phantom dropped frames. Arm the flag before the
+        // clock advances so the pump can't slip a counted present into the gap. Also reset the play-span drop
+        // counter so the "dropped frames" readout reflects this playback, not drops banked by an earlier span.
+        _dropBaselineReset = true;
+        Interlocked.Exchange(ref _dropCountSpan, 0);
         _clock.Start();
         SetState(PlaybackState.Playing);
         lock (_transportGate)
@@ -526,18 +545,11 @@ public sealed class PlaybackEngine : IAsyncDisposable
         Timecode pos = PlaybackMath.ClampToTimeline(_clock.Now, Duration);
 
         bool promoted = false;
-        int dropped = 0;
         foreach (VideoTrackPlayer player in _players)
-        {
-            (bool playerPromoted, int playerDropped) = await player.PumpAsync(pos, force, ct).ConfigureAwait(false);
-            promoted |= playerPromoted;
-            dropped += playerDropped;
-        }
+            promoted |= await player.PumpAsync(pos, force, ct).ConfigureAwait(false);
 
         // Health counters for the diagnostics overlay (cumulative; read via GetStatistics).
         Interlocked.Increment(ref _pumpCount);
-        if (dropped > 0)
-            Interlocked.Add(ref _dropCount, dropped);
 
         // Generator / adjustment clips have no decoder to "promote" a frame, so they'd never trigger a repaint.
         // Repaint for them when playing (their content/effects may animate) or when a seek forces a present
@@ -545,6 +557,32 @@ public sealed class PlaybackEngine : IAsyncDisposable
         bool synthetic = (State == PlaybackState.Playing || force) && HasActiveSyntheticVideoClip(pos);
         if (promoted || synthetic)
         {
+            // Dropped frames = timeline frames we couldn't present in time and had to skip to keep pace with the
+            // clock (ARCHITECTURE.md §8). Measured off the playhead's timeline-frame index — not the count of
+            // decoded source frames skipped — so a clip whose source rate exceeds the sequence rate (e.g. a 60fps
+            // clip on a 30fps timeline) is NOT charged for the in-between frames it correctly downsamples away;
+            // only a genuine present-cadence shortfall counts. Computed once here (off the playhead) rather than
+            // per track, so N video tracks don't multiply a single skipped instant. A forced present (seek/scrub)
+            // or the first present of a play span (startup decode/audio warm-up catch-up) is an intentional or
+            // expected jump, not a stutter, so it only re-baselines the frame index without counting.
+            bool rebaseline = force;
+            if (_dropBaselineReset)
+            {
+                _dropBaselineReset = false;
+                rebaseline = true;
+            }
+            long frame = pos.ToFrameIndex(_project.Timeline.FrameRate);
+            if (!rebaseline && _lastPresentedFrame >= 0)
+            {
+                long skipped = frame - _lastPresentedFrame - 1;
+                if (skipped > 0)
+                {
+                    Interlocked.Add(ref _dropCount, skipped);     // cumulative (rate)
+                    Interlocked.Add(ref _dropCountSpan, skipped); // this play span (display)
+                }
+            }
+            _lastPresentedFrame = frame;
+
             Interlocked.Increment(ref _presentCount); // a new composite was produced → the preview repaints
             FramePresented?.Invoke();
         }

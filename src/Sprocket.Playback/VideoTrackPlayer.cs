@@ -91,18 +91,19 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
     /// <summary>
     /// Advances this track's frame toward the playhead <paramref name="pos"/>: (re)targets the feed to the
     /// active clip's source, seeks if needed, then promotes the latest frame at/just before the target while
-    /// dropping intermediates. Returns whether the presented frame changed (<c>Promoted</c>) and how many decoded
-    /// frames were skipped to catch up (<c>Dropped</c>, for the diagnostics overlay). With no active clip (or an
-    /// offline source) the track contributes nothing and its current frame is cleared.
+    /// dropping intermediates. Returns whether the presented frame changed. The engine, not this player, counts
+    /// dropped frames — it measures them in timeline frames off the playhead (so a clip whose source runs faster
+    /// than the sequence is not charged for its correct downsampling). With no active clip (or an offline source)
+    /// the track contributes nothing and its current frame is cleared.
     /// </summary>
-    public async Task<(bool Promoted, int Dropped)> PumpAsync(Timecode pos, bool force, CancellationToken ct)
+    public async Task<bool> PumpAsync(Timecode pos, bool force, CancellationToken ct)
     {
         Clip? clip = Track.Enabled ? Track.ResolveActiveClip(pos) : null;
         if (clip is null)
         {
             ClearCurrent();
             _feedClip = null; // re-entering any clip must re-seek the feed to that clip's in-point
-            return (false, 0);
+            return false;
         }
 
         // A change of active clip breaks source-time continuity even when the next clip draws from the SAME
@@ -120,7 +121,7 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         if (!EnsureFeedFor(clip.MediaRefId))
         {
             ClearCurrent();
-            return (false, 0);
+            return false;
         }
 
         if (!_feedStarted)
@@ -146,10 +147,9 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         // keeps the position just short of the end), the pump would hang on the read — freezing the playhead and
         // never reaching the end-of-timeline stop, while the independent audio clock kept running.
         if (_atEof)
-            return (false, 0);
+            return false;
 
         bool promoted = false;
-        int advancePromotes = 0; // frames the steady-state advance loop promoted this pump (>1 ⇒ we fell behind)
         _next ??= await _feed!.ReadAsync(ct).ConfigureAwait(false);
 
         // After a seek, present the freshly decoded frame even if its PTS sits just past the target.
@@ -160,12 +160,14 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
             _next = await _feed!.ReadAsync(ct).ConfigureAwait(false);
         }
 
-        // Advance through every frame already due, dropping intermediates, landing on the latest ≤ target.
+        // Advance through every frame already due, dropping intermediates, landing on the latest ≤ target. Frames
+        // skipped here are NOT all "dropped" in the stutter sense: when the source runs faster than the sequence
+        // rate, skipping the in-between source frames is correct downsampling. The engine measures genuine drops
+        // off the playhead's timeline-frame advance instead, so that intentional downsampling isn't miscounted.
         while (_next is not null && PlaybackMath.ShouldPromote(_next.Pts, target, forcePresent: false))
         {
             Promote(_next);
             promoted = true;
-            advancePromotes++;
             _next = await _feed!.ReadAsync(ct).ConfigureAwait(false);
         }
 
@@ -174,12 +176,7 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         if (_next is null)
             _atEof = true;
 
-        // Diagnostics (playback-stats overlay): in steady-state playback the advance loop should promote exactly
-        // one frame per due interval, so any promotions beyond the first mean the pump fell behind the clock and
-        // skipped the intermediate frames — those are dropped frames (ARCHITECTURE.md §8). A forced post-seek/scrub
-        // present is expected catch-up, not a stutter, so its skips are never counted as drops.
-        int dropped = localForce ? 0 : Math.Max(0, advancePromotes - 1);
-        return (promoted, dropped);
+        return promoted;
     }
 
     /// <summary>Ensures <see cref="_feed"/> decodes <paramref name="sourceId"/>, (re)building it in factory mode
