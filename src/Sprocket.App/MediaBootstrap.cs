@@ -313,10 +313,54 @@ internal static class SampleClip
     private static void Generate(string path)
     {
         string temp = Path.Combine(Path.GetDirectoryName(path)!, $"sample.{Guid.NewGuid():N}.tmp.mp4");
-        var psi = new ProcessStartInfo("ffmpeg",
+
+        string preferredArgs =
+            "-y " +
+            "-f lavfi -i \"life=s=1920x1080:rate=30:ratio=0.08:death_color=0x0f1720:life_color=0x62d2a2:mold=0.8:seed=7,format=yuv420p\" " +
+            "-f lavfi -i \"anoisesrc=color=brown:sample_rate=48000:duration=6,volume=0.015\" " +
+            $"-c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"");
+
+        string fallbackArgs =
             "-y -f lavfi -i testsrc2=size=1920x1080:rate=30:duration=6 " +
             "-f lavfi -i sine=frequency=440:sample_rate=48000:duration=6 " +
-            $"-c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"")
+            $"-c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"");
+
+        try
+        {
+            try
+            {
+                RunFfmpeg(temp, preferredArgs, "preferred sample");
+            }
+            catch (Exception preferredError)
+            {
+                TryDelete(temp);
+
+                try
+                {
+                    RunFfmpeg(temp, fallbackArgs, "fallback sample");
+                }
+                catch (Exception fallbackError)
+                {
+                    TryDelete(temp);
+                    throw new InvalidOperationException(
+                        "ffmpeg failed to generate the sample clip with both the preferred and fallback recipes.\n" +
+                        $"Preferred:\n{preferredError.Message}\n\n" +
+                        $"Fallback:\n{fallbackError.Message}");
+                }
+            }
+
+            File.Move(temp, path, overwrite: true);
+        }
+        catch
+        {
+            TryDelete(temp);
+            throw;
+        }
+    }
+
+    private static void RunFfmpeg(string tempPath, string args, string label)
+    {
+        var psi = new ProcessStartInfo("ffmpeg", args)
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -327,30 +371,29 @@ internal static class SampleClip
         int exitCode;
         try
         {
-            using Process? p = Process.Start(psi)
+            using Process? process = Process.Start(psi)
                 ?? throw new InvalidOperationException(
                     "No media path given and the ffmpeg CLI was not found to generate a sample clip. " +
                     "Pass a video file path as the first argument.");
-            stderr = p.StandardError.ReadToEnd(); // drain before WaitForExit to avoid a full-buffer deadlock
-            p.WaitForExit();
-            exitCode = p.ExitCode;
+
+            stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            exitCode = process.ExitCode;
         }
         catch
         {
-            TryDelete(temp);
+            TryDelete(tempPath);
             throw;
         }
 
-        if (exitCode != 0 || !File.Exists(temp) || new FileInfo(temp).Length == 0)
+        if (exitCode != 0 || !File.Exists(tempPath) || new FileInfo(tempPath).Length == 0 || !CanOpen(tempPath))
         {
-            TryDelete(temp);
+            TryDelete(tempPath);
             string tail = stderr.Length > 500 ? stderr[^500..] : stderr;
             throw new InvalidOperationException(
-                $"ffmpeg failed to generate the sample clip (exit code {exitCode}).{(tail.Length > 0 ? $"\n{tail}" : "")}");
+                $"ffmpeg failed to generate the {label} (exit code {exitCode})." +
+                (tail.Length > 0 ? $"\n{tail}" : ""));
         }
-
-        // Promote atomically, replacing any stale/corrupt cached file.
-        File.Move(temp, path, overwrite: true);
     }
 
     private static void TryDelete(string path)
