@@ -320,8 +320,8 @@ internal static class SampleClip
 		string preferredArgs =
 			"-y " +
 			"-f lavfi -i \"mandelbrot=size=1920x1080:rate=30,format=yuv420p\" " +
-			"-f lavfi -i \"anoisesrc=color=brown:sample_rate=48000:duration=30,volume=0.015\" " +
-			$"-t 30 -c:v libx264 -preset veryfast -crf 30 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"";
+			"-f lavfi -i \"anoisesrc=color=brown:sample_rate=48000:duration=10,volume=0.015\" " +
+			$"-t 10 -c:v libx264 -preset veryfast -crf 30 -g 30 -pix_fmt yuv420p -c:a aac -shortest \"{temp}\"";
 
         string fallbackArgs =
             "-y -f lavfi -i testsrc2=size=1920x1080:rate=30:duration=10 " +

@@ -77,21 +77,40 @@ internal sealed class PlaybackStatsOverlay : Window
         };
 
         int row = 0;
-        _state = AddRow(grid, ref row, "State");
-        _position = AddRow(grid, ref row, "Position");
+        _state = AddRow(grid, ref row, "State",
+            "Whether the preview is currently playing or paused.");
+        _position = AddRow(grid, ref row, "Position",
+            "The playhead position and the total duration of what's loaded.");
         AddSeparator(grid, ref row);
-        _decode = AddRow(grid, ref row, "Video decode");
-        _targetFps = AddRow(grid, ref row, "Timeline rate");
-        _previewFps = AddRow(grid, ref row, "Preview rate");
-        _dropped = AddRow(grid, ref row, "Dropped frames");
-        _presented = AddRow(grid, ref row, "Frames shown");
-        _pumpRate = AddRow(grid, ref row, "Pump rate");
+        _decode = AddRow(grid, ref row, "Video decode",
+            "The codec decoding the preview, and whether it runs on the GPU (hardware-accelerated) or the CPU "
+            + "(software). GPU is faster and is the usual fix for 1080p stutter.");
+        _targetFps = AddRow(grid, ref row, "Timeline rate",
+            "The sequence's frame rate — the rate the preview is trying to hit.");
+        _previewFps = AddRow(grid, ref row, "Preview rate",
+            "Frames actually shown per second, averaged over a few seconds. It should match the timeline rate "
+            + "during smooth playback; a lower number means the preview can't keep up.");
+        _dropped = AddRow(grid, ref row, "Dropped frames",
+            "Frames skipped to stay in sync with the audio clock. This climbs when the preview falls behind; "
+            + "0 is ideal.");
+        _presented = AddRow(grid, ref row, "Frames shown",
+            "Total frames presented to the screen since playback started.");
+        _pumpRate = AddRow(grid, ref row, "Pump rate",
+            "How many times per second the playback loop runs to schedule and composite a frame "
+            + "(target ≈ the timeline rate).");
         AddSeparator(grid, ref row);
-        _cpu = AddRow(grid, ref row, "CPU");
-        _memory = AddRow(grid, ref row, "Working set");
-        _gcHeap = AddRow(grid, ref row, "Managed heap");
-        _gcCollections = AddRow(grid, ref row, "GC (g0/g1/g2)");
-        _threads = AddRow(grid, ref row, "Threads");
+        _cpu = AddRow(grid, ref row, "CPU",
+            "This process's CPU use — as a share of the whole machine, and as a number of cores in use.");
+        _memory = AddRow(grid, ref row, "Working set",
+            "Physical memory (RAM) the app is currently using.");
+        _gcHeap = AddRow(grid, ref row, "Managed heap",
+            "Memory held by .NET managed objects. Decoded frame pixels never live here, so it should stay low "
+            + "and steady during playback.");
+        _gcCollections = AddRow(grid, ref row, "GC (g0/g1/g2)",
+            "Garbage-collection counts for generations 0/1/2. Gen-0 should stay flat while playing — a rising "
+            + "count means per-frame managed allocations, which can cause hitches.");
+        _threads = AddRow(grid, ref row, "Threads",
+            "The number of OS threads the process is running.");
 
         var footnote = new TextBlock
         {
@@ -288,7 +307,7 @@ internal sealed class PlaybackStatsOverlay : Window
 
     // ── Layout helpers ────────────────────────────────────────────────────────────────────────────────
 
-    private static TextBlock AddRow(Grid grid, ref int row, string label)
+    private static TextBlock AddRow(Grid grid, ref int row, string label, string? tooltip = null)
     {
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
 
@@ -317,6 +336,17 @@ internal sealed class PlaybackStatsOverlay : Window
         Grid.SetRow(value, row);
         Grid.SetColumn(value, 1);
         grid.Children.Add(value);
+
+        // Explain the metric on hover (set on both cells so anywhere on the row shows it). A wider, slightly
+        // delayed tip reads better for the multi-sentence explanations than the snappy default.
+        if (tooltip is not null)
+        {
+            foreach (Control cell in new Control[] { labelBlock, value })
+            {
+                ToolTip.SetTip(cell, tooltip);
+                ToolTip.SetShowDelay(cell, 350);
+            }
+        }
 
         row++;
         return value;
