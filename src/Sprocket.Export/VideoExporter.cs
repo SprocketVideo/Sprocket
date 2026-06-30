@@ -88,6 +88,7 @@ public static class VideoExporter
         SKSurface? surface = null;
         SkiaEffectPipeline? pipeline = null;
         float[] mixBuffer = [];
+        bool completed = false;
 
         try
         {
@@ -143,6 +144,7 @@ public static class VideoExporter
 
             encoder.Finish();
             progress?.Report(1.0);
+            completed = true;
         }
         finally
         {
@@ -152,7 +154,19 @@ public static class VideoExporter
             pipeline?.Dispose();
             surface?.Dispose();
             encoder?.Dispose();
+
+            // A failed or cancelled export never wrote the MP4 trailer (the moov atom): `MediaEncoder.Finish`
+            // writes it, `Dispose` does not. Leaving the file behind hands the caller a full-size but
+            // unplayable .mp4, so delete the partial output once the encoder has released its file handle.
+            if (!completed)
+                TryDelete(outputPath);
         }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch { /* best-effort cleanup of a partial export; never mask the original failure */ }
     }
 
     /// <summary>Composites the frame at index <paramref name="frameIndex"/> onto <paramref name="surface"/>:

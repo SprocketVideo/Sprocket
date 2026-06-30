@@ -1,6 +1,8 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -87,6 +89,10 @@ public partial class MainWindow : Window
     /// <summary>The Sprocket project file type (a JSON sidecar) for the open / save-as pickers.</summary>
     private static readonly FilePickerFileType SprocketProjectFileType =
         new("Sprocket project") { Patterns = ["*.sprocket.json", "*.json"] };
+
+    /// <summary>The exported-video file type for the Export save picker.</summary>
+    private static readonly FilePickerFileType Mp4FileType =
+        new("MP4 video") { Patterns = ["*.mp4"], MimeTypes = ["video/mp4"] };
 
     /// <summary>Raised when File ▸ New / Open wants the composition root to swap to a freshly built session over
     /// <see cref="SessionRequest.Project"/> (PLAN.md step 16c). Handled by <see cref="App"/>.</summary>
@@ -1231,14 +1237,37 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Exports the loaded project to an <c>.mp4</c> next to the app output on a background thread (export is
-    /// CPU-bound and must not block the UI), pausing playback first and streaming progress to the status strip.
-    /// The actual pipeline lives in <see cref="VideoExporter"/>; this is just the composition-root trigger.
+    /// Exports the loaded project to an <c>.mp4</c> the user picks via a Save dialog, on a background thread
+    /// (export is CPU-bound and must not block the UI). A modal <see cref="ExportProgressDialog"/> shows
+    /// determinate progress and offers Cancel; on completion the user can open the containing folder. Pausing
+    /// playback first is mandatory — a second concurrent libav* pipeline crashes the in-process muxer. The
+    /// actual pipeline lives in <see cref="VideoExporter"/>; this is just the composition-root trigger.
     /// </summary>
     private async Task ExportAsync()
     {
         if (_exporting || _project is null)
             return;
+
+        // Nothing to render? Say so, rather than opening a Save dialog that would only fail at encode time.
+        if (_project.Timeline.Duration <= Timecode.Zero)
+        {
+            await MessageDialog.Show(this, "Nothing to Export",
+                "The timeline is empty — add a clip before exporting.");
+            return;
+        }
+
+        // Let the user choose where the file goes (mirrors File ▸ Save As) instead of silently dropping a fixed
+        // "export.mp4" into the app's own (often read-only) install folder, where it would go unnoticed.
+        string suggested = (_currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath)) + ".mp4";
+        IStorageFile? target = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export Video",
+            SuggestedFileName = suggested,
+            DefaultExtension = "mp4",
+            FileTypeChoices = [Mp4FileType],
+        });
+        if (target?.TryGetLocalPath() is not { } outputPath)
+            return; // user cancelled the picker — nothing exported, nothing to clean up
 
         _exporting = true;
         SetEnabled(false); // gate transport + tab-switching: no new in-process decode pipeline may start mid-export
@@ -1252,26 +1281,70 @@ public partial class MainWindow : Window
         if (_engine is not null)
             await _engine.SuspendAsync();
 
-        string outputPath = Path.Combine(AppContext.BaseDirectory, "export.mp4");
-        var progress = new Progress<double>(p => SetStatus($"Exporting… {p * 100:0}%"));
+        using var cts = new CancellationTokenSource();
+        var dialog = new ExportProgressDialog(Path.GetFileName(outputPath), cts);
+        var progress = new Progress<double>(p => dialog.SetProgress(p));
+        _ = dialog.ShowDialog(this); // modal: input-blocks the shell while exporting; dismissed in the finally
 
+        bool ok = false;
+        bool cancelled = false;
+        string? error = null;
         try
         {
-            await Task.Run(() => VideoExporter.Export(_project, outputPath, progress: progress));
-            SetStatus($"Exported → {outputPath}");
+            await Task.Run(() => VideoExporter.Export(
+                _project, outputPath, progress: progress, cancellationToken: cts.Token));
+            ok = true;
+        }
+        catch (OperationCanceledException)
+        {
+            cancelled = true; // VideoExporter deletes the partial (unfinalized) file on cancel
         }
         catch (Exception ex)
         {
-            SetStatus($"Export failed: {ex.Message}");
+            error = ex.Message; // ditto on failure — no corrupt .mp4 is left behind
         }
         finally
         {
+            dialog.CompleteAndClose();
             _engine?.Resume();      // restart the Program pump (feeds rebuild + re-present the current frame)
             if (sourceWasActive)
                 _source?.Activate(); // reopen the Source monitor's decoder if it was showing
             _exporting = false;
             SetEnabled(true);
         }
+
+        if (ok)
+        {
+            SetStatus($"Exported → {outputPath}");
+            if (await ConfirmDialog.Show(this, "Export Complete",
+                    $"Exported to:\n{outputPath}", "Open folder", "Close"))
+                RevealInFolder(outputPath);
+        }
+        else if (cancelled)
+        {
+            SetStatus("Export cancelled");
+        }
+        else
+        {
+            SetStatus($"Export failed: {error}");
+            await MessageDialog.Show(this, "Export Failed", $"The export could not be completed:\n{error}");
+        }
+    }
+
+    /// <summary>Opens the OS file manager with <paramref name="path"/> selected (Explorer/Finder), or its folder
+    /// on Linux. Best-effort: revealing the output is a convenience and must never throw into the export flow.</summary>
+    private static void RevealInFolder(string path)
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = false });
+            else if (OperatingSystem.IsMacOS())
+                Process.Start(new ProcessStartInfo("open", ["-R", path]) { UseShellExecute = false });
+            else if (Path.GetDirectoryName(path) is { } dir)
+                Process.Start(new ProcessStartInfo("xdg-open", [dir]) { UseShellExecute = false });
+        }
+        catch { /* the file manager may be missing/locked down — surfacing the file is non-essential */ }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────────────────────

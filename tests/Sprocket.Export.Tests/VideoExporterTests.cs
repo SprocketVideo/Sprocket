@@ -193,6 +193,22 @@ public sealed class VideoExporterTests
         Assert.Throws<ArgumentException>(() => VideoExporter.Export(project, output.Path));
     }
 
+    [Fact]
+    public void Export_Cancelled_LeavesNoPartialFile()
+    {
+        // A cancelled export never writes the MP4 trailer, so the on-disk file is full-size but unplayable
+        // ("moov atom not found"). The exporter must delete that partial output rather than hand it back.
+        Project project = ExportFixture.BuildProject(withAudio: true);
+
+        using var output = new TempFile();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // already cancelled: Create writes the header, the first frame check then bails
+
+        Assert.Throws<OperationCanceledException>(() =>
+            VideoExporter.Export(project, output.Path, cancellationToken: cts.Token));
+        Assert.False(File.Exists(output.Path), "a cancelled export must not leave a partial .mp4 behind");
+    }
+
     private static int CountVideoFrames(string path)
     {
         using MediaSource source = MediaSource.Open(path, HardwareAccelMode.Disabled);

@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -167,5 +168,167 @@ internal static class ConfirmDialog
         confirm.Click += (_, _) => dialog.Close(true);
         cancel.Click += (_, _) => dialog.Close(false);
         return dialog.ShowDialog<bool>(owner);
+    }
+}
+
+/// <summary>A single-button information dialog (e.g. "export complete / failed"). Mirrors
+/// <see cref="ConfirmDialog"/>'s look but has nothing to decide — it just acknowledges a message.</summary>
+internal static class MessageDialog
+{
+    public static Task Show(Window owner, string title, string message, string buttonText = "OK")
+    {
+        var ok = new Button
+        {
+            Content = buttonText,
+            Padding = new Thickness(18, 5),
+            Foreground = Brushes.White,
+            Background = Palette.Accent,
+            CornerRadius = new CornerRadius(5),
+        };
+
+        var dialog = new Window
+        {
+            Title = title,
+            Icon = AppIcon.Window,
+            Width = 420,
+            Height = 180,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Palette.WindowBg,
+            Content = new DockPanel
+            {
+                Margin = new Thickness(22),
+                Children =
+                {
+                    new StackPanel
+                    {
+                        [DockPanel.DockProperty] = Dock.Bottom,
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Margin = new Thickness(0, 16, 0, 0),
+                        Children = { ok },
+                    },
+                    new TextBlock
+                    {
+                        Text = message,
+                        Foreground = Palette.Text,
+                        FontSize = 13,
+                        TextWrapping = TextWrapping.Wrap,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    },
+                },
+            },
+        };
+
+        ok.Click += (_, _) => dialog.Close();
+        return dialog.ShowDialog(owner);
+    }
+}
+
+/// <summary>
+/// A modal progress dialog for an in-flight export: a determinate bar driven from the export's
+/// <c>IProgress&lt;double&gt;</c> and a Cancel button that signals the supplied
+/// <see cref="CancellationTokenSource"/>. While it is shown the shell is input-blocked, so no second
+/// libav* pipeline can start. The dialog stays up (showing "Cancelling…") until the export actually
+/// stops; only <see cref="CompleteAndClose"/> dismisses it — the window-chrome close button is treated
+/// as a cancel so it can never orphan a running export.
+/// </summary>
+internal sealed class ExportProgressDialog : Window
+{
+    private readonly ProgressBar _bar;
+    private readonly TextBlock _percent;
+    private readonly Button _cancel;
+    private readonly CancellationTokenSource _cts;
+    private bool _allowClose;
+
+    public ExportProgressDialog(string fileName, CancellationTokenSource cts)
+    {
+        _cts = cts;
+
+        Title = "Exporting";
+        Icon = AppIcon.Window;
+        Width = 440;
+        Height = 160;
+        CanResize = false;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = Palette.WindowBg;
+
+        _bar = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, Height = 16 };
+        _percent = new TextBlock
+        {
+            Text = "0%",
+            Foreground = Palette.MutedText,
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _cancel = new Button
+        {
+            Content = "Cancel",
+            Padding = new Thickness(16, 5),
+            Foreground = Palette.Text,
+            Background = Palette.PanelBg,
+            CornerRadius = new CornerRadius(5),
+        };
+        _cancel.Click += (_, _) => RequestCancel();
+
+        var bottom = new DockPanel { Margin = new Thickness(0, 14, 0, 0) };
+        _cancel.SetValue(DockPanel.DockProperty, Dock.Right);
+        bottom.Children.Add(_cancel);
+        bottom.Children.Add(_percent);
+
+        Content = new StackPanel
+        {
+            Margin = new Thickness(22),
+            Spacing = 10,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = $"Exporting {fileName}…",
+                    Foreground = Palette.Text,
+                    FontSize = 13,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                },
+                _bar,
+                bottom,
+            },
+        };
+    }
+
+    /// <summary>Updates the bar from an export progress fraction (0–1). Called on the UI thread by the
+    /// caller's <c>Progress&lt;double&gt;</c>, which captured this thread's context at construction.</summary>
+    public void SetProgress(double fraction)
+    {
+        int pct = (int)Math.Clamp(fraction * 100, 0, 100);
+        _bar.Value = pct;
+        if (!_cts.IsCancellationRequested)
+            _percent.Text = $"{pct}%";
+    }
+
+    /// <summary>Dismisses the dialog once the export has finished — the only sanctioned way to close it.</summary>
+    public void CompleteAndClose()
+    {
+        _allowClose = true;
+        Close();
+    }
+
+    private void RequestCancel()
+    {
+        _cancel.IsEnabled = false;
+        _percent.Text = "Cancelling…";
+        _cts.Cancel();
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        // The title-bar close button must not orphan a running export: treat it as Cancel and keep the
+        // dialog up until the export actually stops (CompleteAndClose then dismisses it).
+        if (!_allowClose)
+        {
+            e.Cancel = true;
+            if (!_cts.IsCancellationRequested)
+                RequestCancel();
+        }
+        base.OnClosing(e);
     }
 }
