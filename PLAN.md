@@ -1627,6 +1627,29 @@ Tags reference the [UI.md §4 checklist](UI.md).
       new `ProbedMediaInfo` color fields are additive (nullable/defaulted, no schema bump).
     - **Upgrade path.** Full scene-linear / OpenColorIO color management remains the later step-33
       upgrade ([ARCHITECTURE §18](ARCHITECTURE.md)).
+38. **AI control via an application-hosted MCP server (off by default).** Host an in-process
+    [Model Context Protocol](https://modelcontextprotocol.io) server inside `Sprocket.App` so an
+    external AI client (e.g. Claude) can drive the editor — inspect the project and issue edits —
+    over a local connection. **Disabled by default**; both the **enabled** toggle and the **listen
+    port** are user-configurable in **application settings**. This is a new capability landing on
+    existing seams, not a rewrite ([ARCHITECTURE §17](ARCHITECTURE.md)). Pieces:
+    - **Application settings store (prerequisite — new).** There is no app-level preferences
+      mechanism today (the only `Settings` is `Project.Settings`, which is per-project and lives in
+      the `.sprocket.json` file). Introduce a **user-scoped** settings store persisted to the
+      platform's per-user config location (e.g. `%AppData%` / `~/.config` / `~/Library/Application
+      Support`), separate from the project file; the **MCP enabled flag** and **MCP port** are its
+      first entries, surfaced in a Settings/Preferences UI.
+    - **MCP server.** A new component (e.g. `Sprocket.Mcp`, referenced by `Sprocket.App`) exposing
+      the official **C# MCP SDK** (`ModelContextProtocol`) over a local transport, bound to
+      **loopback**. Started/stopped purely from the settings toggle — **never auto-started**; a
+      port change restarts the listener.
+    - **Tools route through the command stack (§4 / step 10).** Every state-changing MCP tool
+      issues `IEditCommand`s through `EditHistory`, so AI-driven edits are **undoable by
+      construction** and share the UI's validation; read-only tools expose project / timeline /
+      media-pool / playhead state. Model mutations marshal to the UI thread (the thread that owns
+      the model, §8); decode/render/audio threads are untouched.
+    - **Security.** Off by default, loopback-only, and clearly indicated in the UI while running so
+      the user knows the app is externally controllable; no remote/network exposure in this step.
 
 Open product questions (e.g. the mockup's user-avatar / account affordance, full panel docking)
 are tracked in [UI.md §5](UI.md).
