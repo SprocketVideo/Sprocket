@@ -13,6 +13,13 @@
 #   pwsh scripts/gh-release.ps1 -Tag v0.2.0-alpha.1  # use an exact git tag / release name
 #   pwsh scripts/gh-release.ps1 -PreReleaseLabel beta.2          # tag v<ver>-beta.2
 #   pwsh scripts/gh-release.ps1 -OsxX64FFmpegUrl <url> -OsxArm64FFmpegUrl <url>   # bundle macOS FFmpeg
+#   pwsh scripts/gh-release.ps1 -NoChangeOverview    # skip the auto "What's changed since <prev tag>" section
+#
+# Release notes: a high-level "What's changed since <previous tag>" overview is built automatically
+# from the git log (commits since the most recent v* tag, grouped by conventional-commit type) and
+# PREPENDED to the release body. It sits on top of the explicit notes (-Notes / -NotesFile /
+# RELEASE_NOTES.md), or — when none is given — on top of GitHub's auto-generated notes. Use
+# -NoChangeOverview to omit it.
 #
 # Versioning: release.ps1 owns the X.Y.Z version (Directory.Build.props <VersionPrefix>) and stamps
 # it into the assemblies. The GIT TAG carries the prerelease suffix (e.g. v0.1.20-alpha.1); the
@@ -58,6 +65,10 @@ param(
     # from the commits/PRs since the previous tag.
     [string] $NotesFile,
 
+    # Skip the auto-generated "What's changed since <previous tag>" overview that is otherwise
+    # prepended to the release body.
+    [switch] $NoChangeOverview,
+
     # Build configuration, passed through to release.ps1.
     [string] $Configuration = 'Release',
 
@@ -84,6 +95,63 @@ function Get-BaseVersion {
     throw "No <VersionPrefix> found in $propsFile"
 }
 
+# Build a high-level markdown overview of what changed since $sinceTag: the commit subjects in
+# ($sinceTag..HEAD), grouped by conventional-commit type into friendly sections. Release "chore:
+# release ..." commits are dropped as noise. Returns $null when there is nothing to report.
+function Get-ChangeOverview([string] $sinceTag) {
+    $range = if ($sinceTag) { "$sinceTag..HEAD" } else { 'HEAD' }
+    $raw = & git -C $repoRoot log $range --no-merges --pretty=format:'%s'
+    $subjects = @($raw | Where-Object { $_ -and ($_ -notmatch '^chore(\([^)]*\))?:\s*release\b') })
+    if (-not $subjects) { return $null }
+
+    # Conventional-commit type -> section title, in display order. Unrecognized / unprefixed
+    # subjects fall into "Other".
+    $sections = [ordered]@{
+        feat     = 'Features'
+        fix      = 'Fixes'
+        perf     = 'Performance'
+        refactor = 'Refactoring'
+        docs     = 'Documentation'
+        build    = 'Build'
+        ci       = 'CI'
+        test     = 'Tests'
+        style    = 'Style'
+        chore    = 'Chores'
+        other    = 'Other'
+    }
+    $buckets = @{}
+    foreach ($key in $sections.Keys) { $buckets[$key] = [System.Collections.Generic.List[string]]::new() }
+
+    foreach ($s in $subjects) {
+        if ($s -match '^(?<type>\w+)(?<scope>\([^)]*\))?!?:\s*(?<desc>.+)$') {
+            $type = $Matches['type'].ToLowerInvariant()
+            if ($type -eq 'tests') { $type = 'test' }
+            if (-not $buckets.ContainsKey($type)) { $type = 'other' }
+            $scope = if ($Matches['scope']) { ($Matches['scope'] -replace '[()]', '') } else { '' }
+            $desc = $Matches['desc'].Trim()
+            $bullet = if ($scope) { "**${scope}:** $desc" } else { $desc }
+            $buckets[$type].Add($bullet)
+        }
+        else {
+            $buckets['other'].Add($s.Trim())
+        }
+    }
+
+    $count = $subjects.Count
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add($(if ($sinceTag) { "## What's changed since $sinceTag" } else { "## What's changed" }))
+    $lines.Add('')
+    $lines.Add("_$count commit$(if ($count -ne 1) { 's' }) in this release._")
+    $lines.Add('')
+    foreach ($key in $sections.Keys) {
+        if ($buckets[$key].Count -eq 0) { continue }
+        $lines.Add("### $($sections[$key])")
+        foreach ($item in $buckets[$key]) { $lines.Add("- $item") }
+        $lines.Add('')
+    }
+    return ($lines -join "`n").TrimEnd()
+}
+
 # ---- Preflight -------------------------------------------------------------------------------
 Write-Step 'Preflight checks'
 
@@ -103,6 +171,25 @@ if ($dirty) {
 }
 $branch = (& git -C $repoRoot rev-parse --abbrev-ref HEAD).Trim()
 Write-Info "Clean tree on branch '$branch'."
+
+# Build the "what changed since the last release" overview now, while HEAD still points at the
+# commit being released (before the version-bump commit and the new tag). The previous release is
+# the most recent v* tag reachable from HEAD; if there is none (first release) the overview lists
+# the full history. Read-only, so it runs in -DryRun too.
+$changeOverview = $null
+if (-not $NoChangeOverview) {
+    $prevTag = (& git -C $repoRoot describe --tags --abbrev=0 --match 'v*' 2>$null)
+    if ($LASTEXITCODE -ne 0) { $prevTag = '' }
+    $prevTag = "$prevTag".Trim()
+    $LASTEXITCODE = 0   # don't let the (expected) describe miss trip a later exit-code check
+    $changeOverview = Get-ChangeOverview $prevTag
+    if ($changeOverview) {
+        Write-Info "Change overview: built from commits since $(if ($prevTag) { $prevTag } else { 'repo start' })."
+    }
+    else {
+        Write-Info 'Change overview: no commits since the last release (skipping).'
+    }
+}
 
 if ($Rids -contains 'osx-x64' -or $Rids -contains 'osx-arm64') {
     if (-not ($OsxX64FFmpegUrl -or $OsxArm64FFmpegUrl)) {
@@ -200,29 +287,63 @@ Write-Step "Creating GitHub release $Tag"
 $ghArgs = @('release', 'create', $Tag, '--title', $Tag, '--verify-tag')
 if (-not $NotPreRelease) { $ghArgs += '--prerelease' }
 
-# Notes source precedence: inline -Notes > -NotesFile > repo-root RELEASE_NOTES.md > auto-generated.
+# Resolve the explicit notes body (precedence: inline -Notes > -NotesFile > repo-root
+# RELEASE_NOTES.md). When none exists, GitHub auto-generates the body.
 if (-not $NotesFile) {
     $defaultNotes = Join-Path $repoRoot 'RELEASE_NOTES.md'
     if (Test-Path $defaultNotes) { $NotesFile = $defaultNotes }
 }
+$explicitNotes = $null
+$notesSourceDesc = $null
 if ($Notes) {
-    $ghArgs += @('--notes', $Notes)
-    Write-Info 'Notes: inline -Notes.'
+    $explicitNotes = $Notes
+    $notesSourceDesc = 'inline -Notes'
 } elseif ($NotesFile) {
     if (-not (Test-Path $NotesFile)) { throw "Notes file not found: $NotesFile" }
-    $ghArgs += @('--notes-file', $NotesFile)
-    Write-Info "Notes: $([System.IO.Path]::GetFileName($NotesFile))."
+    $explicitNotes = Get-Content $NotesFile -Raw
+    $notesSourceDesc = [System.IO.Path]::GetFileName($NotesFile)
+}
+
+# Assemble the final body: the auto change-overview (if any) on top, then the explicit notes.
+# When there is no explicit notes source, fall back to GitHub's auto-generated notes — and still
+# prepend the overview, since gh appends --generate-notes output after the --notes-file content.
+$bodyParts = @()
+if ($changeOverview) { $bodyParts += $changeOverview }
+if ($explicitNotes)  { $bodyParts += $explicitNotes.TrimEnd() }
+
+$notesFileToShip = $null
+if ($bodyParts.Count -gt 0) {
+    $safeTag = ($Tag -replace '[^\w.\-]', '_')
+    $notesFileToShip = Join-Path ([System.IO.Path]::GetTempPath()) "sprocket-relnotes-$safeTag.md"
+    Set-Content -Path $notesFileToShip -Value (($bodyParts -join "`n`n") + "`n") -Encoding utf8
+    $ghArgs += @('--notes-file', $notesFileToShip)
+
+    $descParts = @()
+    if ($changeOverview)  { $descParts += 'change overview' }
+    if ($explicitNotes)   { $descParts += $notesSourceDesc }
+    if (-not $explicitNotes) {
+        $ghArgs += '--generate-notes'   # overview prepended to GitHub auto-generated notes
+        $descParts += 'GitHub auto-generated'
+    }
+    Write-Info "Notes: $($descParts -join ' + ')."
 } else {
     $ghArgs += '--generate-notes'
-    Write-Info 'Notes: GitHub auto-generated (no RELEASE_NOTES.md found).'
+    Write-Info 'Notes: GitHub auto-generated (no RELEASE_NOTES.md, overview empty/disabled).'
 }
 $ghArgs += $assets
 
 if ($DryRun) {
     Write-Info "[dry-run] would: gh $($ghArgs -join ' ')"
+    if ($changeOverview) {
+        Write-Info '[dry-run] change overview:'
+        $changeOverview -split "`n" | ForEach-Object { Write-Host "      $_" }
+    }
 } else {
     & gh @ghArgs
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed." }
+}
+if ($notesFileToShip -and -not $DryRun -and (Test-Path $notesFileToShip)) {
+    Remove-Item $notesFileToShip -Force
 }
 
 Write-Host ""
