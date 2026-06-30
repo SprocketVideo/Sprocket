@@ -31,11 +31,11 @@ jobs:
       - name: Build
         run: dotnet build Sprocket.slnx --configuration Release
 
-  # Runs the xUnit suite. Restricted to Windows for now: the FFmpeg native libs
-  # the decode tests need come from the win-x64 Sdcb runtime NuGet, and there is
-  # no equivalent runtime package on Linux/macOS yet (those natives are bundled
-  # by the release script, not NuGet). Cross-platform test runs are a roadmap
-  # item alongside per-OS native bundling.
+  # Runs the xUnit suite. Restricted to Windows for now: the decode tests need
+  # FFmpeg 8 shared natives (libavcodec 62), which FFmpegLoader resolves from
+  # %SPROCKET_FFMPEG8_DIR% (there is NO FFmpeg-8 runtime NuGet for any RID — the
+  # natives are bundled per-RID by the release script). Cross-platform test runs
+  # are a roadmap item alongside per-OS native bundling.
   test:
     needs: build
     runs-on: windows-latest
@@ -47,10 +47,30 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # The media/audio tests shell out to the ffmpeg CLI to generate a
-      # deterministic fixture clip (see TestVideo.cs).
-      - name: Install ffmpeg
-        run: choco install ffmpeg -y --no-progress
+      # Sprocket's hand-rolled binding needs FFmpeg 8 shared natives resolved from
+      # %SPROCKET_FFMPEG8_DIR% (FFmpegLoader does not search PATH, and version-guards
+      # to libavcodec major 62). The BtbN *-gpl-shared build — the same source the
+      # release script uses — also ships the ffmpeg CLI the tests shell out to for
+      # fixture generation (TestVideo.cs), so one download satisfies both needs.
+      - name: Download FFmpeg 8 natives
+        shell: pwsh
+        run: |
+          $rel = Invoke-RestMethod -Headers @{ 'User-Agent' = 'sprocket-ci' } `
+            -Uri 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest'
+          $asset = $rel.assets |
+            Where-Object { $_.name -match 'win64-gpl-shared' -and $_.name -match 'n8\.' -and $_.name -notmatch '\.sha256$' } |
+            Select-Object -First 1
+          if (-not $asset) { throw 'No BtbN FFmpeg 8 win64-gpl-shared asset found in the latest release.' }
+          $zip = Join-Path $env:RUNNER_TEMP 'ffmpeg8.zip'
+          Write-Host "Downloading $($asset.name)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -Headers @{ 'User-Agent' = 'sprocket-ci' }
+          $dest = Join-Path $env:RUNNER_TEMP 'ffmpeg8'
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          $bin = (Get-ChildItem -Path $dest -Recurse -Directory -Filter 'bin' | Select-Object -First 1).FullName
+          if (-not $bin) { throw 'No bin directory found in the FFmpeg archive.' }
+          Write-Host "FFmpeg 8 bin: $bin"
+          "SPROCKET_FFMPEG8_DIR=$bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Test
         run: dotnet test Sprocket.slnx --configuration Release
