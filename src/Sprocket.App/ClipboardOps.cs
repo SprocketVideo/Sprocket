@@ -38,8 +38,15 @@ public static class ClipboardOps
         ArgumentNullException.ThrowIfNull(snapshot);
         long start = Math.Max(0, at.Ticks);
         var copy = new Clip(snapshot.MediaRefId, snapshot.SourceIn, snapshot.SourceOut, new Timecode(start));
+        // Effect keyframe times are absolute timeline time (AnimatableValue.Evaluate is called with the playhead's
+        // timeline time). A clip pasted at a new start must therefore shift its animated parameters by the
+        // placement delta so they move with the clip — otherwise the copy's keyframes stay anchored to the
+        // ORIGINAL clip's span. The default clip carries a fade in/out keyframed over its span, so a copy placed
+        // past the original (e.g. Alt-drag-duplicate with a gap) would sit entirely beyond the fade-out's final
+        // keyframe (opacity 0) and render fully transparent — a black clip. Shifting keeps the fade on the copy.
+        Timecode shift = new Timecode(start - snapshot.TimelineStart.Ticks);
         foreach (EffectInstance e in snapshot.Effects)
-            copy.Effects.Add(e.Clone());
+            copy.Effects.Add(e.CloneShifted(shift));
         return copy;
     }
 

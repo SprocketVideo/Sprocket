@@ -100,6 +100,24 @@ public sealed class AnimatableValue
     public static AnimatableValue Constant(double value) => new(value, []);
 
     /// <summary>
+    /// Returns a copy with every keyframe time shifted by <paramref name="delta"/> (constants are returned
+    /// unchanged). Keyframe times are absolute timeline time, so when a clip is duplicated/pasted to a new
+    /// timeline position its animated parameters must shift by the placement delta to stay aligned with the
+    /// clip — otherwise the copy's keyframes stay anchored to the original clip's span. Shifting preserves
+    /// order, so no re-sort is needed.
+    /// </summary>
+    public AnimatableValue Shifted(Timecode delta)
+    {
+        if (_keyframes.Length == 0 || delta.Ticks == 0)
+            return this;
+
+        var shifted = new Keyframe[_keyframes.Length];
+        for (int i = 0; i < _keyframes.Length; i++)
+            shifted[i] = _keyframes[i] with { Time = _keyframes[i].Time + delta };
+        return new AnimatableValue(_constant, shifted);
+    }
+
+    /// <summary>
     /// Creates an animated value from one or more keyframes. The keyframes are sorted by time;
     /// at least one is required.
     /// </summary>

@@ -1,3 +1,5 @@
+using Sprocket.Core.Timing;
+
 namespace Sprocket.Core.Model;
 
 /// <summary>
@@ -115,6 +117,20 @@ public sealed class EffectInstance
         var copy = new EffectInstance(EffectTypeId);
         foreach ((string name, AnimatableValue value) in Parameters)
             copy.Parameters[name] = value;
+        return copy;
+    }
+
+    /// <summary>
+    /// A clone whose animated parameters have every keyframe time shifted by <paramref name="delta"/> (see
+    /// <see cref="AnimatableValue.Shifted"/>). Used when a clip is pasted/duplicated to a new timeline start so
+    /// its keyframed effects (e.g. the default fade in/out) move with the clip instead of staying anchored to
+    /// the original clip's timeline span. A zero delta is equivalent to <see cref="Clone"/>.
+    /// </summary>
+    public EffectInstance CloneShifted(Timecode delta)
+    {
+        var copy = new EffectInstance(EffectTypeId);
+        foreach ((string name, AnimatableValue value) in Parameters)
+            copy.Parameters[name] = value.Shifted(delta);
         return copy;
     }
 }

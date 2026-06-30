@@ -86,6 +86,34 @@ public class ClipboardOpsTests
         Assert.NotSame(a.Effects[0], b.Effects[0]);
     }
 
+    [Fact]
+    public void Paste_Shifts_Keyframed_Effects_So_A_Copied_Fade_Tracks_The_New_Position()
+    {
+        // Repro of the "Alt-drag-copied clip plays black" bug: the default clip carries a fade in/out keyframed
+        // over its timeline span. Effect keyframe times are absolute timeline time, so a naive clone would leave
+        // the copy's fade anchored to the ORIGINAL clip's span — placed past it, the copy sits beyond the
+        // fade-out's final keyframe (opacity 0) and renders fully transparent (black). Paste must shift the
+        // keyframes by the placement delta so the copy fades like the original at its new position.
+        var clip = new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.Zero);
+        clip.Effects.Add(new EffectInstance(EffectTypeIds.Fade).Set(EffectParamNames.Opacity,
+            AnimatableValue.Animated(
+            [
+                new Keyframe(Timecode.Zero, 0.0, Interpolation.Linear),               // fade in start
+                new Keyframe(Timecode.FromSeconds(1), 1.0, Interpolation.Linear),     // fully in
+                new Keyframe(Timecode.FromSeconds(3), 1.0, Interpolation.Linear),     // hold until
+                new Keyframe(Timecode.FromSeconds(4), 0.0, Interpolation.Linear),     // fade out end
+            ])));
+
+        Clip pasted = ClipboardOps.Paste(ClipboardOps.Copy(clip), Timecode.FromSeconds(10));
+
+        AnimatableValue opacity = pasted.Effects.Single().Parameters[EffectParamNames.Opacity];
+        // Middle of the copy (timeline 12s ⇒ between the shifted "fully in" keyframes) is fully opaque, not black.
+        Assert.Equal(1.0, opacity.Evaluate(Timecode.FromSeconds(12)));
+        // The copy's fade in/out land at its own edges: ~0 at its start (10s) and end (14s).
+        Assert.Equal(0.0, opacity.Evaluate(Timecode.FromSeconds(10)));
+        Assert.Equal(0.0, opacity.Evaluate(Timecode.FromSeconds(14)));
+    }
+
     [Theory]
     [InlineData(1000, 5000, 1000)]   // right nudge: unaffected
     [InlineData(-1000, 5000, -1000)] // left nudge with headroom: unaffected

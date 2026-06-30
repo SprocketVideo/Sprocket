@@ -103,6 +103,43 @@ public class RepeatedClipPlaybackTests
     }
 
     [Fact]
+    public async Task Second_Full_Source_Instance_Plays_After_The_First_Drained_To_End_Of_Stream()
+    {
+        // The exact reported repro: a single clip Alt-dragged to a copy later on the same track with a gap.
+        // Both span the WHOLE source, so playing through clip A drains the decoder to end-of-stream (the feed
+        // parks at EOF). When the playhead later enters clip B (same source), the boundary must re-seek the
+        // parked feed back to the in-point and present a frame — not hold black.
+        using var cts = new CancellationTokenSource(Timeout);
+        Timecode clipSpan = Timecode.FromFrames(TestVideo.FrameCount, Fps); // full 3s source
+        Timecode gap = Timecode.FromFrames(30, Fps);                         // 1s gap → clip B at timeline 4s
+        (Project project, Func<MediaRefId, IVideoFrameFeed?> factory) = BuildSession(clipSpan, gap);
+
+        var elapsed = TimeSpan.Zero;
+        var clock = new SoftwareClock(() => elapsed);
+        await using var engine = new PlaybackEngine(project, factory, clock);
+
+        engine.SeekTo(Timecode.Zero);
+        await engine.PumpOnceAsync(forcePresent: true, cts.Token);
+        engine.Play();
+
+        // Advance to the last frame of clip A: the pump promotes through to frame 89 and then reads the
+        // end-of-stream marker, so the feed (and the player) latch EOF — exactly as in straight playthrough.
+        elapsed = TimeSpan.FromSeconds(2.97); // frame 89 @ 30fps
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        Assert.Equal((TestVideo.FrameCount - 1) * FrameTicks, CurrentPts(engine));
+
+        // Into the gap.
+        elapsed = TimeSpan.FromSeconds(3.5);
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        Assert.Equal(-1, CurrentPts(engine));
+
+        // Into clip B (timeline 4.0s ⇒ source 0): the parked feed must re-seek and present frame 0.
+        elapsed = TimeSpan.FromSeconds(4.0);
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        Assert.Equal(0, CurrentPts(engine));
+    }
+
+    [Fact]
     public async Task Seeking_Into_Second_Instance_Presents_Its_Frame_After_The_First_Reached_End_Of_Source()
     {
         // Scenario: both clips span the WHOLE source, so playing clip A drains the decoder to EOF (it parks).
