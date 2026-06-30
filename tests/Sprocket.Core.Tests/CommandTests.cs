@@ -633,3 +633,197 @@ public class EditingToolsTests
         public override void Revert() => log.Add($"-{Label}");
     }
 }
+
+/// <summary>
+/// Ripple / roll / slide trim commands (PLAN.md step 22). Each is a pure timeline operation that keeps the
+/// sequence continuous; these tests assert it applies + reverses exactly against the real model and coalesces a
+/// drag into one undo entry. The control's tool/pointer wiring rests on these + manual verification.
+/// </summary>
+public class RippleRollSlideTests
+{
+    private static Clip Clip(double startS, double durS, double sourceInS = 0) =>
+        new(MediaRefId.New(), Timecode.FromSeconds(sourceInS), Timecode.FromSeconds(sourceInS + durS), Timecode.FromSeconds(startS));
+
+    // ── Ripple trim ──────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void RippleTrim_Out_Extends_Clip_And_Shifts_Downstream_Right()
+    {
+        // A[0,5) B[5,10) C[10,15) on one track; ripple A's out by +2s.
+        Clip a = Clip(0, 5), b = Clip(5, 5), c = Clip(10, 5);
+        var downstream = new List<(Clip, Timecode)> { (b, b.TimelineStart), (c, c.TimelineStart) };
+        var history = new EditHistory();
+
+        history.Execute(new RippleTrimCommand(a, a.SourceIn, Timecode.FromSeconds(7), downstream, Timecode.FromSeconds(2).Ticks));
+
+        Assert.Equal(Timecode.FromSeconds(7), a.SourceOut);
+        Assert.Equal(Timecode.FromSeconds(7), a.TimelineEnd);     // start fixed, longer by 2s
+        Assert.Equal(Timecode.FromSeconds(7), b.TimelineStart);   // butts the new end
+        Assert.Equal(Timecode.FromSeconds(12), c.TimelineStart);  // both downstream shifted +2s
+
+        history.Undo();
+        Assert.Equal(Timecode.FromSeconds(5), a.SourceOut);
+        Assert.Equal(Timecode.FromSeconds(5), b.TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(10), c.TimelineStart);
+    }
+
+    [Fact]
+    public void RippleTrim_In_Trims_Head_And_Shifts_Downstream_Left()
+    {
+        // A[0,5) B[5,10); ripple A's in by +2s (drop 2s of head). A's start is fixed; end & B pull left.
+        Clip a = Clip(0, 5), b = Clip(5, 5);
+        var downstream = new List<(Clip, Timecode)> { (b, b.TimelineStart) };
+        var history = new EditHistory();
+
+        history.Execute(new RippleTrimCommand(a, Timecode.FromSeconds(2), a.SourceOut, downstream, Timecode.FromSeconds(-2).Ticks));
+
+        Assert.Equal(Timecode.FromSeconds(2), a.SourceIn);
+        Assert.Equal(Timecode.Zero, a.TimelineStart);            // leading edge stays put
+        Assert.Equal(Timecode.FromSeconds(3), a.TimelineEnd);    // duration 5→3
+        Assert.Equal(Timecode.FromSeconds(3), b.TimelineStart);  // downstream closes the gap
+
+        history.Undo();
+        Assert.Equal(Timecode.Zero, a.SourceIn);
+        Assert.Equal(Timecode.FromSeconds(5), b.TimelineStart);
+    }
+
+    [Fact]
+    public void RippleTrim_Coalesces_A_Drag_Into_One_Entry()
+    {
+        Clip a = Clip(0, 5), b = Clip(5, 5);
+        var downstream = new List<(Clip, Timecode)> { (b, b.TimelineStart) }; // captured once, like a real drag
+        var history = new EditHistory();
+
+        using (history.BeginCoalescing())
+        {
+            history.Execute(new RippleTrimCommand(a, a.SourceIn, Timecode.FromSeconds(6), downstream, Timecode.FromSeconds(1).Ticks));
+            history.Execute(new RippleTrimCommand(a, a.SourceIn, Timecode.FromSeconds(8), downstream, Timecode.FromSeconds(3).Ticks));
+        }
+
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal(Timecode.FromSeconds(8), a.SourceOut);       // last value wins
+        Assert.Equal(Timecode.FromSeconds(8), b.TimelineStart);
+
+        history.Undo(); // one undo reverses the whole gesture to the captured originals
+        Assert.Equal(Timecode.FromSeconds(5), a.SourceOut);
+        Assert.Equal(Timecode.FromSeconds(5), b.TimelineStart);
+    }
+
+    // ── Roll edit ────────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Roll_Moves_The_Cut_And_Keeps_The_Combined_Span()
+    {
+        // L[0,5) R[5,10), cut at 5. Roll +2s: L grows to [0,7), R shrinks to [7,10).
+        Clip l = Clip(0, 5), r = Clip(5, 5);
+        var history = new EditHistory();
+
+        history.Execute(new RollEditCommand(l, r,
+            Timecode.FromSeconds(7), Timecode.FromSeconds(2), Timecode.FromSeconds(7)));
+
+        Assert.Equal(Timecode.FromSeconds(7), l.SourceOut);
+        Assert.Equal(Timecode.FromSeconds(7), l.TimelineEnd);
+        Assert.Equal(Timecode.FromSeconds(2), r.SourceIn);
+        Assert.Equal(Timecode.FromSeconds(7), r.TimelineStart);  // R starts at the new cut
+        Assert.Equal(Timecode.FromSeconds(10), r.TimelineEnd);   // combined span unchanged
+
+        history.Undo();
+        Assert.Equal(Timecode.FromSeconds(5), l.SourceOut);
+        Assert.Equal(Timecode.Zero, r.SourceIn);
+        Assert.Equal(Timecode.FromSeconds(5), r.TimelineStart);
+    }
+
+    [Fact]
+    public void Roll_Coalesces_A_Drag_Into_One_Entry()
+    {
+        Clip l = Clip(0, 5), r = Clip(5, 5);
+        var history = new EditHistory();
+
+        using (history.BeginCoalescing())
+        {
+            history.Execute(new RollEditCommand(l, r, Timecode.FromSeconds(6), Timecode.FromSeconds(1), Timecode.FromSeconds(6)));
+            history.Execute(new RollEditCommand(l, r, Timecode.FromSeconds(8), Timecode.FromSeconds(3), Timecode.FromSeconds(8)));
+        }
+
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal(Timecode.FromSeconds(8), l.SourceOut);
+        Assert.Equal(Timecode.FromSeconds(8), r.TimelineStart);
+
+        history.Undo();
+        Assert.Equal(Timecode.FromSeconds(5), l.SourceOut);
+        Assert.Equal(Timecode.FromSeconds(5), r.TimelineStart);
+    }
+
+    // ── Slide ────────────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Slide_Moves_The_Clip_And_Neighbours_Absorb_It()
+    {
+        // P[0,5) C[5,9)(source 2..6) N[9,14); slide C +2s. C's source window is untouched.
+        Clip p = Clip(0, 5), c = Clip(5, 4, sourceInS: 2), n = Clip(9, 5);
+        var history = new EditHistory();
+
+        history.Execute(new SlideClipCommand(
+            c, Timecode.FromSeconds(7),
+            p, Timecode.FromSeconds(7),
+            n, Timecode.FromSeconds(2), Timecode.FromSeconds(11)));
+
+        Assert.Equal(Timecode.FromSeconds(7), c.TimelineStart);   // clip slid +2s
+        Assert.Equal(Timecode.FromSeconds(2), c.SourceIn);        // source window unchanged
+        Assert.Equal(Timecode.FromSeconds(6), c.SourceOut);
+        Assert.Equal(Timecode.FromSeconds(7), p.SourceOut);       // prev extended to follow
+        Assert.Equal(Timecode.FromSeconds(7), p.TimelineEnd);
+        Assert.Equal(Timecode.FromSeconds(2), n.SourceIn);        // next pulled in
+        Assert.Equal(Timecode.FromSeconds(11), n.TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(14), n.TimelineEnd);    // downstream end fixed
+
+        history.Undo();
+        Assert.Equal(Timecode.FromSeconds(5), c.TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(5), p.SourceOut);
+        Assert.Equal(Timecode.Zero, n.SourceIn);
+        Assert.Equal(Timecode.FromSeconds(9), n.TimelineStart);
+    }
+
+    [Fact]
+    public void Slide_With_No_Previous_Neighbour_Only_Adjusts_The_Next()
+    {
+        // C is the first clip; only the next neighbour absorbs the slide.
+        Clip c = Clip(0, 4, sourceInS: 2), n = Clip(4, 5);
+        var history = new EditHistory();
+
+        history.Execute(new SlideClipCommand(
+            c, Timecode.FromSeconds(1),
+            prev: null, default,
+            n, Timecode.FromSeconds(1), Timecode.FromSeconds(5)));
+
+        Assert.Equal(Timecode.FromSeconds(1), c.TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(1), n.SourceIn);
+        Assert.Equal(Timecode.FromSeconds(5), n.TimelineStart);
+
+        history.Undo();
+        Assert.Equal(Timecode.Zero, c.TimelineStart);
+        Assert.Equal(Timecode.Zero, n.SourceIn);
+        Assert.Equal(Timecode.FromSeconds(4), n.TimelineStart);
+    }
+
+    [Fact]
+    public void Slide_Coalesces_A_Drag_Into_One_Entry()
+    {
+        Clip p = Clip(0, 5), c = Clip(5, 4, sourceInS: 2), n = Clip(9, 5);
+        var history = new EditHistory();
+
+        using (history.BeginCoalescing())
+        {
+            history.Execute(new SlideClipCommand(c, Timecode.FromSeconds(6), p, Timecode.FromSeconds(6), n, Timecode.FromSeconds(1), Timecode.FromSeconds(10)));
+            history.Execute(new SlideClipCommand(c, Timecode.FromSeconds(7), p, Timecode.FromSeconds(7), n, Timecode.FromSeconds(2), Timecode.FromSeconds(11)));
+        }
+
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal(Timecode.FromSeconds(7), c.TimelineStart);
+
+        history.Undo();
+        Assert.Equal(Timecode.FromSeconds(5), c.TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(5), p.SourceOut);
+        Assert.Equal(Timecode.FromSeconds(9), n.TimelineStart);
+    }
+}

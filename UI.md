@@ -79,13 +79,22 @@ north-star layout; the vertical slice implements a subset of it without changing
 - **Custom window controls** (min/max/close) → frameless window (see §1).
 
 ### 3.2 Tool + action bar
-- **Tool palette** (radio group, one active): **Select · Blade · Slip · Hand · Zoom**.
+- **Tool palette** (radio group, one active): **Select · Blade · Ripple · Roll · Slip · Slide · Hand · Zoom**
+  (the Premiere/Resolve/FCP trim toolset).
   - `Select` — default arrow; move/trim clips. **[slice]** (basic move + trim).
   - `Blade` — razor; split a clip at the cursor. **[new, near-slice]** — a timeline edit op.
+  - `Ripple` — trim a clip's edge and shift everything downstream to close/open the gap (keeps the
+    track gap-free). **[new]** (PLAN step 22) — Linked A/V ripples together.
+  - `Roll` — drag the cut between two adjacent clips (one's out + the next's in move together) keeping
+    their combined length and everything downstream fixed. **[new]** (PLAN step 22).
   - `Slip` — slip a clip's source in/out without moving it on the timeline. **[new]** — maps
     directly to editing `SourceIn/SourceOut` (non-destructive model already supports it).
+  - `Slide` — move a clip along the timeline while its neighbours absorb the change (the complement
+    of slip). **[new]** (PLAN step 22).
   - `Hand` — pan the timeline view. **[new]** (view-only).
   - `Zoom` — zoom the timeline view. **[new]** (view-only; see timeline zoom control).
+  - **Ripple delete** (Shift+Delete, the Premiere/Resolve convention) — delete a clip and close the
+    gap; Edit ▸ Ripple Delete. **[new]** (PLAN step 22).
 - **Snapping** toggle (active) — snap edits to clip edges / playhead / markers. **[new]**.
 - **Linked** toggle — keep linked A/V (a video clip and its companion audio) selected and
   moved together. **[new]** — implies a *clip-link* relation in the model.
@@ -198,7 +207,7 @@ dropped frames, GPU path).
 |---|---|---|
 | Frameless window + custom chrome/menu | new | `Sprocket.App` window shell |
 | Named project, autosave, dirty indicator | new | Persistence §12 + app state |
-| Tool palette: Select / Blade / Slip / Hand / Zoom | mixed | timeline edit ops (Select/Slip in-model; Blade [new]; Hand/Zoom view-only) |
+| Tool palette: Select / Blade / Ripple / Roll / Slip / Slide / Hand / Zoom | mixed | timeline edit ops (Select/Slip/Ripple/Roll/Slide in-model [step 22]; Blade [new]; Hand/Zoom view-only) |
 | Snapping, Linked A/V | new | timeline edit behavior + clip-link relation |
 | Media bin: thumbnails, waveforms, search, format/alpha badges | new | probe (exists) + thumbnail/waveform rendering |
 | Effects / Transitions / Audio browsers | mixed | Effects [new browser]; Transitions [deferred §17] |

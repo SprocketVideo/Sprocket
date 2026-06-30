@@ -144,4 +144,78 @@ public class TimelineMathTests
     {
         Assert.Equal(-1, TimelineMath.LaneIndexAtY(100, rulerHeight: 26, laneStride: 0));
     }
+
+    // ── Ripple / roll / slide clamping (PLAN.md step 22) ───────────────────────────────────────────
+    // Quantities are unit-agnostic timeline ticks; the control converts source/media headroom to timeline
+    // ticks (÷ speed) before calling these.
+
+    [Fact]
+    public void ClampRollDelta_Passes_A_Delta_That_Is_Within_Bounds()
+    {
+        // Plenty of room both ways → unchanged.
+        Assert.Equal(7, TimelineMath.ClampRollDelta(
+            delta: 7, leftDuration: 100, leftSourceHeadroom: 100,
+            rightDuration: 100, rightSourceHeadroom: 100, minDuration: 10));
+    }
+
+    [Fact]
+    public void ClampRollDelta_Stops_The_Cut_At_The_Left_Clip_Media_End()
+    {
+        // Rightward roll grows the left clip; only 5 ticks of media remain → cut can move at most +5.
+        Assert.Equal(5, TimelineMath.ClampRollDelta(
+            delta: 50, leftDuration: 100, leftSourceHeadroom: 5,
+            rightDuration: 100, rightSourceHeadroom: 100, minDuration: 10));
+    }
+
+    [Fact]
+    public void ClampRollDelta_Stops_The_Right_Clip_At_Min_Duration()
+    {
+        // Rightward roll shrinks the right clip; it has duration 30 and min 10 → at most +20.
+        Assert.Equal(20, TimelineMath.ClampRollDelta(
+            delta: 99, leftDuration: 100, leftSourceHeadroom: 100,
+            rightDuration: 30, rightSourceHeadroom: 100, minDuration: 10));
+    }
+
+    [Fact]
+    public void ClampRollDelta_Stops_A_Left_Roll_At_The_Right_Clip_Source_Start()
+    {
+        // Leftward roll pulls the right clip's in-point back; only 8 ticks of head remain → at most -8.
+        Assert.Equal(-8, TimelineMath.ClampRollDelta(
+            delta: -99, leftDuration: 100, leftSourceHeadroom: 100,
+            rightDuration: 100, rightSourceHeadroom: 8, minDuration: 10));
+    }
+
+    [Fact]
+    public void ClampSlideDelta_Mirrors_Roll_With_Neighbour_Headroom()
+    {
+        // Slide right limited by the previous clip's media headroom (20).
+        Assert.Equal(20, TimelineMath.ClampSlideDelta(
+            delta: 50, prevDuration: 100, prevSourceHeadroom: 20,
+            nextDuration: 100, nextSourceHeadroom: 100, minDuration: 10));
+        // Slide left limited by the next clip's source-start headroom (8).
+        Assert.Equal(-8, TimelineMath.ClampSlideDelta(
+            delta: -50, prevDuration: 100, prevSourceHeadroom: 100,
+            nextDuration: 100, nextSourceHeadroom: 8, minDuration: 10));
+    }
+
+    [Fact]
+    public void RippleTrimBounds_For_The_Trailing_Edge()
+    {
+        // OUT trim: extend up to the remaining media (outHeadroom=40), retract until the clip hits min duration.
+        (long lower, long upper) = TimelineMath.RippleTrimBounds(
+            trimEnd: true, durationTicks: 100, inHeadroom: 30, outHeadroom: 40, minDuration: 10);
+        Assert.Equal(10 - 100, lower); // duration may shrink to the 10-tick minimum
+        Assert.Equal(40, upper);
+    }
+
+    [Fact]
+    public void RippleTrimBounds_For_The_Leading_Edge()
+    {
+        // IN trim: extend the head back to the source start (inHeadroom=30, a negative delta), or trim it until
+        // the clip hits min duration.
+        (long lower, long upper) = TimelineMath.RippleTrimBounds(
+            trimEnd: false, durationTicks: 100, inHeadroom: 30, outHeadroom: 40, minDuration: 10);
+        Assert.Equal(-30, lower);
+        Assert.Equal(100 - 10, upper);
+    }
 }

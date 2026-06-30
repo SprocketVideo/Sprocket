@@ -224,6 +224,228 @@ public sealed class MoveClipToTrackCommand : EditCommand
 }
 
 /// <summary>
+/// Ripple-trims one edge of a clip and shifts a captured set of downstream clips so the track stays gap-free
+/// (PLAN.md step 22, the Ripple Edit tool). Unlike a plain trim, the clip's <see cref="Clip.TimelineStart"/> is
+/// fixed for <em>both</em> edges: an OUT trim changes <see cref="Clip.SourceOut"/>, an IN trim changes
+/// <see cref="Clip.SourceIn"/>, and every clip after the clip's original end shifts by the resulting duration
+/// change (<paramref name="shiftTicks"/>). Coalesces with further ripple-trims of the same clip so a drag is one
+/// undo entry. The downstream set is captured once (at drag start) by the caller and passed unchanged on every
+/// update; <see cref="Apply"/> re-derives each downstream start from its captured original plus the latest shift,
+/// so repeated coalesced applies stay exact.
+/// </summary>
+public sealed class RippleTrimCommand : EditCommand
+{
+    private readonly Clip _clip;
+    private readonly Timecode _oldIn, _oldOut;
+    private Timecode _newIn, _newOut;
+    private readonly IReadOnlyList<(Clip Clip, Timecode OrigStart)> _downstream;
+    private long _shift;
+
+    /// <summary>Captures the clip's current trim and records the new in/out plus the downstream shift to apply.</summary>
+    public RippleTrimCommand(
+        Clip clip, Timecode newSourceIn, Timecode newSourceOut,
+        IReadOnlyList<(Clip Clip, Timecode OrigStart)> downstream, long shiftTicks)
+        : base("Ripple trim")
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(downstream);
+        if (newSourceOut < newSourceIn)
+            throw new ArgumentException("SourceOut must not precede SourceIn.", nameof(newSourceOut));
+        _clip = clip;
+        _oldIn = clip.SourceIn;
+        _oldOut = clip.SourceOut;
+        _newIn = newSourceIn;
+        _newOut = newSourceOut;
+        _downstream = downstream;
+        _shift = shiftTicks;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _clip.SourceIn = _newIn;
+        _clip.SourceOut = _newOut;
+        foreach ((Clip d, Timecode origStart) in _downstream)
+            d.TimelineStart = new Timecode(origStart.Ticks + _shift);
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        _clip.SourceIn = _oldIn;
+        _clip.SourceOut = _oldOut;
+        foreach ((Clip d, Timecode origStart) in _downstream)
+            d.TimelineStart = origStart;
+    }
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        // Keep this entry's captured originals (and downstream set); absorb only the latest target + shift.
+        if (next is RippleTrimCommand other && ReferenceEquals(other._clip, _clip))
+        {
+            _newIn = other._newIn;
+            _newOut = other._newOut;
+            _shift = other._shift;
+            return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
+/// Rolls the shared cut between two adjacent clips (PLAN.md step 22, the Rolling Edit tool): the left clip's
+/// out-point and the right clip's in-point + start move together so the cut shifts while the clips' combined
+/// span — and everything downstream — stays fixed. The caller computes the clamped new source/timeline values
+/// (it owns the speed and media bounds); this command just applies/reverts them and coalesces with further rolls
+/// of the same pair so a drag is one undo entry.
+/// </summary>
+public sealed class RollEditCommand : EditCommand
+{
+    private readonly Clip _left, _right;
+    private readonly Timecode _oldLeftOut, _oldRightIn, _oldRightStart;
+    private Timecode _newLeftOut, _newRightIn, _newRightStart;
+
+    /// <summary>Captures both clips' current edge/placement and records the rolled values to apply.</summary>
+    public RollEditCommand(Clip left, Clip right, Timecode newLeftOut, Timecode newRightIn, Timecode newRightStart)
+        : base("Roll edit")
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+        if (newLeftOut < left.SourceIn)
+            throw new ArgumentException("The left clip's out-point cannot precede its in-point.", nameof(newLeftOut));
+        if (newRightIn > right.SourceOut)
+            throw new ArgumentException("The right clip's in-point cannot follow its out-point.", nameof(newRightIn));
+        _left = left;
+        _right = right;
+        _oldLeftOut = left.SourceOut;
+        _oldRightIn = right.SourceIn;
+        _oldRightStart = right.TimelineStart;
+        _newLeftOut = newLeftOut;
+        _newRightIn = newRightIn;
+        _newRightStart = newRightStart;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _left.SourceOut = _newLeftOut;
+        _right.SourceIn = _newRightIn;
+        _right.TimelineStart = _newRightStart;
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        _left.SourceOut = _oldLeftOut;
+        _right.SourceIn = _oldRightIn;
+        _right.TimelineStart = _oldRightStart;
+    }
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        if (next is RollEditCommand other && ReferenceEquals(other._left, _left) && ReferenceEquals(other._right, _right))
+        {
+            _newLeftOut = other._newLeftOut;
+            _newRightIn = other._newRightIn;
+            _newRightStart = other._newRightStart;
+            return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
+/// Slides a clip along the timeline while its neighbours absorb the change (PLAN.md step 22, the Slide tool —
+/// the complement of slip): the clip's source window is unchanged and it simply moves, the previous clip's
+/// out-point extends/retracts to follow, and the next clip's in-point + start move so it stays butted. The slid
+/// clip's duration and everything beyond the next clip are fixed. <paramref name="prev"/> / <paramref name="next"/>
+/// may be <see langword="null"/> when there is no adjacent neighbour on that side (that side is simply not
+/// adjusted). The caller computes the clamped values; this command applies/reverts them and coalesces per gesture.
+/// </summary>
+public sealed class SlideClipCommand : EditCommand
+{
+    private readonly Clip _clip;
+    private readonly Timecode _oldStart;
+    private Timecode _newStart;
+    private readonly Clip? _prev;
+    private readonly Timecode _oldPrevOut;
+    private Timecode _newPrevOut;
+    private readonly Clip? _next;
+    private readonly Timecode _oldNextIn, _oldNextStart;
+    private Timecode _newNextIn, _newNextStart;
+
+    /// <summary>Captures the clip's and neighbours' current placement and records the slid values to apply.</summary>
+    public SlideClipCommand(
+        Clip clip, Timecode newStart,
+        Clip? prev, Timecode newPrevOut,
+        Clip? next, Timecode newNextIn, Timecode newNextStart)
+        : base("Slide clip")
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (prev is not null && newPrevOut < prev.SourceIn)
+            throw new ArgumentException("The previous clip's out-point cannot precede its in-point.", nameof(newPrevOut));
+        if (next is not null && newNextIn > next.SourceOut)
+            throw new ArgumentException("The next clip's in-point cannot follow its out-point.", nameof(newNextIn));
+        _clip = clip;
+        _oldStart = clip.TimelineStart;
+        _newStart = newStart;
+        _prev = prev;
+        _oldPrevOut = prev?.SourceOut ?? default;
+        _newPrevOut = newPrevOut;
+        _next = next;
+        _oldNextIn = next?.SourceIn ?? default;
+        _oldNextStart = next?.TimelineStart ?? default;
+        _newNextIn = newNextIn;
+        _newNextStart = newNextStart;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _clip.TimelineStart = _newStart;
+        if (_prev is not null)
+            _prev.SourceOut = _newPrevOut;
+        if (_next is not null)
+        {
+            _next.SourceIn = _newNextIn;
+            _next.TimelineStart = _newNextStart;
+        }
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        _clip.TimelineStart = _oldStart;
+        if (_prev is not null)
+            _prev.SourceOut = _oldPrevOut;
+        if (_next is not null)
+        {
+            _next.SourceIn = _oldNextIn;
+            _next.TimelineStart = _oldNextStart;
+        }
+    }
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        if (next is SlideClipCommand other
+            && ReferenceEquals(other._clip, _clip)
+            && ReferenceEquals(other._prev, _prev)
+            && ReferenceEquals(other._next, _next))
+        {
+            _newStart = other._newStart;
+            _newPrevOut = other._newPrevOut;
+            _newNextIn = other._newNextIn;
+            _newNextStart = other._newNextStart;
+            return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
 /// Sets a clip's playback speed (retime, PLAN.md step 21). The selected source span is unchanged; only the
 /// clip's timeline <see cref="Clip.Duration"/> and its time map derive from the new <see cref="Clip.SpeedRatio"/>.
 /// Coalesces with further speed changes of the same clip so dragging the speed control is one undo entry.

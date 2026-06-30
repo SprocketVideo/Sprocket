@@ -59,6 +59,7 @@
             <MenuItem x:Name="CopyMenuItem" Header="_Copy" InputGesture="Ctrl+C" IsEnabled="False" />
             <MenuItem x:Name="PasteMenuItem" Header="_Paste" InputGesture="Ctrl+V" IsEnabled="False" />
             <MenuItem x:Name="DeleteMenuItem" Header="_Delete" InputGesture="Delete" IsEnabled="False" />
+            <MenuItem x:Name="RippleDeleteMenuItem" Header="_Ripple Delete" InputGesture="Shift+Delete" IsEnabled="False" />
             <Separator />
             <!-- Select All needs multi-clip selection (not yet modelled) — stays disabled. -->
             <MenuItem x:Name="SelectAllMenuItem" Header="Select _All" InputGesture="Ctrl+A" IsEnabled="False" />
@@ -132,12 +133,24 @@
             BorderBrush="{DynamicResource Edge}" BorderThickness="0,0,0,1">
       <Grid ColumnDefinitions="Auto,*,Auto,Auto">
         <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
-          <!-- Tool palette (radio group): Select/Blade/Slip edit, Hand/Zoom view (PLAN.md step 13, UI.md §3.2). -->
-          <RadioButton x:Name="SelectTool" Classes="tool" GroupName="Tools" Content="Select" IsChecked="True" />
-          <RadioButton x:Name="BladeTool" Classes="tool" GroupName="Tools" Content="Blade" />
-          <RadioButton x:Name="SlipTool" Classes="tool" GroupName="Tools" Content="Slip" />
-          <RadioButton x:Name="HandTool" Classes="tool" GroupName="Tools" Content="Hand" />
-          <RadioButton x:Name="ZoomTool" Classes="tool" GroupName="Tools" Content="Zoom" />
+          <!-- Tool palette (radio group): Select/Blade edit, Ripple/Roll/Slip/Slide trim, Hand/Zoom view
+               (PLAN.md steps 13/22, UI.md §3.2). -->
+          <RadioButton x:Name="SelectTool" Classes="tool" GroupName="Tools" Content="Select" IsChecked="True"
+                       ToolTip.Tip="Select, move, and edge-trim clips" />
+          <RadioButton x:Name="BladeTool" Classes="tool" GroupName="Tools" Content="Blade"
+                       ToolTip.Tip="Razor: click a clip to split it at the cursor" />
+          <RadioButton x:Name="RippleTool" Classes="tool" GroupName="Tools" Content="Ripple"
+                       ToolTip.Tip="Ripple edit: trim a clip's edge and shift everything downstream to close the gap" />
+          <RadioButton x:Name="RollTool" Classes="tool" GroupName="Tools" Content="Roll"
+                       ToolTip.Tip="Rolling edit: drag the cut between two adjacent clips, keeping their combined length" />
+          <RadioButton x:Name="SlipTool" Classes="tool" GroupName="Tools" Content="Slip"
+                       ToolTip.Tip="Slip a clip's source in/out without moving it on the timeline" />
+          <RadioButton x:Name="SlideTool" Classes="tool" GroupName="Tools" Content="Slide"
+                       ToolTip.Tip="Slide a clip along the timeline while its neighbours absorb the change" />
+          <RadioButton x:Name="HandTool" Classes="tool" GroupName="Tools" Content="Hand"
+                       ToolTip.Tip="Pan the timeline view" />
+          <RadioButton x:Name="ZoomTool" Classes="tool" GroupName="Tools" Content="Zoom"
+                       ToolTip.Tip="Zoom the timeline view (click to zoom in, Alt-click to zoom out)" />
           <Border Width="1" Height="18" Background="{DynamicResource Edge}" Margin="8,0" />
           <ToggleButton x:Name="SnappingToggle" Content="Snapping" IsChecked="True" FontSize="12" Padding="8,3"
                         ToolTip.Tip="Snap clip edges and the playhead to nearby edits, markers, and the playhead while dragging" />

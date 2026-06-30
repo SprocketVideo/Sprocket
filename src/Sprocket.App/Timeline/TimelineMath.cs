@@ -5,9 +5,12 @@ using Sprocket.Core.Timing;
 namespace Sprocket.App;
 
 /// <summary>
-/// The active timeline tool (UI.md §3.2 palette, PLAN.md step 13). <see cref="Select"/> moves/trims clips;
-/// <see cref="Blade"/> splits a clip at the cursor; <see cref="Slip"/> shifts a clip's source in/out without
-/// moving it on the timeline; <see cref="Hand"/> pans the view and <see cref="Zoom"/> zooms it (view-only).
+/// The active timeline tool (UI.md §3.2 palette, PLAN.md steps 13/22). <see cref="Select"/> moves/trims clips;
+/// <see cref="Blade"/> splits a clip at the cursor; <see cref="Ripple"/> trims an edge and closes/opens the gap
+/// downstream; <see cref="Roll"/> rolls the cut between two adjacent clips; <see cref="Slip"/> shifts a clip's
+/// source in/out without moving it; <see cref="Slide"/> moves a clip while its neighbours absorb the change;
+/// <see cref="Hand"/> pans the view and <see cref="Zoom"/> zooms it (view-only). The trim family
+/// (Ripple/Roll/Slip/Slide) mirrors the Premiere/Resolve/FCP toolset.
 /// </summary>
 public enum EditTool
 {
@@ -17,8 +20,17 @@ public enum EditTool
     /// <summary>Razor: click a clip to split it at the cursor.</summary>
     Blade,
 
+    /// <summary>Ripple edit: trim a clip's edge and shift every downstream clip to keep the track gap-free.</summary>
+    Ripple,
+
+    /// <summary>Rolling edit: drag the cut between two adjacent clips, moving one's out and the next's in together.</summary>
+    Roll,
+
     /// <summary>Slip a clip's source in/out (its visible content) without moving it on the timeline.</summary>
     Slip,
+
+    /// <summary>Slide a clip along the timeline while its neighbours absorb the change (the complement of slip).</summary>
+    Slide,
 
     /// <summary>Pan the timeline view (drag to scroll).</summary>
     Hand,
@@ -117,6 +129,59 @@ public static class TimelineMath
             return 0;
         return Math.Clamp(delta, minDelta, maxDelta);
     }
+
+    /// <summary>
+    /// Clamps a roll <paramref name="delta"/> (timeline ticks the shared cut moves; positive = the cut moves
+    /// right) so neither clip drops below <paramref name="minDuration"/> or runs past its media (PLAN.md step 22).
+    /// All quantities are in TIMELINE ticks: <paramref name="leftSourceHeadroom"/> is how far the left clip's
+    /// out-point can still extend before hitting the media end (media room ÷ its speed) and
+    /// <paramref name="rightSourceHeadroom"/> is how far the right clip's in-point can pull back toward its source
+    /// start. Returns 0 when there is no room either way.
+    /// </summary>
+    public static long ClampRollDelta(
+        long delta, long leftDuration, long leftSourceHeadroom,
+        long rightDuration, long rightSourceHeadroom, long minDuration)
+        => ClampSharedEdgeDelta(delta, leftDuration, leftSourceHeadroom, rightDuration, rightSourceHeadroom, minDuration);
+
+    /// <summary>
+    /// Clamps a slide <paramref name="delta"/> (timeline ticks the clip moves; positive = right) so neither
+    /// neighbour drops below <paramref name="minDuration"/> or runs past its media (PLAN.md step 22). Sliding
+    /// right extends the previous clip's out-point (limited by <paramref name="prevSourceHeadroom"/>) and shrinks
+    /// the next clip toward <paramref name="minDuration"/>; sliding left does the reverse, the next clip's in-point
+    /// pulling back limited by <paramref name="nextSourceHeadroom"/>. All quantities are in timeline ticks.
+    /// </summary>
+    public static long ClampSlideDelta(
+        long delta, long prevDuration, long prevSourceHeadroom,
+        long nextDuration, long nextSourceHeadroom, long minDuration)
+        => ClampSharedEdgeDelta(delta, prevDuration, prevSourceHeadroom, nextDuration, nextSourceHeadroom, minDuration);
+
+    // Roll and slide share the same clamp shape: moving "right" grows the left/prev side (limited by its media
+    // headroom) and shrinks the right/next side (down to minDuration); moving "left" is the mirror image.
+    private static long ClampSharedEdgeDelta(
+        long delta, long leftDuration, long leftSourceHeadroom,
+        long rightDuration, long rightSourceHeadroom, long minDuration)
+    {
+        long upper = Math.Min(leftSourceHeadroom, rightDuration - minDuration);
+        long lower = -Math.Min(leftDuration - minDuration, rightSourceHeadroom);
+        if (upper < lower)
+            return 0;
+        return Math.Clamp(delta, lower, upper);
+    }
+
+    /// <summary>
+    /// The inclusive timeline-tick bounds a ripple-trim <paramref name="delta"/> may take for one edge of one
+    /// clip (PLAN.md step 22). For a trailing edge (<paramref name="trimEnd"/>) the cut can extend by the clip's
+    /// remaining media (<paramref name="outHeadroom"/>) and retract until the clip hits
+    /// <paramref name="minDuration"/>; for a leading edge it can extend toward the source start
+    /// (<paramref name="inHeadroom"/>, a negative delta) and retract until the clip hits the minimum. All
+    /// quantities are timeline ticks. The control intersects these bounds across the dragged clip and any linked
+    /// companions, then clamps the pointer delta into the result.
+    /// </summary>
+    public static (long Lower, long Upper) RippleTrimBounds(
+        bool trimEnd, long durationTicks, long inHeadroom, long outHeadroom, long minDuration)
+        => trimEnd
+            ? (minDuration - durationTicks, outHeadroom)
+            : (-inHeadroom, durationTicks - minDuration);
 
     /// <summary>
     /// The lane index at an on-screen Y: 0-based from the first lane below the ruler, or -1 when above the

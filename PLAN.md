@@ -1253,6 +1253,52 @@ Tags reference the [UI.md §4 checklist](UI.md).
     The geometry / clamping lives in the pure `TimelineMath` (the step-12 split), headless-tested; the
     tool palette gains ripple / roll affordances ([UI.md §3.2](UI.md)). Linked A/V (step 13) participates
     so a ripple moves companion audio too.
+    - **✅ DONE (`Sprocket.Core/Commands/ModelCommands.cs` + `Sprocket.App/Timeline/{TimelineMath,TimelineControl}`
+      + `MainWindow.axaml`/`.cs`; 15 new tests — Core +8, App +7, all green).** All three trim modes (plus ripple
+      delete) land on the existing clip / command / time model with no redesign (ARCHITECTURE.md §17). Each is a
+      pure, undoable timeline operation; the tool palette now carries the full Premiere/Resolve/FCP trim toolset
+      (**Select · Blade · Ripple · Roll · Slip · Slide · Hand · Zoom**, [UI.md §3.2](UI.md)). Delivered:
+      - **Three Core commands (step 10).** `RippleTrimCommand` — trims one edge (the clip's `TimelineStart` stays
+        fixed for *both* edges) and shifts a captured downstream set by the duration change; re-derives each
+        downstream start from its captured original + the latest shift so a coalesced drag stays exact.
+        `RollEditCommand` — moves the shared cut between two adjacent clips (left out + right in/start together),
+        keeping their combined span and everything downstream fixed. `SlideClipCommand` — moves a clip while its
+        (optional) prev/next neighbours absorb it; the slid clip's source window is untouched. All three coalesce
+        per gesture (one undo entry) and revert exactly. **Ripple delete** (Shift+Delete, the Premiere/Resolve
+        convention; Edit ▸ Ripple Delete) composes `RemoveClipCommand` + downstream `SetClipPlacementCommand`s into
+        one `CompositeCommand`.
+      - **Pure clamping (App `TimelineMath`, mirroring the step-12 split).** `ClampRollDelta` / `ClampSlideDelta`
+        (shared shape: the growing side limited by its remaining media, the shrinking side floored at the minimum
+        clip duration) and `RippleTrimBounds` (the per-edge ripple travel) — all in timeline ticks, headless-tested;
+        the control converts each clip's source/media headroom to timeline ticks (÷ its retime speed, step 21)
+        before calling them, so retimed clips clamp correctly.
+      - **Tool palette + gestures (App `TimelineControl`).** `EditTool` gained `Ripple` / `Roll` / `Slide`; a
+        `DragKind` now routes each clip-drag (the Select-tool body drag still previews-then-commits for cross-track
+        moves, step 16e; Trim/Slip/Ripple/Roll/Slide mutate live inside a coalescing scope). Ripple/Roll act on an
+        edge (a body click just selects); Roll resolves the two clips sharing the dragged cut and aborts when there
+        is no adjacent clip; Slide captures the butted neighbours. Snapping snaps the moving edge/cut/clip to
+        nearby edits & the playhead. **Linked A/V participates:** a ripple trims every companion's matching edge and
+        ripples each companion's own track (one `CompositeCommand`); a ripple delete removes the companions and
+        ripples their tracks too. Each tool sets a matching cursor.
+      - **Menu / accelerators (App `MainWindow`).** Three new tool radio buttons (wired to `ActiveTool`), the
+        **Edit ▸ Ripple Delete** item (Shift+Delete, context-enabled with the selection), and the Shift+Delete
+        accelerator (guarded so it doesn't steal a focused text field's input).
+      - **Tests (15) + verification.** Core — `RippleTrimCommand` out-extend/in-trim + downstream shift + undo +
+        drag-coalesces-to-one-entry; `RollEditCommand` cut-move keeps the combined span + undo + coalesce;
+        `SlideClipCommand` neighbours-absorb + source-window-untouched + no-prev-neighbour + undo + coalesce. App —
+        `ClampRollDelta` (within-bounds / left-media / right-min / left-roll-headroom), `ClampSlideDelta` (mirror),
+        `RippleTrimBounds` (both edges). The control's pointer/tool wiring rests on these + manual verification (the
+        App is a UI-bound `WinExe`): clean build (0 warnings) and a `SPROCKET_APP_SECONDS=5` smoke launch starts the
+        shell with the full trim toolset + Ripple Delete wired and tears down cleanly (exit 0). The managed suites
+        are green — **Core 148** (incl. the 8 new), **App 129** (incl. the 7 new), Audio 19, Render 23,
+        Persistence 23; the FFmpeg-native suites (Media/Playback/Export) were not run in this sandbox (a test-host
+        DLL-search limitation blocks loading the bundled FFmpeg-8 natives — the App itself launches fine with them),
+        and this change touches no Media/Playback/Export source, so those paths are behaviour-unchanged.
+      - **Deferred (noted, on the same seam):** a **"ripple all tracks"** mode (today ripple closes the gap on the
+        edited clip's own track + linked companions' tracks; a global ripple-all toggle slots onto the same
+        downstream-shift composite), and **linked roll / slide** (companions follow on ripple/delete today; roll &
+        slide operate on the clicked track's clips — applying the identical clamped delta to aligned companions is
+        additive when picked up).
 23. **Sequences (nesting / compound clips).** Generalise the project's single `Timeline` to
     **multiple named sequences**, and let a whole sequence be **placed inside another sequence as a
     clip** (Premiere "nested sequence" / Final Cut "compound clip"). To the render graph a

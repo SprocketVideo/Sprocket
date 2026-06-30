@@ -77,7 +77,7 @@ public partial class MainWindow : Window
     private WindowState _lastNonMinimizedState = WindowState.Normal; // persisted on close (ignores Minimized)
 
     // Command-menu items refreshed on submenu open (context-enabling) + the View toggles / panes.
-    private MenuItem? _cutMenuItem, _copyMenuItem, _pasteMenuItem, _deleteMenuItem;
+    private MenuItem? _cutMenuItem, _copyMenuItem, _pasteMenuItem, _deleteMenuItem, _rippleDeleteMenuItem;
     private MenuItem? _unlinkMenuItem, _nudgeLeftMenuItem, _nudgeRightMenuItem, _clipSpeedMenuItem;
     private MenuItem? _snappingMenuItem, _guidesMenuItem, _showProjectMenuItem, _showInspectorMenuItem;
     private System.Collections.Generic.IReadOnlyList<MenuItem> _effectsMenuItems = [];
@@ -256,10 +256,12 @@ public partial class MainWindow : Window
         _copyMenuItem = this.FindControl<MenuItem>("CopyMenuItem")!;
         _pasteMenuItem = this.FindControl<MenuItem>("PasteMenuItem")!;
         _deleteMenuItem = this.FindControl<MenuItem>("DeleteMenuItem")!;
+        _rippleDeleteMenuItem = this.FindControl<MenuItem>("RippleDeleteMenuItem")!;
         _cutMenuItem.Click += (_, _) => _timeline?.CutSelected();
         _copyMenuItem.Click += (_, _) => _timeline?.CopySelected();
         _pasteMenuItem.Click += (_, _) => _timeline?.PasteAtPlayhead();
         _deleteMenuItem.Click += (_, _) => _timeline?.DeleteSelected();
+        _rippleDeleteMenuItem.Click += (_, _) => _timeline?.RippleDeleteSelected();
         this.FindControl<MenuItem>("EditMenu")!.SubmenuOpened += (_, _) => RefreshEditMenu();
 
         // ── Clip ──
@@ -352,6 +354,7 @@ public partial class MainWindow : Window
         if (ctrl && e.Key == Key.X) { _timeline?.CutSelected(); e.Handled = true; }
         else if (ctrl && e.Key == Key.C) { _timeline?.CopySelected(); e.Handled = true; }
         else if (ctrl && e.Key == Key.V) { _timeline?.PasteAtPlayhead(); e.Handled = true; }
+        else if (shift && (e.Key == Key.Delete || e.Key == Key.Back)) { _timeline?.RippleDeleteSelected(); e.Handled = true; }
         else if (e.Key == Key.Delete || e.Key == Key.Back) { _timeline?.DeleteSelected(); e.Handled = true; }
         else if (alt && e.Key == Key.Left) { _timeline?.NudgeSelected(-1); e.Handled = true; }
         else if (alt && e.Key == Key.Right) { _timeline?.NudgeSelected(+1); e.Handled = true; }
@@ -704,7 +707,10 @@ public partial class MainWindow : Window
         // Tool palette (radio group): each button selects the matching timeline tool.
         WireTool("SelectTool", EditTool.Select, timeline);
         WireTool("BladeTool", EditTool.Blade, timeline);
+        WireTool("RippleTool", EditTool.Ripple, timeline);
+        WireTool("RollTool", EditTool.Roll, timeline);
         WireTool("SlipTool", EditTool.Slip, timeline);
+        WireTool("SlideTool", EditTool.Slide, timeline);
         WireTool("HandTool", EditTool.Hand, timeline);
         WireTool("ZoomTool", EditTool.Zoom, timeline);
 
@@ -919,6 +925,7 @@ public partial class MainWindow : Window
         if (_copyMenuItem is not null) _copyMenuItem.IsEnabled = sel;
         if (_pasteMenuItem is not null) _pasteMenuItem.IsEnabled = _timeline?.CanPaste == true;
         if (_deleteMenuItem is not null) _deleteMenuItem.IsEnabled = sel;
+        if (_rippleDeleteMenuItem is not null) _rippleDeleteMenuItem.IsEnabled = sel;
     }
 
     private void RefreshClipMenu()

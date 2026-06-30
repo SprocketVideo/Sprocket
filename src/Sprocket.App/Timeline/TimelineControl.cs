@@ -97,6 +97,34 @@ public sealed class TimelineControl : Control
     private List<(Clip clip, Timecode origStart)> _dragLinked = [];
     private long _dragGroupMinStart;
 
+    // Trim-family gesture state (PLAN.md step 22). A clip-body drag with the Select tool previews-then-commits
+    // (MovePreview); every other edit gesture mutates the model live inside a coalescing scope. The kind is fixed
+    // at BeginClipDrag from the active tool + which part of the clip was grabbed.
+    private enum DragKind { None, Trim, Slip, MovePreview, Ripple, Roll, Slide }
+
+    private DragKind _dragKind = DragKind.None;
+
+    // Ripple: the dragged clip plus any linked companions, each with its captured trim, speed/media bounds, and
+    // the downstream clips on its own track (so each track stays gap-free). Captured once at drag start.
+    private readonly record struct RippleUnit(
+        Clip Clip, Rational Speed, long MediaDuration, Timecode OrigIn, Timecode OrigOut,
+        IReadOnlyList<(Clip Clip, Timecode OrigStart)> Downstream);
+
+    private readonly List<RippleUnit> _rippleUnits = new();
+    private bool _rippleTrimEnd;
+
+    // Roll: the two clips sharing the dragged cut, with their captured edge/placement and bounds.
+    private Clip? _rollLeft, _rollRight;
+    private Rational _rollLeftSpeed, _rollRightSpeed;
+    private long _rollLeftMedia, _rollRightMedia;
+    private Timecode _rollOrigLeftOut, _rollOrigRightIn, _rollOrigRightStart, _rollOrigCut;
+
+    // Slide: the slid clip's neighbours (either may be absent), with their captured placement and bounds.
+    private Clip? _slidePrev, _slideNext;
+    private Rational _slidePrevSpeed, _slideNextSpeed;
+    private long _slidePrevMedia, _slideNextMedia;
+    private Timecode _slideOrigPrevOut, _slideOrigNextIn, _slideOrigNextStart;
+
     // Hand-tool panning state.
     private bool _panning;
     private double _panPressX, _panOrigScroll;
@@ -139,7 +167,8 @@ public sealed class TimelineControl : Control
         EditTool.Blade => new Cursor(StandardCursorType.Cross),
         EditTool.Hand => new Cursor(StandardCursorType.SizeAll),
         EditTool.Zoom => new Cursor(StandardCursorType.Hand),
-        EditTool.Slip => new Cursor(StandardCursorType.SizeWestEast),
+        EditTool.Slip or EditTool.Ripple or EditTool.Roll => new Cursor(StandardCursorType.SizeWestEast),
+        EditTool.Slide => new Cursor(StandardCursorType.SizeAll),
         _ => Cursor.Default,
     };
 
@@ -847,7 +876,15 @@ public sealed class TimelineControl : Control
             }
 
             Select(clip);
+            // Ripple and Roll act on an edge; a click on the clip body just selects.
+            if (_activeTool is EditTool.Ripple or EditTool.Roll && mode == ClipDragMode.Move)
+                return;
             BeginClipDrag(clip, mode, p);
+            if (_dragKind == DragKind.None) // e.g. a Roll with no adjacent clip to roll against — nothing to drag
+            {
+                _dragClip = null;
+                return;
+            }
             e.Pointer.Capture(this);
             return;
         }
@@ -928,12 +965,16 @@ public sealed class TimelineControl : Control
         {
             if (_movePreview)
                 CommitMovePreview(); // the Move gesture commits one command here (cross-track / copy / lock)
-            _coalesce?.Dispose();    // seal a live (trim/slip) gesture as one undo entry
+            _coalesce?.Dispose();    // seal a live (trim/slip/ripple/roll/slide) gesture as one undo entry
             _coalesce = null;
             _dragClip = null;
             _dragSourceTrack = null;
             _dragMode = ClipDragMode.None;
+            _dragKind = DragKind.None;
             _dragLinked = [];
+            _rippleUnits.Clear();
+            _rollLeft = _rollRight = null;
+            _slidePrev = _slideNext = null;
             _movePreview = false;
             _movePreviewTrack = null;
             _movePreviewCopy = false;
@@ -1057,29 +1098,49 @@ public sealed class TimelineControl : Control
         _dragOrigOut = clip.SourceOut;
         _dragOrigStart = clip.TimelineStart;
         _snapPoints = BuildSnapPoints(clip);
+        _movePreview = false;
+        _dragKind = DragKind.None;
 
         // Capture linked companions for a linked move so the whole group shifts by one locked delta.
-        _dragLinked = (Linked ? _project!.Timeline.ClipsLinkedTo(clip) : [])
+        _dragLinked = (Linked && _activeTool == EditTool.Select ? _project!.Timeline.ClipsLinkedTo(clip) : [])
             .Select(l => (l.Clip, l.Clip.TimelineStart)).ToList();
         _dragGroupMinStart = _dragOrigStart.Ticks;
         foreach ((Clip _, Timecode origStart) in _dragLinked)
             _dragGroupMinStart = Math.Min(_dragGroupMinStart, origStart.Ticks);
 
-        // The Move gesture (Select tool, clip body) previews across tracks and commits one command on release
-        // — so copy + cross-track + horizontal-lock are each a single undo entry. Trim/Slip mutate live and
-        // coalesce as before (PLAN.md step 16e).
-        _movePreview = _activeTool != EditTool.Slip && mode == ClipDragMode.Move;
-        if (_movePreview)
+        switch (_activeTool)
         {
-            _movePreviewStart = _dragOrigStart.Ticks;
-            _movePreviewTrack = _dragSourceTrack;
-            _movePreviewCopy = false;
-            _coalesce = null;
+            case EditTool.Slip:
+                _dragKind = DragKind.Slip;
+                break;
+            case EditTool.Ripple when mode is ClipDragMode.TrimStart or ClipDragMode.TrimEnd:
+                BeginRipple(clip, mode);
+                break;
+            case EditTool.Roll when mode is ClipDragMode.TrimStart or ClipDragMode.TrimEnd:
+                BeginRoll(clip, mode); // leaves _dragKind == None (aborts) when there is no adjacent clip
+                break;
+            case EditTool.Slide:
+                BeginSlide(clip);
+                break;
+            case EditTool.Select when mode == ClipDragMode.Move:
+                // The Move gesture (Select tool, clip body) previews across tracks and commits one command on
+                // release — so copy + cross-track + horizontal-lock are each a single undo entry (PLAN.md step 16e).
+                _dragKind = DragKind.MovePreview;
+                _movePreview = true;
+                _movePreviewStart = _dragOrigStart.Ticks;
+                _movePreviewTrack = _dragSourceTrack;
+                _movePreviewCopy = false;
+                break;
+            default: // Select tool on an edge → plain trim
+                _dragKind = DragKind.Trim;
+                break;
         }
-        else
-        {
-            _coalesce = _history!.BeginCoalescing();
-        }
+
+        // Live gestures mutate the model on every move and coalesce into one undo entry; the move preview commits
+        // exactly one command on release (so it opens no scope).
+        _coalesce = _dragKind is DragKind.Trim or DragKind.Slip or DragKind.Ripple or DragKind.Roll or DragKind.Slide
+            ? _history!.BeginCoalescing()
+            : null;
     }
 
     private void UpdateClipDrag(Point p, KeyModifiers mods)
@@ -1087,18 +1148,14 @@ public sealed class TimelineControl : Control
         long pointerTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, _headerWidth);
         long delta = pointerTicks - _dragPressTicks;
 
-        // Slip tool: shift the source window, keep the clip's timeline position and duration fixed.
-        if (_activeTool == EditTool.Slip)
+        switch (_dragKind)
         {
-            UpdateSlip(delta);
-            return;
-        }
-
-        // Move gesture: preview the landing track/time (no live model mutation); commit on release.
-        if (_movePreview)
-        {
-            UpdateMovePreview(p, delta, mods);
-            return;
+            case DragKind.Slip: UpdateSlip(delta); return;
+            case DragKind.MovePreview: UpdateMovePreview(p, delta, mods); return;
+            case DragKind.Ripple: UpdateRipple(pointerTicks); return;
+            case DragKind.Roll: UpdateRoll(pointerTicks); return;
+            case DragKind.Slide: UpdateSlide(pointerTicks); return;
+            case DragKind.None: return;
         }
 
         // Otherwise an edge trim: mutate live and coalesce so the whole drag is one undo entry.
@@ -1227,6 +1284,228 @@ public sealed class TimelineControl : Control
             new Timecode(_dragOrigOut.Ticks + slip),
             _dragOrigStart,
             "Slip clip"));
+    }
+
+    // ── Ripple / roll / slide (PLAN.md step 22) ─────────────────────────────────────────────────────
+
+    // Source→timeline and timeline→source conversions for a clip at the given playback speed (retime, step 21):
+    // a faster clip consumes more source per timeline tick (MapToSource scales by speed), so timeline ticks are
+    // source ÷ speed. The 1× case is the identity.
+    private static long ToTimeline(long sourceTicks, Rational speed) => new Timecode(sourceTicks).Scale(speed.Inverse()).Ticks;
+    private static long ToSource(long timelineTicks, Rational speed) => new Timecode(timelineTicks).Scale(speed).Ticks;
+
+    // Snaps the moving reference point (anchorTick + delta) to nearby edits/playhead and returns the adjusted
+    // delta; a no-op when snapping is off or nothing is within tolerance. Mirrors the edge-snap in UpdateClipDrag.
+    private long SnapDelta(long anchorTick, long delta)
+    {
+        if (!Snapping)
+            return delta;
+        long moving = anchorTick + delta;
+        long snapped = TimelineMath.Snap(moving, _snapPoints, SnapTolerancePx, _pxPerSecond);
+        return snapped == moving ? delta : delta + (snapped - moving);
+    }
+
+    // Begins a ripple-trim gesture: the dragged clip's edge plus, when Linked is on, its companion clips' matching
+    // edges. Each "unit" carries the downstream clips on its own track so every affected track stays gap-free.
+    private void BeginRipple(Clip clip, ClipDragMode mode)
+    {
+        _rippleTrimEnd = mode == ClipDragMode.TrimEnd;
+        _rippleUnits.Clear();
+        _rippleUnits.Add(BuildRippleUnit(clip, _dragSourceTrack!));
+        if (Linked)
+            foreach ((Track ctrack, Clip cclip) in _project!.Timeline.ClipsLinkedTo(clip))
+                _rippleUnits.Add(BuildRippleUnit(cclip, ctrack));
+        _dragKind = DragKind.Ripple;
+    }
+
+    private RippleUnit BuildRippleUnit(Clip clip, Track track)
+    {
+        Timecode origEnd = clip.TimelineEnd;
+        var downstream = new List<(Clip, Timecode)>();
+        foreach (Clip c in track.Clips)
+            if (!ReferenceEquals(c, clip) && c.TimelineStart >= origEnd)
+                downstream.Add((c, c.TimelineStart));
+        return new RippleUnit(clip, clip.SpeedRatio, MediaDurationTicks(clip), clip.SourceIn, clip.SourceOut, downstream);
+    }
+
+    private void UpdateRipple(long pointerTicks)
+    {
+        // The reference edge follows the cursor (relative to the grab point), then snaps to nearby edits.
+        long anchor = _rippleTrimEnd ? _dragOrigStart.Ticks + (_dragOrigOut.Ticks - _dragOrigIn.Ticks) : _dragOrigStart.Ticks;
+        long delta = SnapDelta(anchor, pointerTicks - _dragPressTicks);
+
+        // Intersect every unit's allowable edge travel (companions share media/speed by construction; be safe).
+        long lower = long.MinValue, upper = long.MaxValue;
+        foreach (RippleUnit u in _rippleUnits)
+        {
+            long durTimeline = ToTimeline(u.OrigOut.Ticks - u.OrigIn.Ticks, u.Speed);
+            long inHeadroom = ToTimeline(u.OrigIn.Ticks, u.Speed);
+            long outHeadroom = ToTimeline(Math.Max(0, u.MediaDuration - u.OrigOut.Ticks), u.Speed);
+            (long lo, long hi) = TimelineMath.RippleTrimBounds(_rippleTrimEnd, durTimeline, inHeadroom, outHeadroom, _minDurTicks);
+            lower = Math.Max(lower, lo);
+            upper = Math.Min(upper, hi);
+        }
+        if (upper < lower)
+            return;
+        delta = Math.Clamp(delta, lower, upper);
+
+        var commands = new List<IEditCommand>();
+        foreach (RippleUnit u in _rippleUnits)
+        {
+            long sourceDelta = ToSource(delta, u.Speed);
+            Timecode newIn = u.OrigIn, newOut = u.OrigOut;
+            long shift; // downstream shift in timeline ticks (= the clip's duration change)
+            if (_rippleTrimEnd)
+            {
+                newOut = new Timecode(u.OrigOut.Ticks + sourceDelta);
+                shift = delta;
+            }
+            else
+            {
+                newIn = new Timecode(u.OrigIn.Ticks + sourceDelta);
+                shift = -delta;
+            }
+            commands.Add(new RippleTrimCommand(u.Clip, newIn, newOut, u.Downstream, shift));
+        }
+        Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Ripple trim", commands));
+    }
+
+    // Begins a roll gesture: resolves the two clips sharing the dragged cut. Leaves the gesture inert (DragKind
+    // stays None, so the press aborts) when there is no adjacent clip on the other side of the cut.
+    private void BeginRoll(Clip clip, ClipDragMode mode)
+    {
+        Track track = _dragSourceTrack!;
+        Clip? left = mode == ClipDragMode.TrimEnd ? clip : AdjacentBefore(track, clip);
+        Clip? right = mode == ClipDragMode.TrimEnd ? AdjacentAfter(track, clip) : clip;
+        if (left is null || right is null)
+            return;
+
+        _rollLeft = left;
+        _rollRight = right;
+        _rollLeftSpeed = left.SpeedRatio;
+        _rollRightSpeed = right.SpeedRatio;
+        _rollLeftMedia = MediaDurationTicks(left);
+        _rollRightMedia = MediaDurationTicks(right);
+        _rollOrigLeftOut = left.SourceOut;
+        _rollOrigRightIn = right.SourceIn;
+        _rollOrigRightStart = right.TimelineStart;
+        _rollOrigCut = left.TimelineEnd; // == right.TimelineStart
+        _dragKind = DragKind.Roll;
+    }
+
+    private void UpdateRoll(long pointerTicks)
+    {
+        long delta = SnapDelta(_rollOrigCut.Ticks, pointerTicks - _dragPressTicks);
+
+        long leftDur = ToTimeline(_rollOrigLeftOut.Ticks - _rollLeft!.SourceIn.Ticks, _rollLeftSpeed);
+        long leftHeadroom = ToTimeline(Math.Max(0, _rollLeftMedia - _rollOrigLeftOut.Ticks), _rollLeftSpeed);
+        long rightDur = ToTimeline(_rollRight!.SourceOut.Ticks - _rollOrigRightIn.Ticks, _rollRightSpeed);
+        long rightHeadroom = ToTimeline(_rollOrigRightIn.Ticks, _rollRightSpeed);
+
+        delta = TimelineMath.ClampRollDelta(delta, leftDur, leftHeadroom, rightDur, rightHeadroom, _minDurTicks);
+
+        Execute(new RollEditCommand(
+            _rollLeft, _rollRight,
+            new Timecode(_rollOrigLeftOut.Ticks + ToSource(delta, _rollLeftSpeed)),
+            new Timecode(_rollOrigRightIn.Ticks + ToSource(delta, _rollRightSpeed)),
+            new Timecode(_rollOrigRightStart.Ticks + delta)));
+    }
+
+    // Begins a slide gesture: captures the (optional) adjacent neighbours that will absorb the clip's movement.
+    private void BeginSlide(Clip clip)
+    {
+        Track track = _dragSourceTrack!;
+        _slidePrev = AdjacentBefore(track, clip);
+        _slideNext = AdjacentAfter(track, clip);
+        _slidePrevSpeed = _slidePrev?.SpeedRatio ?? Rational.One;
+        _slideNextSpeed = _slideNext?.SpeedRatio ?? Rational.One;
+        _slidePrevMedia = _slidePrev is null ? 0 : MediaDurationTicks(_slidePrev);
+        _slideNextMedia = _slideNext is null ? 0 : MediaDurationTicks(_slideNext);
+        _slideOrigPrevOut = _slidePrev?.SourceOut ?? default;
+        _slideOrigNextIn = _slideNext?.SourceIn ?? default;
+        _slideOrigNextStart = _slideNext?.TimelineStart ?? default;
+        _dragKind = DragKind.Slide;
+    }
+
+    private void UpdateSlide(long pointerTicks)
+    {
+        long delta = SnapDelta(_dragOrigStart.Ticks, pointerTicks - _dragPressTicks);
+
+        // A missing neighbour imposes no source/min-duration constraint on that side.
+        const long Unbounded = long.MaxValue / 4;
+        long prevDur = _slidePrev is null ? Unbounded
+            : ToTimeline(_slideOrigPrevOut.Ticks - _slidePrev.SourceIn.Ticks, _slidePrevSpeed);
+        long prevHeadroom = _slidePrev is null ? Unbounded
+            : ToTimeline(Math.Max(0, _slidePrevMedia - _slideOrigPrevOut.Ticks), _slidePrevSpeed);
+        long nextDur = _slideNext is null ? Unbounded
+            : ToTimeline(_slideNext.SourceOut.Ticks - _slideOrigNextIn.Ticks, _slideNextSpeed);
+        long nextHeadroom = _slideNext is null ? Unbounded
+            : ToTimeline(_slideOrigNextIn.Ticks, _slideNextSpeed);
+
+        delta = TimelineMath.ClampSlideDelta(delta, prevDur, prevHeadroom, nextDur, nextHeadroom, _minDurTicks);
+        delta = Math.Max(delta, -_dragOrigStart.Ticks); // never slide the clip's start below the timeline origin
+
+        Timecode newPrevOut = _slidePrev is null ? default : new Timecode(_slideOrigPrevOut.Ticks + ToSource(delta, _slidePrevSpeed));
+        Timecode newNextIn = _slideNext is null ? default : new Timecode(_slideOrigNextIn.Ticks + ToSource(delta, _slideNextSpeed));
+        Timecode newNextStart = _slideNext is null ? default : new Timecode(_slideOrigNextStart.Ticks + delta);
+
+        Execute(new SlideClipCommand(
+            _dragClip!, new Timecode(_dragOrigStart.Ticks + delta),
+            _slidePrev, newPrevOut,
+            _slideNext, newNextIn, newNextStart));
+    }
+
+    // The clip on a track whose timeline end butts exactly against this clip's start (its left neighbour), or null.
+    private static Clip? AdjacentBefore(Track track, Clip clip)
+    {
+        Clip? best = null;
+        foreach (Clip c in track.Clips)
+            if (!ReferenceEquals(c, clip) && c.TimelineEnd == clip.TimelineStart)
+                best = c;
+        return best;
+    }
+
+    // The clip on a track whose timeline start butts exactly against this clip's end (its right neighbour), or null.
+    private static Clip? AdjacentAfter(Track track, Clip clip)
+    {
+        foreach (Clip c in track.Clips)
+            if (!ReferenceEquals(c, clip) && c.TimelineStart == clip.TimelineEnd)
+                return c;
+        return null;
+    }
+
+    /// <summary>
+    /// Ripple-deletes the selected clip (Premiere/Resolve's Shift+Delete): removes it and shifts every later clip
+    /// on its track left by its duration so the gap closes. With Linked on, its companion A/V clips are removed and
+    /// their tracks rippled too — all one undo entry (PLAN.md step 22).
+    /// </summary>
+    public void RippleDeleteSelected()
+    {
+        if (_selected is null || _history is null || _project is null)
+            return;
+
+        var removed = new List<Clip> { _selected };
+        if (Linked)
+            removed.AddRange(_project.Timeline.ClipsLinkedTo(_selected).Select(l => l.Clip));
+
+        var commands = new List<IEditCommand>();
+        foreach (Clip c in removed)
+        {
+            Track? track = TrackOf(c);
+            if (track is null)
+                continue;
+            long shift = -c.Duration.Ticks;
+            Timecode end = c.TimelineEnd;
+            commands.Add(new RemoveClipCommand(track, c));
+            foreach (Clip d in track.Clips)
+                if (!removed.Contains(d) && d.TimelineStart >= end)
+                    commands.Add(new SetClipPlacementCommand(
+                        d, d.SourceIn, d.SourceOut, new Timecode(d.TimelineStart.Ticks + shift), "Ripple"));
+        }
+        if (commands.Count == 0)
+            return;
+        Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Ripple delete", commands));
+        Select(null);
     }
 
     /// <summary>
