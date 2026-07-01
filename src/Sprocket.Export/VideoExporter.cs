@@ -26,6 +26,12 @@ namespace Sprocket.Export;
 /// <param name="BurnIns">Optional burn-in overlays (timecode / clip name / watermark) baked onto every exported
 /// frame (PLAN.md step 29). <see langword="null"/> or empty means no burn-ins. These touch only the deterministic
 /// export render, never the preview hot path (ARCHITECTURE.md §5/§7).</param>
+/// <param name="Resolution">An explicit output resolution (PLAN.md step 29 presets), or <see langword="null"/> to
+/// use the sequence's own. Either way it is capped at 4K and rounded to an even size by
+/// <see cref="VideoExporter.ComputeExportResolution"/>.</param>
+/// <param name="FrameRate">An explicit output frame rate (PLAN.md step 29 presets), or <see langword="null"/> to use
+/// the sequence's own. The render graph is a pure function of time, so a different rate simply samples the timeline
+/// at the new frame instants (frames duplicated / dropped as needed) — the standard NLE resample-on-export.</param>
 public readonly record struct ExportOptions(
     ExportFormat Format = default,
     ExportQuality Quality = ExportQuality.High,
@@ -35,7 +41,9 @@ public readonly record struct ExportOptions(
     int GopSize = 0,
     string? PixelFormat = null,
     int HandleFrames = 0,
-    IReadOnlyList<BurnIn>? BurnIns = null);
+    IReadOnlyList<BurnIn>? BurnIns = null,
+    Resolution? Resolution = null,
+    Rational? FrameRate = null);
 
 /// <summary>
 /// Renders a <see cref="Project"/> offline to a full-resolution movie in the chosen container/codec matrix
@@ -109,9 +117,14 @@ public static class VideoExporter
         if (fullDuration <= Timecode.Zero)
             throw new ArgumentException("The timeline is empty — nothing to export.", nameof(project));
 
-        Rational fps = timeline.FrameRate;
-        if (fps.Num <= 0 || fps.Den <= 0)
+        Rational timelineFps = timeline.FrameRate;
+        if (timelineFps.Num <= 0 || timelineFps.Den <= 0)
             throw new ArgumentException("The timeline has no valid frame rate.", nameof(project));
+
+        // Optional frame-rate override (PLAN.md step 29 presets): the render graph is a pure function of time, so a
+        // different output rate just samples the timeline at the new frame instants. A null / degenerate override
+        // keeps the sequence's own rate (the pre-step-29 behaviour).
+        Rational fps = options.FrameRate is { Num: > 0, Den: > 0 } overrideFps ? overrideFps : timelineFps;
 
         // Resolve the export sub-range, clamped to the sequence. The frame/sample loops below run over the range
         // duration, sampling the timeline at rangeIn + offset; encoder timestamps start at zero (a slice becomes a
@@ -120,10 +133,11 @@ public static class VideoExporter
 
         // Handles (PLAN.md step 29): grow the range by N frames each side for review / conform outputs, then
         // re-clamp — handles can only reach media that exists on the timeline, so a whole-timeline export is
-        // unaffected and a slice extends only as far as its surrounding frames allow.
+        // unaffected and a slice extends only as far as its surrounding frames allow. Handles count in the timeline's
+        // own frames (a frame of the source material), independent of any output frame-rate override.
         if (options.HandleFrames > 0)
         {
-            Timecode handle = Timecode.FromFrames(options.HandleFrames, fps);
+            Timecode handle = Timecode.FromFrames(options.HandleFrames, timelineFps);
             effectiveRange = effectiveRange.WithHandles(handle, handle).ClampTo(fullDuration);
         }
 
@@ -134,10 +148,15 @@ public static class VideoExporter
 
         IReadOnlyList<BurnIn>? burnIns = options.BurnIns is { Count: > 0 } ? options.BurnIns : null;
 
-        // Cap the delivery resolution at 4K (export-side limit only — the timeline/canvas are unrestricted,
-        // PLAN.md step 27), scaling down to fit while preserving aspect. Then round down to even (≤ 1px) so a
-        // 4:2:0 codec accepts an odd-sized timeline. The offscreen surface uses the same size — render and encode agree.
-        (int outWidth, int outHeight) = ComputeExportResolution(timeline.Resolution.Width, timeline.Resolution.Height);
+        // The output resolution is the preset's override (PLAN.md step 29) or the sequence's own. Either way it is
+        // then capped at 4K (export-side limit only — the timeline/canvas are unrestricted, PLAN.md step 27), scaling
+        // down to fit while preserving aspect, and rounded down to even (≤ 1px) so a 4:2:0 codec accepts it. The
+        // offscreen surface uses the same size — render and encode agree, and the composite fits into it (a resolution
+        // that changes the aspect letterboxes media, exactly as an NLE scale-on-export does).
+        (int srcWidth, int srcHeight) = options.Resolution is { Width: > 0, Height: > 0 } outRes
+            ? (outRes.Width, outRes.Height)
+            : (timeline.Resolution.Width, timeline.Resolution.Height);
+        (int outWidth, int outHeight) = ComputeExportResolution(srcWidth, srcHeight);
         if (outWidth <= 0 || outHeight <= 0)
             throw new ArgumentException("The timeline resolution is too small to export.", nameof(project));
         int sampleRate = timeline.SampleRate > 0 ? timeline.SampleRate : 48000;

@@ -1715,8 +1715,8 @@ Tags reference the [UI.md §4 checklist](UI.md).
     - **✅ Export-queue strand DONE (`Sprocket.Export`: `ExportQueue`/`ExportJob`/`ExportRange` + `VideoExporter`
       sequence/range overload; `Sprocket.Core` + `Sprocket.Audio` sequence-audio overloads; `Sprocket.App`:
       `ExportQueueWindow` + File ▸ Export Queue…; 20 new tests — Export 26 → 44, Audio 21 → 23; full suite 597 → 617).**
-      The queue is one of the five strands of step 29 (with burn-ins & handles now also done below; the others —
-      user-definable/persisted presets, hardware export encoders, and status-bar telemetry — **remain**). Delivered, all on the existing
+      The queue is one of the five strands of step 29 (with burn-ins & handles and presets now also done below; the
+      others — hardware export encoders and status-bar telemetry — **remain**). Delivered, all on the existing
       seams (ARCHITECTURE.md §5/§17 — only the orchestration around the render graph is new, the render is unchanged):
       - **`ExportQueue` + `ExportJob` (Export).** A sequential batch runner: jobs run one-at-a-time on a background
         worker (so only one in-process libav* muxer is ever live — concurrent muxing crashes the native encoder,
@@ -1758,8 +1758,8 @@ Tags reference the [UI.md §4 checklist](UI.md).
     - **✅ Burn-ins & handles strand DONE (`Sprocket.Core`: `BurnIn`/`BurnInField`/`BurnInPosition` + `BurnInResolver`,
       `SmpteTimecode` moved into `Core.Timing`; `Sprocket.Render`: `BurnInRenderer`; `Sprocket.Export`: `ExportOptions`
       `BurnIns`/`HandleFrames` + `ExportRange.WithHandles`; `Sprocket.App`: `ExportSettingsDialog` burn-in/handles
-      controls; 27 new tests — Core 209 → 215, Render 33 → 50, Export 44 → 48; full suite 617 → 644).** The third of
-      the five strands (presets, hardware export encoders, and status-bar telemetry **remain**). Everything lands on
+      controls; 27 new tests — Core 209 → 215, Render 33 → 50, Export 44 → 48; full suite 617 → 644).** With presets
+      (below) now done too, only hardware export encoders and status-bar telemetry **remain**. Everything lands on
       the deterministic export render (ARCHITECTURE.md §5/§7) — burn-ins are baked *after* compositing and never
       touch the preview hot path or allocate pixels (§1):
       - **Burn-in model (Core).** `BurnIn(Field, Position, Text?)` is pure delivery data that flows with
@@ -1794,6 +1794,39 @@ Tags reference the [UI.md §4 checklist](UI.md).
         math. Clean build (0 warnings); a `SPROCKET_APP_SECONDS` smoke launch starts the shell and tears down cleanly
         (exit 0). Full suite: **644 tests green** (Core 215, Media 30, Render 50, Audio 23, Playback 52, Export 48,
         Persistence 90, App 136).
+    - **✅ Presets strand DONE (`Sprocket.Export`: `ExportPreset` extended + `ExportPresetStore` + `ExportOptions`
+      `Resolution`/`FrameRate` overrides in `VideoExporter`; `Sprocket.App`: `UserExportPresets` + `ExportSettingsDialog`
+      preset/resolution/frame-rate controls; 17 new tests — Export 48 → 65; full suite 644 → 661).** The fourth of the
+      five strands; only hardware export encoders and status-bar telemetry now **remain**. Presets are saved selections
+      over the step-27 matrix — container × codec × quality × **resolution / frame-rate** — user-definable and
+      persisted, all on the existing deterministic export render (no new render path):
+      - **Resolution / frame-rate overrides in the exporter (Export).** `ExportOptions` gains `Resolution?` and
+        `FrameRate?` (both `null` = keep the sequence's own, so `default(ExportOptions)` is byte-for-byte the
+        pre-step-29 behaviour). A resolution override flows through the same `ComputeExportResolution` (4K cap + even
+        rounding) and sizes the offscreen surface, so the composite scales/letterboxes into it. A frame-rate override
+        just samples the timeline at the new frame instants — the render graph is a pure function of time, so this is
+        the standard NLE resample-on-export (frames duplicated / dropped), with **handles still counted in the
+        timeline's own frames**. No change to the render itself (ARCHITECTURE.md §5).
+      - **Preset model + store (Export).** `ExportPreset` extended with optional `Resolution` / `FrameRate` and a
+        `ToOptions()`; the curated `ExportCodecs.Presets` gains resolution-pinned web-delivery presets (YouTube 4K /
+        1080p, Web 720p — mirroring the presets leading NLEs ship). `ExportPresetStore` (de)serialises the **user's**
+        presets to JSON through a flat DTO (enums by name → a stable, human-editable file), reads/writes best-effort
+        (missing/corrupt → empty, never throws), and merges built-ins + user for the dropdown. Burn-ins/handles are
+        deliberately **not** part of a preset (they're per-export review options, not a delivery format).
+      - **UI (App).** `UserExportPresets` persists the user list under `%AppData%/Sprocket/export-presets.json`
+        (mirrors `WindowStateStore`). `ExportSettingsDialog` gains a **Preset** dropdown (Custom + built-ins + user
+        presets; selecting one applies its format/quality/resolution/rate, and any manual edit snaps back to Custom),
+        **Resolution** and **Frame rate** pickers (a closed set so every saved preset round-trips to a dropdown entry),
+        and a **Save Preset…** button (name prompt → persist → reselect). Both the single **Export** and **Export
+        Queue ▸ Add…** read this one dialog, so both carry the overrides for free.
+      - **Tests (17).** `ExportPresetTests` (Export, headless): `ToOptions` mapping, JSON round-trip preserving
+        overrides, enums-by-name, blank/corrupt → empty, nameless entries skipped, file load/save + missing-path,
+        built-in-then-user merge order, resolution-pinned built-ins present. `ResolutionFrameRateExportTests` (Export,
+        real encode): a frame-rate override resamples the timeline (½× / 2× frame counts), a resolution override
+        encodes at the chosen (even-rounded) size, and a preset drives the whole preset→options→encode path. Clean
+        build (0 warnings); a `SPROCKET_APP_SECONDS` smoke launch starts the shell with the new dialog and tears down
+        cleanly (exit 0). Full suite: **661 tests green** (Core 215, Media 30, Render 50, Audio 23, Playback 52,
+        Export 65, Persistence 90, App 136).
 30. **Audio loudness metering, normalization & editorial audio polish.** The delivery-grade audio
     visibility that effects alone don't provide — the first of the two audio-post layers (the second is
     plugin hosting + deeper DSP, step 31):

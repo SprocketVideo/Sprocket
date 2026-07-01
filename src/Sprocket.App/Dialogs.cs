@@ -422,13 +422,41 @@ internal static class SequenceSettingsDialog
 }
 
 /// <summary>
-/// The Export settings dialog (PLAN.md step 27): a cascading container → video-codec → audio-codec picker plus a
-/// quality tier, so the user can deliver into the whole format/codec matrix rather than a fixed MP4. The video /
-/// audio dropdowns are repopulated with only the codecs valid in the chosen container, so every selection is a
-/// valid combination. Returns the chosen <see cref="ExportOptions"/> on Export, or <see langword="null"/> on cancel.
+/// The Export settings dialog (PLAN.md step 27 + 29): a cascading container → video-codec → audio-codec picker, a
+/// quality tier, and output resolution / frame-rate overrides, so the user can deliver into the whole format/codec
+/// matrix rather than a fixed MP4. The video / audio dropdowns are repopulated with only the codecs valid in the
+/// chosen container, so every selection is a valid combination. A <b>preset</b> dropdown applies a saved selection
+/// over that matrix (the curated built-ins plus the user's own, persisted by <see cref="UserExportPresets"/>), and
+/// <b>Save Preset…</b> captures the current selection as a new user preset (PLAN.md step 29). Returns the chosen
+/// <see cref="ExportOptions"/> on Export, or <see langword="null"/> on cancel.
 /// </summary>
 internal static class ExportSettingsDialog
 {
+    // The resolution / frame-rate override choices, each paired with its value (null = keep the sequence's own).
+    // The set is closed: a user preset can only capture a value that exists here, so every saved preset round-trips
+    // back to a dropdown entry.
+    private static readonly (string Label, Resolution? Value)[] Resolutions =
+    [
+        ("Same as sequence", null),
+        ("3840 × 2160 (4K UHD)", new Resolution(3840, 2160)),
+        ("1920 × 1080 (1080p)", new Resolution(1920, 1080)),
+        ("1280 × 720 (720p)", new Resolution(1280, 720)),
+        ("854 × 480 (480p)", new Resolution(854, 480)),
+    ];
+
+    private static readonly (string Label, Rational? Value)[] FrameRates =
+    [
+        ("Same as sequence", null),
+        ("23.976", new Rational(24000, 1001)),
+        ("24", new Rational(24, 1)),
+        ("25 (PAL)", new Rational(25, 1)),
+        ("29.97 (NTSC)", new Rational(30000, 1001)),
+        ("30", new Rational(30, 1)),
+        ("50", new Rational(50, 1)),
+        ("59.94", new Rational(60000, 1001)),
+        ("60", new Rational(60, 1)),
+    ];
+
     public static Task<ExportOptions?> Show(Window owner, int sequenceWidth, int sequenceHeight)
     {
         ExportContainer[] containers = Enum.GetValues<ExportContainer>();
@@ -437,12 +465,28 @@ internal static class ExportSettingsDialog
         ComboBox audioBox = MakeCombo([]);
         ComboBox qualityBox = MakeCombo(["High (larger file)", "Medium", "Low (smaller file)"]);
         qualityBox.SelectedIndex = 0;
+        ComboBox resolutionBox = MakeCombo(Resolutions.Select(r => r.Label));
+        resolutionBox.SelectedIndex = 0;
+        ComboBox fpsBox = MakeCombo(FrameRates.Select(f => f.Label));
+        fpsBox.SelectedIndex = 0;
 
         var resText = new TextBlock { Foreground = Palette.MutedTextBrush, FontSize = 12 };
-        (int w, int h) = VideoExporter.ComputeExportResolution(sequenceWidth, sequenceHeight);
-        resText.Text = (w == sequenceWidth && h == sequenceHeight)
-            ? $"Output resolution: {w}×{h}"
-            : $"Output resolution: {w}×{h}  (scaled from {sequenceWidth}×{sequenceHeight} to the 4K export cap)";
+        void UpdateResText()
+        {
+            Resolution? sel = Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value;
+            (int sw, int sh) = sel is { } r ? (r.Width, r.Height) : (sequenceWidth, sequenceHeight);
+            (int ow, int oh) = VideoExporter.ComputeExportResolution(sw, sh);
+            resText.Text = ow == sw && oh == sh
+                ? $"Output resolution: {ow}×{oh}"
+                : $"Output resolution: {ow}×{oh}  (scaled from {sw}×{sh} to the 4K export cap)";
+        }
+        UpdateResText();
+
+        // Preset dropdown: "Custom" + the curated built-ins + the user's persisted presets. `allPresets` is the
+        // combined list behind indices 1.. of the box (index 0 = Custom). It is reassigned when a preset is saved.
+        var allPresets = ExportPresetStore.BuiltInAndUser(UserExportPresets.Load());
+        ComboBox presetBox = MakeCombo(PresetLabels(allPresets));
+        presetBox.SelectedIndex = 0; // Custom (the historical MP4/H.264 defaults below)
 
         // The codecs valid in the currently-selected container, mirrored so a selection index maps back to an enum.
         var videoCodecs = new List<ExportVideoCodec>();
@@ -462,6 +506,44 @@ internal static class ExportSettingsDialog
         containerBox.SelectionChanged += (_, _) => RepopulateCodecs();
         containerBox.SelectedIndex = 0;
         RepopulateCodecs(); // ensure populated even though setting index 0 (already 0) fires no change
+
+        // Applying a preset drives the controls programmatically; the guard stops that from snapping the preset box
+        // back to "Custom" (which any *manual* control change does, below).
+        bool applyingPreset = false;
+
+        void ApplyPreset(ExportPreset p)
+        {
+            applyingPreset = true;
+            containerBox.SelectedIndex = Math.Max(0, Array.IndexOf(containers, p.Format.Container));
+            RepopulateCodecs(); // container may not have changed (no event), so refresh the codec lists explicitly
+            int vi = videoCodecs.IndexOf(p.Format.VideoCodec);
+            if (vi >= 0) videoBox.SelectedIndex = vi;
+            int ai = audioCodecs.IndexOf(p.Format.AudioCodec);
+            if (ai >= 0) audioBox.SelectedIndex = ai;
+            qualityBox.SelectedIndex = (int)p.Quality;
+            resolutionBox.SelectedIndex = Math.Max(0, IndexOfResolution(p.Resolution));
+            fpsBox.SelectedIndex = Math.Max(0, IndexOfFrameRate(p.FrameRate));
+            applyingPreset = false;
+            UpdateResText();
+        }
+
+        presetBox.SelectionChanged += (_, _) =>
+        {
+            if (applyingPreset) return;
+            int idx = presetBox.SelectedIndex;
+            if (idx >= 1 && idx - 1 < allPresets.Count)
+                ApplyPreset(allPresets[idx - 1]);
+        };
+
+        // Any manual edit means the selection no longer matches the chosen preset — fall back to "Custom".
+        void SnapToCustom(object? _, EventArgs __) { if (!applyingPreset) presetBox.SelectedIndex = 0; }
+        containerBox.SelectionChanged += SnapToCustom;
+        videoBox.SelectionChanged += SnapToCustom;
+        audioBox.SelectionChanged += SnapToCustom;
+        qualityBox.SelectionChanged += SnapToCustom;
+        resolutionBox.SelectionChanged += SnapToCustom;
+        fpsBox.SelectionChanged += SnapToCustom;
+        resolutionBox.SelectionChanged += (_, _) => UpdateResText();
 
         // Burn-ins & handles (PLAN.md step 29). Burn-ins are opt-in overlays baked onto the export (timecode /
         // clip name / watermark) with a nine-point position each; handles add extra frames around an in-out range
@@ -487,6 +569,16 @@ internal static class ExportSettingsDialog
             Background = Palette.PanelBgBrush,
         };
 
+        var savePreset = new Button
+        {
+            Content = "Save Preset…",
+            Padding = new Thickness(10, 4),
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            CornerRadius = new CornerRadius(5),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
         var export = new Button
         {
             Content = "Export…",
@@ -509,10 +601,13 @@ internal static class ExportSettingsDialog
             Spacing = 8,
             Children =
             {
+                LabeledRow("Preset", BurnInRow(presetBox, savePreset)),
                 LabeledRow("Format", containerBox),
                 LabeledRow("Video codec", videoBox),
                 LabeledRow("Audio codec", audioBox),
                 LabeledRow("Quality", qualityBox),
+                LabeledRow("Resolution", resolutionBox),
+                LabeledRow("Frame rate", fpsBox),
                 resText,
                 new TextBlock { Text = "Burn-ins", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) },
                 BurnInRow(tcCheck, tcPos),
@@ -527,7 +622,7 @@ internal static class ExportSettingsDialog
             Title = "Export Settings",
             Icon = AppIcon.Window,
             Width = 440,
-            Height = 560,
+            Height = 640,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
@@ -554,15 +649,19 @@ internal static class ExportSettingsDialog
             },
         };
 
+        // Whether the container/codec selection is a valid, complete triple (guards Export and Save Preset).
+        bool SelectionComplete() =>
+            containerBox.SelectedIndex >= 0 && videoBox.SelectedIndex >= 0 && audioBox.SelectedIndex >= 0;
+
+        ExportFormat BuildFormat() => new(
+            containers[containerBox.SelectedIndex],
+            videoCodecs[videoBox.SelectedIndex],
+            audioCodecs[audioBox.SelectedIndex]);
+
         export.Click += (_, _) =>
         {
-            if (containerBox.SelectedIndex < 0 || videoBox.SelectedIndex < 0 || audioBox.SelectedIndex < 0)
+            if (!SelectionComplete())
                 return;
-            var format = new ExportFormat(
-                containers[containerBox.SelectedIndex],
-                videoCodecs[videoBox.SelectedIndex],
-                audioCodecs[audioBox.SelectedIndex]);
-            var quality = (ExportQuality)Math.Max(0, qualityBox.SelectedIndex);
 
             var burnIns = new List<BurnIn>();
             if (tcCheck.IsChecked == true)
@@ -578,12 +677,44 @@ internal static class ExportSettingsDialog
                 handles = Math.Max(0, parsed);
 
             dialog.Close(new ExportOptions(
-                Format: format,
-                Quality: quality,
+                Format: BuildFormat(),
+                Quality: (ExportQuality)Math.Max(0, qualityBox.SelectedIndex),
                 HandleFrames: handles,
-                BurnIns: burnIns.Count > 0 ? burnIns : null));
+                BurnIns: burnIns.Count > 0 ? burnIns : null,
+                Resolution: Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
+                FrameRate: FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value));
         };
         cancel.Click += (_, _) => dialog.Close((ExportOptions?)null);
+
+        // Save Preset… captures the current format / quality / resolution / frame-rate under a user-given name and
+        // persists it (burn-ins and handles are per-export review options, not part of a delivery preset). A repeated
+        // name replaces the existing user preset. The dropdown then refreshes with the new preset selected.
+        savePreset.Click += async (_, _) =>
+        {
+            if (!SelectionComplete())
+                return;
+            if (await PromptForPresetName(dialog) is not { } name)
+                return;
+
+            var preset = new ExportPreset(
+                name,
+                BuildFormat(),
+                (ExportQuality)Math.Max(0, qualityBox.SelectedIndex),
+                Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
+                FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value);
+
+            var user = UserExportPresets.Load()
+                .Where(p => !string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            user.Add(preset);
+            UserExportPresets.Save(user);
+
+            allPresets = ExportPresetStore.BuiltInAndUser(user);
+            presetBox.ItemsSource = PresetLabels(allPresets);
+            applyingPreset = true;
+            presetBox.SelectedIndex = allPresets.Count; // the just-saved preset is last (index 0 is Custom)
+            applyingPreset = false;
+        };
 
         return dialog.ShowDialog<ExportOptions?>(owner);
     }
@@ -595,6 +726,95 @@ internal static class ExportSettingsDialog
         Foreground = Palette.TextBrush,
         Background = Palette.PanelBgBrush,
     };
+
+    /// <summary>The preset-dropdown labels: "Custom" followed by each preset's name.</summary>
+    private static List<string> PresetLabels(IReadOnlyList<ExportPreset> presets) =>
+        ["Custom", .. presets.Select(p => p.Name)];
+
+    /// <summary>Index of <paramref name="value"/> in the resolution dropdown (0 = "Same as sequence"); -1 if a
+    /// hand-edited preset carries a resolution not offered here.</summary>
+    private static int IndexOfResolution(Resolution? value) =>
+        Array.FindIndex(Resolutions, r => r.Value.Equals(value));
+
+    /// <summary>Index of <paramref name="value"/> in the frame-rate dropdown (0 = "Same as sequence"); -1 if a
+    /// hand-edited preset carries a rate not offered here.</summary>
+    private static int IndexOfFrameRate(Rational? value) =>
+        Array.FindIndex(FrameRates, f => f.Value.Equals(value));
+
+    /// <summary>A tiny modal that prompts for a preset name; returns the trimmed name, or <see langword="null"/> on
+    /// cancel / empty. Mirrors the shell's other code-built dialogs against the shared dark palette.</summary>
+    private static Task<string?> PromptForPresetName(Window owner)
+    {
+        var nameBox = new TextBox
+        {
+            PlaceholderText = "e.g. YouTube 1080p",
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var ok = new Button
+        {
+            Content = "Save",
+            Padding = new Thickness(16, 5),
+            Foreground = Brushes.White,
+            Background = Palette.AccentBrush,
+            CornerRadius = new CornerRadius(5),
+        };
+        var cancel = new Button
+        {
+            Content = "Cancel",
+            Padding = new Thickness(16, 5),
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            CornerRadius = new CornerRadius(5),
+        };
+        var dlg = new Window
+        {
+            Title = "Save Export Preset",
+            Icon = AppIcon.Window,
+            Width = 340,
+            Height = 160,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Palette.WindowBgBrush,
+            Content = new DockPanel
+            {
+                Margin = new Thickness(22),
+                Children =
+                {
+                    new StackPanel
+                    {
+                        [DockPanel.DockProperty] = Dock.Bottom,
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Margin = new Thickness(0, 16, 0, 0),
+                        Children = { cancel, ok },
+                    },
+                    new StackPanel
+                    {
+                        Spacing = 6,
+                        Children =
+                        {
+                            new TextBlock { Text = "Preset name", Foreground = Palette.MutedTextBrush, FontSize = 12 },
+                            nameBox,
+                        },
+                    },
+                },
+            },
+        };
+
+        void Accept()
+        {
+            string trimmed = (nameBox.Text ?? string.Empty).Trim();
+            dlg.Close(string.IsNullOrEmpty(trimmed) ? null : trimmed);
+        }
+        ok.Click += (_, _) => Accept();
+        cancel.Click += (_, _) => dlg.Close((string?)null);
+        nameBox.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) Accept(); };
+
+        return dlg.ShowDialog<string?>(owner);
+    }
 
     /// <summary>A nine-point burn-in position picker, preselected to <paramref name="defaultIndex"/>.</summary>
     private static ComboBox MakePositionCombo(int defaultIndex)

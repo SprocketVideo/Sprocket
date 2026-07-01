@@ -1,3 +1,6 @@
+using Sprocket.Core.Model;
+using Sprocket.Core.Timing;
+
 namespace Sprocket.Export;
 
 /// <summary>The delivery container a project is exported to (PLAN.md step 27). Each maps to one FFmpeg muxer.</summary>
@@ -65,11 +68,29 @@ public readonly record struct ExportFormat(
         ExportCodecs.Supports(Container, VideoCodec) && ExportCodecs.Supports(Container, AudioCodec);
 }
 
-/// <summary>A named, ready-to-use export configuration for the UI (a familiar-NLE delivery preset).</summary>
+/// <summary>A named, ready-to-use export configuration for the export dialog's dropdown — a familiar-NLE delivery
+/// preset over the step-27 matrix (PLAN.md step 29). Beyond the container/codec/quality it can pin an output
+/// <see cref="Resolution"/> and <see cref="FrameRate"/>; both <see langword="null"/> means "use the sequence's own"
+/// (the common delivery case). Built-ins live in <see cref="ExportCodecs.Presets"/>; user-defined ones are persisted
+/// by <see cref="ExportPresetStore"/>.</summary>
 /// <param name="Name">The label shown in the export dialog.</param>
 /// <param name="Format">The container/codec triple.</param>
 /// <param name="Quality">The default quality tier for the preset.</param>
-public readonly record struct ExportPreset(string Name, ExportFormat Format, ExportQuality Quality);
+/// <param name="Resolution">An explicit output resolution, or <see langword="null"/> to keep the sequence's own
+/// (still capped at 4K on export).</param>
+/// <param name="FrameRate">An explicit output frame rate, or <see langword="null"/> to keep the sequence's own.</param>
+public readonly record struct ExportPreset(
+    string Name,
+    ExportFormat Format,
+    ExportQuality Quality,
+    Resolution? Resolution = null,
+    Rational? FrameRate = null)
+{
+    /// <summary>The <see cref="ExportOptions"/> this preset applies: its format, quality, and any resolution /
+    /// frame-rate override. Burn-ins and handles are per-export review options, not part of a delivery preset.</summary>
+    public ExportOptions ToOptions() => new(
+        Format: Format, Quality: Quality, Resolution: Resolution, FrameRate: FrameRate);
+}
 
 /// <summary>
 /// The static codec/container matrix: per-enum metadata plus the container→codec compatibility rules, and a
@@ -129,7 +150,9 @@ public static class ExportCodecs
         [ExportContainer.MpegTs] = [ExportAudioCodec.Aac, ExportAudioCodec.Ac3, ExportAudioCodec.Mp3],
     };
 
-    /// <summary>The delivery presets offered in the UI, most-common first.</summary>
+    /// <summary>The built-in delivery presets offered in the export dialog, most-common first. The first group keeps
+    /// the sequence's own resolution / frame rate (format-only presets); the second pins a common web-delivery
+    /// resolution (PLAN.md step 29), mirroring the "YouTube 1080p / 4K" presets the leading NLEs ship.</summary>
     public static readonly IReadOnlyList<ExportPreset> Presets =
     [
         new("MP4 · H.264 + AAC",       new(ExportContainer.Mp4,  ExportVideoCodec.H264,   ExportAudioCodec.Aac),  ExportQuality.High),
@@ -138,6 +161,9 @@ public static class ExportCodecs
         new("MOV · ProRes 422 + PCM",  new(ExportContainer.Mov,  ExportVideoCodec.ProRes, ExportAudioCodec.Pcm),  ExportQuality.High),
         new("MKV · HEVC + FLAC",       new(ExportContainer.Mkv,  ExportVideoCodec.Hevc,   ExportAudioCodec.Flac), ExportQuality.High),
         new("WebM · VP9 + Opus",       new(ExportContainer.WebM, ExportVideoCodec.Vp9,    ExportAudioCodec.Opus), ExportQuality.High),
+        new("YouTube 4K (HEVC)",       new(ExportContainer.Mp4,  ExportVideoCodec.Hevc,   ExportAudioCodec.Aac),  ExportQuality.High,   new Resolution(3840, 2160)),
+        new("YouTube 1080p (H.264)",   new(ExportContainer.Mp4,  ExportVideoCodec.H264,   ExportAudioCodec.Aac),  ExportQuality.High,   new Resolution(1920, 1080)),
+        new("Web 720p (H.264)",        new(ExportContainer.Mp4,  ExportVideoCodec.H264,   ExportAudioCodec.Aac),  ExportQuality.Medium, new Resolution(1280, 720)),
     ];
 
     /// <summary>Container metadata for <paramref name="c"/>.</summary>
