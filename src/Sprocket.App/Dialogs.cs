@@ -90,7 +90,7 @@ internal static class AboutDialog
                     Centered("Sprocket", 20, FontWeight.SemiBold, Palette.Text),
                     Centered($"Version {Program.AppVersion}", 12, FontWeight.Normal, Palette.MutedText),
                     Centered($"Media engine: {ffmpeg}", 12, FontWeight.Normal, Palette.MutedText),
-                    Centered("A cross-platform, non-destructive video editor — free and open source.", 12, FontWeight.Normal, Palette.MutedText),
+                    Centered("A cross-platform, non-destructive video editor. Free and open source.", 12, FontWeight.Normal, Palette.MutedText),
                     close,
                 },
             },
