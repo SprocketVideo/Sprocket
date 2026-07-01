@@ -51,51 +51,103 @@ public static class RenderGraph
             if (!track.Enabled)
                 continue;
 
+            // A transition active at t blends the two adjacent clips (PLAN.md step 25). When it resolves to a valid
+            // pair it replaces the single-clip layer for this track; an invalid one (no real cut, or a side that
+            // resolves to nothing) falls through to ordinary single-clip resolution.
+            if (track.ResolveTransitionAt(t) is { } transition
+                && ResolveTransitionLayer(project, track, transition, t, path, depth) is { } transitionLayer)
+            {
+                layers.Add(transitionLayer);
+                continue;
+            }
+
             Clip? clip = track.ResolveActiveClip(t);
             if (clip is null)
                 continue;
 
-            Timecode sourceT = clip.MapToSource(t);
-            IReadOnlyList<ResolvedEffect> effects = ResolveEffectsCore(clip, t);
-            switch (clip.Kind)
-            {
-                case ClipKind.Generator:
-                    layers.Add(new VideoLayer(
-                        default, sourceT, effects, track.Opacity, track.BlendMode,
-                        LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t)));
-                    break;
-
-                case ClipKind.Adjustment:
-                    layers.Add(new VideoLayer(
-                        default, sourceT, effects, track.Opacity, track.BlendMode, LayerKind.Adjustment));
-                    break;
-
-                case ClipKind.Sequence:
-                    // A valid, in-bounds, non-cyclic nested sequence carries its resolved child plan; a missing /
-                    // cyclic / too-deep reference contributes nothing (renders as empty, like an offline source §15).
-                    if (PlanNestedVideo(project, clip, sourceT, path, depth) is { } nested)
-                        layers.Add(new VideoLayer(
-                            default, sourceT, effects, track.Opacity, track.BlendMode,
-                            LayerKind.Sequence, NestedPlan: nested));
-                    break;
-
-                case ClipKind.Multicam:
-                    // The active angle resolves to an ordinary media frame at the synced source time (PLAN.md
-                    // step 24) — so multicam rides the media seam, no recursion needed. A missing source or a
-                    // stale angle index contributes nothing (renders as empty, §15).
-                    if (ResolveMulticamAngle(project, clip) is { } angle)
-                        layers.Add(new VideoLayer(
-                            angle.MediaRefId, ClipSync.AngleSourceTime(angle, sourceT),
-                            effects, track.Opacity, track.BlendMode));
-                    break;
-
-                default:
-                    layers.Add(new VideoLayer(clip.MediaRefId, sourceT, effects, track.Opacity, track.BlendMode));
-                    break;
-            }
+            if (ResolveClipLayer(project, clip, t, track.Opacity, track.BlendMode, path, depth) is { } layer)
+                layers.Add(layer);
         }
 
         return new VideoFramePlan(sequence.Timeline.Resolution, t, layers);
+    }
+
+    /// <summary>
+    /// Resolves a single clip into a <see cref="VideoLayer"/> with the given compositing <paramref name="opacity"/>/
+    /// <paramref name="blend"/>, or <see langword="null"/> when the clip resolves to nothing (a missing/cyclic nested
+    /// sequence or a stale multicam angle — renders as empty, §15). This is the shared per-clip resolution used both
+    /// for an ordinary track layer (with the track's opacity/blend) and for each side of a transition (at unity
+    /// opacity / normal blend, since the transition layer carries the track's compositing).
+    /// </summary>
+    private static VideoLayer? ResolveClipLayer(
+        Project project, Clip clip, Timecode t, double opacity, BlendMode blend, HashSet<SequenceId> path, int depth)
+    {
+        Timecode sourceT = clip.MapToSource(t);
+        IReadOnlyList<ResolvedEffect> effects = ResolveEffectsCore(clip, t);
+        switch (clip.Kind)
+        {
+            case ClipKind.Generator:
+                return new VideoLayer(
+                    default, sourceT, effects, opacity, blend,
+                    LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t));
+
+            case ClipKind.Adjustment:
+                return new VideoLayer(default, sourceT, effects, opacity, blend, LayerKind.Adjustment);
+
+            case ClipKind.Sequence:
+                // A valid, in-bounds, non-cyclic nested sequence carries its resolved child plan; a missing /
+                // cyclic / too-deep reference contributes nothing (renders as empty, like an offline source §15).
+                return PlanNestedVideo(project, clip, sourceT, path, depth) is { } nested
+                    ? new VideoLayer(default, sourceT, effects, opacity, blend, LayerKind.Sequence, NestedPlan: nested)
+                    : null;
+
+            case ClipKind.Multicam:
+                // The active angle resolves to an ordinary media frame at the synced source time (PLAN.md step 24)
+                // — so multicam rides the media seam, no recursion needed. A missing source or a stale angle index
+                // contributes nothing (renders as empty, §15).
+                return ResolveMulticamAngle(project, clip) is { } angle
+                    ? new VideoLayer(angle.MediaRefId, ClipSync.AngleSourceTime(angle, sourceT), effects, opacity, blend)
+                    : null;
+
+            default:
+                return new VideoLayer(clip.MediaRefId, sourceT, effects, opacity, blend);
+        }
+    }
+
+    /// <summary>
+    /// Resolves a transition active at <paramref name="t"/> into a <see cref="LayerKind.Transition"/> layer blending
+    /// its two clips (PLAN.md step 25), or <see langword="null"/> when it is not a real cut between two distinct
+    /// resolvable clips (then the caller renders the track's single active clip instead). Each side is resolved at
+    /// the same time <paramref name="t"/> — the outgoing clip is sampled into its handles past the cut, the incoming
+    /// clip into its handles before the cut — exactly as an NLE does.
+    /// </summary>
+    private static VideoLayer? ResolveTransitionLayer(
+        Project project, VideoTrack track, Transition transition, Timecode t, HashSet<SequenceId> path, int depth)
+    {
+        (Clip? fromClip, Clip? toClip) = track.ResolveTransitionClips(transition);
+        if (fromClip is null || toClip is null || ReferenceEquals(fromClip, toClip))
+            return null; // not a real cut between two clips
+
+        VideoLayer? from = ResolveClipLayer(project, fromClip, t, 1.0, BlendMode.Normal, path, depth);
+        VideoLayer? to = ResolveClipLayer(project, toClip, t, 1.0, BlendMode.Normal, path, depth);
+        if (from is null || to is null)
+            return null; // a side resolved to nothing — render normally rather than blending against emptiness
+
+        IReadOnlyDictionary<string, double> values = ResolveTransitionParams(transition, t);
+        var resolved = new ResolvedTransition(transition.TransitionTypeId, transition.ProgressAt(t), values, from, to);
+        return new VideoLayer(default, default, [], track.Opacity, track.BlendMode, LayerKind.Transition, Transition: resolved);
+    }
+
+    private static readonly Dictionary<string, double> NoTransitionParams = new();
+
+    private static IReadOnlyDictionary<string, double> ResolveTransitionParams(Transition transition, Timecode t)
+    {
+        if (transition.Parameters.Count == 0)
+            return NoTransitionParams;
+        var values = new Dictionary<string, double>(transition.Parameters.Count);
+        foreach ((string name, AnimatableValue value) in transition.Parameters)
+            values[name] = value.Evaluate(t);
+        return values;
     }
 
     /// <summary>Resolves the child plan for a nested-sequence clip at the clip-local time <paramref name="childTime"/>,
@@ -238,21 +290,38 @@ public static class RenderGraph
         ArgumentNullException.ThrowIfNull(compositor);
 
         TImage surface = compositor.CreateTransparentSurface(plan.Resolution);
+
+        // Produces a single (non-transition) layer's frame: its content folded through its own effect chain.
+        // An adjustment layer has no content of its own — it takes the composite beneath it (Snapshot(surface)).
+        TImage RenderLayerFrame(VideoLayer l)
+        {
+            TImage f = l.Kind switch
+            {
+                LayerKind.Generator => compositor.CreateGeneratorFrame(l.Generator!, plan.Resolution, l.SourceTime),
+                LayerKind.Adjustment => compositor.Snapshot(surface),
+                LayerKind.Sequence => Render(l.NestedPlan!, frameSource, compositor),
+                _ => frameSource.GetFrame(l.MediaRefId, l.SourceTime),
+            };
+            foreach (ResolvedEffect effect in l.Effects)
+                f = compositor.ApplyEffect(f, effect);
+            return f;
+        }
+
         foreach (VideoLayer layer in plan.Layers)
         {
-            // An adjustment layer has no content of its own: take what is already composited beneath it, run the
-            // layer's effects over that, and blend the graded result back with the layer's opacity/blend. A nested
-            // sequence renders its child plan recursively into its own frame, then composites like any layer.
-            TImage frame = layer.Kind switch
+            // A transition layer blends two clips' (effect-folded) frames per the transition, then composites the
+            // result like any layer (PLAN.md step 25). Every other layer renders its own content + effect chain; a
+            // nested sequence renders its child plan recursively into its own frame, then composites.
+            TImage frame;
+            if (layer.Kind == LayerKind.Transition)
             {
-                LayerKind.Generator => compositor.CreateGeneratorFrame(layer.Generator!, plan.Resolution, layer.SourceTime),
-                LayerKind.Adjustment => compositor.Snapshot(surface),
-                LayerKind.Sequence => Render(layer.NestedPlan!, frameSource, compositor),
-                _ => frameSource.GetFrame(layer.MediaRefId, layer.SourceTime),
-            };
-
-            foreach (ResolvedEffect effect in layer.Effects)
-                frame = compositor.ApplyEffect(frame, effect);
+                ResolvedTransition tr = layer.Transition!;
+                frame = compositor.ApplyTransition(RenderLayerFrame(tr.From), RenderLayerFrame(tr.To), tr);
+            }
+            else
+            {
+                frame = RenderLayerFrame(layer);
+            }
 
             compositor.Composite(surface, frame, layer.Opacity, layer.BlendMode);
         }

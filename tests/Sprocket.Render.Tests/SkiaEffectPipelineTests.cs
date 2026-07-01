@@ -198,6 +198,102 @@ public sealed class SkiaEffectPipelineTests
         Assert.InRange(v, Gray - 2, Gray + 2);
     }
 
+    // ── Step 25: Transitions (two-input blend shaders) ───────────────────────────────────────────────
+
+    private static readonly SKColor Red = new(255, 0, 0, 255);   // the outgoing (From) clip
+    private static readonly SKColor Blue = new(0, 0, 255, 255);   // the incoming (To) clip
+
+    [Fact]
+    public void CrossDissolve_AtZero_IsTheOutgoingClip()
+    {
+        SKColor c = RenderTransitionCenter(TransitionTypeIds.CrossDissolve, 0.0);
+        Assert.InRange(c.Red, 252, 255);
+        Assert.InRange(c.Blue, 0, 3);
+    }
+
+    [Fact]
+    public void CrossDissolve_AtOne_IsTheIncomingClip()
+    {
+        SKColor c = RenderTransitionCenter(TransitionTypeIds.CrossDissolve, 1.0);
+        Assert.InRange(c.Red, 0, 3);
+        Assert.InRange(c.Blue, 252, 255);
+    }
+
+    [Fact]
+    public void CrossDissolve_AtHalf_MixesBothClips()
+    {
+        SKColor c = RenderTransitionCenter(TransitionTypeIds.CrossDissolve, 0.5);
+        Assert.InRange(c.Red, 127 - 4, 127 + 4);
+        Assert.InRange(c.Blue, 127 - 4, 127 + 4);
+    }
+
+    [Fact]
+    public void DipToBlack_AtHalf_IsBlack()
+    {
+        SKColor c = RenderTransitionCenter(TransitionTypeIds.DipToBlack, 0.5);
+        Assert.InRange(c.Red, 0, 3);
+        Assert.InRange(c.Green, 0, 3);
+        Assert.InRange(c.Blue, 0, 3);
+    }
+
+    [Fact]
+    public void DipToWhite_AtHalf_IsWhite()
+    {
+        SKColor c = RenderTransitionCenter(TransitionTypeIds.DipToWhite, 0.5);
+        Assert.InRange(c.Red, 252, 255);
+        Assert.InRange(c.Green, 252, 255);
+        Assert.InRange(c.Blue, 252, 255);
+    }
+
+    [Fact]
+    public void Wipe_AtHalf_ShowsIncomingLeft_OutgoingRight()
+    {
+        // At progress 0.5 the incoming (Blue) has wiped over the left half; the right half is still outgoing (Red).
+        SKColor left = RenderTransitionPixel(TransitionTypeIds.Wipe, 0.5, 1, Size / 2);
+        SKColor right = RenderTransitionPixel(TransitionTypeIds.Wipe, 0.5, Size - 2, Size / 2);
+        Assert.True(left.Blue > 200 && left.Red < 60, $"Left should be the incoming clip (blue), was {left}.");
+        Assert.True(right.Red > 200 && right.Blue < 60, $"Right should be the outgoing clip (red), was {right}.");
+    }
+
+    [Fact]
+    public void UnknownTransition_DegradesToCrossDissolve()
+    {
+        // An unknown (plugin) id falls back to a cross dissolve rather than dropping the layer.
+        SKColor c = RenderTransitionCenter("plugin.unknown.transition", 0.5);
+        Assert.InRange(c.Red, 127 - 4, 127 + 4);
+        Assert.InRange(c.Blue, 127 - 4, 127 + 4);
+    }
+
+    private static SKColor RenderTransitionCenter(string typeId, double progress) =>
+        RenderTransitionPixel(typeId, progress, Size / 2, Size / 2);
+
+    private static SKColor RenderTransitionPixel(string typeId, double progress, int px, int py)
+    {
+        using var pipeline = new SkiaEffectPipeline();
+        using SKBitmap fromBmp = SolidBitmap(Red);
+        using SKBitmap toBmp = SolidBitmap(Blue);
+        using SKImage fromImg = SKImage.FromBitmap(fromBmp);
+        using SKImage toImg = SKImage.FromBitmap(toBmp);
+
+        var dummy = new VideoLayer(default, default, [], 1.0, BlendMode.Normal);
+        var transition = new ResolvedTransition(typeId, progress, new Dictionary<string, double>(), dummy, dummy);
+
+        using SKSurface surface = SKSurface.Create(new SKImageInfo(Size, Size, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Black);
+        pipeline.DrawTransition(surface.Canvas, SKRect.Create(Size, Size), fromImg, [], toImg, [], transition);
+        surface.Canvas.Flush();
+        using SKImage image = surface.Snapshot();
+        using SKBitmap readback = SKBitmap.FromImage(image);
+        return readback.GetPixel(px, py);
+    }
+
+    private static SKBitmap SolidBitmap(SKColor color)
+    {
+        var bmp = new SKBitmap(new SKImageInfo(Size, Size, SKColorType.Rgba8888, SKAlphaType.Opaque));
+        bmp.Erase(color);
+        return bmp;
+    }
+
     private static ResolvedGenerator SolidColor(string colorHex) =>
         new(GeneratorTypeIds.SolidColor,
             new Dictionary<string, string> { [GeneratorParamNames.Color] = colorHex },

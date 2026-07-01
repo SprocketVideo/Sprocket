@@ -75,6 +75,11 @@ public sealed class TimelineControl : Control
     private Clip? _selected;
     private bool _scrubbing;
 
+    // The selected transition (PLAN.md step 25), mutually exclusive with the clip selection. Selecting one clears
+    // the other; Delete removes whichever is selected.
+    private Transition? _selectedTransition;
+    private Track? _selectedTransitionTrack;
+
     // Active clip-drag gesture state.
     private Clip? _dragClip;
     private Track? _dragSourceTrack;
@@ -136,6 +141,9 @@ public sealed class TimelineControl : Control
 
     /// <summary>Raised when the selected clip changes (for the Inspector / header). Null = nothing selected.</summary>
     public event Action<Clip?>? SelectedClipChanged;
+
+    /// <summary>Raised with a short message for the status strip (e.g. why a transition couldn't be applied).</summary>
+    public event Action<string>? Status;
 
     /// <summary>
     /// Raised when a track name is double-clicked, requesting an inline rename. The <see cref="Rect"/> is the
@@ -254,6 +262,13 @@ public sealed class TimelineControl : Control
             _selected = null;
             SelectedClipChanged?.Invoke(null);
         }
+        // Likewise drop a transition selection that undo/redo removed.
+        if (_selectedTransition is not null && _project is not null
+            && !_project.Timeline.Tracks.Any(t => t.Transitions.Contains(_selectedTransition)))
+        {
+            _selectedTransition = null;
+            _selectedTransitionTrack = null;
+        }
         InvalidateVisual();
     }
 
@@ -276,6 +291,8 @@ public sealed class TimelineControl : Control
             _selected = null;
             SelectedClipChanged?.Invoke(null);
         }
+        _selectedTransition = null;
+        _selectedTransitionTrack = null;
         InvalidateVisual();
     }
 
@@ -337,6 +354,14 @@ public sealed class TimelineControl : Control
     /// </summary>
     public void DeleteSelected()
     {
+        // A selected transition takes priority — Delete removes it (PLAN.md step 25).
+        if (_selectedTransition is not null && _selectedTransitionTrack is not null && _history is not null)
+        {
+            Execute(new RemoveTransitionCommand(_selectedTransitionTrack, _selectedTransition));
+            SelectTransition(null, null);
+            return;
+        }
+
         if (_selected is null || _history is null || _project is null)
             return;
         Track? track = TrackOf(_selected);
@@ -481,6 +506,90 @@ public sealed class TimelineControl : Control
             return;
         EffectInstance instance = EffectCatalog.Find(effectTypeId)?.CreateInstance() ?? new EffectInstance(effectTypeId);
         Execute(new AddEffectCommand(_selected, instance));
+    }
+
+    /// <summary>
+    /// Applies a transition (PLAN.md step 25) at the cut adjacent to the selected clip — preferring the cut it
+    /// shares with the next clip, falling back to the one with the previous clip. Used by the Transitions tab's
+    /// double-click. Surfaces a status hint when there is no adjacent clip to transition with.
+    /// </summary>
+    public void ApplyTransitionToSelectedCut(string transitionTypeId)
+    {
+        if (_selected is null || _project is null)
+        {
+            Status?.Invoke("Select a clip beside a cut to add a transition.");
+            return;
+        }
+        if (TrackOf(_selected) is not { } track)
+            return;
+
+        Timecode end = _selected.TimelineEnd;
+        Timecode start = _selected.TimelineStart;
+        bool hasNext = track.Clips.Any(c => !ReferenceEquals(c, _selected) && c.TimelineStart == end);
+        bool hasPrev = track.Clips.Any(c => !ReferenceEquals(c, _selected) && c.TimelineEnd == start);
+
+        if (hasNext && ApplyTransitionAt(track, end, transitionTypeId))
+            return;
+        if (hasPrev && ApplyTransitionAt(track, start, transitionTypeId))
+            return;
+        Status?.Invoke("The selected clip has no adjacent clip to transition with.");
+    }
+
+    /// <summary>
+    /// Applies a transition of the given type at <paramref name="cut"/> on <paramref name="track"/>, when that cut
+    /// sits between two distinct clips (PLAN.md step 25). The duration is the catalog default, snapped to whole
+    /// frames and clamped so the window stays within both clips; the new transition becomes the selection. Returns
+    /// whether one was added.
+    /// </summary>
+    private bool ApplyTransitionAt(Track track, Timecode cut, string transitionTypeId)
+    {
+        if (_history is null || _project is null)
+            return false;
+
+        Clip? from = track.ResolveActiveClip(cut - new Timecode(1));
+        Clip? to = track.ResolveActiveClip(cut);
+        if (from is null || to is null || ReferenceEquals(from, to))
+        {
+            Status?.Invoke("A transition needs two adjacent clips that share a cut.");
+            return false;
+        }
+
+        long frame = Math.Max(1, FrameTicks());
+        // Keep the window comfortably inside both clips, and at least one frame long.
+        long maxByClips = Math.Min(from.Duration.Ticks, to.Duration.Ticks);
+        long dur = Math.Min(TransitionCatalog.DefaultDuration.Ticks, maxByClips);
+        dur = Math.Max(frame, dur / frame * frame); // snap down to whole frames
+        if (dur <= 0)
+            return false;
+
+        var transition = new Transition(transitionTypeId, cut, new Timecode(dur));
+        Execute(new AddTransitionCommand(track, transition));
+        SelectTransition(transition, track);
+        Status?.Invoke($"Added {TransitionCatalog.DisplayName(transitionTypeId)}.");
+        return true;
+    }
+
+    /// <summary>The cut (where one clip ends and the next begins) on <paramref name="track"/> nearest the time at
+    /// <paramref name="tTicks"/>, within a generous pixel tolerance — for dropping a transition near a cut.</summary>
+    private bool TryFindCutNear(Track track, long tTicks, out Timecode cut)
+    {
+        cut = default;
+        double tolTicks = 60.0 / Math.Max(1, _pxPerSecond) * Timecode.TicksPerSecond;
+        long bestDist = long.MaxValue;
+        foreach (Clip a in track.Clips)
+        {
+            long end = a.TimelineEnd.Ticks;
+            bool isCut = track.Clips.Any(b => !ReferenceEquals(a, b) && b.TimelineStart.Ticks == end);
+            if (!isCut)
+                continue;
+            long dist = Math.Abs(end - tTicks);
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                cut = new Timecode(end);
+            }
+        }
+        return bestDist <= tolTicks;
     }
 
     /// <summary>Inserts a generator clip (title, colour matte) at the playhead (PLAN.md step 19), selecting it.</summary>
@@ -690,6 +799,7 @@ public sealed class TimelineControl : Control
 
         DrawRuler(ctx, size);
         DrawClips(ctx, size, lanes);
+        DrawTransitions(ctx, size, lanes);
         DrawSequenceMarkers(ctx, size);
         DrawHeaders(ctx, lanes);
         DrawPlayhead(ctx, size);
@@ -863,6 +973,44 @@ public sealed class TimelineControl : Control
         }
     }
 
+    // Transitions on the cut (PLAN.md step 25): the classic NLE overlay — a translucent box spanning the
+    // transition window with a bow-tie "X", outlined in the accent (brighter when selected). Drawn over the clips.
+    private void DrawTransitions(DrawingContext ctx, Size size, List<(Track track, bool isVideo)> lanes)
+    {
+        using var _ = ctx.PushClip(new Rect(_headerWidth, RulerHeight, size.Width - _headerWidth, size.Height - RulerHeight));
+        Color accent = ((ISolidColorBrush)Accent).Color;
+        var fill = new ImmutableSolidColorBrush(accent, 0.22);
+        var xPen = new Pen(new ImmutableSolidColorBrush(accent, 0.85), 1.5);
+        var borderPen = new Pen(new ImmutableSolidColorBrush(accent, 0.8), 1);
+
+        for (int i = 0; i < lanes.Count; i++)
+        {
+            Track track = lanes[i].track;
+            if (track.Transitions.Count == 0)
+                continue;
+            double top = LaneTop(i) + 3;
+            double h = TrackHeight - 6;
+
+            foreach (Transition tr in track.Transitions)
+            {
+                double x0 = TimelineMath.XAtTicks(tr.Start.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+                double x1 = TimelineMath.XAtTicks(tr.End.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+                if (x1 < _headerWidth || x0 > size.Width)
+                    continue;
+
+                var rect = new Rect(x0, top, Math.Max(6, x1 - x0), h);
+                var rounded = new RoundedRect(rect, 3);
+                ctx.DrawRectangle(fill, null, rounded);
+                using (ctx.PushClip(rect))
+                {
+                    ctx.DrawLine(xPen, new Point(rect.X, rect.Y), new Point(rect.Right, rect.Bottom));
+                    ctx.DrawLine(xPen, new Point(rect.X, rect.Bottom), new Point(rect.Right, rect.Y));
+                }
+                ctx.DrawRectangle(null, ReferenceEquals(tr, _selectedTransition) ? SelectPen : borderPen, rounded);
+            }
+        }
+    }
+
     // Schematic only (real poster frames are step 15): even vertical dividers like a filmstrip.
     private static void DrawFilmstrip(DrawingContext ctx, Rect rect)
     {
@@ -999,6 +1147,13 @@ public sealed class TimelineControl : Control
             _scrubbing = true;
             e.Pointer.Capture(this);
             SeekToX(p.X);
+            return;
+        }
+
+        // A transition overlay on a cut (Select tool): clicking it selects it for Delete (PLAN.md step 25).
+        if (_activeTool == EditTool.Select && TryHitTransition(p, out Transition? hitTransition, out Track? hitTrack))
+        {
+            SelectTransition(hitTransition, hitTrack);
             return;
         }
 
@@ -1737,7 +1892,8 @@ public sealed class TimelineControl : Control
     {
         bool media = e.DataTransfer.Contains(DragFormats.MediaRefId);
         bool effect = e.DataTransfer.Contains(DragFormats.EffectId);
-        if (!media && !effect)
+        bool transition = e.DataTransfer.Contains(DragFormats.TransitionId);
+        if (!media && !effect && !transition)
         {
             e.DragEffects = DragDropEffects.None;
             ClearDropPreview();
@@ -1745,9 +1901,12 @@ public sealed class TimelineControl : Control
         }
 
         e.DragEffects = DragDropEffects.Copy;
-        // Show the indicator at the snapped drop start (media) or just the cursor (effect lands on a clip).
-        double x = e.GetPosition(this).X;
-        _dropPreviewX = x < _headerWidth ? null : x;
+        // Show the indicator at the snapped drop start (media), the nearest cut (transition), or just the cursor.
+        Point pos = e.GetPosition(this);
+        if (transition && TransitionDropPreviewX(pos) is { } cutX)
+            _dropPreviewX = cutX;
+        else
+            _dropPreviewX = pos.X < _headerWidth ? null : pos.X;
         InvalidateVisual();
     }
 
@@ -1765,6 +1924,36 @@ public sealed class TimelineControl : Control
             DropMedia(e.DataTransfer.TryGetValue(DragFormats.MediaRefId), p);
         else if (e.DataTransfer.Contains(DragFormats.EffectId))
             DropEffect(e.DataTransfer.TryGetValue(DragFormats.EffectId), p);
+        else if (e.DataTransfer.Contains(DragFormats.TransitionId))
+            DropTransition(e.DataTransfer.TryGetValue(DragFormats.TransitionId), p);
+    }
+
+    /// <summary>The X of the cut nearest the cursor on the hovered track, or null when none is near (so the drop
+    /// preview snaps to a real cut while a transition is dragged, PLAN.md step 25).</summary>
+    private double? TransitionDropPreviewX(Point p)
+    {
+        if (_project is null || p.X < _headerWidth)
+            return null;
+        if (TrackAndKindAtY(p.Y).track is not { } track)
+            return null;
+        long tTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, _headerWidth);
+        return TryFindCutNear(track, tTicks, out Timecode cut)
+            ? TimelineMath.XAtTicks(cut.Ticks, _pxPerSecond, _scrollX, _headerWidth)
+            : null;
+    }
+
+    /// <summary>Applies the dropped transition at the cut nearest the cursor on the hovered track (PLAN.md step 25).</summary>
+    private void DropTransition(string? transitionId, Point p)
+    {
+        if (string.IsNullOrEmpty(transitionId) || _project is null)
+            return;
+        if (TrackAndKindAtY(p.Y).track is not { } track)
+            return;
+        long tTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, _headerWidth);
+        if (TryFindCutNear(track, tTicks, out Timecode cut))
+            ApplyTransitionAt(track, cut, transitionId);
+        else
+            Status?.Invoke("Drop a transition on a cut between two clips.");
     }
 
     private void ClearDropPreview()
@@ -1844,11 +2033,66 @@ public sealed class TimelineControl : Control
 
     private void Select(Clip? clip)
     {
-        if (ReferenceEquals(clip, _selected))
-            return;
-        _selected = clip;
-        SelectedClipChanged?.Invoke(clip);
+        bool changed = false;
+        // Selecting a clip clears any transition selection (the two are mutually exclusive).
+        if (clip is not null && _selectedTransition is not null)
+        {
+            _selectedTransition = null;
+            _selectedTransitionTrack = null;
+            changed = true;
+        }
+        if (!ReferenceEquals(clip, _selected))
+        {
+            _selected = clip;
+            SelectedClipChanged?.Invoke(clip);
+            changed = true;
+        }
+        if (changed)
+            InvalidateVisual();
+    }
+
+    /// <summary>Selects a transition (clearing any clip selection), or clears the transition selection when null.</summary>
+    private void SelectTransition(Transition? transition, Track? track)
+    {
+        if (transition is not null && _selected is not null)
+        {
+            _selected = null;
+            SelectedClipChanged?.Invoke(null);
+        }
+        _selectedTransition = transition;
+        _selectedTransitionTrack = transition is null ? null : track;
         InvalidateVisual();
+    }
+
+    /// <summary>Hit-tests the transition overlays on the lane under <paramref name="p"/> (last drawn wins).</summary>
+    private bool TryHitTransition(Point p, out Transition? transition, out Track? track)
+    {
+        transition = null;
+        track = null;
+        if (p.X < _headerWidth || p.Y < RulerHeight)
+            return false;
+
+        List<(Track track, bool isVideo)> lanes = Lanes();
+        int i = LaneAtY(p.Y);
+        if (i < 0 || i >= lanes.Count)
+            return false;
+
+        Track t = lanes[i].track;
+        double top = LaneTop(i) + 3, h = TrackHeight - 6;
+        if (p.Y < top || p.Y > top + h)
+            return false;
+
+        foreach (Transition tr in t.Transitions)
+        {
+            double x0 = TimelineMath.XAtTicks(tr.Start.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+            double x1 = TimelineMath.XAtTicks(tr.End.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+            if (p.X >= x0 && p.X <= Math.Max(x0 + 6, x1))
+            {
+                transition = tr;
+                track = t;
+            }
+        }
+        return transition is not null;
     }
 
     private void SeekToX(double x)

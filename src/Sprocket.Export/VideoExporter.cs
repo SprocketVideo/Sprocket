@@ -226,6 +226,41 @@ public static class VideoExporter
                     break;
                 }
 
+                case LayerKind.Transition:
+                {
+                    // Blend the two clips' frames per the transition (PLAN.md step 25). Each side's content is
+                    // snapshotted into an independent image first, so a transition between two clips of the SAME
+                    // source (one provider) doesn't have its first frame recycled by the second decode.
+                    ResolvedTransition tr = layer.Transition!;
+                    SKImage? fromImg = RenderSideContent(project, tr.From, pipeline, bounds, providers);
+                    SKImage? toImg = RenderSideContent(project, tr.To, pipeline, bounds, providers);
+                    SKBlendMode blend = ToBlendMode(layer.BlendMode);
+                    try
+                    {
+                        // If a side is missing (offline/empty), composite the other on its own rather than failing.
+                        if (fromImg is null && toImg is null)
+                            break;
+                        if (fromImg is null)
+                        {
+                            DrawSide(canvas, bounds, toImg!, tr.To.Effects, pipeline, layer.Opacity, blend);
+                            break;
+                        }
+                        if (toImg is null)
+                        {
+                            DrawSide(canvas, bounds, fromImg, tr.From.Effects, pipeline, layer.Opacity, blend);
+                            break;
+                        }
+                        pipeline.DrawTransition(
+                            canvas, bounds, fromImg, tr.From.Effects, toImg, tr.To.Effects, tr, layer.Opacity, blend);
+                    }
+                    finally
+                    {
+                        fromImg?.Dispose();
+                        toImg?.Dispose();
+                    }
+                    break;
+                }
+
                 default:
                 {
                     ExportFrameProvider? provider = ResolveProvider(project, layer.MediaRefId, providers);
@@ -241,6 +276,58 @@ public static class VideoExporter
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Renders one side of a transition to a standalone content-only <see cref="SKImage"/> (no effects — those are
+    /// applied by <see cref="SkiaEffectPipeline.DrawTransition"/>), or <see langword="null"/> when it produces no
+    /// pixels (an offline media source / empty nested sequence). A media side is copied out of the decoder's buffer
+    /// (<see cref="SKImage.FromPixelCopy(SKImageInfo, nint, int)"/>) so both sides stay valid even when they share a
+    /// source/provider (PLAN.md step 25).
+    /// </summary>
+    private static SKImage? RenderSideContent(
+        Project project, VideoLayer side, SkiaEffectPipeline pipeline, SKRect bounds,
+        Dictionary<MediaRefId, ExportFrameProvider?> providers)
+    {
+        switch (side.Kind)
+        {
+            case LayerKind.Generator:
+            {
+                int w = Math.Max(1, (int)bounds.Width);
+                int h = Math.Max(1, (int)bounds.Height);
+                var info = new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Premul);
+                using SKSurface? offscreen = SKSurface.Create(info);
+                if (offscreen is null)
+                    return null;
+                offscreen.Canvas.Clear(SKColors.Transparent);
+                pipeline.DrawGenerator(offscreen.Canvas, SKRect.Create(0, 0, w, h), side.Generator!, w, h, []);
+                offscreen.Canvas.Flush();
+                return offscreen.Snapshot();
+            }
+
+            case LayerKind.Sequence:
+                return RenderNestedSequence(project, side.NestedPlan!, pipeline, providers);
+
+            default:
+            {
+                ExportFrameProvider? provider = ResolveProvider(project, side.MediaRefId, providers);
+                VideoFrame? frame = provider?.GetFrame(side.SourceTime);
+                if (frame is null)
+                    return null;
+                var info = new SKImageInfo(frame.Width, frame.Height, SKColorType.Rgba8888, SKAlphaType.Opaque);
+                return SKImage.FromPixelCopy(info, frame.Pixels, frame.RowBytes);
+            }
+        }
+    }
+
+    /// <summary>Composites one transition side's image on its own (fit-letterboxed) — the graceful path when the
+    /// other side produced no pixels.</summary>
+    private static void DrawSide(
+        SKCanvas canvas, SKRect bounds, SKImage image, IReadOnlyList<ResolvedEffect> effects,
+        SkiaEffectPipeline pipeline, double opacity, SKBlendMode blend)
+    {
+        SKRect dest = FramePresenter.ComputeFitRect(bounds, image.Width, image.Height);
+        pipeline.DrawImageLayer(canvas, dest, image, effects, opacity, blend);
     }
 
     /// <summary>Renders a nested sequence's plan to a transparent offscreen <see cref="SKImage"/> at the child

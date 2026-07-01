@@ -18,4 +18,9 @@ internal static class DragFormats
     /// <summary>Payload: an effect type id string — drag an Effects-browser row onto a clip to append it.</summary>
     public static readonly DataFormat<string> EffectId =
         DataFormat.CreateStringApplicationFormat("sprocket-effect-id");
+
+    /// <summary>Payload: a transition type id string — drag a Transitions-browser row onto a cut between two
+    /// clips to apply it (PLAN.md step 25).</summary>
+    public static readonly DataFormat<string> TransitionId =
+        DataFormat.CreateStringApplicationFormat("sprocket-transition-id");
 }

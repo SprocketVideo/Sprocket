@@ -165,12 +165,39 @@ public static class ProjectSerializer
         foreach (Clip c in track.Clips)
             clips.Add(ToDto(c));
 
+        List<TransitionDto>? transitions = ToTransitionList(track.Transitions);
+
         return track switch
         {
-            VideoTrack v => new TrackDto(TrackKind.Video, v.Name, v.Enabled, v.Opacity, v.BlendMode, 0, false, false, clips),
-            AudioTrack a => new TrackDto(TrackKind.Audio, a.Name, a.Enabled, 1.0, BlendMode.Normal, a.GainDb, a.Muted, a.Solo, clips),
+            VideoTrack v => new TrackDto(TrackKind.Video, v.Name, v.Enabled, v.Opacity, v.BlendMode, 0, false, false, clips, transitions),
+            AudioTrack a => new TrackDto(TrackKind.Audio, a.Name, a.Enabled, 1.0, BlendMode.Normal, a.GainDb, a.Muted, a.Solo, clips, transitions),
             _ => throw new NotSupportedException($"Unknown track type {track.GetType().Name}."),
         };
+    }
+
+    /// <summary>Converts a track's transitions to DTOs, returning <see langword="null"/> when there are none so a
+    /// transition-free track serializes byte-identically to a pre-step-25 file (WhenWritingNull).</summary>
+    private static List<TransitionDto>? ToTransitionList(List<Transition> transitions)
+    {
+        if (transitions.Count == 0)
+            return null;
+        var list = new List<TransitionDto>(transitions.Count);
+        foreach (Transition t in transitions)
+            list.Add(new TransitionDto(
+                t.TransitionTypeId, t.CutPoint.Ticks, t.Duration.Ticks, t.Alignment, ToParameterDict(t.Parameters)));
+        return list;
+    }
+
+    /// <summary>Converts an animatable-parameter bag to DTOs, returning <see langword="null"/> when empty so a
+    /// parameter-less transition (the v1 built-ins) serializes compactly (WhenWritingNull).</summary>
+    private static Dictionary<string, AnimatableValueDto>? ToParameterDict(Dictionary<string, AnimatableValue> parameters)
+    {
+        if (parameters.Count == 0)
+            return null;
+        var dict = new Dictionary<string, AnimatableValueDto>(parameters.Count);
+        foreach ((string name, AnimatableValue value) in parameters)
+            dict[name] = ToDto(value);
+        return dict;
     }
 
     private static ClipDto ToDto(Clip c)
@@ -318,7 +345,20 @@ public static class ProjectSerializer
         };
         foreach (ClipDto c in t.Clips)
             track.Clips.Add(FromDto(c));
+        if (t.Transitions is { } transitions)
+            foreach (TransitionDto td in transitions)
+                track.Transitions.Add(FromDto(td));
         return track;
+    }
+
+    private static Transition FromDto(TransitionDto t)
+    {
+        var transition = new Transition(
+            t.TransitionTypeId, new Timecode(t.CutPointTicks), new Timecode(t.DurationTicks), t.Alignment);
+        if (t.Parameters is { } parameters)
+            foreach ((string name, AnimatableValueDto value) in parameters)
+                transition.Set(name, FromDto(value));
+        return transition;
     }
 
     private static Clip FromDto(ClipDto c)

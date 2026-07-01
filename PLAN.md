@@ -1457,6 +1457,58 @@ Tags reference the [UI.md §4 checklist](UI.md).
         same active angle today).
 25. **Transitions.** Transition library (Project panel **Transitions** tab) + overlapping-clip
     resolution in the render graph ([ARCHITECTURE §17](ARCHITECTURE.md)).
+    - **✅ DONE (Core `Model/{Transition,TransitionCatalog,Track}` + `Rendering/{RenderGraph,RenderPlan,Seams}` +
+      `Commands/ModelCommands`; `Sprocket.Render/SkiaEffectPipeline`; `Sprocket.Export/VideoExporter`; persistence;
+      `Sprocket.App/{DragFormats,MediaBrowser/MediaBrowserPanel,Timeline/TimelineControl,MainWindow}`; 26 new tests —
+      Core +15, Render +7, Export +1, Persistence +3). Transitions land on the existing render-graph seam exactly as
+      ARCHITECTURE §17 anticipates ("transitions extend clip resolution in the render graph"), following the
+      Premiere/Resolve convention. Delivered:
+      - **Model (Core, §4).** A `Transition` is a non-destructive overlay on a `Track` (`Track.Transitions`) anchored
+        at a cut: `{ TransitionTypeId, CutPoint, Duration, Alignment, Parameters }`, with the window derived from the
+        alignment (`CenterOnCut` default / `EndAtCut` / `StartAtCut`) and a `ProgressAt(t)` ramp 0→1. It does **not**
+        move or overlap the clips' timeline spans — the two clips stay adjacent and the transition samples their
+        **handles** (trimmed-off source past the cut) the way every NLE does. `Track.ResolveTransitionAt(t)` and
+        `ResolveTransitionClips(transition)` (the outgoing clip just before the cut, the incoming clip at it) drive
+        resolution. A `TransitionCatalog` mirrors `EffectCatalog`: the v1 library is **Cross Dissolve** (default),
+        **Dip to Black**, **Dip to White**, and a left-to-right **Wipe**.
+      - **Render graph (Core, §5).** `PlanVideoFrame` emits a new `LayerKind.Transition` layer carrying a
+        `ResolvedTransition` (type id, progress, and both sides as fully-resolved `VideoLayer`s with their own clip
+        effects) when a valid transition is active; an invalid one (no real cut / a side that resolves to nothing)
+        falls back to ordinary single-clip resolution. The generic `Render<TImage>` executor and the
+        `IVideoCompositor<T>.ApplyTransition` seam handle it, so the resolution stays pure/serializable and
+        headlessly testable (the same path preview and export share). Per-clip layer resolution was factored into one
+        `ResolveClipLayer` used by both the normal path and each transition side.
+      - **Shaders (Render, §7).** `SkiaEffectPipeline` adds four two-input SkSL programs — cross dissolve
+        (premultiplied `mix`), dip to black, dip to white, and a soft-edged wipe — and `DrawTransition`, which folds
+        each side through its own effect chain (refactored into a shared `BuildChainShader`) then combines them at the
+        transition's progress; an unknown (plugin) id degrades to a cross dissolve. All premultiplied-correct and
+        compositing with the track's opacity/blend.
+      - **Export (deterministic).** `VideoExporter` composites a transition layer by snapshotting each side's content
+        into an independent image (so a transition between two clips of the **same** source doesn't recycle the first
+        frame) and blending via `DrawTransition`; a missing side composites the other alone (§15).
+      - **Persistence (additive, no schema bump).** `TrackDto.Transitions` is nullable/`WhenWritingNull`, so a
+        transition-free project serializes byte-identically to a pre-25 file and pre-25 files load with none.
+      - **App UI.** The Project panel's **Transitions** tab lists the library (drag a row onto a cut, or double-click
+        to apply it to the selected clip's cut — both through the step-10 command stack as an undoable
+        `AddTransitionCommand`, the duration snapped to whole frames and clamped inside both clips). The timeline draws
+        each transition as the classic translucent bow-tie "X" box over the cut; clicking selects it and **Delete**
+        removes it (`RemoveTransitionCommand`), reusing the existing Edit/Delete wiring. A `SetTransitionWindowCommand`
+        (coalescing) is in place for adjusting a transition's length.
+      - **Tests (26).** Core: window/progress math for all three alignments, render-graph resolution (blend layer with
+        correct From/To source times incl. handle sampling, track opacity/blend carried, fall-back outside the window /
+        with no second clip), the executor blend, and the three commands (apply/revert/coalesce). Render: the real
+        SkSL on an offscreen surface — cross dissolve at 0/0.5/1, dip to black/white at the midpoint, the wipe's
+        left/right split, and unknown-id → cross dissolve. Export: a real encode→decode round-trip of a black→white
+        cross dissolve, mid-grey at the cut where a plain cut would be white. Persistence: field-for-field round-trip +
+        byte-identical omission. Full suite: **526 tests green** (Core 209, Media 28, Render 30, Audio 21, Playback 52,
+        Export 12, Persistence 40, App 134). Clean build (0 warnings) + smoke launch (exit 0).
+      - **Deferred (documented).** **Live preview of the transition blend** is deferred to the render cache (step 32),
+        consistent with the nested-sequence preview deferral — the per-track single-feed preview engine can't decode
+        two clips of one track at once; the preview shows the cut and the on-timeline overlay, while **export renders
+        the blend fully**. **Audio crossfades** reuse the same `Transition` model + the mixer's gain ramp but are a
+        follow-up (video transitions ship first, like the slice's other compositing features); real NLEs separate
+        audio and video transitions anyway. Wipe direction/softness and per-transition parameters ride the existing
+        `Parameters`/Inspector mechanism when needed.
 26. **Alpha-channel media compositing.** Premultiplied-alpha path through the render graph (e.g.
     `Logo_Anim.mov` flagged `Alpha`).
 27. **Broad media format support (import coverage + export format/codec matrix).** Open and write the

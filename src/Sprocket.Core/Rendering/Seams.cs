@@ -39,6 +39,13 @@ public interface IVideoCompositor<TImage>
     /// </summary>
     TImage ApplyEffect(TImage frame, ResolvedEffect effect);
 
+    /// <summary>
+    /// Blends two clips' frames into one per a transition (PLAN.md step 25): <paramref name="from"/> (the outgoing
+    /// clip) and <paramref name="to"/> (the incoming clip), each already folded through its own effect chain, mixed
+    /// per <paramref name="transition"/>'s type and progress. The result is composited like any other layer.
+    /// </summary>
+    TImage ApplyTransition(TImage from, TImage to, ResolvedTransition transition);
+
     /// <summary>Composites <paramref name="layer"/> onto <paramref name="surface"/> with the given opacity and blend mode.</summary>
     void Composite(TImage surface, TImage layer, double opacity, BlendMode blendMode);
 

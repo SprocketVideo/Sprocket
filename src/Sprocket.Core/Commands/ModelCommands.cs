@@ -950,3 +950,93 @@ public sealed class RemoveTrackCommand(Timeline timeline, Track track) : EditCom
         timeline.Tracks.Insert(Math.Min(_index, timeline.Tracks.Count), track);
     }
 }
+
+/// <summary>
+/// Adds a transition to a track's cut (PLAN.md step 25); undo removes it. Applying a transition goes through the
+/// command stack like every other model mutation (step 10), so it is undoable and flips the dirty indicator.
+/// </summary>
+public sealed class AddTransitionCommand(Track track, Transition transition) : EditCommand("Add transition")
+{
+    /// <inheritdoc />
+    public override void Apply() => track.Transitions.Add(transition);
+
+    /// <inheritdoc />
+    public override void Revert() => track.Transitions.Remove(transition);
+}
+
+/// <summary>Removes a transition from a track; undo re-inserts it at the same position (PLAN.md step 25).</summary>
+public sealed class RemoveTransitionCommand(Track track, Transition transition) : EditCommand("Remove transition")
+{
+    private int _index = -1;
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _index = track.Transitions.IndexOf(transition);
+        if (_index >= 0)
+            track.Transitions.RemoveAt(_index);
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        if (_index < 0)
+            return;
+        track.Transitions.Insert(Math.Min(_index, track.Transitions.Count), transition);
+    }
+}
+
+/// <summary>
+/// Sets a transition's window — its duration and alignment — atomically (PLAN.md step 25). Used when the user
+/// changes a transition's length (e.g. dragging its edge or via the inspector). Coalesces with further changes
+/// to the same transition so a drag is one undo entry. The cut point is fixed (it is the edit the transition
+/// sits on); only the span around it changes.
+/// </summary>
+public sealed class SetTransitionWindowCommand : EditCommand
+{
+    private readonly Transition _transition;
+    private readonly Timecode _oldDuration;
+    private readonly TransitionAlignment _oldAlignment;
+    private Timecode _newDuration;
+    private TransitionAlignment _newAlignment;
+
+    /// <summary>Captures the transition's current window and records the new duration/alignment to apply.</summary>
+    public SetTransitionWindowCommand(Transition transition, Timecode newDuration, TransitionAlignment newAlignment)
+        : base("Adjust transition")
+    {
+        ArgumentNullException.ThrowIfNull(transition);
+        if (newDuration.Ticks <= 0)
+            throw new ArgumentOutOfRangeException(nameof(newDuration), "Transition duration must be strictly positive.");
+        _transition = transition;
+        _oldDuration = transition.Duration;
+        _oldAlignment = transition.Alignment;
+        _newDuration = newDuration;
+        _newAlignment = newAlignment;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _transition.Duration = _newDuration;
+        _transition.Alignment = _newAlignment;
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        _transition.Duration = _oldDuration;
+        _transition.Alignment = _oldAlignment;
+    }
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        if (next is SetTransitionWindowCommand other && ReferenceEquals(other._transition, _transition))
+        {
+            _newDuration = other._newDuration;
+            _newAlignment = other._newAlignment;
+            return true;
+        }
+        return false;
+    }
+}

@@ -533,6 +533,8 @@ public partial class MainWindow : Window
         browser.ItemCountChanged += n => itemsText.Text = n == 1 ? "1 item" : $"{n} items";
         browser.Status += SetStatus;
         browser.FilesDropped += paths => Import(paths); // OS file-drop onto the bin (PLAN.md step 16b)
+        // Double-clicking a transition in the browser applies it to the selected clip's cut (PLAN.md step 25).
+        browser.TransitionActivated += id => _timeline?.ApplyTransitionToSelectedCut(id);
         browser.Attach(_project, _history, _thumbnails);
     }
 
@@ -739,6 +741,7 @@ public partial class MainWindow : Window
         _timeline = timeline;
         timeline.Attach(_project!, _history, _engine);
         timeline.ClipPlaced += UpdateTimelineHeader; // a media-bin drop / paste may extend the timeline
+        timeline.Status += SetStatus;                 // transition hints, etc. (PLAN.md step 25)
         WireTrackRename(timeline);
 
         this.FindControl<Button>("ZoomInButton")!.Click += (_, _) => timeline.ZoomIn();

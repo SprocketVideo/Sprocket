@@ -234,6 +234,8 @@ public class NestedSequenceExecutorTests
         public string CreateTransparentSurface(Resolution size) => "surface[";
         public string CreateGeneratorFrame(ResolvedGenerator g, Resolution size, Timecode t) => $"gen({g.GeneratorTypeId})";
         public string ApplyEffect(string frame, ResolvedEffect e) => $"{frame}+{e.EffectTypeId}";
+        public string ApplyTransition(string from, string to, ResolvedTransition t) =>
+            $"[{from}>{t.TransitionTypeId}>{to}]";
         public void Composite(string surface, string layer, double opacity, BlendMode blend) =>
             CompositeLog.Add($"{layer}@{opacity:0.##}/{blend}");
         public string Snapshot(string surface) => surface + "]";

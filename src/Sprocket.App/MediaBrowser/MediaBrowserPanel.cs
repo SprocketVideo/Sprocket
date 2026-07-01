@@ -19,7 +19,8 @@ namespace Sprocket.App.MediaBrowser;
 /// The Project panel's tabbed browser (PLAN.md step 15, UI.md §3.3): a <b>Media</b> bin of poster-frame /
 /// waveform thumbnails with metadata badges and a search filter, an <b>Effects</b> browser over the
 /// <see cref="EffectCatalog"/> (double-click to add the effect to the selected clip, through the step-10
-/// command stack), a deferred <b>Transitions</b> tab (PLAN.md step 21), and an <b>Audio</b> tab listing the
+/// command stack), a <b>Transitions</b> browser over the <see cref="TransitionCatalog"/> (drag onto a cut, or
+/// double-click to apply to the selected clip's cut — PLAN.md step 25), and an <b>Audio</b> tab listing the
 /// bin's audio sources as waveforms. Built entirely in code like <see cref="TimelineControl"/> /
 /// <see cref="PreviewSurface"/>; thumbnails are produced off-thread by <see cref="ThumbnailService"/>.
 /// </summary>
@@ -53,9 +54,9 @@ public sealed class MediaBrowserPanel : UserControl
     private readonly WrapPanel _mediaGrid;
     private readonly WrapPanel _audioGrid;
     private readonly StackPanel _effectsList;
+    private readonly StackPanel _transitionsList;
     private readonly Decorator _content;            // hosts the active tab's body
-    private readonly ScrollViewer _mediaView, _audioView, _effectsView;
-    private readonly Control _transitionsView;
+    private readonly ScrollViewer _mediaView, _audioView, _effectsView, _transitionsView;
     private readonly Dictionary<Tab, Button> _tabButtons = new();
 
     /// <summary>Raised with a short message for the status strip (effect applied / select-a-clip hint).</summary>
@@ -66,6 +67,10 @@ public sealed class MediaBrowserPanel : UserControl
 
     /// <summary>Raised when OS files are dropped on the bin (PLAN.md step 16b); the shell imports them.</summary>
     public event Action<IReadOnlyList<string>>? FilesDropped;
+
+    /// <summary>Raised when a transition is double-clicked (PLAN.md step 25); the shell applies it to the cut at the
+    /// selected clip. Dragging a transition onto a cut is handled by the timeline directly.</summary>
+    public event Action<string>? TransitionActivated;
 
     private enum Tab { Media, Effects, Transitions, Audio }
 
@@ -88,12 +93,12 @@ public sealed class MediaBrowserPanel : UserControl
         _mediaGrid = new WrapPanel { Margin = new Avalonia.Thickness(6) };
         _audioGrid = new WrapPanel { Margin = new Avalonia.Thickness(6) };
         _effectsList = new StackPanel { Margin = new Avalonia.Thickness(8), Spacing = 6 };
+        _transitionsList = new StackPanel { Margin = new Avalonia.Thickness(8), Spacing = 6 };
 
         _mediaView = Scroll(_mediaGrid);
         _audioView = Scroll(_audioGrid);
         _effectsView = Scroll(_effectsList);
-        _transitionsView = Placeholder(
-            "Transitions arrive with the transition library (step 21).\nThe render graph resolves overlapping clips then.");
+        _transitionsView = Scroll(_transitionsList);
 
         _content = new Decorator();
 
@@ -143,6 +148,7 @@ public sealed class MediaBrowserPanel : UserControl
         _history = history;
         _thumbs = thumbs;
         BuildEffects();
+        BuildTransitions();
         RebuildGrids();
     }
 
@@ -372,6 +378,50 @@ public sealed class MediaBrowserPanel : UserControl
         return row;
     }
 
+    // ── Transitions browser ─────────────────────────────────────────────────────────────────────────
+
+    private void BuildTransitions()
+    {
+        _transitionsList.Children.Clear();
+        _transitionsList.Children.Add(new TextBlock
+        {
+            Text = "Drag a transition onto a cut between two clips, or double-click to add it to the selected clip's cut.",
+            FontSize = 11,
+            Foreground = FaintText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Avalonia.Thickness(0, 0, 0, 4),
+        });
+
+        foreach (TransitionDescriptor transition in TransitionCatalog.BuiltIns)
+            _transitionsList.Children.Add(TransitionRow(transition));
+    }
+
+    private Control TransitionRow(TransitionDescriptor transition)
+    {
+        var title = new TextBlock { Text = transition.DisplayName, FontSize = 12, Foreground = TextBrush, FontWeight = FontWeight.SemiBold };
+        var desc = new TextBlock
+        {
+            Text = transition.Description,
+            FontSize = 11,
+            Foreground = MutedText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Avalonia.Thickness(0, 2, 0, 0),
+        };
+
+        var row = new Border
+        {
+            Background = RaisedBg,
+            CornerRadius = new Avalonia.CornerRadius(5),
+            Padding = new Avalonia.Thickness(8, 6),
+            Child = new StackPanel { Children = { title, desc } },
+        };
+        row.DoubleTapped += (_, _) => TransitionActivated?.Invoke(transition.Id);
+        ToolTip.SetTip(row, "Drag onto a cut between two clips, or double-click to add it to the selected clip's cut.");
+        // Drag the transition onto a timeline cut to apply it (PLAN.md step 25), complementing double-click.
+        EnableDrag(row, DragFormats.TransitionId, () => transition.Id);
+        return row;
+    }
+
     // ── Drag source ─────────────────────────────────────────────────────────────────────────────────
 
     // Pending-drag state: a press arms a drag that only begins once the pointer moves past a small threshold,
@@ -428,18 +478,6 @@ public sealed class MediaBrowserPanel : UserControl
         Content = content,
         HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
         VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-    };
-
-    private static Control Placeholder(string text) => new TextBlock
-    {
-        Text = text,
-        FontSize = 12,
-        Foreground = FaintText,
-        TextWrapping = TextWrapping.Wrap,
-        TextAlignment = TextAlignment.Center,
-        HorizontalAlignment = HorizontalAlignment.Center,
-        VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Avalonia.Thickness(16),
     };
 
     private static Control EmptyNote(string text) => new TextBlock

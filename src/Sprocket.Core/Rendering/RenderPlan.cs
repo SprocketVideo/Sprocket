@@ -37,7 +37,7 @@ public sealed record ResolvedGenerator(
         Strings.TryGetValue(name, out string? value) ? value : fallback;
 }
 
-/// <summary>What produces a <see cref="VideoLayer"/>'s pixels (PLAN.md step 19, step 23).</summary>
+/// <summary>What produces a <see cref="VideoLayer"/>'s pixels (PLAN.md step 19, step 23, step 25).</summary>
 public enum LayerKind
 {
     /// <summary>Decoded source media fetched via <see cref="IFrameSource{TImage}"/>.</summary>
@@ -52,6 +52,11 @@ public enum LayerKind
     /// <summary>A nested sequence (PLAN.md step 23): its pixels come from rendering <see cref="VideoLayer.NestedPlan"/>
     /// (the child sequence's resolved plan at the mapped time) and compositing the result like any other layer.</summary>
     Sequence,
+
+    /// <summary>A transition (PLAN.md step 25): its pixels come from blending two clips' frames — the outgoing and
+    /// incoming layers in <see cref="VideoLayer.Transition"/> — per the transition type and progress, then
+    /// compositing the blended result like any other layer.</summary>
+    Transition,
 }
 
 /// <summary>
@@ -70,6 +75,10 @@ public enum LayerKind
 /// <param name="Generator">The procedural source (generator layers only).</param>
 /// <param name="NestedPlan">The child sequence's resolved frame plan (<see cref="LayerKind.Sequence"/> layers only,
 /// PLAN.md step 23): render it, then apply this layer's effect chain and composite it like any other layer.</param>
+/// <param name="Transition">The two clips to blend and how (<see cref="LayerKind.Transition"/> layers only,
+/// PLAN.md step 25): produce each side's frame, blend them per the transition, then composite the result with this
+/// layer's <see cref="Opacity"/>/<see cref="BlendMode"/> (the track's). The transition layer's own
+/// <see cref="MediaRefId"/>/<see cref="SourceTime"/>/<see cref="Effects"/> are unused.</param>
 public sealed record VideoLayer(
     MediaRefId MediaRefId,
     Timecode SourceTime,
@@ -78,7 +87,31 @@ public sealed record VideoLayer(
     BlendMode BlendMode,
     LayerKind Kind = LayerKind.Media,
     ResolvedGenerator? Generator = null,
-    VideoFramePlan? NestedPlan = null);
+    VideoFramePlan? NestedPlan = null,
+    ResolvedTransition? Transition = null);
+
+/// <summary>
+/// A transition resolved at a frame's time (PLAN.md step 25): which two clips to blend (<see cref="From"/> outgoing,
+/// <see cref="To"/> incoming — each a fully-resolved <see cref="VideoLayer"/> with its own clip effects, at unity
+/// opacity / normal blend), the blend <see cref="Progress"/> in [0, 1], and any evaluated type parameters. The
+/// Render layer turns this into a two-input shader; Core never sees the shader (§5, §7).
+/// </summary>
+/// <param name="TransitionTypeId">The transition type, e.g. <see cref="TransitionTypeIds.CrossDissolve"/>.</param>
+/// <param name="Progress">0 = full outgoing clip, 1 = full incoming clip.</param>
+/// <param name="Parameters">Type parameters, evaluated at the frame's time (empty for the v1 built-ins).</param>
+/// <param name="From">The outgoing clip's resolved layer (shown at progress 0).</param>
+/// <param name="To">The incoming clip's resolved layer (shown at progress 1).</param>
+public sealed record ResolvedTransition(
+    string TransitionTypeId,
+    double Progress,
+    IReadOnlyDictionary<string, double> Parameters,
+    VideoLayer From,
+    VideoLayer To)
+{
+    /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set.</summary>
+    public double Get(string name, double fallback = 0) =>
+        Parameters.TryGetValue(name, out double value) ? value : fallback;
+}
 
 /// <summary>
 /// A pure description of how to render one composited frame at a given time: the target size and the

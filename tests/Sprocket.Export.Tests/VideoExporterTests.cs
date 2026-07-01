@@ -157,6 +157,40 @@ public sealed class VideoExporterTests
         Assert.InRange(CountVideoFrames(black.Path), 28, 32);
     }
 
+    [Fact]
+    public void Export_Transition_BlendsTheTwoClips()
+    {
+        // PLAN.md step 25: two adjacent generator clips — black then white — with a 1 s cross dissolve centred on
+        // the cut at 1 s (window [0.5, 1.5)). At the cut (transition progress 0.5) the exported frame must be
+        // mid-grey — the blend — where a plain cut would be pure white (the incoming clip). Frames well inside
+        // each clip stay black / white.
+        using var output = new TempFile();
+        VideoExporter.Export(BuildTransitionProject(), output.Path);
+
+        double start = FrameMeanRgbAt(output.Path, 3);   // ~0.1s: inside the black clip, before the window
+        double mid = FrameMeanRgbAt(output.Path, 30);    // 1.0s: the cut, progress 0.5 → grey blend
+        double end = FrameMeanRgbAt(output.Path, 57);    // ~1.9s: inside the white clip, after the window
+
+        Assert.InRange(start, 0, 45);
+        Assert.InRange(mid, 90, 165);   // a genuine blend, not a hard cut to black or white
+        Assert.InRange(end, 210, 255);
+    }
+
+    /// <summary>A one-track project: a black generator clip and a white one with a cross dissolve on their cut.</summary>
+    private static Project BuildTransitionProject()
+    {
+        var timeline = new Timeline(new Rational(ExportFixture.Fps, 1), new Resolution(ExportFixture.Width, ExportFixture.Height), ExportFixture.SampleRate);
+        var project = new Project(timeline);
+        var track = new VideoTrack { Name = "V1" };
+        var black = new GeneratorSpec(GeneratorTypeIds.SolidColor).SetString(GeneratorParamNames.Color, "#FF000000");
+        var white = new GeneratorSpec(GeneratorTypeIds.SolidColor).SetString(GeneratorParamNames.Color, "#FFFFFFFF");
+        track.Clips.Add(Clip.CreateGenerator(black, Timecode.FromSeconds(1), Timecode.Zero));
+        track.Clips.Add(Clip.CreateGenerator(white, Timecode.FromSeconds(1), Timecode.FromSeconds(1)));
+        track.Transitions.Add(new Transition(TransitionTypeIds.CrossDissolve, Timecode.FromSeconds(1), Timecode.FromSeconds(1)));
+        timeline.Tracks.Add(track);
+        return project;
+    }
+
     /// <summary>A project whose active sequence nests a child sequence (a solid-colour matte) as a single clip.</summary>
     private static Project BuildNestedGeneratorProject(string colorHex)
     {
@@ -276,6 +310,35 @@ public sealed class VideoExporterTests
         using (frame)
         {
             var p = (byte*)frame.Pixels;
+            int rowBytes = frame.RowBytes;
+            long sum = 0;
+            for (int y = 0; y < frame.Height; y++)
+            {
+                byte* row = p + (long)y * rowBytes;
+                for (int x = 0; x < frame.Width; x++)
+                {
+                    byte* px = row + x * 4; // RGBA
+                    sum += px[0] + px[1] + px[2];
+                }
+            }
+            return (double)sum / (frame.Width * (long)frame.Height * 3);
+        }
+    }
+
+    /// <summary>Mean of the R/G/B channels of the frame at <paramref name="frameIndex"/> (decoded sequentially).</summary>
+    private static unsafe double FrameMeanRgbAt(string path, int frameIndex)
+    {
+        using MediaSource source = MediaSource.Open(path, HardwareAccelMode.Disabled);
+        using var pool = new VideoFramePool(source.Info.Width, source.Info.Height);
+        VideoFrame? frame = null;
+        for (int i = 0; i <= frameIndex; i++)
+        {
+            frame?.Dispose();
+            Assert.True(source.TryDecodeNextFrame(pool, out frame), $"could not decode frame {i}");
+        }
+        using (frame)
+        {
+            var p = (byte*)frame!.Pixels;
             int rowBytes = frame.RowBytes;
             long sum = 0;
             for (int y = 0; y < frame.Height; y++)

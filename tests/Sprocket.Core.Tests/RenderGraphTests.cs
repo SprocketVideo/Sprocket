@@ -155,6 +155,9 @@ public class RenderGraphExecutorTests
         public string ApplyEffect(string frame, ResolvedEffect effect) =>
             $"{frame}+{effect.EffectTypeId}";
 
+        public string ApplyTransition(string from, string to, ResolvedTransition transition) =>
+            $"[{from}>{transition.TransitionTypeId}@{transition.Progress:0.##}>{to}]";
+
         public void Composite(string surface, string layer, double opacity, BlendMode blendMode) =>
             CompositeLog.Add($"{layer}@{opacity:0.##}/{blendMode}");
 
@@ -206,6 +209,25 @@ public class RenderGraphExecutorTests
 
         // The composited content comes from the generator factory, never from the (media) frame source.
         Assert.Equal($"gen({GeneratorTypeIds.Title})@1/Normal", Assert.Single(compositor.CompositeLog));
+    }
+
+    [Fact]
+    public void Render_Transition_Layer_Blends_Both_Sides_Then_Composites()
+    {
+        var from = new VideoLayer(MediaRefId.New(), new Timecode(100), [], 1.0, BlendMode.Normal);
+        var brightness = new ResolvedEffect(EffectTypeIds.Brightness, new Dictionary<string, double>());
+        var to = new VideoLayer(MediaRefId.New(), new Timecode(200), new[] { brightness }, 1.0, BlendMode.Normal);
+        var tr = new ResolvedTransition(TransitionTypeIds.CrossDissolve, 0.5, new Dictionary<string, double>(), from, to);
+        var layer = new VideoLayer(default, default, [], 0.7, BlendMode.Screen, LayerKind.Transition, Transition: tr);
+        var plan = new VideoFramePlan(new Resolution(640, 480), Timecode.Zero, new[] { layer });
+
+        var compositor = new StringCompositor();
+        RenderGraph.Render(plan, new NamedFrameSource(), compositor);
+
+        // One composite: the two sides' (effect-folded) frames blended by the transition, then composited at the
+        // track's opacity/blend. The 'to' side carries its own brightness effect; the 'from' side has none.
+        string logged = Assert.Single(compositor.CompositeLog);
+        Assert.Equal("[frame(100)>builtin.crossdissolve@0.5>frame(200)+builtin.brightness]@0.7/Screen", logged);
     }
 
     [Fact]

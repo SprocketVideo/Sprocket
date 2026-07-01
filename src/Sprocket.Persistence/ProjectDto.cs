@@ -86,7 +86,19 @@ internal sealed record TrackDto(
     double GainDb,
     bool Muted,
     bool Solo,
-    List<ClipDto> Clips);
+    List<ClipDto> Clips,
+    // Transitions on the track's cuts (PLAN.md step 25). Additive + nullable: a track with no transitions writes
+    // null (WhenWritingNull), so pre-25 files load with none and a transition-free project serializes byte-identically.
+    List<TransitionDto>? Transitions = null);
+
+/// <summary>A transition on a cut (PLAN.md step 25): its type id, the cut it sits on, its length, alignment, and
+/// any type parameters (null when there are none — the v1 built-ins).</summary>
+internal sealed record TransitionDto(
+    string TransitionTypeId,
+    long CutPointTicks,
+    long DurationTicks,
+    TransitionAlignment Alignment,
+    Dictionary<string, AnimatableValueDto>? Parameters = null);
 
 internal enum TrackKind
 {

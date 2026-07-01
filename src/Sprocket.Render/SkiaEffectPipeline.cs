@@ -76,17 +76,73 @@ half4 main(float2 coord) {
     return src.eval(c) * opacity;
 }";
 
+    // Transition shaders (PLAN.md step 25): each samples two child shaders — `from` (outgoing clip) and `to`
+    // (incoming clip), already folded through their own effect chains — and blends them per `progress` (0 = full
+    // from, 1 = full to). All operate on premultiplied colour, so they compose correctly over the lower layers.
+
+    // Cross dissolve — a straight linear mix; mix() of premultiplied colour is the correct A·(1-p) + B·p dissolve.
+    private const string CrossDissolveSksl = @"
+uniform shader from;
+uniform shader to;
+uniform float progress;
+half4 main(float2 coord) {
+    return mix(from.eval(coord), to.eval(coord), progress);
+}";
+
+    // Dip to black — the outgoing clip fades out over the first half, the incoming fades in over the second; at the
+    // midpoint both weights are 0, so the frame is black (premultiplied black is 0).
+    private const string DipToBlackSksl = @"
+uniform shader from;
+uniform shader to;
+uniform float progress;
+half4 main(float2 coord) {
+    float a = clamp(1.0 - 2.0 * progress, 0.0, 1.0);
+    float b = clamp(2.0 * progress - 1.0, 0.0, 1.0);
+    return from.eval(coord) * a + to.eval(coord) * b;
+}";
+
+    // Dip to white — like dip-to-black but the midpoint is opaque white. Frames are opaque, so premultiplied white
+    // is half4(1); mixing toward it over the first half and away over the second produces the dip.
+    private const string DipToWhiteSksl = @"
+uniform shader from;
+uniform shader to;
+uniform float progress;
+half4 main(float2 coord) {
+    half4 white = half4(1.0);
+    float t = progress * 2.0;
+    if (t < 1.0) return mix(from.eval(coord), white, t);
+    return mix(white, to.eval(coord), t - 1.0);
+}";
+
+    // Wipe — the incoming clip is revealed from the left as progress advances; `bounds` (left,top,width,height)
+    // normalises the canvas x into [0,1] across the frame, and a small soft edge avoids a hard aliased seam.
+    private const string WipeSksl = @"
+uniform shader from;
+uniform shader to;
+uniform float progress;
+uniform float4 bounds;
+half4 main(float2 coord) {
+    float x = (coord.x - bounds.x) / max(bounds.z, 1.0);
+    float edge = 0.01;
+    float w = smoothstep(progress - edge, progress + edge, x);
+    return mix(to.eval(coord), from.eval(coord), w);
+}";
+
     private static readonly SKSamplingOptions Sampling = new(SKFilterMode.Linear);
 
     private readonly SKRuntimeEffect _brightness;
     private readonly SKRuntimeEffect _fade;
     private readonly SKRuntimeEffect _color;
     private readonly SKRuntimeEffect _transform;
+    private readonly SKRuntimeEffect _crossDissolve;
+    private readonly SKRuntimeEffect _dipToBlack;
+    private readonly SKRuntimeEffect _dipToWhite;
+    private readonly SKRuntimeEffect _wipe;
     private readonly SKPaint _paint = new();
     private readonly List<SKShader> _scratch = new(); // shaders built for the current draw, disposed after it
     private bool _disposed;
 
-    /// <summary>Compiles the built-in effect shaders. Throws if either SkSL program fails to compile.</summary>
+    /// <summary>Compiles the built-in effect and transition shaders. Throws if any SkSL program fails to compile.</summary>
     public SkiaEffectPipeline()
     {
         _brightness = SKRuntimeEffect.CreateShader(BrightnessSksl, out string brightnessErr)
@@ -97,6 +153,14 @@ half4 main(float2 coord) {
             ?? throw new InvalidOperationException($"Color SkSL failed to compile: {colorErr}");
         _transform = SKRuntimeEffect.CreateShader(TransformSksl, out string transformErr)
             ?? throw new InvalidOperationException($"Transform SkSL failed to compile: {transformErr}");
+        _crossDissolve = SKRuntimeEffect.CreateShader(CrossDissolveSksl, out string crossErr)
+            ?? throw new InvalidOperationException($"Cross-dissolve SkSL failed to compile: {crossErr}");
+        _dipToBlack = SKRuntimeEffect.CreateShader(DipToBlackSksl, out string dipBlackErr)
+            ?? throw new InvalidOperationException($"Dip-to-black SkSL failed to compile: {dipBlackErr}");
+        _dipToWhite = SKRuntimeEffect.CreateShader(DipToWhiteSksl, out string dipWhiteErr)
+            ?? throw new InvalidOperationException($"Dip-to-white SkSL failed to compile: {dipWhiteErr}");
+        _wipe = SKRuntimeEffect.CreateShader(WipeSksl, out string wipeErr)
+            ?? throw new InvalidOperationException($"Wipe SkSL failed to compile: {wipeErr}");
     }
 
     /// <summary>
@@ -193,35 +257,138 @@ half4 main(float2 coord) {
             return;
         }
 
-        // Root of the chain: the image as a shader, mapped into the destination rectangle so the runtime effects
-        // sample it in canvas space (a uniform fit scale, hence one factor for both axes). When a Transform is in
-        // the chain it can sample outside the frame; Decal tiling makes that read as transparent (so a shrunk
-        // layer reveals the background) — otherwise Clamp keeps the step-7 fit-draw.
-        float scale = dest.Width / image.Width;
-        SKMatrix localMatrix = SKMatrix.CreateScaleTranslation(scale, scale, dest.Left, dest.Top);
-        SKShaderTileMode tile = HasTransform(effects) ? SKShaderTileMode.Decal : SKShaderTileMode.Clamp;
-
         _scratch.Clear();
-        SKShader shader = image.ToShader(tile, tile, Sampling, localMatrix);
-        _scratch.Add(shader);
-
-        foreach (ResolvedEffect effect in effects)
-        {
-            SKShader? next = BuildEffectShader(effect, shader, dest);
-            if (next is null)
-                continue; // unknown effect id: pass through unchanged
-            shader = next;
-            _scratch.Add(shader);
-        }
+        SKShader shader = BuildChainShader(image, dest, effects);
 
         _paint.Shader = shader;
         _paint.Color = SKColors.White.WithAlpha(alpha); // paint alpha modulates the shader output
         _paint.BlendMode = blend;
         canvas.DrawRect(dest, _paint);
         ResetPaint();
+        DisposeScratch();
+    }
 
-        // The draw has consumed the shader graph; release the per-frame shader objects (the image is freed by
-        // the caller). Intermediate child shaders are not auto-disposed by their parents, so dispose all.
+    /// <summary>
+    /// Composites a transition between two decoded layers into <paramref name="bounds"/> (PLAN.md step 25,
+    /// ARCHITECTURE.md §7): each side — <paramref name="from"/> (outgoing) and <paramref name="to"/> (incoming) —
+    /// is fit-letterboxed into the frame and folded through its own <paramref name="fromEffects"/>/
+    /// <paramref name="toEffects"/> chain, then the two are combined by the transition's two-input shader at
+    /// <paramref name="transition"/>'s progress and drawn with <paramref name="opacity"/>/<paramref name="blend"/>
+    /// (the track's), <b>without clearing</b>. An unknown transition id degrades to a cross dissolve (mirroring the
+    /// effect pass-through rule). The native images must remain valid for the call.
+    /// </summary>
+    public void DrawTransition(
+        SKCanvas canvas,
+        SKRect bounds,
+        SKImage from,
+        IReadOnlyList<ResolvedEffect> fromEffects,
+        SKImage to,
+        IReadOnlyList<ResolvedEffect> toEffects,
+        ResolvedTransition transition,
+        double opacity = 1.0,
+        SKBlendMode blend = SKBlendMode.SrcOver)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(canvas);
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(to);
+        ArgumentNullException.ThrowIfNull(transition);
+
+        if (from.Width <= 0 || from.Height <= 0 || to.Width <= 0 || to.Height <= 0
+            || bounds.Width <= 0 || bounds.Height <= 0)
+            return;
+
+        byte alpha = (byte)Math.Clamp(opacity * 255.0, 0, 255);
+
+        // Each side is letterboxed into the full frame independently (so differently-sized clips both fit), then
+        // the transition shader operates over the whole frame; Decal tiling makes a letterbox surround transparent.
+        SKRect fromDest = FramePresenter.ComputeFitRect(bounds, from.Width, from.Height);
+        SKRect toDest = FramePresenter.ComputeFitRect(bounds, to.Width, to.Height);
+
+        _scratch.Clear();
+        SKShader fromShader = BuildChainShader(from, fromDest, fromEffects, forceDecal: true);
+        SKShader toShader = BuildChainShader(to, toDest, toEffects, forceDecal: true);
+        SKShader combined = BuildTransitionShader(transition, fromShader, toShader, bounds);
+        _scratch.Add(combined);
+
+        _paint.Shader = combined;
+        _paint.Color = SKColors.White.WithAlpha(alpha);
+        _paint.BlendMode = blend;
+        canvas.DrawRect(bounds, _paint);
+        ResetPaint();
+        DisposeScratch();
+    }
+
+    /// <summary>
+    /// Builds the shader for one layer: the <paramref name="image"/> mapped into <paramref name="dest"/> as the
+    /// root, folded through its <paramref name="effects"/> chain (each stage wrapping the previous). Every built
+    /// shader is appended to <see cref="_scratch"/> (the caller clears it first and disposes via
+    /// <see cref="DisposeScratch"/> after the draw). When a Transform is in the chain it can sample outside the
+    /// frame, so Decal tiling reads that as transparent; <paramref name="forceDecal"/> forces the same for a
+    /// transition side so a letterboxed frame's surround stays transparent instead of edge-clamping.
+    /// </summary>
+    private SKShader BuildChainShader(SKImage image, SKRect dest, IReadOnlyList<ResolvedEffect>? effects, bool forceDecal = false)
+    {
+        float scale = dest.Width / image.Width;
+        SKMatrix localMatrix = SKMatrix.CreateScaleTranslation(scale, scale, dest.Left, dest.Top);
+        SKShaderTileMode tile = forceDecal || (effects is not null && HasTransform(effects))
+            ? SKShaderTileMode.Decal : SKShaderTileMode.Clamp;
+
+        SKShader shader = image.ToShader(tile, tile, Sampling, localMatrix);
+        _scratch.Add(shader);
+
+        if (effects is not null)
+        {
+            foreach (ResolvedEffect effect in effects)
+            {
+                SKShader? next = BuildEffectShader(effect, shader, dest);
+                if (next is null)
+                    continue; // unknown effect id: pass through unchanged
+                shader = next;
+                _scratch.Add(shader);
+            }
+        }
+        return shader;
+    }
+
+    /// <summary>Builds the two-input shader combining <paramref name="from"/>/<paramref name="to"/> for a transition
+    /// at its progress; an unknown type id falls back to a cross dissolve. <paramref name="bounds"/> normalises a
+    /// wipe's position across the frame.</summary>
+    private SKShader BuildTransitionShader(ResolvedTransition transition, SKShader from, SKShader to, SKRect bounds)
+    {
+        float progress = (float)Math.Clamp(transition.Progress, 0.0, 1.0);
+        switch (transition.TransitionTypeId)
+        {
+            case TransitionTypeIds.DipToBlack:
+                return _dipToBlack.ToShader(
+                    new SKRuntimeEffectUniforms(_dipToBlack) { ["progress"] = progress },
+                    new SKRuntimeEffectChildren(_dipToBlack) { ["from"] = from, ["to"] = to });
+
+            case TransitionTypeIds.DipToWhite:
+                return _dipToWhite.ToShader(
+                    new SKRuntimeEffectUniforms(_dipToWhite) { ["progress"] = progress },
+                    new SKRuntimeEffectChildren(_dipToWhite) { ["from"] = from, ["to"] = to });
+
+            case TransitionTypeIds.Wipe:
+                return _wipe.ToShader(
+                    new SKRuntimeEffectUniforms(_wipe)
+                    {
+                        ["progress"] = progress,
+                        ["bounds"] = new[] { bounds.Left, bounds.Top, bounds.Width, bounds.Height },
+                    },
+                    new SKRuntimeEffectChildren(_wipe) { ["from"] = from, ["to"] = to });
+
+            default: // cross dissolve — and unknown (plugin) ids degrade to it rather than dropping the layer
+                return _crossDissolve.ToShader(
+                    new SKRuntimeEffectUniforms(_crossDissolve) { ["progress"] = progress },
+                    new SKRuntimeEffectChildren(_crossDissolve) { ["from"] = from, ["to"] = to });
+        }
+    }
+
+    /// <summary>Disposes and clears the per-draw scratch shaders (intermediate children are not auto-disposed by
+    /// their parents, so all must be released after the draw consumes them; the images are freed by the caller).</summary>
+    private void DisposeScratch()
+    {
         foreach (SKShader s in _scratch)
             s.Dispose();
         _scratch.Clear();
@@ -459,5 +626,9 @@ half4 main(float2 coord) {
         _fade.Dispose();
         _color.Dispose();
         _transform.Dispose();
+        _crossDissolve.Dispose();
+        _dipToBlack.Dispose();
+        _dipToWhite.Dispose();
+        _wipe.Dispose();
     }
 }
