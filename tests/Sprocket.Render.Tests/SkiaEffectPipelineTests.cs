@@ -198,6 +198,61 @@ public sealed class SkiaEffectPipelineTests
         Assert.InRange(v, Gray - 2, Gray + 2);
     }
 
+    // ── Step 26: Alpha-channel media compositing (premultiplied-alpha path) ──────────────────────────
+
+    private static readonly SKColor BgRed = new(255, 0, 0, 255);
+
+    [Fact]
+    public void AlphaLayer_Transparent_RevealsBackgroundBeneath()
+    {
+        // A fully-transparent source drawn with hasAlpha:true contributes nothing → the red background shows through.
+        SKColor c = RenderLayerOverBackground(new SKColor(0, 255, 0, 0), hasAlpha: true, BgRed);
+        Assert.InRange(c.Red, 252, 255);
+        Assert.InRange(c.Green, 0, 3);
+    }
+
+    [Fact]
+    public void AlphaLayer_SemiTransparent_BlendsWithBackground()
+    {
+        // Green at 50% straight alpha over red: source-over gives premult green (0,128,0,.5) + red·.5 → ~(127,128,0).
+        SKColor c = RenderLayerOverBackground(new SKColor(0, 255, 0, 128), hasAlpha: true, BgRed);
+        Assert.InRange(c.Red, 127 - 5, 127 + 5);
+        Assert.InRange(c.Green, 128 - 5, 128 + 5);
+        Assert.InRange(c.Blue, 0, 3);
+    }
+
+    [Fact]
+    public void OpaqueFlag_IgnoresAlpha_FullyReplacesBackground()
+    {
+        // The SAME 50%-alpha green bytes drawn with hasAlpha:false (Opaque) ignore the alpha and replace the red
+        // entirely — proving the opaque hot path is unchanged and alpha only engages when the flag is set.
+        SKColor c = RenderLayerOverBackground(new SKColor(0, 255, 0, 128), hasAlpha: false, BgRed);
+        Assert.InRange(c.Red, 0, 3);
+        Assert.InRange(c.Green, 252, 255);
+    }
+
+    /// <summary>Draws an 8×8 source of straight (unpremultiplied) RGBA <paramref name="src"/> over a surface cleared
+    /// to <paramref name="bg"/>, via <see cref="SkiaEffectPipeline.DrawLayer"/> with the given alpha flag, and returns
+    /// the centre pixel. The source bitmap is Unpremul so its bytes match swscale's straight-alpha RGBA output.</summary>
+    private static SKColor RenderLayerOverBackground(SKColor src, bool hasAlpha, SKColor bg)
+    {
+        using var pipeline = new SkiaEffectPipeline();
+        var srcBmp = new SKBitmap(new SKImageInfo(Size, Size, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+        srcBmp.Erase(src);
+        using (srcBmp)
+        using (SKSurface surface = SKSurface.Create(new SKImageInfo(Size, Size, SKColorType.Rgba8888, SKAlphaType.Premul)))
+        {
+            surface.Canvas.Clear(bg);
+            pipeline.DrawLayer(
+                surface.Canvas, SKRect.Create(Size, Size), srcBmp.GetPixels(), srcBmp.RowBytes, Size, Size,
+                [], hasAlpha: hasAlpha);
+            surface.Canvas.Flush();
+            using SKImage image = surface.Snapshot();
+            using SKBitmap readback = SKBitmap.FromImage(image);
+            return readback.GetPixel(Size / 2, Size / 2);
+        }
+    }
+
     // ── Step 25: Transitions (two-input blend shaders) ───────────────────────────────────────────────
 
     private static readonly SKColor Red = new(255, 0, 0, 255);   // the outgoing (From) clip

@@ -221,6 +221,11 @@ public sealed unsafe class MediaSource : IDisposable
         var st = (AvStream*)videoStream;
         Rational frameRate = ReadFrameRate(st);
 
+        // Alpha is a property of the source pixel format (e.g. ProRes 4444, qtrle, PNG). Read it from the stream's
+        // codec parameters — set at probe without decoding a frame — so it drives the media-bin badge and the
+        // premultiplied compositing path (PLAN.md step 26). codecpar->format is the AVPixelFormat for a video stream.
+        bool hasAlpha = PixelFormatHasAlpha(((AvCodecParameters*)st->codecpar)->format);
+
         Timecode duration = format.Duration > 0
             ? MediaTime.FromMicroseconds(format.Duration)          // AV_TIME_BASE (µs) container duration
             : st->duration > 0
@@ -244,7 +249,19 @@ public sealed unsafe class MediaSource : IDisposable
             Height: decoder.Height,
             HasAudio: hasAudio,
             SampleRate: sampleRate,
-            Channels: channels);
+            Channels: channels,
+            HasAlpha: hasAlpha);
+    }
+
+    /// <summary>True when <paramref name="pixFmt"/> is an <see cref="AVPixelFormat"/> that carries an alpha
+    /// channel (its descriptor has <c>AV_PIX_FMT_FLAG_ALPHA</c>). Returns false for <c>AV_PIX_FMT_NONE</c> or an
+    /// unknown format. Reads FFmpeg's static per-format descriptor, so no frame need be decoded.</summary>
+    private static bool PixelFormatHasAlpha(int pixFmt)
+    {
+        if (pixFmt == AvConst.PixFmtNone)
+            return false;
+        IntPtr desc = LibAv.av_pix_fmt_desc_get(pixFmt);
+        return desc != IntPtr.Zero && (((AvPixFmtDescriptor*)desc)->flags & AvConst.PixFmtFlagAlpha) != 0;
     }
 
     /// <summary>Reads the video frame rate, preferring the average rate and falling back to the real base rate.</summary>
@@ -286,6 +303,9 @@ public sealed unsafe class MediaSource : IDisposable
             VideoFrame rgba = pool.Rent();
             _converter.Convert(source, rgba.Native);
             rgba.Pts = pts == MediaTime.NoPts ? Timecode.Zero : MediaTime.ToTimecode(pts, _videoTimeBase);
+            // Carry the source's alpha flag onto the frame (probed once at open) so the compositor knows to take the
+            // premultiplied-alpha path for this layer rather than treating the RGBA buffer as opaque (PLAN.md step 26).
+            rgba.HasAlpha = Info.HasAlpha;
             frame = rgba;
             return true;
         }

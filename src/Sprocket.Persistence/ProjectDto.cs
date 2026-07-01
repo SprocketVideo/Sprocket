@@ -62,7 +62,10 @@ internal sealed record ProbedInfoDto(
     int Height,
     bool HasAudio,
     int SampleRate,
-    int Channels);
+    int Channels,
+    // Alpha-channel flag (PLAN.md step 26). Additive + nullable: an opaque source writes null (WhenWritingNull),
+    // so pre-26 files load with no alpha and opaque media serializes byte-identically. Only alpha media writes true.
+    bool? HasAlpha = null);
 
 internal sealed record TimelineDto(
     RationalDto FrameRate,

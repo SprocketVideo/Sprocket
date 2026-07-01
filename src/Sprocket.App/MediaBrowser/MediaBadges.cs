@@ -7,9 +7,9 @@ namespace Sprocket.App.MediaBrowser;
 
 /// <summary>
 /// Derives the small metadata badges shown on a media-bin tile (PLAN.md step 15, UI.md §3.3) — duration and a
-/// resolution tier for video (<c>4K · 1080p · 720p</c>) or a format tag for audio (<c>WAV · AIF</c>). Pure so
-/// it is unit-testable without a UI; the tile control just renders the strings. Alpha-channel detection
-/// (<c>Alpha</c> in the mockup) lands with the premultiplied-alpha path (PLAN.md step 20); the slot is left for it.
+/// resolution tier for video (<c>4K · 1080p · 720p</c>) or a format tag for audio (<c>WAV · AIF</c>), plus an
+/// <c>Alpha</c> tag for alpha-channel video (<c>Logo_Anim.mov · 00:05 · Alpha</c>, UI.md §3.3). Pure so it is
+/// unit-testable without a UI; the tile control just renders the strings.
 /// </summary>
 public static class MediaBadges
 {
@@ -20,9 +20,16 @@ public static class MediaBadges
         var badges = new List<string> { Duration(info.Duration.ToSeconds()) };
 
         if (info.HasVideo)
+        {
             badges.Add(ResolutionTier(info.Width, info.Height));
+            // Flag alpha-channel media so the premultiplied compositing path is discoverable (PLAN.md step 26).
+            if (info.HasAlpha)
+                badges.Add("Alpha");
+        }
         else if (info.HasAudio)
+        {
             badges.Add(FormatTag(path));
+        }
 
         return badges;
     }

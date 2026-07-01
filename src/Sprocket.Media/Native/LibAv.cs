@@ -75,6 +75,9 @@ internal static unsafe partial class LibAv
     [LibraryImport(Avutil, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int av_hwdevice_ctx_create(out IntPtr deviceCtx, int type, string? device, IntPtr opts, int flags);
     [LibraryImport(Avutil)] internal static partial int av_hwframe_transfer_data(IntPtr dst, IntPtr src, int flags);
+    // Returns a pointer to the static AVPixFmtDescriptor for a pixel format (or NULL). Used to read the
+    // ALPHA flag so alpha-channel sources take the premultiplied compositing path (PLAN.md step 26).
+    [LibraryImport(Avutil)] internal static partial IntPtr av_pix_fmt_desc_get(int pixFmt);
     [LibraryImport(Avutil)] internal static partial IntPtr av_hwdevice_get_type_name(int type);
     [LibraryImport(Avutil)] internal static partial int av_hwdevice_iterate_types(int prev);
     [LibraryImport(Avutil)] internal static partial int av_channel_layout_default(AvChannelLayout* layout, int nbChannels);

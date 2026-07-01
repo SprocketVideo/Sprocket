@@ -38,6 +38,15 @@ public sealed class VideoFrame : IDisposable
     /// <summary>Presentation time of this frame within its source media.</summary>
     public Timecode Pts { get; internal set; }
 
+    /// <summary>
+    /// Whether the <see cref="Pixels"/> carry a meaningful (straight/unpremultiplied) alpha channel — true when the
+    /// decoded source has an alpha channel (PLAN.md step 26). The Render layer wraps the buffer as
+    /// <c>SKAlphaType.Unpremul</c> when set so Skia premultiplies and composites it correctly (source-over), and as
+    /// <c>SKAlphaType.Opaque</c> otherwise (the allocation-clean opaque hot path). swscale still fills alpha with
+    /// 255 for opaque sources, so a false value simply means "ignore the alpha bytes".
+    /// </summary>
+    public bool HasAlpha { get; internal set; }
+
     /// <summary>Pointer to the first (only) plane of RGBA8888 pixels. Valid until <see cref="Dispose"/>.</summary>
     public IntPtr Pixels => _rgba.Data(0);
 

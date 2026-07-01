@@ -24,6 +24,10 @@ public readonly record struct MediaRefId(Guid Value)
 /// <param name="HasAudio">Whether the source has a usable audio stream.</param>
 /// <param name="SampleRate">Audio sample rate in Hz (0 if no audio).</param>
 /// <param name="Channels">Audio channel count (0 if no audio).</param>
+/// <param name="HasAlpha">Whether the source's video carries an alpha channel (e.g. ProRes 4444, QuickTime
+/// Animation / <c>qtrle</c>, PNG). Drives the premultiplied-alpha compositing path (PLAN.md step 26) and the
+/// media-bin "Alpha" badge (UI.md §3.3). Defaults to <see langword="false"/> so audio-only / opaque sources
+/// and pre-step-26 callers are unaffected.</param>
 public sealed record ProbedMediaInfo(
     Timecode Duration,
     bool HasVideo,
@@ -32,7 +36,8 @@ public sealed record ProbedMediaInfo(
     int Height,
     bool HasAudio,
     int SampleRate,
-    int Channels);
+    int Channels,
+    bool HasAlpha = false);
 
 /// <summary>
 /// A reference to an imported source file, addressed by a stable <see cref="MediaRefId"/>.

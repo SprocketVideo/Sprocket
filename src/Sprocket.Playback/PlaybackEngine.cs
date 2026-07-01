@@ -36,6 +36,8 @@ public enum PlaybackState
 /// <param name="Generator">The procedural source for a <see cref="LayerKind.Generator"/> layer; otherwise null.
 /// For generator/adjustment layers <see cref="Pixels"/> is 0 and <see cref="Width"/>/<see cref="Height"/> carry the
 /// sequence resolution.</param>
+/// <param name="HasAlpha">Whether this media layer's pixels carry a straight alpha channel (PLAN.md step 26); the
+/// preview composites it premultiplied over the layers beneath when set. Meaningful only for <see cref="LayerKind.Media"/>.</param>
 public readonly record struct PresentedVideoLayer(
     nint Pixels,
     int RowBytes,
@@ -46,7 +48,8 @@ public readonly record struct PresentedVideoLayer(
     double Opacity,
     BlendMode BlendMode,
     LayerKind Kind = LayerKind.Media,
-    ResolvedGenerator? Generator = null);
+    ResolvedGenerator? Generator = null,
+    bool HasAlpha = false);
 
 /// <summary>
 /// A snapshot of the single (top-most) presented frame — the back-compatible view for a one-layer consumer.
@@ -58,7 +61,8 @@ public readonly record struct PresentedFrame(
     int Width,
     int Height,
     Timecode Pts,
-    IReadOnlyList<ResolvedEffect> Effects);
+    IReadOnlyList<ResolvedEffect> Effects,
+    bool HasAlpha = false);
 
 /// <summary>
 /// A snapshot of the <see cref="PlaybackEngine"/>'s playback-health counters, for the diagnostics overlay (the
@@ -391,7 +395,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
                         if (FindPlayer(track)?.Current is { } frame)
                             layers.Add(new PresentedVideoLayer(
                                 frame.Pixels, frame.RowBytes, frame.Width, frame.Height, frame.Pts,
-                                effects, track.Opacity, track.BlendMode));
+                                effects, track.Opacity, track.BlendMode, HasAlpha: frame.HasAlpha));
                         break;
                 }
             }
@@ -420,7 +424,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
                     continue;
                 Clip? clip = track.ResolveActiveClip(pos);
                 IReadOnlyList<ResolvedEffect> effects = clip is null ? [] : RenderGraph.ResolveEffects(clip, pos);
-                top = new PresentedFrame(frame.Pixels, frame.RowBytes, frame.Width, frame.Height, frame.Pts, effects);
+                top = new PresentedFrame(frame.Pixels, frame.RowBytes, frame.Width, frame.Height, frame.Pts, effects, frame.HasAlpha);
             }
             use(top);
         }

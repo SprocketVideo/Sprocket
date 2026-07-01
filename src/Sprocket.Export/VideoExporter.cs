@@ -271,7 +271,7 @@ public static class VideoExporter
                     SKRect dest = FramePresenter.ComputeFitRect(bounds, frame.Width, frame.Height);
                     pipeline.DrawLayer(
                         canvas, dest, frame.Pixels, frame.RowBytes, frame.Width, frame.Height,
-                        layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode));
+                        layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode), frame.HasAlpha);
                     break;
                 }
             }
@@ -314,7 +314,10 @@ public static class VideoExporter
                 VideoFrame? frame = provider?.GetFrame(side.SourceTime);
                 if (frame is null)
                     return null;
-                var info = new SKImageInfo(frame.Width, frame.Height, SKColorType.Rgba8888, SKAlphaType.Opaque);
+                // Alpha sides copy out as straight (unpremultiplied) RGBA so the transition blend composites them
+                // premultiplied-correctly; opaque sides stay Opaque (the alpha bytes are ignored). PLAN.md step 26.
+                SKAlphaType alphaType = frame.HasAlpha ? SKAlphaType.Unpremul : SKAlphaType.Opaque;
+                var info = new SKImageInfo(frame.Width, frame.Height, SKColorType.Rgba8888, alphaType);
                 return SKImage.FromPixelCopy(info, frame.Pixels, frame.RowBytes);
             }
         }

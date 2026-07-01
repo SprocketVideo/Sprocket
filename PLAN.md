@@ -1511,6 +1511,41 @@ Tags reference the [UI.md §4 checklist](UI.md).
         `Parameters`/Inspector mechanism when needed.
 26. **Alpha-channel media compositing.** Premultiplied-alpha path through the render graph (e.g.
     `Logo_Anim.mov` flagged `Alpha`).
+    - **✅ DONE (`Sprocket.Core/Model/MediaRef` + `Sprocket.Media/{Native/LibAv,Native/AvStructs,VideoFrame,MediaSource}`
+      + `Sprocket.Render/SkiaEffectPipeline` + `Sprocket.Playback/PlaybackEngine` + `Sprocket.Export/VideoExporter` +
+      `Sprocket.App/{PreviewSurface,MediaBrowser/MediaBadges}` + persistence; 6 new tests — Render +3, Media +1, App +2).
+      Alpha media now composites over the layers beneath it in both preview and export, following the Premiere/Resolve
+      convention (ProRes 4444 / QuickTime Animation logos). **Key finding:** the decode path already carried alpha —
+      swscale normalises every source into the pooled `AV_PIX_FMT_RGBA` buffer preserving the alpha channel (§11) — but
+      the Skia compositor wrapped every frame as `SKAlphaType.Opaque`, discarding it. This lands entirely on existing
+      seams (§17); no render-graph redesign. Delivered:
+      - **Alpha detection (Media).** `MediaSource.Probe` reads the stream's `codecpar->format` and tests the
+        `AV_PIX_FMT_FLAG_ALPHA` flag via a new `av_pix_fmt_desc_get` binding (`Native/LibAv` + a minimal
+        `AvPixFmtDescriptor` view reading only `flags`), setting a new `ProbedMediaInfo.HasAlpha` at import without
+        decoding a frame. Every decoded `VideoFrame` carries the flag (`VideoFrame.HasAlpha`).
+      - **Premultiplied compositing (Render).** `SkiaEffectPipeline.DrawLayer`/`Present` take a `hasAlpha` flag:
+        alpha frames wrap as `SKAlphaType.Unpremul` (FFmpeg RGBA is straight alpha) so Skia premultiplies and composites
+        them source-over the lower layers, revealing them through transparent pixels; opaque frames stay
+        `SKAlphaType.Opaque` — the alpha bytes ignored, the layer fully replacing what's beneath — so the measured
+        allocation-clean opaque hot path (steps 1/4/7) is byte-for-byte unchanged.
+      - **Threaded through preview + export.** `PresentedVideoLayer`/`PresentedFrame` carry `HasAlpha` (populated from
+        the frame); `PreviewSurface` and `VideoExporter` (media layers **and** transition sides) pass it to `DrawLayer`,
+        so the same premultiplied path serves the real-time preview and the deterministic export (§5).
+      - **Media-bin badge + persistence.** The media browser shows an **`Alpha`** badge on alpha video
+        (`Logo_Anim.mov · 00:05 · Alpha`, UI.md §3.3, `MediaBadges`). `ProbedInfoDto.HasAlpha` is additive/nullable
+        (`WhenWritingNull`): opaque media omits it and serializes byte-identically to a pre-26 file; pre-26 files load
+        as opaque; only alpha media writes `true`.
+      - **Tests (6, deterministic).** Render: a straight-alpha layer over a coloured background — transparent reveals the
+        background, 50%-alpha blends (~premultiplied source-over), and the same bytes with `hasAlpha:false` fully replace
+        (proving the opaque path is unchanged). Media (real FFmpeg): a `qtrle`/`argb` fixture reports `HasAlpha` on the
+        info **and** every frame, and its 50% alpha survives swscale into the RGBA buffer (opaque `yuv420p` fixture stays
+        false). App: the `Alpha` badge appears for alpha video and not for opaque. Persistence: `HasAlpha` round-trips.
+        Full suite: **532 tests green** (Core 209, Media 29, Render 33, Audio 21, Playback 52, Export 12, Persistence 40,
+        App 136). Clean build (0 warnings).
+      - **Deferred (documented).** Alpha carried only as **side data** (VP8/VP9 alpha, where `codecpar->format` reads
+        `yuv420p` but the decoded frame is `yuva420p`) isn't flagged yet — the probe reads the container-level pixel
+        format, which covers the ProRes 4444 / qtrle / PNG cases this step targets; a decode-time re-check is the
+        follow-up. Alpha **poster thumbnails** still render opaque (a representative frame, not a composite).
 27. **Broad media format support (import coverage + export format/codec matrix).** Open and write the
     **common containers and codecs**, not just the slice's H.264/AAC MP4. *Import* is mainly a
     coverage/robustness task — `MediaSource`/`AudioSource` decode through the hand-rolled FFmpeg 8

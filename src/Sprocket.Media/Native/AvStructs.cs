@@ -103,6 +103,15 @@ internal struct AvCodec
     [FieldOffset(0)] public IntPtr name;   // const char*
 }
 
+/// <summary>AVPixFmtDescriptor: only <c>flags</c> is read (to test <see cref="AvConst.PixFmtFlagAlpha"/>). Layout
+/// is <c>const char *name</c> (8) + three <c>uint8_t</c> (nb_components/log2_chroma_w/log2_chroma_h) at 8–10,
+/// then <c>uint64_t flags</c> 8-byte-aligned at offset 16 — stable across FFmpeg majors.</summary>
+[StructLayout(LayoutKind.Explicit)]
+internal struct AvPixFmtDescriptor
+{
+    [FieldOffset(16)] public ulong flags;
+}
+
 [StructLayout(LayoutKind.Explicit)]
 internal struct AvCodecHwConfig
 {
@@ -149,6 +158,8 @@ internal static class AvConst
     public const int PixFmtNone = -1;
     public const int PixFmtYuv420p = 0;
     public const int PixFmtRgba = 26;
+
+    public const ulong PixFmtFlagAlpha = 1UL << 7;     // AV_PIX_FMT_FLAG_ALPHA
 
     public const int SampleFmtFlt = 3;
     public const int SampleFmtFltp = 8;

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Sprocket.Core.Timing;
 using Xunit;
 
@@ -45,6 +46,30 @@ public class MediaSourceTests
         Assert.True(info.HasAudio);
         Assert.Equal(TestVideo.SampleRate, info.SampleRate);
         Assert.True(info.Channels >= 1);
+
+        // The fixture is yuv420p (no alpha channel), so alpha detection must report false (PLAN.md step 26).
+        Assert.False(info.HasAlpha);
+    }
+
+    [Fact]
+    public void Open_AlphaSource_Reports_HasAlpha_On_Info_And_Frames()
+    {
+        using MediaSource source = MediaSource.Open(TestVideo.AlphaPath);
+        Assert.True(source.Info.HasVideo);
+        Assert.True(source.Info.HasAlpha); // qtrle stores argb — an alpha pixel format
+
+        using var pool = new VideoFramePool(source.Info.Width, source.Info.Height);
+        Assert.True(source.TryDecodeNextFrame(pool, out VideoFrame? frame));
+        using (frame)
+        {
+            Assert.True(frame!.HasAlpha); // the flag is carried onto every decoded frame
+
+            // End-to-end: the 50%-alpha source's alpha survives swscale into the pooled RGBA buffer (not forced to
+            // opaque 255). Read the centre pixel's alpha byte (RGBA8888 → byte 3 of the pixel).
+            int cx = frame.Width / 2, cy = frame.Height / 2;
+            int alpha = Marshal.ReadByte(frame.Pixels, cy * frame.RowBytes + cx * 4 + 3);
+            Assert.InRange(alpha, TestVideo.AlphaFixtureAlpha - 8, TestVideo.AlphaFixtureAlpha + 8);
+        }
     }
 
     [Fact]

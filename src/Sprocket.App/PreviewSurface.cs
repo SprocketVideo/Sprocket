@@ -189,7 +189,7 @@ public sealed class PreviewSurface : Control
                             case LayerKind.Media:
                                 _pipeline.DrawLayer(
                                     canvas, dest, l.Pixels, l.RowBytes, l.Width, l.Height,
-                                    l.Effects, l.Opacity, ToBlendMode(l.BlendMode));
+                                    l.Effects, l.Opacity, ToBlendMode(l.BlendMode), l.HasAlpha);
                                 break;
 
                             case LayerKind.Sequence:

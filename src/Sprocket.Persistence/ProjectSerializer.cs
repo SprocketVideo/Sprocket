@@ -136,7 +136,8 @@ public static class ProjectSerializer
     }
 
     private static ProbedInfoDto ToDto(ProbedMediaInfo i) => new(
-        i.Duration.Ticks, i.HasVideo, ToDto(i.FrameRate), i.Width, i.Height, i.HasAudio, i.SampleRate, i.Channels);
+        i.Duration.Ticks, i.HasVideo, ToDto(i.FrameRate), i.Width, i.Height, i.HasAudio, i.SampleRate, i.Channels,
+        i.HasAlpha ? true : null);
 
     private static TimelineDto ToDto(Timeline t)
     {
@@ -315,7 +316,8 @@ public static class ProjectSerializer
     }
 
     private static ProbedMediaInfo FromDto(ProbedInfoDto i) => new(
-        new Timecode(i.DurationTicks), i.HasVideo, FromDto(i.FrameRate), i.Width, i.Height, i.HasAudio, i.SampleRate, i.Channels);
+        new Timecode(i.DurationTicks), i.HasVideo, FromDto(i.FrameRate), i.Width, i.Height, i.HasAudio, i.SampleRate, i.Channels,
+        i.HasAlpha ?? false);
 
     private static Timeline FromDto(TimelineDto t)
     {

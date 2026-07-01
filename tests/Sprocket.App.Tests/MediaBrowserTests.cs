@@ -14,8 +14,8 @@ namespace Sprocket.App.Tests;
 /// </summary>
 public class MediaBrowserTests
 {
-    private static ProbedMediaInfo Video(int w, int h, double seconds, bool audio = true) =>
-        new(Timecode.FromSeconds(seconds), HasVideo: true, new Rational(30, 1), w, h, audio, audio ? 48000 : 0, audio ? 2 : 0);
+    private static ProbedMediaInfo Video(int w, int h, double seconds, bool audio = true, bool alpha = false) =>
+        new(Timecode.FromSeconds(seconds), HasVideo: true, new Rational(30, 1), w, h, audio, audio ? 48000 : 0, audio ? 2 : 0, HasAlpha: alpha);
 
     private static ProbedMediaInfo AudioOnly(double seconds) =>
         new(Timecode.FromSeconds(seconds), HasVideo: false, Rational.Zero, 0, 0, HasAudio: true, 48000, 2);
@@ -56,6 +56,21 @@ public class MediaBrowserTests
     {
         var badges = MediaBadges.Describe(AudioOnly(38), "Ambient_Score.aif");
         Assert.Equal(new[] { "0:38", "AIF" }, badges);
+    }
+
+    [Fact]
+    public void Describe_AlphaVideo_Adds_Alpha_Badge()
+    {
+        // UI.md §3.3: Logo_Anim.mov · 00:05 · Alpha (PLAN.md step 26).
+        var badges = MediaBadges.Describe(Video(1920, 1080, 5, audio: false, alpha: true), "Logo_Anim.mov");
+        Assert.Equal(new[] { "0:05", "1080p", "Alpha" }, badges);
+    }
+
+    [Fact]
+    public void Describe_OpaqueVideo_Has_No_Alpha_Badge()
+    {
+        var badges = MediaBadges.Describe(Video(1920, 1080, 5), "Interview_A.mp4");
+        Assert.DoesNotContain("Alpha", badges);
     }
 
     // ── WaveformBuilder ───────────────────────────────────────────────────────────────────────────────

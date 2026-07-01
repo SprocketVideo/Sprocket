@@ -178,7 +178,8 @@ half4 main(float2 coord) {
         int width,
         int height,
         IReadOnlyList<ResolvedEffect> effects,
-        SKColor background)
+        SKColor background,
+        bool hasAlpha = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(canvas);
@@ -189,7 +190,7 @@ half4 main(float2 coord) {
             return;
 
         SKRect dest = FramePresenter.ComputeFitRect(bounds, width, height);
-        DrawLayer(canvas, dest, pixels, rowBytes, width, height, effects);
+        DrawLayer(canvas, dest, pixels, rowBytes, width, height, effects, hasAlpha: hasAlpha);
     }
 
     /// <summary>
@@ -200,6 +201,11 @@ half4 main(float2 coord) {
     /// per-layer primitive shared by the single-layer preview (<see cref="Present"/>, which clears first) and
     /// the export path, which clears once then draws each resolved layer bottom→top. The native pixels are
     /// wrapped, not copied (§1), and must remain valid for the call. Does nothing for a degenerate layer.
+    /// <para>When <paramref name="hasAlpha"/> is set the buffer is treated as straight (unpremultiplied) RGBA — the
+    /// format swscale emits for alpha-channel sources (PLAN.md step 26) — so Skia premultiplies and composites it
+    /// source-over the layers beneath, revealing them through transparent pixels. When clear (the default) the buffer
+    /// is <see cref="SKAlphaType.Opaque"/>: the alpha bytes are ignored and the layer fully replaces what is under it,
+    /// keeping the opaque hot path exactly as measured.</para>
     /// </summary>
     public void DrawLayer(
         SKCanvas canvas,
@@ -210,7 +216,8 @@ half4 main(float2 coord) {
         int height,
         IReadOnlyList<ResolvedEffect> effects,
         double opacity = 1.0,
-        SKBlendMode blend = SKBlendMode.SrcOver)
+        SKBlendMode blend = SKBlendMode.SrcOver,
+        bool hasAlpha = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(canvas);
@@ -218,7 +225,8 @@ half4 main(float2 coord) {
         if (pixels == 0 || width <= 0 || height <= 0 || dest.Width <= 0 || dest.Height <= 0)
             return;
 
-        var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Opaque);
+        SKAlphaType alphaType = hasAlpha ? SKAlphaType.Unpremul : SKAlphaType.Opaque;
+        var info = new SKImageInfo(width, height, SKColorType.Rgba8888, alphaType);
         using SKImage image = SKImage.FromPixels(info, pixels, rowBytes);
         DrawImageLayer(canvas, dest, image, effects, opacity, blend);
     }
