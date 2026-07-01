@@ -219,12 +219,18 @@ public sealed unsafe class MediaSource : IDisposable
     private static ProbedMediaInfo Probe(FormatContextHandle format, IntPtr videoStream, CodecContextHandle decoder)
     {
         var st = (AvStream*)videoStream;
+        var vpar = (AvCodecParameters*)st->codecpar;
         Rational frameRate = ReadFrameRate(st);
 
-        // Alpha is a property of the source pixel format (e.g. ProRes 4444, qtrle, PNG). Read it from the stream's
-        // codec parameters — set at probe without decoding a frame — so it drives the media-bin badge and the
-        // premultiplied compositing path (PLAN.md step 26). codecpar->format is the AVPixelFormat for a video stream.
-        bool hasAlpha = PixelFormatHasAlpha(((AvCodecParameters*)st->codecpar)->format);
+        // Read the source's pixel-format facts once from FFmpeg's static per-format descriptor (no frame decoded):
+        // alpha (drives premultiplied compositing, PLAN.md step 26) and component bit depth (media-bin info, §27).
+        int pixFmt = vpar->format;
+        (bool hasAlpha, int bitDepth) = DescribePixelFormat(pixFmt);
+        string pixelFormatName = PixelFormatName(pixFmt);
+        // HDR transfer (PQ / HLG) and a VFR heuristic — informational for now (surfaced as media-bin badges, §27).
+        bool isHdr = vpar->color_trc is AvConst.ColorTrcSmpte2084 or AvConst.ColorTrcAribStdB67;
+        bool isVfr = IsVariableFrameRate(st);
+        string videoCodec = CodecName(vpar->codec_id);
 
         Timecode duration = format.Duration > 0
             ? MediaTime.FromMicroseconds(format.Duration)          // AV_TIME_BASE (µs) container duration
@@ -234,11 +240,13 @@ public sealed unsafe class MediaSource : IDisposable
 
         bool hasAudio = format.TryFindBestStream(AvConst.MediaTypeAudio, out _, out IntPtr audioStream, out _);
         int sampleRate = 0, channels = 0;
+        string audioCodec = "";
         if (hasAudio)
         {
             var audioPar = (AvCodecParameters*)((AvStream*)audioStream)->codecpar;
             sampleRate = audioPar->sample_rate;
             channels = audioPar->ch_layout.nb_channels;
+            audioCodec = CodecName(audioPar->codec_id);
         }
 
         return new ProbedMediaInfo(
@@ -250,18 +258,58 @@ public sealed unsafe class MediaSource : IDisposable
             HasAudio: hasAudio,
             SampleRate: sampleRate,
             Channels: channels,
-            HasAlpha: hasAlpha);
+            HasAlpha: hasAlpha,
+            VideoCodec: videoCodec,
+            AudioCodec: audioCodec,
+            PixelFormatName: pixelFormatName,
+            BitDepth: bitDepth,
+            IsHdr: isHdr,
+            IsVariableFrameRate: isVfr);
     }
 
-    /// <summary>True when <paramref name="pixFmt"/> is an <see cref="AVPixelFormat"/> that carries an alpha
-    /// channel (its descriptor has <c>AV_PIX_FMT_FLAG_ALPHA</c>). Returns false for <c>AV_PIX_FMT_NONE</c> or an
-    /// unknown format. Reads FFmpeg's static per-format descriptor, so no frame need be decoded.</summary>
-    private static bool PixelFormatHasAlpha(int pixFmt)
+    /// <summary>Reads a pixel format's descriptor: whether it carries an alpha channel
+    /// (<c>AV_PIX_FMT_FLAG_ALPHA</c>) and its per-component bit depth (8/10/12). Returns
+    /// <c>(false, 8)</c> for <c>AV_PIX_FMT_NONE</c> / an unknown format. No frame is decoded.</summary>
+    private static (bool hasAlpha, int bitDepth) DescribePixelFormat(int pixFmt)
     {
         if (pixFmt == AvConst.PixFmtNone)
-            return false;
+            return (false, 8);
         IntPtr desc = LibAv.av_pix_fmt_desc_get(pixFmt);
-        return desc != IntPtr.Zero && (((AvPixFmtDescriptor*)desc)->flags & AvConst.PixFmtFlagAlpha) != 0;
+        if (desc == IntPtr.Zero)
+            return (false, 8);
+        var d = (AvPixFmtDescriptor*)desc;
+        bool hasAlpha = (d->flags & AvConst.PixFmtFlagAlpha) != 0;
+        int depth = d->comp0_depth > 0 ? d->comp0_depth : 8;
+        return (hasAlpha, depth);
+    }
+
+    /// <summary>The FFmpeg name of a pixel format (e.g. <c>"yuv422p10le"</c>), or <c>""</c> when unknown.</summary>
+    private static string PixelFormatName(int pixFmt)
+    {
+        if (pixFmt == AvConst.PixFmtNone)
+            return "";
+        return Marshal.PtrToStringUTF8(LibAv.av_get_pix_fmt_name(pixFmt)) ?? "";
+    }
+
+    /// <summary>The canonical short name of a codec id (e.g. <c>"h264"</c>); <c>""</c> if the id is unknown.</summary>
+    private static string CodecName(int codecId)
+    {
+        string name = Marshal.PtrToStringUTF8(LibAv.avcodec_get_name(codecId)) ?? "";
+        return name == "none" ? "" : name;
+    }
+
+    /// <summary>Heuristic: a source is variable-frame-rate when its average and base (real) frame rates disagree
+    /// meaningfully. Constant-rate sources report equal rates; VFR sources carry a high base-rate LCD that differs
+    /// from the true average. Informational only — decode is PTS-accurate either way.</summary>
+    private static bool IsVariableFrameRate(AvStream* st)
+    {
+        AvRational avg = st->avg_frame_rate, real = st->r_frame_rate;
+        if (avg.Num <= 0 || avg.Den <= 0 || real.Num <= 0 || real.Den <= 0)
+            return false;
+        double a = (double)avg.Num / avg.Den, b = (double)real.Num / real.Den;
+        if (a <= 0 || b <= 0)
+            return false;
+        return Math.Abs(a - b) / Math.Max(a, b) > 0.02;
     }
 
     /// <summary>Reads the video frame rate, preferring the average rate and falling back to the real base rate.</summary>

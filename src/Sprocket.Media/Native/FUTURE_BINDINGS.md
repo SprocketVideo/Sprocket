@@ -25,15 +25,25 @@ Read color metadata in `MediaSource.Probe`, extend `ProbedMediaInfo`.
 - `AVCodecParameters` fields: `color_range=100`, `color_primaries=104`, `color_trc=108`, `color_space=112`.
 - `AVStream.metadata=80`, `AVFormatContext.metadata=192`.
 - More `AVPixelFormat`/`AVColorTransferCharacteristic` int constants (trivial).
+- **✅ HDR-transfer probe DONE (step 27):** `AVCodecParameters.color_trc=108` bound + `ColorTrcSmpte2084/AribStdB67`
+  consts; `ProbedMediaInfo.IsHdr` set from it. `color_range`/`primaries`/`space` + the `metadata` dicts remain for
+  the fuller log/HDR color work (step 37).
 
-### Step 27 — export codec matrix  (LOW effort, mostly constants)
-HEVC/AV1/VP9/ProRes/DNxHD + MP3/FLAC/AC-3/Opus/PCM; MOV/MKV/WebM/AVI/MXF/TS.
-- Already have `avcodec_find_encoder` / `_by_name` and `avformat_alloc_output_context2(formatName,…)`.
-- Add codec-id constants + more pixel/sample formats (10–12 bit, 4:2:2/4:4:4) — int consts only.
-- Finer encoder control via `AVCodecContext` fields: `profile=688`, `level=692`, `max_b_frames=200`,
-  `qmin=436`, `qmax=440`, `global_quality=420` (plus `av_dict_set`, already bound, for `crf`/`preset`).
+### Step 27 — export codec matrix  (✅ DONE)
+HEVC/AV1/VP9/ProRes + MP3/FLAC/AC-3/Opus/PCM; MOV/MKV/WebM/AVI/MPEG-TS all shipped. Chose to select encoders +
+pixel/sample formats **by name/negotiation** rather than baking codec-id/format enum tables:
+- `avformat_alloc_output_context2(formatName,…)` (container override), `avcodec_find_encoder_by_name` (already bound).
+- Added `av_get_pix_fmt`/`av_get_sample_fmt`/`av_sample_fmt_is_planar`/`av_get_pix_fmt_name`, `avcodec_get_name`,
+  and **`avcodec_get_supported_config`** (the FFmpeg-8 replacement for the removed `AVCodec.pix_fmts`/`sample_fmts`)
+  + `AvPixFmtDescriptor` chroma-log2/comp0-depth. Quality via `av_dict_set` `crf`/`preset` (already bound) + bit rate.
+- Not needed after all: `AVCodecContext.profile/level/max_b_frames/qmin/qmax/global_quality` (private-option
+  `av_dict` + the supported-config negotiation covered the matrix). Add them only if finer per-codec control is wanted.
 
-### Step 27 / 32 — hardware encode (NVENC/QSV/AMF/VideoToolbox) & render cache  (MEDIUM effort)
+### Step 27 / 32 — hardware encode (NVENC/QSV/AMF/VideoToolbox) & render cache  (MEDIUM effort — still open)
+Deferred by step 27. The enabling seam exists — `MediaEncoder` picks encoders **by name**, so a hardware encoder
+(`h264_nvenc`, `hevc_qsv`, …) is just another name — but the actual hardware-encode work is unbuilt: an
+`ExportVideoCodec`/name-fallback path and the GPU-frame **upload** path below (feeding an NVENC/QSV/VAAPI encoder
+GPU frames instead of the CPU frames the software encoders take).
 - Functions (avutil): `av_hwframe_ctx_alloc`, `av_hwframe_ctx_init`, `av_hwframe_get_buffer`
   (`av_hwframe_transfer_data`, `av_buffer_ref/unref` already bound; reuse `IHardwareContext`).
 - `AVCodecContext.hw_frames_ctx=552` (set on the encoder; `hw_device_ctx=560` already bound).

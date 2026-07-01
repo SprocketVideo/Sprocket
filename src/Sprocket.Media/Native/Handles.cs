@@ -35,9 +35,12 @@ internal sealed unsafe class FormatContextHandle : IDisposable
         }
     }
 
-    public static FormatContextHandle AllocOutput(string path)
+    /// <summary>Allocates an output (muxer) context. <paramref name="formatName"/> pins the container
+    /// explicitly (e.g. <c>"mov"</c>, <c>"matroska"</c>, <c>"webm"</c>); when null the muxer is guessed from
+    /// the file extension (the original behaviour).</summary>
+    public static FormatContextHandle AllocOutput(string path, string? formatName = null)
     {
-        FFmpegError.Check(LibAv.avformat_alloc_output_context2(out IntPtr p, IntPtr.Zero, null, path), "avformat_alloc_output_context2");
+        FFmpegError.Check(LibAv.avformat_alloc_output_context2(out IntPtr p, IntPtr.Zero, formatName, path), "avformat_alloc_output_context2");
         return new FormatContextHandle(p, output: true);
     }
 

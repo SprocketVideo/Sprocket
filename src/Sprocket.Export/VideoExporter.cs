@@ -9,24 +9,35 @@ using Sprocket.Render;
 
 namespace Sprocket.Export;
 
-/// <summary>Tunables for an export. The defaults produce a CRF-quality H.264 + AAC MP4 at the project's format.</summary>
+/// <summary>Tunables for an export. The defaults produce a CRF-quality H.264 + AAC MP4 at the project's format,
+/// so <c>default(ExportOptions)</c> reproduces the step-8 behaviour; set <see cref="Format"/> for the wider
+/// container/codec matrix (PLAN.md step 27).</summary>
+/// <param name="Format">The container × video-codec × audio-codec to deliver. <c>default</c> is MP4 / H.264 / AAC.</param>
+/// <param name="Quality">The constant-quality (CRF) tier used when no explicit bit rate is set.</param>
 /// <param name="Channels">Audio channel count to render and encode (default stereo).</param>
 /// <param name="VideoBitRate">Target video bit rate in bits/s, or <c>0</c> for CRF-quality encoding.</param>
 /// <param name="AudioBitRate">Target audio bit rate in bits/s, or <c>0</c> for the encoder default.</param>
 /// <param name="GopSize">Keyframe interval in frames, or <c>0</c> for the encoder default.</param>
+/// <param name="PixelFormat">An explicit encoder pixel-format name, or <see langword="null"/> to use the codec's
+/// default (yuv420p for most; yuv422p10le for ProRes).</param>
 public readonly record struct ExportOptions(
+    ExportFormat Format = default,
+    ExportQuality Quality = ExportQuality.High,
     int Channels = 2,
     long VideoBitRate = 0,
     long AudioBitRate = 0,
-    int GopSize = 0);
+    int GopSize = 0,
+    string? PixelFormat = null);
 
 /// <summary>
-/// Renders a <see cref="Project"/> offline to a full-resolution H.264/AAC MP4 (PLAN.md step 8, slice DoD #7).
-/// This is the export half of "the same render graph serves preview and export" (ARCHITECTURE.md §5): for each
-/// output frame it resolves the <see cref="VideoFramePlan"/> with <see cref="RenderGraph"/> — exactly as the
-/// preview does — composites the layers onto an offscreen Skia surface with the step-7 effect shaders, reads the
-/// pixels back, and hands them to the <see cref="MediaEncoder"/>. Audio is mixed by <see cref="AudioMixer"/> over
-/// the same timeline and encoded alongside, interleaved by output timestamp.
+/// Renders a <see cref="Project"/> offline to a full-resolution movie in the chosen container/codec matrix
+/// (PLAN.md step 8 + step 27). This is the export half of "the same render graph serves preview and export"
+/// (ARCHITECTURE.md §5): for each output frame it resolves the <see cref="VideoFramePlan"/> with
+/// <see cref="RenderGraph"/> — exactly as the preview does — composites the layers onto an offscreen Skia surface
+/// with the step-7 effect shaders, reads the pixels back, and hands them to the <see cref="MediaEncoder"/>. Audio
+/// is mixed by <see cref="AudioMixer"/> over the same timeline and encoded alongside, interleaved by output
+/// timestamp. Only the muxer/encoder back end changes with <see cref="ExportOptions.Format"/> — the render is
+/// identical, so the export stays deterministic (§5/§17).
 /// </summary>
 /// <remarks>
 /// <para>Export is throughput-bound, not real-time: it renders to a <b>raster</b> Skia surface (deterministic,
@@ -57,6 +68,13 @@ public static class VideoExporter
         // `default(ExportOptions)` leaves Channels = 0; treat that as the documented stereo default.
         int channels = options.Channels > 0 ? options.Channels : 2;
 
+        ExportFormat format = options.Format;
+        if (!format.IsValid)
+            throw new ArgumentException(
+                $"{ExportCodecs.Video(format.VideoCodec).DisplayName} / {ExportCodecs.Audio(format.AudioCodec).DisplayName} " +
+                $"is not a valid combination for the {ExportCodecs.Container(format.Container).DisplayName} container.",
+                nameof(options));
+
         Timeline timeline = project.Timeline;
         Timecode duration = timeline.Duration;
         if (duration <= Timecode.Zero)
@@ -66,20 +84,28 @@ public static class VideoExporter
         if (fps.Num <= 0 || fps.Den <= 0)
             throw new ArgumentException("The timeline has no valid frame rate.", nameof(project));
 
-        // 4:2:0 H.264 needs even dimensions; round the sequence resolution down to even (≤ 1px crop) so an
-        // odd-sized timeline (common with cropped / phone / screen-capture sources) exports instead of the
-        // encoder rejecting it. The offscreen surface is created at the same even size, so render and encode agree.
-        int outWidth = timeline.Resolution.Width & ~1;
-        int outHeight = timeline.Resolution.Height & ~1;
+        // Cap the delivery resolution at 4K (export-side limit only — the timeline/canvas are unrestricted,
+        // PLAN.md step 27), scaling down to fit while preserving aspect. Then round down to even (≤ 1px) so a
+        // 4:2:0 codec accepts an odd-sized timeline. The offscreen surface uses the same size — render and encode agree.
+        (int outWidth, int outHeight) = ComputeExportResolution(timeline.Resolution.Width, timeline.Resolution.Height);
         if (outWidth <= 0 || outHeight <= 0)
             throw new ArgumentException("The timeline resolution is too small to export.", nameof(project));
         int sampleRate = timeline.SampleRate > 0 ? timeline.SampleRate : 48000;
 
         bool wantAudio = HasAudibleAudio(project);
 
-        var video = new VideoEncoderSettings(outWidth, outHeight, fps, options.VideoBitRate, options.GopSize);
+        VideoCodecInfo videoCodec = ExportCodecs.Video(format.VideoCodec);
+        var video = new VideoEncoderSettings(
+            outWidth, outHeight, fps,
+            CodecName: videoCodec.EncoderName,
+            PixelFormat: options.PixelFormat ?? videoCodec.PixelFormat,
+            BitRate: options.VideoBitRate,
+            GopSize: options.GopSize,
+            Crf: ExportCodecs.CrfFor(format.VideoCodec, options.Quality),
+            Preset: videoCodec.DefaultPreset);
+
         AudioEncoderSettings? audio = wantAudio
-            ? new AudioEncoderSettings(sampleRate, channels, options.AudioBitRate)
+            ? new AudioEncoderSettings(sampleRate, channels, ExportCodecs.Audio(format.AudioCodec).EncoderName, options.AudioBitRate)
             : null;
 
         var providers = new Dictionary<MediaRefId, ExportFrameProvider?>();
@@ -92,7 +118,7 @@ public static class VideoExporter
 
         try
         {
-            encoder = MediaEncoder.Create(outputPath, video, audio);
+            encoder = MediaEncoder.Create(outputPath, video, audio, format.MuxerName);
 
             var info = new SKImageInfo(outWidth, outHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
             surface = SKSurface.Create(info)
@@ -167,6 +193,29 @@ public static class VideoExporter
     {
         try { if (File.Exists(path)) File.Delete(path); }
         catch { /* best-effort cleanup of a partial export; never mask the original failure */ }
+    }
+
+    /// <summary>4K delivery cap (PLAN.md step 27): DCI-4K width (UHD 3840 fits) and 4K height. An export-side
+    /// limit only — import, the timeline, and the sequence canvas are unrestricted.</summary>
+    public const int MaxExportWidth = 4096;
+    public const int MaxExportHeight = 2160;
+
+    /// <summary>Computes the encoded resolution for a sequence of <paramref name="width"/>×<paramref name="height"/>:
+    /// scaled down (preserving aspect) to fit within the 4K cap when larger, then rounded down to even so a 4:2:0
+    /// codec accepts it. Sequences at or below 4K encode at their exact even size. Exposed so the UI can show the
+    /// resolution an export will actually produce.</summary>
+    public static (int width, int height) ComputeExportResolution(int width, int height)
+    {
+        if (width <= 0 || height <= 0)
+            return (0, 0);
+
+        double scale = Math.Min(1.0, Math.Min((double)MaxExportWidth / width, (double)MaxExportHeight / height));
+        int w = (int)Math.Round(width * scale);
+        int h = (int)Math.Round(height * scale);
+        // Clamp against the cap (rounding can nudge to cap+1) then force even.
+        w = Math.Min(w, MaxExportWidth) & ~1;
+        h = Math.Min(h, MaxExportHeight) & ~1;
+        return (w, h);
     }
 
     /// <summary>Composites the frame at index <paramref name="frameIndex"/> onto <paramref name="surface"/>:

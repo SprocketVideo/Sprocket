@@ -28,6 +28,17 @@ public readonly record struct MediaRefId(Guid Value)
 /// Animation / <c>qtrle</c>, PNG). Drives the premultiplied-alpha compositing path (PLAN.md step 26) and the
 /// media-bin "Alpha" badge (UI.md §3.3). Defaults to <see langword="false"/> so audio-only / opaque sources
 /// and pre-step-26 callers are unaffected.</param>
+/// <param name="VideoCodec">Canonical short name of the source video codec (e.g. <c>"h264"</c>, <c>"hevc"</c>,
+/// <c>"prores"</c>), or <c>""</c> when there is no video. Informational (media-bin display, PLAN.md step 27).</param>
+/// <param name="AudioCodec">Canonical short name of the source audio codec (e.g. <c>"aac"</c>, <c>"flac"</c>),
+/// or <c>""</c> when there is no audio.</param>
+/// <param name="PixelFormatName">The source video pixel-format name (e.g. <c>"yuv420p"</c>, <c>"yuv422p10le"</c>),
+/// or <c>""</c> when there is no video — conveys chroma subsampling and bit depth compactly.</param>
+/// <param name="BitDepth">Bits per component of the source video (8/10/12), or 8 when unknown / no video.</param>
+/// <param name="IsHdr">Whether the source declares an HDR transfer function (PQ / HLG). Informational for now
+/// (an HDR-aware tone-map is a later color step); surfaced as a media-bin badge.</param>
+/// <param name="IsVariableFrameRate">Heuristic flag that the source is variable-frame-rate (its average and base
+/// frame rates disagree) — VFR sources are decoded frame-accurately by PTS regardless, so this is informational.</param>
 public sealed record ProbedMediaInfo(
     Timecode Duration,
     bool HasVideo,
@@ -37,7 +48,13 @@ public sealed record ProbedMediaInfo(
     bool HasAudio,
     int SampleRate,
     int Channels,
-    bool HasAlpha = false);
+    bool HasAlpha = false,
+    string VideoCodec = "",
+    string AudioCodec = "",
+    string PixelFormatName = "",
+    int BitDepth = 8,
+    bool IsHdr = false,
+    bool IsVariableFrameRate = false);
 
 /// <summary>
 /// A reference to an imported source file, addressed by a stable <see cref="MediaRefId"/>.

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -9,6 +11,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
+using Sprocket.Export;
 
 namespace Sprocket.App;
 
@@ -425,6 +428,139 @@ internal static class SequenceSettingsDialog
 
         return dialog.ShowDialog<string?>(owner);
     }
+}
+
+/// <summary>
+/// The Export settings dialog (PLAN.md step 27): a cascading container → video-codec → audio-codec picker plus a
+/// quality tier, so the user can deliver into the whole format/codec matrix rather than a fixed MP4. The video /
+/// audio dropdowns are repopulated with only the codecs valid in the chosen container, so every selection is a
+/// valid combination. Returns the chosen <see cref="ExportOptions"/> on Export, or <see langword="null"/> on cancel.
+/// </summary>
+internal static class ExportSettingsDialog
+{
+    public static Task<ExportOptions?> Show(Window owner, int sequenceWidth, int sequenceHeight)
+    {
+        ExportContainer[] containers = Enum.GetValues<ExportContainer>();
+        ComboBox containerBox = MakeCombo(containers.Select(c => ExportCodecs.Container(c).DisplayName));
+        ComboBox videoBox = MakeCombo([]);
+        ComboBox audioBox = MakeCombo([]);
+        ComboBox qualityBox = MakeCombo(["High (larger file)", "Medium", "Low (smaller file)"]);
+        qualityBox.SelectedIndex = 0;
+
+        var resText = new TextBlock { Foreground = Palette.MutedText, FontSize = 12 };
+        (int w, int h) = VideoExporter.ComputeExportResolution(sequenceWidth, sequenceHeight);
+        resText.Text = (w == sequenceWidth && h == sequenceHeight)
+            ? $"Output resolution: {w}×{h}"
+            : $"Output resolution: {w}×{h}  (scaled from {sequenceWidth}×{sequenceHeight} to the 4K export cap)";
+
+        // The codecs valid in the currently-selected container, mirrored so a selection index maps back to an enum.
+        var videoCodecs = new List<ExportVideoCodec>();
+        var audioCodecs = new List<ExportAudioCodec>();
+
+        void RepopulateCodecs()
+        {
+            ExportContainer container = containers[Math.Max(0, containerBox.SelectedIndex)];
+            videoCodecs = [.. ExportCodecs.VideoCodecsFor(container)];
+            audioCodecs = [.. ExportCodecs.AudioCodecsFor(container)];
+            videoBox.ItemsSource = videoCodecs.Select(c => ExportCodecs.Video(c).DisplayName).ToList();
+            audioBox.ItemsSource = audioCodecs.Select(c => ExportCodecs.Audio(c).DisplayName).ToList();
+            videoBox.SelectedIndex = videoCodecs.Count > 0 ? 0 : -1;
+            audioBox.SelectedIndex = audioCodecs.Count > 0 ? 0 : -1;
+        }
+
+        containerBox.SelectionChanged += (_, _) => RepopulateCodecs();
+        containerBox.SelectedIndex = 0;
+        RepopulateCodecs(); // ensure populated even though setting index 0 (already 0) fires no change
+
+        var export = new Button
+        {
+            Content = "Export…",
+            Padding = new Thickness(16, 5),
+            Foreground = Brushes.White,
+            Background = Palette.Accent,
+            CornerRadius = new CornerRadius(5),
+        };
+        var cancel = new Button
+        {
+            Content = "Cancel",
+            Padding = new Thickness(16, 5),
+            Foreground = Palette.Text,
+            Background = Palette.PanelBg,
+            CornerRadius = new CornerRadius(5),
+        };
+
+        var dialog = new Window
+        {
+            Title = "Export Settings",
+            Icon = AppIcon.Window,
+            Width = 420,
+            Height = 320,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Palette.WindowBg,
+            Content = new DockPanel
+            {
+                Margin = new Thickness(22),
+                Children =
+                {
+                    new StackPanel
+                    {
+                        [DockPanel.DockProperty] = Dock.Bottom,
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Margin = new Thickness(0, 16, 0, 0),
+                        Children = { cancel, export },
+                    },
+                    new StackPanel
+                    {
+                        Spacing = 8,
+                        Children =
+                        {
+                            LabeledRow("Format", containerBox),
+                            LabeledRow("Video codec", videoBox),
+                            LabeledRow("Audio codec", audioBox),
+                            LabeledRow("Quality", qualityBox),
+                            resText,
+                        },
+                    },
+                },
+            },
+        };
+
+        export.Click += (_, _) =>
+        {
+            if (containerBox.SelectedIndex < 0 || videoBox.SelectedIndex < 0 || audioBox.SelectedIndex < 0)
+                return;
+            var format = new ExportFormat(
+                containers[containerBox.SelectedIndex],
+                videoCodecs[videoBox.SelectedIndex],
+                audioCodecs[audioBox.SelectedIndex]);
+            var quality = (ExportQuality)Math.Max(0, qualityBox.SelectedIndex);
+            dialog.Close(new ExportOptions(Format: format, Quality: quality));
+        };
+        cancel.Click += (_, _) => dialog.Close((ExportOptions?)null);
+
+        return dialog.ShowDialog<ExportOptions?>(owner);
+    }
+
+    private static ComboBox MakeCombo(IEnumerable<string> items) => new()
+    {
+        ItemsSource = items.ToList(),
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+        Foreground = Palette.Text,
+        Background = Palette.PanelBg,
+    };
+
+    private static StackPanel LabeledRow(string label, Control control) => new()
+    {
+        Spacing = 3,
+        Children =
+        {
+            new TextBlock { Text = label, Foreground = Palette.MutedText, FontSize = 12 },
+            control,
+        },
+    };
 }
 
 /// <summary>

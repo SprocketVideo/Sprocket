@@ -137,7 +137,15 @@ public static class ProjectSerializer
 
     private static ProbedInfoDto ToDto(ProbedMediaInfo i) => new(
         i.Duration.Ticks, i.HasVideo, ToDto(i.FrameRate), i.Width, i.Height, i.HasAudio, i.SampleRate, i.Channels,
-        i.HasAlpha ? true : null);
+        i.HasAlpha ? true : null,
+        // Write only non-default informational fields (WhenWritingNull) so opaque/8-bit/SDR/CFR media keeps a
+        // minimal, stable diff and pre-27 files round-trip byte-identically.
+        VideoCodec: string.IsNullOrEmpty(i.VideoCodec) ? null : i.VideoCodec,
+        AudioCodec: string.IsNullOrEmpty(i.AudioCodec) ? null : i.AudioCodec,
+        PixelFormatName: string.IsNullOrEmpty(i.PixelFormatName) ? null : i.PixelFormatName,
+        BitDepth: i.BitDepth == 8 ? null : i.BitDepth,
+        IsHdr: i.IsHdr ? true : null,
+        IsVariableFrameRate: i.IsVariableFrameRate ? true : null);
 
     private static TimelineDto ToDto(Timeline t)
     {
@@ -317,7 +325,13 @@ public static class ProjectSerializer
 
     private static ProbedMediaInfo FromDto(ProbedInfoDto i) => new(
         new Timecode(i.DurationTicks), i.HasVideo, FromDto(i.FrameRate), i.Width, i.Height, i.HasAudio, i.SampleRate, i.Channels,
-        i.HasAlpha ?? false);
+        i.HasAlpha ?? false,
+        VideoCodec: i.VideoCodec ?? "",
+        AudioCodec: i.AudioCodec ?? "",
+        PixelFormatName: i.PixelFormatName ?? "",
+        BitDepth: i.BitDepth ?? 8,
+        IsHdr: i.IsHdr ?? false,
+        IsVariableFrameRate: i.IsVariableFrameRate ?? false);
 
     private static Timeline FromDto(TimelineDto t)
     {

@@ -52,6 +52,21 @@ public class MediaSourceTests
     }
 
     [Fact]
+    public void Open_Probes_Source_Format_Details()
+    {
+        // PLAN.md step 27 import-coverage probe: the fixture is 8-bit 4:2:0 H.264 + AAC, constant-frame-rate, SDR.
+        using MediaSource source = Open();
+        var info = source.Info;
+
+        Assert.Equal("h264", info.VideoCodec);
+        Assert.Equal("aac", info.AudioCodec);
+        Assert.Equal("yuv420p", info.PixelFormatName);
+        Assert.Equal(8, info.BitDepth);
+        Assert.False(info.IsHdr);
+        Assert.False(info.IsVariableFrameRate); // testsrc2 → x264 is CFR: avg and base frame rates agree
+    }
+
+    [Fact]
     public void Open_AlphaSource_Reports_HasAlpha_On_Info_And_Frames()
     {
         using MediaSource source = MediaSource.Open(TestVideo.AlphaPath);

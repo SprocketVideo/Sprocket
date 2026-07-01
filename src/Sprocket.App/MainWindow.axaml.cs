@@ -93,9 +93,21 @@ public partial class MainWindow : Window
     private static readonly FilePickerFileType SprocketProjectFileType =
         new("Sprocket project") { Patterns = ["*.sprocket.json", "*.json"] };
 
-    /// <summary>The exported-video file type for the Export save picker.</summary>
-    private static readonly FilePickerFileType Mp4FileType =
-        new("MP4 video") { Patterns = ["*.mp4"], MimeTypes = ["video/mp4"] };
+    /// <summary>Import file-type filters for the media open dialog (PLAN.md step 27 import coverage): the common
+    /// containers and audio-only formats the FFmpeg 8 decode path handles. Unsupported / corrupt files still fail
+    /// gracefully per file (see <see cref="Import"/>), so the "All files" fall-through stays available.</summary>
+    private static readonly FilePickerFileType VideoFileType = new("Video")
+    {
+        Patterns =
+        [
+            "*.mp4", "*.m4v", "*.mov", "*.mkv", "*.webm", "*.avi", "*.mxf",
+            "*.ts", "*.m2ts", "*.mts", "*.mpg", "*.mpeg", "*.wmv", "*.flv", "*.ogv", "*.3gp",
+        ],
+    };
+    private static readonly FilePickerFileType AudioFileType = new("Audio")
+    {
+        Patterns = ["*.wav", "*.mp3", "*.aac", "*.m4a", "*.flac", "*.ac3", "*.opus", "*.ogg", "*.wma", "*.aif", "*.aiff"],
+    };
 
     /// <summary>Raised when File ▸ New / Open wants the composition root to swap to a freshly built session over
     /// <see cref="SessionRequest.Project"/> (PLAN.md step 16c). Handled by <see cref="App"/>.</summary>
@@ -1250,8 +1262,10 @@ public partial class MainWindow : Window
             [
                 new FilePickerFileType("Media files")
                 {
-                    Patterns = ["*.mp4", "*.mov", "*.mkv", "*.m4v", "*.avi", "*.webm", "*.wav", "*.mp3", "*.aac", "*.flac", "*.m4a"],
+                    Patterns = [.. VideoFileType.Patterns!, .. AudioFileType.Patterns!],
                 },
+                VideoFileType,
+                AudioFileType,
                 FilePickerFileTypes.All,
             ],
         });
@@ -1509,15 +1523,28 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Choose the delivery container / codecs / quality (PLAN.md step 27 matrix) before picking the file.
+        Resolution res = _project.Timeline.Resolution;
+        if (await ExportSettingsDialog.Show(this, res.Width, res.Height) is not { } options)
+            return; // user cancelled the settings dialog
+
         // Let the user choose where the file goes (mirrors File ▸ Save As) instead of silently dropping a fixed
-        // "export.mp4" into the app's own (often read-only) install folder, where it would go unnoticed.
-        string suggested = (_currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath)) + ".mp4";
+        // file into the app's own (often read-only) install folder, where it would go unnoticed. The extension +
+        // file-type filter follow the chosen container.
+        ExportFormat format = options.Format;
+        string extension = format.FileExtension; // ".mp4", ".mkv", …
+        var fileType = new FilePickerFileType($"{ExportCodecs.Container(format.Container).DisplayName} video")
+        {
+            Patterns = ["*" + extension],
+            MimeTypes = [format.MimeType],
+        };
+        string baseName = _currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath);
         IStorageFile? target = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Export Video",
-            SuggestedFileName = suggested,
-            DefaultExtension = "mp4",
-            FileTypeChoices = [Mp4FileType],
+            SuggestedFileName = baseName + extension,
+            DefaultExtension = extension.TrimStart('.'),
+            FileTypeChoices = [fileType],
         });
         if (target?.TryGetLocalPath() is not { } outputPath)
             return; // user cancelled the picker — nothing exported, nothing to clean up
@@ -1545,7 +1572,7 @@ public partial class MainWindow : Window
         try
         {
             await Task.Run(() => VideoExporter.Export(
-                _project, outputPath, progress: progress, cancellationToken: cts.Token));
+                _project, outputPath, options, progress, cts.Token));
             ok = true;
         }
         catch (OperationCanceledException)

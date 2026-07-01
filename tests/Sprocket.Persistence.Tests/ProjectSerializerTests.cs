@@ -24,7 +24,8 @@ public class ProjectSerializerTests
         project.Settings.MasterGainDb = -2.5;
 
         project.MediaPool.Add(new MediaRef(VideoId, @"C:\media\clip.mp4",
-            new ProbedMediaInfo(Timecode.FromSeconds(12.5), true, new Rational(30000, 1001), 1920, 1080, true, 48000, 2, HasAlpha: true)));
+            new ProbedMediaInfo(Timecode.FromSeconds(12.5), true, new Rational(30000, 1001), 1920, 1080, true, 48000, 2, HasAlpha: true,
+                VideoCodec: "prores", AudioCodec: "pcm_s16le", PixelFormatName: "yuva444p10le", BitDepth: 10, IsHdr: true, IsVariableFrameRate: true)));
         project.MediaPool.Add(new MediaRef(AudioId, @"C:\media\music.wav",
             new ProbedMediaInfo(Timecode.FromSeconds(60), false, Rational.Zero, 0, 0, true, 44100, 2)));
 
@@ -75,11 +76,23 @@ public class ProjectSerializerTests
         Assert.Equal(new Rational(30000, 1001), video.Info.FrameRate);
         Assert.True(video.Info.HasAlpha); // alpha flag round-trips (PLAN.md step 26)
 
+        // Source-format details round-trip (PLAN.md step 27 import probe).
+        Assert.Equal("prores", video.Info.VideoCodec);
+        Assert.Equal("pcm_s16le", video.Info.AudioCodec);
+        Assert.Equal("yuva444p10le", video.Info.PixelFormatName);
+        Assert.Equal(10, video.Info.BitDepth);
+        Assert.True(video.Info.IsHdr);
+        Assert.True(video.Info.IsVariableFrameRate);
+
         MediaRef? audio = loaded.MediaPool.Get(AudioId);
         Assert.NotNull(audio);
         Assert.False(audio.Info.HasVideo);
         Assert.Equal(44100, audio.Info.SampleRate);
         Assert.False(audio.Info.HasAlpha); // an opaque/audio source stays false (and omits the field on the wire)
+        // The informational fields default cleanly for an audio-only source (and omit themselves on the wire).
+        Assert.Equal(8, audio.Info.BitDepth);
+        Assert.False(audio.Info.IsHdr);
+        Assert.Equal("", audio.Info.VideoCodec);
     }
 
     [Fact]

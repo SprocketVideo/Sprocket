@@ -1566,6 +1566,54 @@ Tags reference the [UI.md §4 checklist](UI.md).
     (step 32). **Licensing:** codec choice interacts
     with the FFmpeg build's LGPL/GPL split (x264/x265 → GPL) — decide the bundled build before
     distribution ([ARCHITECTURE §11](ARCHITECTURE.md)).
+    - **✅ DONE (`Sprocket.Media` encoder/probe + `Sprocket.Export` format matrix + `Sprocket.App` dialog; 16 new
+      tests — Export +14, Media +1, Persistence assertions; full suite **547 green**).** Export generalised from
+      a hard-wired H.264/AAC MP4 into a container × video-codec × audio-codec matrix, and import hardened to probe
+      and surface the source's real format — all behind Core's unchanged seams (§17), only the muxer/encoder back
+      end changes so export stays deterministic (§5). Delivered:
+      - **`MediaEncoder` codec matrix.** `Create(path, video, audio, containerFormat)` now takes the FFmpeg muxer
+        name (mp4/mov/matroska/webm/avi/mpegts) and picks encoders **by name** (`avcodec_find_encoder_by_name`) so
+        the matrix is robust across FFmpeg builds without baking codec-id tables. The pixel/sample format is
+        **negotiated against the chosen encoder** (`avcodec_get_supported_config`, the FFmpeg-8 replacement for the
+        removed `AVCodec.pix_fmts`/`sample_fmts`): video picks the requested format if supported else yuv420p else
+        the encoder's first; audio prefers `fltp` (the mixer-friendly deinterleave) else the encoder's first, and
+        `WriteAudioFrame` feeds **planar or packed** planes accordingly (so PCM/FLAC packed s16, Opus packed flt,
+        and AAC/AC-3/MP3 planar fltp all encode). Quality: CRF for the crf-capable encoders (x264/x265/SVT-AV1/VP9),
+        a resolution-scaled default bit rate otherwise; the chroma-aware even-dimension rule replaced the old
+        always-even guard (4:4:4 accepts odd sizes). Hardware encode (NVENC/QSV/AMF/VideoToolbox) slots in as
+        another encoder name behind this same shape — the software encoders stay the deterministic default;
+        full `hw_frames_ctx` GPU-frame upload is the follow-up (catalogued in `Native/FUTURE_BINDINGS.md`).
+      - **New curated bindings** (no new struct-offset regen): `av_get_pix_fmt`/`av_get_sample_fmt`/
+        `av_sample_fmt_is_planar`/`av_get_pix_fmt_name`, `avcodec_get_supported_config`, `avcodec_get_name`; plus
+        `AvPixFmtDescriptor` chroma-log2 + comp0 depth, `AvCodecParameters.color_trc`, and an
+        `AllocOutput(path, formatName)` container override.
+      - **`Sprocket.Export` format model.** `ExportFormat` (container/video/audio) + `ExportContainer`/
+        `ExportVideoCodec`/`ExportAudioCodec` enums with a single-source-of-truth `ExportCodecs` registry
+        (encoder names, pixel formats, presets, and the container→codec validity matrix), curated delivery
+        `Presets`, and a per-family CRF quality mapping. `ExportOptions` gained `Format`/`Quality`/`PixelFormat`
+        (its `default` is still MP4/H.264/AAC, so step-8 behaviour is byte-for-byte unchanged); `VideoExporter`
+        validates the pairing up front and passes the container/codecs through. **Export resolution capped at 4K**
+        (`ComputeExportResolution` scales down preserving aspect, rounds even — an export-side limit only).
+      - **Import coverage.** The media open dialog's filters broadened to the full container/audio set
+        (MP4/MOV/MKV/WebM/AVI/MXF/TS/… + WAV/MP3/AAC/FLAC/AC-3/Opus/…), with per-file graceful failure already in
+        place (§15). `MediaSource.Probe` now records the source's **codec (canonical name), pixel-format name,
+        component bit depth, HDR-transfer flag (PQ/HLG), and a VFR heuristic** on `ProbedMediaInfo` (additive,
+        defaulted; persisted as nullable so pre-27 files round-trip byte-identically and opaque/8-bit/SDR/CFR media
+        keeps a minimal diff). VFR/10–12-bit/4:2:2-4:4:4/HDR/alpha sources decode frame-accurately by PTS as before;
+        the probe just makes their properties visible (media-bin display).
+      - **UI.** An `ExportSettingsDialog` (cascading container → valid-codec dropdowns + quality tier + a
+        4K-capped output-resolution readout) runs before the save picker, whose extension / file-type filter now
+        follow the chosen container; `MainWindow` passes the resulting `ExportOptions` to `VideoExporter`.
+      - **Tests.** `ExportMatrixTests` round-trips six container/codec combinations (MP4·H.264+AAC, MOV·ProRes+PCM,
+        MKV·HEVC+FLAC, WebM·VP9+Opus, MP4·AV1+AAC, TS·MPEG-2+MP3) — reopening each and asserting the muxed streams'
+        canonical codecs — plus a ProRes 10-bit check, an invalid-pairing rejection, a quality-tier file-size
+        ordering, and the 4K-cap resolution math; `MediaSourceTests` gains a probe-details assertion and
+        `ProjectSerializerTests` verifies the new probe fields round-trip. Clean build (0 warnings) and a smoke
+        launch starts + tears down cleanly. Deliberate deferrals (noted above): hardware encode as a whole (a
+        hardware `ExportVideoCodec` option + the `hw_frames_ctx` GPU-frame upload path) — the name-based encoder
+        selection is the seam it will use, but export stays software/deterministic for now; and any HDR tone-map
+        (the `IsHdr` flag is informational until the later color step). Full suite: **547 tests green** (Core 209,
+        Media 30, Render 33, Audio 21, Playback 52, Export 26, Persistence 40, App 136).
 28. **Interchange & relink workflow (EDL / FCPXML / XML, batch relink, collab-ready format).** Pulled
     earlier than the specialized finishing work because it becomes necessary the moment projects leave
     the original machine or asset paths change. Three strands, all additive on the persistence and

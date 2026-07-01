@@ -71,6 +71,7 @@ internal struct AvCodecParameters
     [FieldOffset(48)] public long bit_rate;
     [FieldOffset(72)] public int width;
     [FieldOffset(76)] public int height;
+    [FieldOffset(108)] public int color_trc;   // enum AVColorTransferCharacteristic — HDR-transfer probe (step 27)
     [FieldOffset(128)] public AvChannelLayout ch_layout;
     [FieldOffset(152)] public int sample_rate;
 }
@@ -103,13 +104,20 @@ internal struct AvCodec
     [FieldOffset(0)] public IntPtr name;   // const char*
 }
 
-/// <summary>AVPixFmtDescriptor: only <c>flags</c> is read (to test <see cref="AvConst.PixFmtFlagAlpha"/>). Layout
-/// is <c>const char *name</c> (8) + three <c>uint8_t</c> (nb_components/log2_chroma_w/log2_chroma_h) at 8–10,
-/// then <c>uint64_t flags</c> 8-byte-aligned at offset 16 — stable across FFmpeg majors.</summary>
+/// <summary>AVPixFmtDescriptor: layout is <c>const char *name</c> (8) + three <c>uint8_t</c>
+/// (nb_components/log2_chroma_w/log2_chroma_h) at 8–10, then <c>uint64_t flags</c> 8-byte-aligned at offset 16,
+/// then <c>AVComponentDescriptor comp[4]</c> at 24 (each is five <c>int</c> = 20 bytes: plane/step/offset/shift/
+/// depth, so <c>comp[0].depth</c> is at 24+16 = 40). Stable across FFmpeg majors. We read <c>flags</c> (alpha
+/// test, step 26), the chroma log2s (even-dimension rule for the export pixel format, step 27), and
+/// <c>comp[0].depth</c> (source bit-depth for the import probe, step 27).</summary>
 [StructLayout(LayoutKind.Explicit)]
 internal struct AvPixFmtDescriptor
 {
+    [FieldOffset(8)] public byte nb_components;
+    [FieldOffset(9)] public byte log2_chroma_w;
+    [FieldOffset(10)] public byte log2_chroma_h;
     [FieldOffset(16)] public ulong flags;
+    [FieldOffset(40)] public int comp0_depth;   // comp[0].depth — bits per component of the first channel
 }
 
 [StructLayout(LayoutKind.Explicit)]
@@ -161,11 +169,20 @@ internal static class AvConst
 
     public const ulong PixFmtFlagAlpha = 1UL << 7;     // AV_PIX_FMT_FLAG_ALPHA
 
+    // HDR transfer characteristics (enum AVColorTransferCharacteristic) — used to flag HDR sources at probe.
+    public const int ColorTrcSmpte2084 = 16;           // PQ (HDR10 / Dolby Vision base layer)
+    public const int ColorTrcAribStdB67 = 18;          // HLG
+
+    public const int SampleFmtNone = -1;
     public const int SampleFmtFlt = 3;
     public const int SampleFmtFltp = 8;
 
     public const int CodecIdH264 = 27;
     public const int CodecIdAac = 86018;
+
+    // avcodec_get_supported_config() selectors (enum AVCodecConfig).
+    public const int CodecConfigPixFormat = 0;
+    public const int CodecConfigSampleFormat = 3;
 
     public const int SeekBackward = 1;                 // AVSEEK_FLAG_BACKWARD
     public const int FmtGlobalHeader = 64;             // AVFMT_GLOBALHEADER

@@ -44,6 +44,9 @@ internal static unsafe partial class LibAv
 
     // ---- libavcodec ----
     [LibraryImport(Avcodec)] internal static partial IntPtr avcodec_find_decoder(int id);
+    // Canonical short name for a codec id (const char*, e.g. "h264", "prores", "aac") — the import probe uses it
+    // to record the source's codec regardless of which decoder resolves it (PLAN.md step 27). Not on a hot path.
+    [LibraryImport(Avcodec)] internal static partial IntPtr avcodec_get_name(int id);
     [LibraryImport(Avcodec)] internal static partial IntPtr avcodec_find_encoder(int id);
     [LibraryImport(Avcodec, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial IntPtr avcodec_find_encoder_by_name(string name);
@@ -58,6 +61,12 @@ internal static unsafe partial class LibAv
     [LibraryImport(Avcodec)] internal static partial int avcodec_receive_packet(IntPtr ctx, IntPtr pkt);
     [LibraryImport(Avcodec)] internal static partial void avcodec_flush_buffers(IntPtr ctx);
     [LibraryImport(Avcodec)] internal static partial IntPtr avcodec_get_hw_config(IntPtr codec, int index);
+    // FFmpeg 7.1+ replacement for the removed AVCodec.pix_fmts/sample_fmts arrays: asks the codec which
+    // configs (pixel formats, sample formats, …) it supports. `outConfigs` receives the address of an
+    // internal array of `config`-typed values; `outNumConfigs` its length. Lets the export matrix validate
+    // a requested pixel/sample format against the encoder (PLAN.md step 27) instead of baking a static map.
+    [LibraryImport(Avcodec)] internal static partial int avcodec_get_supported_config(
+        IntPtr avctx, IntPtr codec, int config, uint flags, out IntPtr outConfigs, out int outNumConfigs);
     [LibraryImport(Avcodec)] internal static partial IntPtr av_packet_alloc();
     [LibraryImport(Avcodec)] internal static partial void av_packet_free(ref IntPtr pkt);
     [LibraryImport(Avcodec)] internal static partial void av_packet_unref(IntPtr pkt);
@@ -78,6 +87,17 @@ internal static unsafe partial class LibAv
     // Returns a pointer to the static AVPixFmtDescriptor for a pixel format (or NULL). Used to read the
     // ALPHA flag so alpha-channel sources take the premultiplied compositing path (PLAN.md step 26).
     [LibraryImport(Avutil)] internal static partial IntPtr av_pix_fmt_desc_get(int pixFmt);
+    // Resolve a pixel/sample format enum from its FFmpeg name (e.g. "yuv420p", "fltp"), returning
+    // AV_PIX_FMT_NONE / AV_SAMPLE_FMT_NONE (-1) when unknown. Selecting formats by NAME keeps the export
+    // codec matrix robust across FFmpeg builds without baking brittle enum ints (PLAN.md step 27).
+    [LibraryImport(Avutil, StringMarshalling = StringMarshalling.Utf8)] internal static partial int av_get_pix_fmt(string name);
+    [LibraryImport(Avutil, StringMarshalling = StringMarshalling.Utf8)] internal static partial int av_get_sample_fmt(string name);
+    // 1 when the sample format is planar (one plane per channel), 0 when packed/interleaved, <0 on error.
+    // Drives whether the audio encoder frame is fed per-channel planes or a single interleaved plane.
+    [LibraryImport(Avutil)] internal static partial int av_sample_fmt_is_planar(int sampleFmt);
+    // Human-readable pixel-format name (const char*, or NULL) — used by the import probe to surface the
+    // source's chroma/bit-depth to the media bin (PLAN.md step 27); never on a hot path.
+    [LibraryImport(Avutil)] internal static partial IntPtr av_get_pix_fmt_name(int pixFmt);
     [LibraryImport(Avutil)] internal static partial IntPtr av_hwdevice_get_type_name(int type);
     [LibraryImport(Avutil)] internal static partial int av_hwdevice_iterate_types(int prev);
     [LibraryImport(Avutil)] internal static partial int av_channel_layout_default(AvChannelLayout* layout, int nbChannels);

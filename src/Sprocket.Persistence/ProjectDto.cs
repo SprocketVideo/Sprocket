@@ -65,7 +65,15 @@ internal sealed record ProbedInfoDto(
     int Channels,
     // Alpha-channel flag (PLAN.md step 26). Additive + nullable: an opaque source writes null (WhenWritingNull),
     // so pre-26 files load with no alpha and opaque media serializes byte-identically. Only alpha media writes true.
-    bool? HasAlpha = null);
+    bool? HasAlpha = null,
+    // Source format details probed at import (PLAN.md step 27). All additive + nullable so a pre-27 file loads with
+    // sensible defaults and the informational fields (recomputed on the next probe) don't bloat the diff.
+    string? VideoCodec = null,
+    string? AudioCodec = null,
+    string? PixelFormatName = null,
+    int? BitDepth = null,
+    bool? IsHdr = null,
+    bool? IsVariableFrameRate = null);
 
 internal sealed record TimelineDto(
     RationalDto FrameRate,
