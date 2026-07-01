@@ -274,6 +274,23 @@ public sealed class InspectorPanel : UserControl
 
     private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p)
     {
+        var keyGlyph = new TextBlock
+        {
+            Text = "◇",
+            FontSize = 13,
+            LineHeight = 13,
+            TextAlignment = TextAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var graphGlyph = new TextBlock
+        {
+            Text = "∿",
+            FontSize = 13,
+            // No explicit LineHeight: the sine-wave glyph sits high in its em box and a
+            // LineHeight tied to FontSize clips its top (unlike the symmetric diamond above).
+            TextAlignment = TextAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
         var slider = new Slider
         {
             Minimum = p.Min,
@@ -293,9 +310,14 @@ public sealed class InspectorPanel : UserControl
         };
         var keyButton = new Button
         {
+            Content = keyGlyph,
             FontSize = 12,
-            Padding = new Avalonia.Thickness(5, 1),
+            Width = 24,
+            Height = 22,
+            Padding = new Avalonia.Thickness(0),
             Background = Brushes.Transparent,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
         ToolTip.SetTip(keyButton, "Toggle keyframing at the playhead");
@@ -303,11 +325,15 @@ public sealed class InspectorPanel : UserControl
         // Velocity-graph toggle (PLAN.md step 16d): expands the keyframe strip into the editable value graph.
         var graphButton = new Button
         {
-            Content = "∿",
+            Content = graphGlyph,
             FontSize = 12,
-            Padding = new Avalonia.Thickness(5, 1),
+            Width = 24,
+            Height = 22,
+            Padding = new Avalonia.Thickness(0),
             Background = Brushes.Transparent,
             Foreground = FaintText,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             IsVisible = false,
         };
@@ -387,7 +413,7 @@ public sealed class InspectorPanel : UserControl
             slider.Value = Math.Clamp(v, p.Min, p.Max);
             box.Text = InspectorFormat.Value(v, p.Unit);
             _suppress = false;
-            keyButton.Content = value.IsAnimated ? "◆" : "◇";
+            keyGlyph.Text = value.IsAnimated ? "◆" : "◇";
             keyButton.Foreground = value.IsAnimated ? Accent : FaintText;
 
             graphButton.IsVisible = value.IsAnimated;
