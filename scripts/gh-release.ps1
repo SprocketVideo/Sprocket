@@ -20,6 +20,10 @@
 # PREPENDED to the release body. It sits on top of the explicit notes (-Notes / -NotesFile /
 # RELEASE_NOTES.md), or — when none is given — on top of GitHub's auto-generated notes. Use
 # -NoChangeOverview to omit it.
+#   The per-release "what's new" therefore comes from the auto overview above, NOT from RELEASE_NOTES.md.
+#   RELEASE_NOTES.md is the EVERGREEN preamble (bug reporting, running the app, macOS setup, known
+#   limitations, licensing) and is version-agnostic on purpose — don't put a version number or a
+#   "what works / not yet" feature list in it; those drift. Full status lives in PLAN.md.
 #
 # Versioning: release.ps1 owns the X.Y.Z version (Directory.Build.props <VersionPrefix>) and stamps
 # it into the assemblies. The GIT TAG carries the prerelease suffix (e.g. v0.1.20-alpha.1); the
