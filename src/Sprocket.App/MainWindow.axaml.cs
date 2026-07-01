@@ -1374,20 +1374,41 @@ public partial class MainWindow : Window
         if (!await ConfirmDiscardIfDirty())
             return;
 
-        if (MediaBootstrap.SampleMediaPath() is not { } path)
-        {
-            SetStatus("Sample clip is not available in this build.");
-            return;
-        }
-
         try
         {
-            Project project = MediaBootstrap.BuildProjectFromMedia(path);
+            // Prefer the checked-in curated project (a graded timeline loaded through the normal ProjectSerializer
+            // path); its project-relative "sample.mp4" resolves against the bundled Samples folder. Fall back to
+            // building a plain project over the clip if only the clip shipped (or the project file is unreadable).
+            Project? project = LoadBundledSampleProject();
+            if (project is null && MediaBootstrap.SampleMediaPath() is { } clip)
+                project = MediaBootstrap.BuildProjectFromMedia(clip);
+            if (project is null)
+            {
+                SetStatus("Sample project is not available in this build.");
+                return;
+            }
             SessionRequested?.Invoke(new SessionRequest(project, "Opened sample project", null));
         }
         catch (Exception ex)
         {
             SetStatus($"Could not open the sample project: {ex.Message}");
+        }
+    }
+
+    /// <summary>Loads the bundled sample project file, or <see langword="null"/> when it is absent or unreadable
+    /// (so the caller can fall back to a plain clip-only project). It opens as untitled — Save / Save As writes a
+    /// fresh file rather than touching the bundled asset.</summary>
+    private static Project? LoadBundledSampleProject()
+    {
+        if (MediaBootstrap.SampleProjectPath() is not { } projectPath)
+            return null;
+        try
+        {
+            return ProjectSerializer.Load(projectPath);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 

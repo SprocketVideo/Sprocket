@@ -101,6 +101,19 @@ internal static class MediaBootstrap
     }
 
     /// <summary>
+    /// The bundled sample <em>project</em> file copied next to the executable (Sprocket.App.csproj <c>Content</c>),
+    /// or <see langword="null"/> when it is not present. Unlike the code-built <see cref="BuildProjectFromMedia"/>
+    /// session, this is a real checked-in project (a curated timeline with a Color grade on the clip) loaded through
+    /// the normal <c>ProjectSerializer</c> path; its project-relative <c>sample.mp4</c> resolves against this folder.
+    /// Used by File ▸ Open Sample Project.
+    /// </summary>
+    public static string? SampleProjectPath()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Samples", "sample.sprocket.json");
+        return File.Exists(path) ? path : null;
+    }
+
+    /// <summary>
     /// Builds an empty but fully-functional session — default settings, one empty video + audio track, a
     /// video-only software clock — so the editor opens ready to import into rather than dead-ending. This is the
     /// normal launch state (no command-line file), and also the fallback when a command-line file could not be
