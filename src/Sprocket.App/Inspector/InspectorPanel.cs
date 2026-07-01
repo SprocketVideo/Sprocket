@@ -146,11 +146,16 @@ public sealed class InspectorPanel : UserControl
         {
             Width = 72,
             FontSize = 11,
+            // Defeat the Fluent theme's 32px MinHeight so the box hugs the 11px text (otherwise the
+            // top-aligned text leaves a large gap that reads as excess bottom padding).
+            MinHeight = 22,
+            Height = 22,
             Padding = new Avalonia.Thickness(6, 2),
             Background = PanelBg,
             BorderBrush = Edge,
             Foreground = TextBrush,
             HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalContentAlignment = VerticalAlignment.Center,
             Text = SpeedFormat.ToPercentString(clip.SpeedRatio),
         };
         void Commit()
@@ -233,7 +238,7 @@ public sealed class InspectorPanel : UserControl
         EffectDescriptor? descriptor = EffectCatalog.Find(effect.EffectTypeId);
         string title = descriptor?.DisplayName ?? effect.EffectTypeId;
 
-        var rows = new StackPanel { Spacing = 8, Margin = new Avalonia.Thickness(4, 6, 4, 4) };
+        var rows = new StackPanel { Spacing = 4, Margin = new Avalonia.Thickness(4, 4, 4, 2) };
 
         IReadOnlyList<EffectParameterDescriptor> parameters =
             descriptor?.Parameters ?? FallbackDescriptors(effect);
@@ -299,16 +304,23 @@ public sealed class InspectorPanel : UserControl
             Maximum = p.Max,
             SmallChange = p.Step,
             LargeChange = p.Step * 10,
-            Margin = new Avalonia.Thickness(0, -2, 0, -2),
+            // Negative margin trims the empty track padding the Fluent slider reserves above/below the
+            // 14px thumb, so each parameter block is tighter without clipping the thumb.
+            Margin = new Avalonia.Thickness(0, -4, 0, -4),
         };
         var box = new TextBox
         {
             Width = 64,
             FontSize = 11,
+            // See BuildSpeedRow: override the theme's 32px MinHeight and centre the text so the box is
+            // compact and its content isn't top-aligned with a bottom gap.
+            MinHeight = 22,
+            Height = 22,
             Padding = new Avalonia.Thickness(6, 2),
             Background = PanelBg,
             BorderBrush = Edge,
             VerticalAlignment = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
         };
         var keyButton = new Button
         {
