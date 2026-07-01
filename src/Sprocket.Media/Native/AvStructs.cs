@@ -94,8 +94,32 @@ internal struct AvCodecContext
     [FieldOffset(348)] public int sample_fmt;
     [FieldOffset(352)] public AvChannelLayout ch_layout;
     [FieldOffset(376)] public int frame_size;
+    [FieldOffset(552)] public IntPtr hw_frames_ctx;   // AVBufferRef* — set on a GPU encoder taking device surfaces (step 29)
     [FieldOffset(560)] public IntPtr hw_device_ctx;   // AVBufferRef*
     [FieldOffset(656)] public int thread_count;
+}
+
+/// <summary>AVHWFramesContext (sizeof 80): the pool description for a hardware-encode frame set (PLAN.md step 29).
+/// Reached through an <c>AVBufferRef*</c>'s <c>data</c> pointer (see <see cref="AvBufferRef"/>). We fill
+/// <c>format</c> (the device pixel format, e.g. VAAPI), <c>sw_format</c> (the CPU format uploaded from, nv12),
+/// <c>width</c>/<c>height</c>, and <c>initial_pool_size</c> before <c>av_hwframe_ctx_init</c>. Offsets recorded
+/// from the FFmpeg 8.1 x64 layout (see <c>Native/FUTURE_BINDINGS.md</c>).</summary>
+[StructLayout(LayoutKind.Explicit)]
+internal struct AvHwFramesContext
+{
+    [FieldOffset(56)] public int initial_pool_size;
+    [FieldOffset(60)] public int format;      // enum AVPixelFormat — the hardware surface format
+    [FieldOffset(64)] public int sw_format;   // enum AVPixelFormat — the CPU format uploaded from
+    [FieldOffset(68)] public int width;
+    [FieldOffset(72)] public int height;
+}
+
+/// <summary>AVBufferRef: <c>{ AVBuffer *buffer; uint8_t *data; size_t size; }</c>. We only ever read <c>data</c>
+/// (offset 8) to reach the <see cref="AvHwFramesContext"/> an <c>av_hwframe_ctx_alloc</c> ref points at.</summary>
+[StructLayout(LayoutKind.Explicit)]
+internal struct AvBufferRef
+{
+    [FieldOffset(8)] public IntPtr data;
 }
 
 [StructLayout(LayoutKind.Explicit)]
@@ -168,6 +192,9 @@ internal static class AvConst
     public const int PixFmtRgba = 26;
 
     public const ulong PixFmtFlagAlpha = 1UL << 7;     // AV_PIX_FMT_FLAG_ALPHA
+    public const ulong PixFmtFlagHwAccel = 1UL << 3;   // AV_PIX_FMT_FLAG_HWACCEL (a device-surface pixel format)
+
+    public const int PixFmtNv12 = 23;                  // AV_PIX_FMT_NV12 — the CPU format hardware encoders upload from
 
     // HDR transfer characteristics (enum AVColorTransferCharacteristic) — used to flag HDR sources at probe.
     public const int ColorTrcSmpte2084 = 16;           // PQ (HDR10 / Dolby Vision base layer)

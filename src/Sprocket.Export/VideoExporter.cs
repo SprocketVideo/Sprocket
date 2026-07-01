@@ -32,6 +32,9 @@ namespace Sprocket.Export;
 /// <param name="FrameRate">An explicit output frame rate (PLAN.md step 29 presets), or <see langword="null"/> to use
 /// the sequence's own. The render graph is a pure function of time, so a different rate simply samples the timeline
 /// at the new frame instants (frames duplicated / dropped as needed) — the standard NLE resample-on-export.</param>
+/// <param name="Acceleration">Whether to encode with the deterministic software encoder (the default) or a platform
+/// GPU encoder with automatic software fallback (PLAN.md step 29). <see cref="ExportAcceleration.Hardware"/> is a
+/// speed option for review/intermediate outputs; final delivery keeps the software default for reproducibility.</param>
 public readonly record struct ExportOptions(
     ExportFormat Format = default,
     ExportQuality Quality = ExportQuality.High,
@@ -43,7 +46,8 @@ public readonly record struct ExportOptions(
     int HandleFrames = 0,
     IReadOnlyList<BurnIn>? BurnIns = null,
     Resolution? Resolution = null,
-    Rational? FrameRate = null);
+    Rational? FrameRate = null,
+    ExportAcceleration Acceleration = ExportAcceleration.Software);
 
 /// <summary>
 /// Renders a <see cref="Project"/> offline to a full-resolution movie in the chosen container/codec matrix
@@ -164,6 +168,12 @@ public static class VideoExporter
         bool wantAudio = HasAudibleAudio(project, sequence);
 
         VideoCodecInfo videoCodec = ExportCodecs.Video(format.VideoCodec);
+        // Hardware acceleration (PLAN.md step 29): probe the platform GPU encoders for this codec before the
+        // software encoder, which stays the guaranteed fallback (MediaEncoder engages the first that opens). The
+        // software `CodecName` is unchanged, so a machine with no usable GPU produces the identical software output.
+        IReadOnlyList<string>? hwCandidates = options.Acceleration == ExportAcceleration.Hardware
+            ? ExportCodecs.HardwareEncoderCandidates(format.VideoCodec)
+            : null;
         var video = new VideoEncoderSettings(
             outWidth, outHeight, fps,
             CodecName: videoCodec.EncoderName,
@@ -171,7 +181,8 @@ public static class VideoExporter
             BitRate: options.VideoBitRate,
             GopSize: options.GopSize,
             Crf: ExportCodecs.CrfFor(format.VideoCodec, options.Quality),
-            Preset: videoCodec.DefaultPreset);
+            Preset: videoCodec.DefaultPreset,
+            HardwareCandidates: hwCandidates);
 
         AudioEncoderSettings? audio = wantAudio
             ? new AudioEncoderSettings(sampleRate, channels, ExportCodecs.Audio(format.AudioCodec).EncoderName, options.AudioBitRate)

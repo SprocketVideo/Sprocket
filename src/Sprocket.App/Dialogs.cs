@@ -465,6 +465,11 @@ internal static class ExportSettingsDialog
         ComboBox audioBox = MakeCombo([]);
         ComboBox qualityBox = MakeCombo(["High (larger file)", "Medium", "Low (smaller file)"]);
         qualityBox.SelectedIndex = 0;
+        // Encoding: software (deterministic, best compatibility — the default) or hardware (GPU encoder with
+        // automatic software fallback, PLAN.md step 29). Kept out of presets: it is a performance choice, not part
+        // of the delivery format, so it neither snaps the preset to Custom nor is captured by Save Preset.
+        ComboBox encodingBox = MakeCombo(["Software", "Hardware (if available)"]);
+        encodingBox.SelectedIndex = 0;
         ComboBox resolutionBox = MakeCombo(Resolutions.Select(r => r.Label));
         resolutionBox.SelectedIndex = 0;
         ComboBox fpsBox = MakeCombo(FrameRates.Select(f => f.Label));
@@ -604,7 +609,7 @@ internal static class ExportSettingsDialog
                 LabeledRow("Preset", BurnInRow(presetBox, savePreset)),
                 LabeledRow("Format", containerBox),
                 TwoColumnRow("Video codec", videoBox, "Audio codec", audioBox),
-                LabeledRow("Quality", qualityBox),
+                TwoColumnRow("Quality", qualityBox, "Encoding", encodingBox),
                 TwoColumnRow("Resolution", resolutionBox, "Frame rate", fpsBox),
                 resText,
                 new TextBlock { Text = "Burn-ins", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) },
@@ -680,7 +685,8 @@ internal static class ExportSettingsDialog
                 HandleFrames: handles,
                 BurnIns: burnIns.Count > 0 ? burnIns : null,
                 Resolution: Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
-                FrameRate: FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value));
+                FrameRate: FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value,
+                Acceleration: encodingBox.SelectedIndex == 1 ? ExportAcceleration.Hardware : ExportAcceleration.Software));
         };
         cancel.Click += (_, _) => dialog.Close((ExportOptions?)null);
 

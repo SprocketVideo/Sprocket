@@ -39,18 +39,22 @@ pixel/sample formats **by name/negotiation** rather than baking codec-id/format 
 - Not needed after all: `AVCodecContext.profile/level/max_b_frames/qmin/qmax/global_quality` (private-option
   `av_dict` + the supported-config negotiation covered the matrix). Add them only if finer per-codec control is wanted.
 
-### Step 27 / 32 — hardware encode (NVENC/QSV/AMF/VideoToolbox) & render cache  (MEDIUM effort — still open)
-Deferred by step 27. The enabling seam exists — `MediaEncoder` picks encoders **by name**, so a hardware encoder
-(`h264_nvenc`, `hevc_qsv`, …) is just another name — but the actual hardware-encode work is unbuilt: an
-`ExportVideoCodec`/name-fallback path and the GPU-frame **upload** path below (feeding an NVENC/QSV/VAAPI encoder
-GPU frames instead of the CPU frames the software encoders take).
-- Functions (avutil): `av_hwframe_ctx_alloc`, `av_hwframe_ctx_init`, `av_hwframe_get_buffer`
-  (`av_hwframe_transfer_data`, `av_buffer_ref/unref` already bound; reuse `IHardwareContext`).
-- `AVCodecContext.hw_frames_ctx=552` (set on the encoder; `hw_device_ctx=560` already bound).
-- New `AVHWFramesContext` view (sizeof 80): `initial_pool_size=56`, `format=60`, `sw_format=64`,
-  `width=68`, `height=72`.
-- `AVCodecContext` color out fields if tagging HDR output: `color_primaries=144`, `color_trc=148`,
-  `colorspace=152`, `color_range=156`.
+### Step 27 / 29 — hardware encode (NVENC/QSV/AMF/VideoToolbox/VAAPI)  (✅ DONE, step 29)
+Shipped as the final step-29 strand. The enabling seam (`MediaEncoder` picks encoders **by name**) was extended with
+`VideoEncoderSettings.HardwareCandidates` — an ordered chain probed before the software `CodecName`, engaging the
+first that opens and falling back to software otherwise (`MediaEncoder.IsHardwareVideo` reports which). The candidate
+list is built per-OS by `ExportCodecs.HardwareEncoderCandidates` and gated on `ExportOptions.Acceleration`. Two feed
+paths, chosen by the encoder's advertised pixel formats: encoders that list a CPU format (NVENC/QSV/AMF/VideoToolbox)
+are handed an nv12 CPU frame and upload internally; device-surface-only encoders (VAAPI) take the `hw_frames_ctx`
+upload path. Bound for it:
+- Functions (avutil): **`av_hwframe_ctx_alloc`**, **`av_hwframe_ctx_init`**, **`av_hwframe_get_buffer`** added
+  (`av_hwframe_transfer_data`, `av_buffer_ref/unref` were already bound; `IHardwareContext` / `HardwareDevice` reused).
+- **`AVCodecContext.hw_frames_ctx=552`** bound (`hw_device_ctx=560` already was).
+- **`AVHWFramesContext` view** added (`initial_pool_size=56`, `format=60`, `sw_format=64`, `width=68`, `height=72`),
+  reached through a new minimal **`AvBufferRef`** view (`data=8`). `AV_PIX_FMT_FLAG_HWACCEL=(1<<3)` + `AV_PIX_FMT_NV12=23`
+  added to `AvConst`.
+- **Not done** — `AVCodecContext` color-out fields for HDR *output* tagging (`color_primaries=144`, `color_trc=148`,
+  `colorspace=152`, `color_range=156`): unneeded for hardware encode; they belong with the step-37 log/HDR color work.
 
 ### Possible — rotation / display matrix (phone video, implied by step 27 robustness)
 - `av_frame_get_side_data` / `av_packet_side_data_get` + `av_display_rotation_get`, side-data type

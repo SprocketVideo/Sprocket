@@ -145,6 +145,7 @@ internal sealed unsafe class CodecContextHandle : IDisposable
     public AvChannelLayout* ChLayout => (AvChannelLayout*)((byte*)_p + 352);
     public IntPtr GetFormat { set => C->get_format = value; }
     public IntPtr HwDeviceCtx { set => C->hw_device_ctx = value; }
+    public IntPtr HwFramesCtx { set => C->hw_frames_ctx = value; }
 
     public string CodecName
     {

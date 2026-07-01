@@ -20,6 +20,11 @@ namespace Sprocket.Media;
 /// the encoder supports CRF. Ignored otherwise.</param>
 /// <param name="Preset">Encoder speed/quality preset (x264/x265: <c>"medium"</c> etc.; SVT-AV1: a number), applied
 /// when the encoder recognises a <c>preset</c> option. <see langword="null"/> leaves the encoder default.</param>
+/// <param name="HardwareCandidates">Ordered hardware-encoder names to <b>probe before</b> <paramref name="CodecName"/>
+/// (PLAN.md step 29): e.g. <c>["h264_nvenc", "h264_qsv", "h264_amf"]</c>. The first that opens on this machine is
+/// engaged (feeding it system-memory frames, or uploading to device surfaces when it only accepts them); when none
+/// open, the encoder silently falls back to the software <paramref name="CodecName"/> — the deterministic default
+/// that final delivery relies on (ARCHITECTURE.md §5). <see langword="null"/>/empty = software only (unchanged).</param>
 public readonly record struct VideoEncoderSettings(
     int Width, int Height, Rational FrameRate,
     string CodecName = "libx264",
@@ -27,7 +32,8 @@ public readonly record struct VideoEncoderSettings(
     long BitRate = 0,
     int GopSize = 0,
     int Crf = 20,
-    string? Preset = "medium");
+    string? Preset = "medium",
+    IReadOnlyList<string>? HardwareCandidates = null);
 
 /// <summary>Settings for the exported audio stream (PLAN.md step 27 codec matrix).</summary>
 /// <param name="SampleRate">Output sample rate in Hz.</param>
@@ -79,9 +85,19 @@ public sealed unsafe class MediaEncoder : IDisposable
     private readonly AvRational _videoEncTimeBase;
     private readonly SwsScaler _converter = new();
     private readonly AvFrameHandle _rgbaFrame;   // staging: incoming RGBA copied here, then swscaled to enc pix fmt
-    private readonly AvFrameHandle _encFrame;    // swscale destination + encoder input (chosen pixel format)
+    private readonly AvFrameHandle _encFrame;    // swscale destination + encoder input (chosen CPU pixel format)
     private readonly int _width;
     private readonly int _height;
+
+    // Hardware video encode (PLAN.md step 29). When a hardware encoder engaged, these describe how the composited
+    // frame reaches the GPU. NVENC/QSV/AMF/VideoToolbox advertise a CPU pixel format and take _encFrame directly
+    // (they upload internally); a device-surface-only encoder (VAAPI) needs _encFrame uploaded into a pooled GPU
+    // surface (_gpuFrame drawn from _hwFramesRef) each frame — that is the "hw_frames_ctx upload" path.
+    private readonly bool _videoIsHardware;
+    private readonly bool _gpuSurfaceMode;
+    private readonly IHardwareContext? _hwDevice;   // owned; disposed after the encoder that references it
+    private IntPtr _hwFramesRef;                     // AVBufferRef* frame pool (surface mode), else Zero
+    private readonly AvFrameHandle? _gpuFrame;       // per-frame device surface (surface mode), else null
 
     // Audio (optional)
     private readonly CodecContextHandle? _audioEncoder;
@@ -97,20 +113,23 @@ public sealed unsafe class MediaEncoder : IDisposable
     private bool _disposed;
 
     private MediaEncoder(
-        FormatContextHandle format,
-        CodecContextHandle videoEncoder, IntPtr videoStream,
-        AvFrameHandle rgbaFrame, AvFrameHandle encFrame,
+        FormatContextHandle format, in VideoSetup video,
         CodecContextHandle? audioEncoder, IntPtr audioStream,
         AvFrameHandle? audioFrame, SwrResampler? swr, bool audioPlanar, int channels)
     {
         _format = format;
-        _videoEncoder = videoEncoder;
-        _videoStream = videoStream;
-        _videoEncTimeBase = videoEncoder.TimeBase;
-        _rgbaFrame = rgbaFrame;
-        _encFrame = encFrame;
-        _width = videoEncoder.Width;
-        _height = videoEncoder.Height;
+        _videoEncoder = video.Encoder;
+        _videoStream = video.Stream;
+        _videoEncTimeBase = video.Encoder.TimeBase;
+        _rgbaFrame = video.RgbaFrame;
+        _encFrame = video.EncFrame;
+        _width = video.Encoder.Width;
+        _height = video.Encoder.Height;
+        _videoIsHardware = video.IsHardware;
+        _gpuSurfaceMode = video.GpuFrame is not null;
+        _hwDevice = video.HwDevice;
+        _hwFramesRef = video.HwFramesRef;
+        _gpuFrame = video.GpuFrame;
         _audioEncoder = audioEncoder;
         _audioStream = audioStream;
         _audioEncTimeBase = audioEncoder?.TimeBase ?? default;
@@ -122,6 +141,11 @@ public sealed unsafe class MediaEncoder : IDisposable
 
     /// <summary>Whether the file has an audio stream (<see cref="WriteAudioFrame"/> is valid).</summary>
     public bool HasAudio => _audioEncoder is not null;
+
+    /// <summary>Whether a hardware video encoder engaged (PLAN.md step 29). <see langword="false"/> means the
+    /// deterministic software encoder is running — either because none was requested, or because every requested
+    /// hardware candidate failed to open and the encoder fell back to software.</summary>
+    public bool IsHardwareVideo => _videoIsHardware;
 
     /// <summary>The number of samples (per channel) the audio encoder wants per frame; pass exactly this many to
     /// <see cref="WriteAudioFrame"/> except for the final, shorter frame. Zero when there is no audio.</summary>
@@ -153,13 +177,13 @@ public sealed unsafe class MediaEncoder : IDisposable
         FFmpegLoader.EnsureBundledNativesLoaded();
 
         FormatContextHandle format = FormatContextHandle.AllocOutput(path, containerFormat);
+        VideoSetup videoSetup = default; // hoisted so the catch can release it if a later step throws
         try
         {
             bool globalHeader = (format.OutputFlags & AvConst.FmtGlobalHeader) != 0;
             bool noFile = (format.OutputFlags & AvConst.FmtNoFile) != 0;
 
-            (CodecContextHandle videoEncoder, IntPtr videoStream, AvFrameHandle rgbaFrame, AvFrameHandle encFrame) =
-                OpenVideo(format, video, globalHeader);
+            videoSetup = OpenVideo(format, video, globalHeader);
 
             CodecContextHandle? audioEncoder = null;
             IntPtr audioStream = IntPtr.Zero;
@@ -187,7 +211,7 @@ public sealed unsafe class MediaEncoder : IDisposable
             format.WriteHeader();
 
             return new MediaEncoder(
-                format, videoEncoder, videoStream, rgbaFrame, encFrame,
+                format, in videoSetup,
                 audioEncoder, audioStream, audioFrame, swr, audioPlanar, channels)
             {
                 AudioFrameSize = audioFrameSize,
@@ -195,6 +219,10 @@ public sealed unsafe class MediaEncoder : IDisposable
         }
         catch
         {
+            // The video setup owns native handles (encoder ctx, hw device/frames-pool, staging frames) that
+            // avformat_free_context does not release; free them explicitly if we fail before the MediaEncoder
+            // instance (whose Dispose would otherwise own them) is constructed.
+            videoSetup.Dispose();
             format.Dispose();
             throw;
         }
@@ -223,56 +251,248 @@ public sealed unsafe class MediaEncoder : IDisposable
         return string.IsNullOrEmpty(version) ? "Sprocket" : $"Sprocket {version}";
     }
 
-    private static (CodecContextHandle, IntPtr stream, AvFrameHandle rgba, AvFrameHandle enc) OpenVideo(
-        FormatContextHandle format, VideoEncoderSettings v, bool globalHeader)
+    /// <summary>All native state for the video stream, so the probe/fallback loop can hand back one bundle (and
+    /// tear it down atomically on failure). A software encoder fills <see cref="Encoder"/>/<see cref="Stream"/>/
+    /// <see cref="RgbaFrame"/>/<see cref="EncFrame"/> only; a hardware one adds a device, and — for a device-surface
+    /// encoder — a frame pool + per-frame GPU surface (PLAN.md step 29).</summary>
+    private readonly struct VideoSetup(
+        CodecContextHandle encoder, IntPtr stream, AvFrameHandle rgbaFrame, AvFrameHandle encFrame,
+        bool isHardware, IHardwareContext? hwDevice, IntPtr hwFramesRef, AvFrameHandle? gpuFrame)
     {
-        IntPtr codec = FindVideoEncoder(v.CodecName);
+        public CodecContextHandle Encoder { get; } = encoder;
+        public IntPtr Stream { get; } = stream;
+        public AvFrameHandle RgbaFrame { get; } = rgbaFrame;
+        public AvFrameHandle EncFrame { get; } = encFrame;
+        public bool IsHardware { get; } = isHardware;
+        public IHardwareContext? HwDevice { get; } = hwDevice;
+        public IntPtr HwFramesRef { get; } = hwFramesRef;
+        public AvFrameHandle? GpuFrame { get; } = gpuFrame;
+
+        /// <summary>Releases everything this setup owns (no-op on a <c>default</c> value). Frame pool before device,
+        /// device after the encoder that references it.</summary>
+        public void Dispose()
+        {
+            GpuFrame?.Dispose();
+            EncFrame?.Dispose();
+            RgbaFrame?.Dispose();
+            IntPtr framesRef = HwFramesRef;
+            if (framesRef != IntPtr.Zero) LibAv.av_buffer_unref(ref framesRef);
+            Encoder?.Dispose();   // unrefs its own hw_device_ctx / hw_frames_ctx refs
+            HwDevice?.Dispose();
+        }
+    }
+
+    /// <summary>Opens the video encoder, honouring <see cref="VideoEncoderSettings.HardwareCandidates"/>: each
+    /// hardware candidate is probed in order and the first that opens on this machine wins; any that fails is torn
+    /// down and the next tried, ending at the software <see cref="VideoEncoderSettings.CodecName"/> — the guaranteed
+    /// deterministic fallback (ARCHITECTURE.md §5). Only a hardware attempt's failure is swallowed; a software-path
+    /// failure (unknown codec / rejected pixel format) still surfaces as before.</summary>
+    private static VideoSetup OpenVideo(FormatContextHandle format, VideoEncoderSettings v, bool globalHeader)
+    {
+        if (v.HardwareCandidates is { Count: > 0 } candidates)
+        {
+            foreach (string name in candidates)
+            {
+                if (string.IsNullOrEmpty(name))
+                    continue;
+                try
+                {
+                    return OpenVideoEncoder(format, v, name, hardware: true, globalHeader);
+                }
+                catch (Exception ex) when (ex is FFmpegException or ArgumentException)
+                {
+                    // This GPU / encoder isn't usable here (no device, codec not built in, open rejected the
+                    // hardware): fall through to the next candidate, then to software. FFmpeg logs the detail to
+                    // stderr; the silent degrade mirrors how MediaSource negotiates hardware decode (§11).
+                    _ = ex;
+                }
+            }
+        }
+        return OpenVideoEncoder(format, v, v.CodecName, hardware: false, globalHeader);
+    }
+
+    /// <summary>Configures and opens one encoder by name. When <paramref name="hardware"/>, negotiates the matching
+    /// GPU device and either feeds it CPU frames (encoders that advertise a CPU pixel format: NVENC/QSV/AMF/
+    /// VideoToolbox) or uploads to a device-surface pool (device-only encoders: VAAPI). The software path is the
+    /// original CRF/preset behaviour, unchanged. Throws on any failure (the caller decides whether to swallow it).</summary>
+    private static VideoSetup OpenVideoEncoder(
+        FormatContextHandle format, VideoEncoderSettings v, string name, bool hardware, bool globalHeader)
+    {
+        IntPtr codec = FindVideoEncoder(name);
 
         CodecContextHandle encoder = CodecContextHandle.Alloc(codec);
+        IHardwareContext? device = null;
+        IntPtr framesRef = IntPtr.Zero;
+        AvFrameHandle? rgba = null, enc = null, gpu = null;
         try
         {
-            int pixFmt = ChooseVideoPixelFormat(encoder, codec, v.PixelFormat);
-            ValidateEvenDimensions(pixFmt, v.Width, v.Height);
+            int encFramePixFmt; // the CPU pixel format the composited RGBA is swscaled into
+            bool surfaceMode = false;
 
-            encoder.Width = v.Width;
-            encoder.Height = v.Height;
-            encoder.PixFmt = pixFmt;
-            // Time base = 1/fps so a frame's PTS is simply its frame index.
-            encoder.TimeBase = new AvRational(v.FrameRate.Den, v.FrameRate.Num);
-            encoder.Framerate = new AvRational(v.FrameRate.Num, v.FrameRate.Den);
-            if (v.GopSize > 0) encoder.GopSize = v.GopSize;
-            if (globalHeader) encoder.Flags |= AvConst.CodecFlagGlobalHeader;
-
-            IntPtr options = IntPtr.Zero;
-            if (v.BitRate > 0)
+            if (!hardware)
             {
-                encoder.BitRate = v.BitRate;
-            }
-            else if (CrfEncoders.Contains(v.CodecName))
-            {
-                // CRF/preset drive quality when no explicit bitrate is set; deterministic for golden-frame tests.
-                LibAv.av_dict_set(ref options, "crf", v.Crf.ToString(), 0);
+                encFramePixFmt = ChooseVideoPixelFormat(encoder, codec, v.PixelFormat);
+                ValidateEvenDimensions(encFramePixFmt, v.Width, v.Height);
+                ConfigureCommonVideo(encoder, v, encFramePixFmt, globalHeader);
+                OpenSoftwareVideo(encoder, codec, v);
             }
             else
             {
-                // Non-CRF encoders (mpeg2video, …) need a target rate to size output; ProRes ignores it (profile-driven).
-                encoder.BitRate = DefaultVideoBitRate(v.Width, v.Height, v.FrameRate);
+                (surfaceMode, int swFmt, int hwFmt) = ClassifyHardwarePixelFormat(encoder, codec);
+                encFramePixFmt = swFmt;
+                ValidateEvenDimensions(swFmt, v.Width, v.Height);
+
+                // Probe the vendor device. Its absence means this vendor's GPU isn't present → skip the candidate.
+                HardwareDeviceType type = HardwareDevice.EncoderDeviceType(name);
+                device = type != HardwareDeviceType.None ? HardwareDevice.TryCreate(type) : null;
+                if (surfaceMode && device is null)
+                    throw new FFmpegException("av_hwdevice_ctx_create", 0, $"no {type} device available for '{name}'");
+
+                ConfigureCommonVideo(encoder, v, surfaceMode ? hwFmt : swFmt, globalHeader);
+                // Hardware encoders ignore libx264-style CRF; drive quality by bit rate (the knob NVENC/QSV/AMF/
+                // VAAPI/VideoToolbox all honour). An explicit VideoBitRate wins; otherwise a resolution-scaled default.
+                encoder.BitRate = v.BitRate > 0 ? v.BitRate : DefaultVideoBitRate(v.Width, v.Height, v.FrameRate);
+
+                if (device is not null)
+                    encoder.HwDeviceCtx = LibAv.av_buffer_ref(device.DeviceContextRef);
+                if (surfaceMode)
+                {
+                    framesRef = CreateHwFramesContext(device!, hwFmt, swFmt, v.Width, v.Height);
+                    encoder.HwFramesCtx = LibAv.av_buffer_ref(framesRef);
+                }
+
+                encoder.Open(codec); // fails here when the encoder can't init on this hardware → candidate rejected
             }
-            if (!string.IsNullOrEmpty(v.Preset)) LibAv.av_dict_set(ref options, "preset", v.Preset, 0);
-            encoder.Open(codec, options);   // frees the option dict, incl. any unconsumed keys
+
+            // Allocate the staging frames BEFORE registering the stream, so an (unlikely) alloc failure on a
+            // hardware retry never leaves an orphan stream in the muxer to double up on the next candidate.
+            rgba = AvFrameHandle.CreateVideo(v.Width, v.Height, AvConst.PixFmtRgba, align: 4);
+            enc = AvFrameHandle.CreateVideo(v.Width, v.Height, encFramePixFmt, align: 32);
+            if (surfaceMode)
+                gpu = new AvFrameHandle(); // filled per-frame from the device pool
 
             IntPtr stream = format.NewStream(codec);
             var st = (AvStream*)stream;
             encoder.ParametersToStream(st->codecpar);
             st->time_base = encoder.TimeBase;
 
-            AvFrameHandle rgba = AvFrameHandle.CreateVideo(v.Width, v.Height, AvConst.PixFmtRgba, align: 4);
-            AvFrameHandle enc = AvFrameHandle.CreateVideo(v.Width, v.Height, pixFmt, align: 32);
-            return (encoder, stream, rgba, enc);
+            return new VideoSetup(encoder, stream, rgba, enc, hardware, device, framesRef, gpu);
         }
         catch
         {
+            gpu?.Dispose();
+            enc?.Dispose();
+            rgba?.Dispose();
+            if (framesRef != IntPtr.Zero) LibAv.av_buffer_unref(ref framesRef);
             encoder.Dispose();
+            device?.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Sets the width/height/pixel-format/time-base/frame-rate/GOP/global-header flag shared by every
+    /// encoder. The time base is 1/fps so a frame's PTS is simply its frame index.</summary>
+    private static void ConfigureCommonVideo(CodecContextHandle encoder, VideoEncoderSettings v, int pixFmt, bool globalHeader)
+    {
+        encoder.Width = v.Width;
+        encoder.Height = v.Height;
+        encoder.PixFmt = pixFmt;
+        encoder.TimeBase = new AvRational(v.FrameRate.Den, v.FrameRate.Num);
+        encoder.Framerate = new AvRational(v.FrameRate.Num, v.FrameRate.Den);
+        if (v.GopSize > 0) encoder.GopSize = v.GopSize;
+        if (globalHeader) encoder.Flags |= AvConst.CodecFlagGlobalHeader;
+    }
+
+    /// <summary>Applies the software CRF/preset/bit-rate quality policy and opens the encoder (unchanged step-27
+    /// behaviour, kept deterministic for golden-frame tests).</summary>
+    private static void OpenSoftwareVideo(CodecContextHandle encoder, IntPtr codec, VideoEncoderSettings v)
+    {
+        IntPtr options = IntPtr.Zero;
+        if (v.BitRate > 0)
+        {
+            encoder.BitRate = v.BitRate;
+        }
+        else if (CrfEncoders.Contains(v.CodecName))
+        {
+            // CRF/preset drive quality when no explicit bitrate is set; deterministic for golden-frame tests.
+            LibAv.av_dict_set(ref options, "crf", v.Crf.ToString(), 0);
+        }
+        else
+        {
+            // Non-CRF encoders (mpeg2video, …) need a target rate to size output; ProRes ignores it (profile-driven).
+            encoder.BitRate = DefaultVideoBitRate(v.Width, v.Height, v.FrameRate);
+        }
+        if (!string.IsNullOrEmpty(v.Preset)) LibAv.av_dict_set(ref options, "preset", v.Preset, 0);
+        encoder.Open(codec, options);   // frees the option dict, incl. any unconsumed keys
+    }
+
+    /// <summary>Decides how a hardware encoder is fed. Reads the encoder's advertised pixel formats: if it lists a
+    /// CPU (non-<c>HWACCEL</c>) format it takes system-memory frames directly (returns <c>surface=false</c> with the
+    /// CPU format to swscale into — nv12 preferred, else yuv420p, else its first CPU format); if it lists <b>only</b>
+    /// device-surface formats (VAAPI) it needs a frame pool + upload (returns <c>surface=true</c>, the hardware
+    /// format, and nv12 as the CPU format to upload from).</summary>
+    private static (bool surface, int swFmt, int hwFmt) ClassifyHardwarePixelFormat(CodecContextHandle encoder, IntPtr codec)
+    {
+        int[] supported = GetSupportedConfigs(encoder, codec, AvConst.CodecConfigPixFormat);
+        if (supported.Length == 0)
+            return (false, AvConst.PixFmtNv12, AvConst.PixFmtNone); // no restriction → feed nv12 system frames
+
+        int firstCpu = AvConst.PixFmtNone, firstHw = AvConst.PixFmtNone;
+        bool hasNv12 = false, hasYuv420 = false;
+        foreach (int f in supported)
+        {
+            if (IsHardwarePixelFormat(f))
+            {
+                if (firstHw == AvConst.PixFmtNone) firstHw = f;
+            }
+            else
+            {
+                if (firstCpu == AvConst.PixFmtNone) firstCpu = f;
+                if (f == AvConst.PixFmtNv12) hasNv12 = true;
+                else if (f == AvConst.PixFmtYuv420p) hasYuv420 = true;
+            }
+        }
+
+        if (firstCpu != AvConst.PixFmtNone)
+        {
+            int chosen = hasNv12 ? AvConst.PixFmtNv12 : hasYuv420 ? AvConst.PixFmtYuv420p : firstCpu;
+            return (false, chosen, AvConst.PixFmtNone);
+        }
+        return (true, AvConst.PixFmtNv12, firstHw); // device-surface-only encoder (VAAPI)
+    }
+
+    /// <summary>Whether a pixel format is a hardware device-surface format (carries <c>AV_PIX_FMT_FLAG_HWACCEL</c>),
+    /// i.e. one that cannot be filled from system memory without an upload.</summary>
+    private static bool IsHardwarePixelFormat(int pixFmt)
+    {
+        IntPtr desc = LibAv.av_pix_fmt_desc_get(pixFmt);
+        if (desc == IntPtr.Zero)
+            return false;
+        return (((AvPixFmtDescriptor*)desc)->flags & AvConst.PixFmtFlagHwAccel) != 0;
+    }
+
+    /// <summary>Allocates + initialises an <c>AVHWFramesContext</c> pool for a device-surface encoder: the GPU
+    /// <paramref name="hwFmt"/> surfaces are uploaded into from <paramref name="swFmt"/> (nv12) system frames. Returns
+    /// the owning <c>AVBufferRef*</c> (caller unrefs).</summary>
+    private static IntPtr CreateHwFramesContext(IHardwareContext device, int hwFmt, int swFmt, int width, int height)
+    {
+        IntPtr framesRef = LibAv.av_hwframe_ctx_alloc(device.DeviceContextRef);
+        if (framesRef == IntPtr.Zero)
+            throw new FFmpegException("av_hwframe_ctx_alloc", 0, "returned null");
+        try
+        {
+            var ctx = (AvHwFramesContext*)((AvBufferRef*)framesRef)->data;
+            ctx->format = hwFmt;
+            ctx->sw_format = swFmt;
+            ctx->width = width;
+            ctx->height = height;
+            ctx->initial_pool_size = 20; // enough in-flight surfaces to cover the encoder's frame reordering
+            FFmpegError.Check(LibAv.av_hwframe_ctx_init(framesRef), "av_hwframe_ctx_init");
+            return framesRef;
+        }
+        catch
+        {
+            LibAv.av_buffer_unref(ref framesRef);
             throw;
         }
     }
@@ -443,10 +663,26 @@ public sealed unsafe class MediaEncoder : IDisposable
         CopyRgbaIntoFrame(rgbaPixels, rowBytes);
 
         _encFrame.MakeWritable();
-        _converter.Convert(_rgbaFrame, _encFrame);
-        _encFrame.Pts = frameIndex;
+        _converter.Convert(_rgbaFrame, _encFrame); // RGBA → the encoder's CPU pixel format (yuv420p/nv12/…)
 
-        _videoEncoder.SendFrame(_encFrame);
+        if (_gpuSurfaceMode)
+        {
+            // Device-surface encoder (VAAPI): draw a fresh GPU surface from the pool and upload the CPU frame into
+            // it, then encode the surface — the hw_frames_ctx upload path (PLAN.md step 29). Native→GPU copy only;
+            // no managed pixel allocation (§1).
+            _gpuFrame!.Unref();
+            FFmpegError.Check(LibAv.av_hwframe_get_buffer(_hwFramesRef, _gpuFrame.Ptr, 0), "av_hwframe_get_buffer");
+            FFmpegError.Check(LibAv.av_hwframe_transfer_data(_gpuFrame.Ptr, _encFrame.Ptr, 0), "av_hwframe_transfer_data");
+            _gpuFrame.Pts = frameIndex;
+            _videoEncoder.SendFrame(_gpuFrame);
+        }
+        else
+        {
+            // Software encoder, or a hardware encoder that ingests system-memory frames (NVENC/QSV/AMF/VideoToolbox
+            // upload internally): hand it the CPU frame directly.
+            _encFrame.Pts = frameIndex;
+            _videoEncoder.SendFrame(_encFrame);
+        }
         DrainPackets(_videoEncoder, _videoStream, _videoEncTimeBase);
     }
 
@@ -545,9 +781,13 @@ public sealed unsafe class MediaEncoder : IDisposable
 
         _packet.Dispose();
         _converter.Dispose();
+        _gpuFrame?.Dispose();
         _rgbaFrame.Dispose();
         _encFrame.Dispose();
-        _videoEncoder.Dispose();
+        _videoEncoder.Dispose();   // unrefs its own hw_device_ctx / hw_frames_ctx refs
+        if (_hwFramesRef != IntPtr.Zero)
+            LibAv.av_buffer_unref(ref _hwFramesRef);
+        _hwDevice?.Dispose();       // after the encoder that referenced the device
 
         _audioFrame?.Dispose();
         _audioEncoder?.Dispose();

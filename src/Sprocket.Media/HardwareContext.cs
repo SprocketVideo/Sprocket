@@ -89,6 +89,22 @@ public sealed unsafe class HardwareDevice : IHardwareContext
         return new HardwareDevice(ctx, type);
     }
 
+    /// <summary>The hardware device type a named FFmpeg encoder runs on (PLAN.md step 29 hardware export) — mapped
+    /// from the encoder's vendor suffix (<c>h264_nvenc</c> → CUDA, <c>hevc_qsv</c> → QSV, <c>*_amf</c> → D3D11VA,
+    /// <c>*_vaapi</c> → VAAPI, <c>*_videotoolbox</c> → VideoToolbox), or <see cref="HardwareDeviceType.None"/> for a
+    /// software encoder. The export path uses this to open the matching device before probing the encoder.</summary>
+    public static HardwareDeviceType EncoderDeviceType(string encoderName)
+    {
+        if (string.IsNullOrEmpty(encoderName))
+            return HardwareDeviceType.None;
+        if (encoderName.EndsWith("_nvenc", StringComparison.Ordinal)) return HardwareDeviceType.Cuda;
+        if (encoderName.EndsWith("_qsv", StringComparison.Ordinal)) return HardwareDeviceType.Qsv;
+        if (encoderName.EndsWith("_amf", StringComparison.Ordinal)) return HardwareDeviceType.D3D11Va;
+        if (encoderName.EndsWith("_vaapi", StringComparison.Ordinal)) return HardwareDeviceType.Vaapi;
+        if (encoderName.EndsWith("_videotoolbox", StringComparison.Ordinal)) return HardwareDeviceType.VideoToolbox;
+        return HardwareDeviceType.None;
+    }
+
     /// <summary>The hardware device types to try, most-preferred first, for the current OS (ARCHITECTURE.md §11).</summary>
     public static IReadOnlyList<HardwareDeviceType> PlatformPreferredTypes()
     {

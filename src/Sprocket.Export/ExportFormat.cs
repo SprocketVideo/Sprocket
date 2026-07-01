@@ -17,6 +17,20 @@ public enum ExportAudioCodec { Aac, Mp3, Pcm, Flac, Ac3, Opus }
 /// bit rates on <see cref="ExportOptions"/> override this.</summary>
 public enum ExportQuality { High, Medium, Low }
 
+/// <summary>How the exported video stream is encoded (PLAN.md step 29). Orthogonal to the codec, matching how
+/// leading NLEs (Premiere's "Software / Hardware Encoding", Resolve's encoder picker) present it.</summary>
+public enum ExportAcceleration
+{
+    /// <summary>Encode with the deterministic software encoder (libx264/libx265/SVT-AV1/…). The default: final
+    /// delivery stays bit-reproducible for golden-frame verification (ARCHITECTURE.md §5).</summary>
+    Software,
+
+    /// <summary>Prefer a platform GPU encoder (NVENC/QSV/AMF on Windows, VAAPI/NVENC on Linux, VideoToolbox on
+    /// macOS), <b>automatically falling back to the software encoder</b> when none is available. Faster, but the
+    /// bitstream is GPU-dependent — not bit-reproducible, so it is opt-in rather than the delivery default.</summary>
+    Hardware,
+}
+
 /// <summary>Static metadata for one container: its FFmpeg muxer name, file extension, MIME type, and label.</summary>
 /// <param name="Container">The enum value this describes.</param>
 /// <param name="MuxerName">The FFmpeg muxer name passed to <c>avformat_alloc_output_context2</c>.</param>
@@ -210,4 +224,40 @@ public static class ExportCodecs
             _ => 28,
         },
     };
+
+    /// <summary>The hardware encoders to probe for <paramref name="codec"/> on the current OS, most-preferred first
+    /// (PLAN.md step 29). Built as <c>{base}_{vendor}</c> — e.g. H.264 on Windows → <c>[h264_nvenc, h264_qsv,
+    /// h264_amf]</c>, HEVC on macOS → <c>[hevc_videotoolbox]</c>. The list is passed to <c>MediaEncoder</c> as its
+    /// hardware-candidate chain: it probes each in order and engages the first that opens, falling back to the
+    /// software encoder when none do — so a name that this FFmpeg build or GPU doesn't provide is simply skipped.
+    /// Empty when the codec has no hardware family.</summary>
+    public static IReadOnlyList<string> HardwareEncoderCandidates(ExportVideoCodec codec)
+    {
+        if (HardwareBaseName(codec) is not { } baseName)
+            return [];
+        return [.. PlatformHardwareVendors().Select(vendor => $"{baseName}_{vendor}")];
+    }
+
+    /// <summary>The FFmpeg hardware-encoder base name for a codec (<c>"h264"</c>, <c>"hevc"</c>, …); combined with a
+    /// vendor suffix to form an encoder name. <see langword="null"/> when the codec has no hardware family.</summary>
+    private static string? HardwareBaseName(ExportVideoCodec codec) => codec switch
+    {
+        ExportVideoCodec.H264 => "h264",
+        ExportVideoCodec.Hevc => "hevc",
+        ExportVideoCodec.Av1 => "av1",
+        ExportVideoCodec.Vp9 => "vp9",
+        ExportVideoCodec.Mpeg2 => "mpeg2",
+        ExportVideoCodec.ProRes => "prores", // only prores_videotoolbox exists (macOS); elsewhere it falls back
+        _ => null,
+    };
+
+    /// <summary>The GPU encoder vendor suffixes to try on the current OS, most-preferred first (PLAN.md step 29):
+    /// Windows NVENC → QSV → AMF, Linux VAAPI → NVENC, macOS VideoToolbox.</summary>
+    public static IReadOnlyList<string> PlatformHardwareVendors()
+    {
+        if (OperatingSystem.IsWindows()) return ["nvenc", "qsv", "amf"];
+        if (OperatingSystem.IsMacOS()) return ["videotoolbox"];
+        if (OperatingSystem.IsLinux()) return ["vaapi", "nvenc"];
+        return [];
+    }
 }

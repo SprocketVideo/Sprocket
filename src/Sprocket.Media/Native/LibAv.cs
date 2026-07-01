@@ -84,6 +84,13 @@ internal static unsafe partial class LibAv
     [LibraryImport(Avutil, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int av_hwdevice_ctx_create(out IntPtr deviceCtx, int type, string? device, IntPtr opts, int flags);
     [LibraryImport(Avutil)] internal static partial int av_hwframe_transfer_data(IntPtr dst, IntPtr src, int flags);
+    // Hardware-encode frame pool (PLAN.md step 29): allocate an AVHWFramesContext ref against a device, configure
+    // its format/sw_format/size (via the AvHwFramesContext view), init it, then draw GPU frames from its pool with
+    // av_hwframe_get_buffer to upload composited pixels into for a GPU encoder that only takes device surfaces
+    // (e.g. VAAPI). Encoders that accept system-memory frames (NVENC/QSV/AMF/VideoToolbox) skip this entirely.
+    [LibraryImport(Avutil)] internal static partial IntPtr av_hwframe_ctx_alloc(IntPtr deviceCtx);
+    [LibraryImport(Avutil)] internal static partial int av_hwframe_ctx_init(IntPtr framesCtxRef);
+    [LibraryImport(Avutil)] internal static partial int av_hwframe_get_buffer(IntPtr framesCtxRef, IntPtr frame, int flags);
     // Returns a pointer to the static AVPixFmtDescriptor for a pixel format (or NULL). Used to read the
     // ALPHA flag so alpha-channel sources take the premultiplied compositing path (PLAN.md step 26).
     [LibraryImport(Avutil)] internal static partial IntPtr av_pix_fmt_desc_get(int pixFmt);

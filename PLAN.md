@@ -1861,6 +1861,54 @@ Tags reference the [UI.md §4 checklist](UI.md).
         (0 warnings); `SPROCKET_APP_SECONDS` smoke launches (empty + with the sample clip, exercising the transport
         wiring and the one-shot present handler) start and tear down cleanly (exit 0). Full suite: **668 tests
         green** (Core 215, Media 30, Render 50, Audio 23, Playback 52, Export 65, Persistence 90, App 143).
+    - **✅ Hardware export encoders strand DONE — step 29 now complete** (`Sprocket.Media`: `VideoEncoderSettings.HardwareCandidates`
+      + probe/fallback & GPU-upload in `MediaEncoder`, `MediaEncoder.IsHardwareVideo`, `HardwareDevice.EncoderDeviceType`,
+      new `av_hwframe_ctx_alloc`/`_ctx_init`/`_get_buffer` bindings + `AvHwFramesContext`/`AvBufferRef` views +
+      `AVCodecContext.hw_frames_ctx`; `Sprocket.Export`: `ExportAcceleration` + `ExportCodecs.HardwareEncoderCandidates`/
+      `PlatformHardwareVendors` + `ExportOptions.Acceleration`; `Sprocket.App`: an **Encoding** picker in
+      `ExportSettingsDialog`; 16 new tests — Media 30 → 34, Export 65 → 77; full suite 668 → 684). The last of the five
+      strands. **Deliberate departure from the literal wording** ("add hardware `ExportVideoCodec` options"): rather than
+      exploding the codec enum into per-vendor values, hardware is modelled as an acceleration preference *orthogonal* to
+      the codec — the way Premiere ("Software/Hardware Encoding") and Resolve (encoder picker) present it — so H.264/HEVC/
+      AV1/… each gain GPU encoding without a combinatorial enum, and the deterministic software encoder stays the delivery
+      default. All the strand's deliverables land on the existing `MediaEncoder` "select encoders by name" seam (§11):
+      - **Probe + automatic software fallback (Media).** `VideoEncoderSettings.HardwareCandidates` is an ordered chain of
+        hardware encoder names tried **before** the software `CodecName`. `MediaEncoder.OpenVideo` opens each in turn,
+        engaging the first that succeeds and **silently degrading** to the next — then to software — on any failure (no
+        device, encoder not built in, open rejected the GPU), mirroring how `MediaSource` negotiates hardware *decode*.
+        The software `CodecName` open is unchanged and still surfaces its own errors, so a machine with no usable GPU
+        produces the **identical deterministic software output** (ARCHITECTURE.md §5). A failed hardware attempt tears
+        down atomically (device / frames-pool / staging frames / encoder ctx) and staging frames are allocated only after
+        `avcodec_open2` succeeds, so a rejected candidate never leaves an orphan stream in the muxer for the next to
+        double up on. `IsHardwareVideo` reports which path engaged.
+      - **Two GPU-frame paths, chosen by the encoder's advertised pixel formats (Media).** An encoder that lists a CPU
+        (non-`HWACCEL`) pixel format — NVENC / QSV / AMF / VideoToolbox — is fed the composited frame swscaled to nv12
+        and **uploads internally**; one that lists *only* device-surface formats — VAAPI — takes the **`hw_frames_ctx`
+        upload path**: a pooled GPU surface is drawn from an `AVHWFramesContext` (`av_hwframe_get_buffer`) and the nv12
+        staging frame uploaded into it (`av_hwframe_transfer_data`) each frame before encode. Both are native→GPU copies
+        with **zero managed pixel allocation** (§1). Quality is driven by bit rate (the knob all four vendors honour;
+        hardware ignores libx264-style CRF), an explicit `VideoBitRate` winning over a resolution-scaled default.
+      - **Platform candidate resolver (Export).** `ExportCodecs.HardwareEncoderCandidates(codec)` builds `{base}_{vendor}`
+        names for the current OS, most-preferred first per the brief — **Windows** NVENC → QSV → AMF, **Linux** VAAPI →
+        NVENC, **macOS** VideoToolbox — and `VideoExporter` passes them as the candidate chain only when
+        `ExportOptions.Acceleration == Hardware` (the default `Software` carries none, so `default(ExportOptions)` is
+        byte-for-byte the pre-step-29 delivery path). Nonexistent combos (e.g. `prores_nvenc`) are harmless — the probe
+        skips any name this FFmpeg build lacks.
+      - **UI (App).** `ExportSettingsDialog` gains an **Encoding** picker (Software / Hardware — if available) beside
+        Quality. It is deliberately **not** part of a preset (a performance choice, not a delivery format), so it neither
+        snaps the preset to Custom nor is captured by Save Preset. Both single **Export** and **Export Queue ▸ Add…** read
+        this dialog, so both carry the choice.
+      - **Tests (16).** `HardwareExportTests` (Export, 12): the resolver is the platform vendor product most-preferred
+        first (per-OS exact lists) and uses each codec's hardware base name; a Hardware-acceleration export round-trips to
+        the requested codec family whether a GPU engaged **or fell back** (stable because the *decoded* codec is the
+        family); software + hardware requests both produce valid files; `default(ExportOptions).Acceleration` is Software.
+        `HardwareEncodeTests` (Media, 4): no-candidates is pure software; an unavailable candidate (and a whole chain of
+        them) falls back to software with a single well-formed stream; the real platform H.264 candidates **engage or fall
+        back but always produce a decodable file**. On this NVIDIA dev box the opportunistic tests exercised the **real
+        `h264_nvenc` upload+encode path** (`IsHardwareVideo` true, valid H.264 out); the VAAPI-only `hw_frames_ctx` surface
+        path is code-verified but Linux-only (no VAAPI device here). Clean build (0 warnings); `SPROCKET_APP_SECONDS` smoke
+        launch with the sample clip starts and tears down cleanly (exit 0). Full suite: **684 tests green** (Core 215,
+        Media 34, Render 50, Audio 23, Playback 52, Export 77, Persistence 90, App 143).
 30. **Audio loudness metering, normalization & editorial audio polish.** The delivery-grade audio
     visibility that effects alone don't provide — the first of the two audio-post layers (the second is
     plugin hosting + deeper DSP, step 31):
