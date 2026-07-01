@@ -12,6 +12,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Sprocket.App.Inspector;
@@ -24,6 +25,7 @@ using Sprocket.Persistence;
 using Sprocket.Persistence.Interchange;
 using Sprocket.Playback;
 using Sprocket.Render;
+using Ellipse = Avalonia.Controls.Shapes.Ellipse; // aliased so it doesn't drag Shapes.Path into scope (clashes with System.IO.Path)
 
 namespace Sprocket.App;
 
@@ -75,6 +77,15 @@ public partial class MainWindow : Window
 
     // Controls captured for later updates.
     private TextBlock? _statusText, _telemetryText, _engineStateText, _saveStateText, _timelineHeader;
+    private Ellipse? _stateDot;
+
+    // Status-bar telemetry (PLAN.md step 29, UI.md §3.7). The live readout (state + GPU/hw-accel + fps) is polled
+    // on a slow UI timer, and — critically for the no-per-frame-work rule (ARCHITECTURE.md §1) — the timer runs
+    // ONLY while playing: it reads the engine's existing cumulative counters (a couple of Interlocked reads) at 1 Hz
+    // and does zero work on the render/decode hot path. At idle it is stopped and the readout settles to the nominal
+    // sequence rate on the state-change event, so a paused editor incurs no periodic wake-ups.
+    private DispatcherTimer? _telemetryTimer;
+    private long _prevPresented, _prevStatsTs; // baseline for the live-fps delta (frames presented, Stopwatch ticks)
     private MenuItem? _undoMenuItem, _redoMenuItem;
     private Button? _exportButton, _maxButton;
     private Control? _root;
@@ -139,6 +150,7 @@ public partial class MainWindow : Window
         _statusText = this.FindControl<TextBlock>("StatusText")!;
         _telemetryText = this.FindControl<TextBlock>("TelemetryText")!;
         _engineStateText = this.FindControl<TextBlock>("EngineStateText")!;
+        _stateDot = this.FindControl<Ellipse>("StateDot")!;
         _saveStateText = this.FindControl<TextBlock>("SaveStateText")!;
         _timelineHeader = this.FindControl<TextBlock>("TimelineHeader")!;
         _undoMenuItem = this.FindControl<MenuItem>("UndoMenuItem")!;
@@ -224,6 +236,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         WindowStateStore.Save(_lastNonMinimizedState); // remember maximized-or-not for next launch
+        _telemetryTimer?.Stop(); // stop the status-bar poll (harmless if already idle)
         _statsOverlay?.Close(); // tear down the diagnostics overlay's poll timer
         _autosave?.Dispose(); // stop the autosave timer for this session
         _thumbnails?.Dispose(); // releases the cached thumbnail bitmaps
@@ -520,16 +533,108 @@ public partial class MainWindow : Window
         this.FindControl<TextBlock>("SequenceBadge")!.Text = $"{_project.ActiveSequence.Name} · {resLabel} · {fps:0.##}";
     }
 
-    /// <summary>The status-bar telemetry: fps · resolution · duration of the active sequence (UI.md §3.7).</summary>
+    /// <summary>The status-bar telemetry at rest: the sequence's <em>nominal</em> rate · resolution · duration
+    /// (UI.md §3.7). Called on session/sequence changes and when playback stops; during playback the timer feeds
+    /// <see cref="RenderTelemetry"/> the measured rate instead.</summary>
     private void UpdateTelemetry()
     {
         if (_project is null)
             return;
+        RenderTelemetry(Fps(_project.Timeline.FrameRate));
+    }
+
+    /// <summary>Renders the right-hand telemetry cell as <c>fps · WxH · duration</c> for a given frame rate (nominal
+    /// at rest, measured while playing). Only assigns when the string changes, so a steady readout never re-lays-out
+    /// the status bar. No framework/runtime text (UI.md §3.7).</summary>
+    private void RenderTelemetry(double fps)
+    {
+        if (_project is null)
+            return;
         Timeline timeline = _project.Timeline;
-        double fps = Fps(timeline.FrameRate);
         (int w, int h) = (timeline.Resolution.Width, timeline.Resolution.Height);
         Timecode duration = _engine?.Duration ?? timeline.Duration;
-        _telemetryText!.Text = $"{fps:0.##} fps · {w}×{h} · {FormatTime(duration)}";
+        string text = StatusBarFormat.Telemetry(fps, w, h, FormatTime(duration));
+        if (_telemetryText!.Text != text)
+            _telemetryText.Text = text;
+    }
+
+    /// <summary>
+    /// Updates the left status group — the state dot + <c>State · GPU/CPU · device</c> (UI.md §3.7). The GPU /
+    /// hardware-accel status is the top-most decoding layer at the playhead; nothing decoding (a gap / generator)
+    /// shows just the state word. Reads a cached managed snapshot (<see cref="PlaybackEngine.GetActiveVideoDecodeInfo"/>),
+    /// never native decoder state, so it is cheap and UI-thread-safe. Assigns only on change to avoid needless layout.
+    /// </summary>
+    private void UpdateEngineStatus()
+    {
+        PlaybackEngine? engine = _active?.CurrentEngine ?? _engine;
+        PlaybackState state = _active?.State ?? engine?.State ?? PlaybackState.Stopped;
+        bool playing = state == PlaybackState.Playing;
+        Media.VideoDecodeInfo? decode = engine?.GetActiveVideoDecodeInfo();
+
+        string label = StatusBarFormat.EngineLabel(state, decode);
+
+        // Idle/paused = neutral dot; playing = green, or amber on the software (CPU) path — the usual 1080p
+        // stutter cause, worth flagging the same way the Playback Statistics overlay does.
+        IBrush dot = !playing ? Palette.MutedTextBrush
+            : decode is { IsHardwareAccelerated: false } ? Palette.WarnBrush
+            : Palette.GoodBrush;
+
+        if (_engineStateText!.Text != label)
+            _engineStateText.Text = label;
+        if (_stateDot is not null && !ReferenceEquals(_stateDot.Fill, dot))
+            _stateDot.Fill = dot;
+    }
+
+    /// <summary>
+    /// Starts the 1 Hz live-telemetry poll (created lazily) and seeds the fps baseline. Called on transition to
+    /// Playing. The timer runs only while playing (see <see cref="StopTelemetryTimer"/>), so an idle editor does no
+    /// periodic work — the readout is event-driven at rest (ARCHITECTURE.md §1: no work on the frame hot path).
+    /// </summary>
+    private void StartTelemetryTimer()
+    {
+        PlaybackEngine? engine = _active?.CurrentEngine ?? _engine;
+        _prevStatsTs = Stopwatch.GetTimestamp();
+        _prevPresented = engine?.GetStatistics().FramesPresented ?? 0;
+
+        if (_telemetryTimer is null)
+        {
+            // 1 Hz: fps is glanceable, and a 1 s window keeps frame-count quantization to ≈±1 fps while halving the
+            // wake-ups of the diagnostics overlay's 2 Hz poll. It only ever runs during playback.
+            _telemetryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _telemetryTimer.Tick += OnTelemetryTick;
+        }
+        _telemetryTimer.Start();
+    }
+
+    /// <summary>Stops the live poll and settles the status bar back to the nominal-rate readout + idle state dot.</summary>
+    private void StopTelemetryTimer()
+    {
+        _telemetryTimer?.Stop();
+        UpdateTelemetry();
+        UpdateEngineStatus();
+    }
+
+    /// <summary>The live-telemetry tick: derives the measured preview fps from the delta of the engine's cumulative
+    /// present counter over the real elapsed interval, and refreshes the GPU/hw-accel status (it can change as the
+    /// playhead crosses clips). Stops itself if playback has ended so it never spins at idle.</summary>
+    private void OnTelemetryTick(object? sender, EventArgs e)
+    {
+        PlaybackEngine? engine = _active?.CurrentEngine ?? _engine;
+        if (engine is null || (_active?.State ?? PlaybackState.Stopped) != PlaybackState.Playing)
+        {
+            StopTelemetryTimer();
+            return;
+        }
+
+        long now = Stopwatch.GetTimestamp();
+        PlaybackStatistics stats = engine.GetStatistics();
+        double seconds = (now - _prevStatsTs) / (double)Stopwatch.Frequency;
+        if (seconds > 0)
+            RenderTelemetry((stats.FramesPresented - _prevPresented) / seconds);
+        _prevPresented = stats.FramesPresented;
+        _prevStatsTs = now;
+
+        UpdateEngineStatus();
     }
 
     private void UpdateTimelineHeader()
@@ -633,6 +738,17 @@ public partial class MainWindow : Window
         WireMonitorReadouts(_source, isProgram: false);
         RefreshTransportForActive();
 
+        // Show the decode path (GPU/CPU) in the status bar as soon as frame 0 has decoded — without any idle
+        // polling. A one-shot present handler refreshes the status once, then unsubscribes; at startup the decode
+        // info isn't populated yet (the first pump is still in flight), so the initial RefreshTransportForActive
+        // above only had the state word. FramePresented fires on the pump thread, so marshal to the UI thread.
+        void OnFirstPresent()
+        {
+            _engine!.FramePresented -= OnFirstPresent;
+            Dispatcher.UIThread.Post(UpdateEngineStatus);
+        }
+        _engine!.FramePresented += OnFirstPresent;
+
         // A pump iteration can fault (e.g. the audio device hiccupping during the end-of-timeline stop); the
         // engine keeps the transport alive rather than dying, so surface the reason instead of swallowing it.
         _engine!.PumpError += ex => Dispatcher.UIThread.Post(() => SetStatus($"Playback recovered from an error: {ex.Message}"));
@@ -674,7 +790,11 @@ public partial class MainWindow : Window
             if (!ReferenceEquals(_active, monitor))
                 return;
             SetPlayPauseGlyph(state == PlaybackState.Playing);
-            _engineStateText!.Text = state == PlaybackState.Playing ? "Playing" : "Paused";
+            UpdateEngineStatus();
+            if (state == PlaybackState.Playing)
+                StartTelemetryTimer();
+            else
+                StopTelemetryTimer(); // Paused / Stopped → settle to the nominal readout, stop polling
         });
     }
 
@@ -765,7 +885,12 @@ public partial class MainWindow : Window
         _positionText!.Text = FormatTime(m.Position);
         _durationText!.Text = FormatTime(m.Duration);
         SetPlayPauseGlyph(m.State == PlaybackState.Playing);
-        _engineStateText!.Text = m.State == PlaybackState.Playing ? "Playing" : "Paused";
+        UpdateEngineStatus();
+        // Follow the newly-active monitor's transport: poll while it's playing, otherwise stay event-driven.
+        if (m.State == PlaybackState.Playing)
+            StartTelemetryTimer();
+        else
+            StopTelemetryTimer();
     }
 
     /// <summary>

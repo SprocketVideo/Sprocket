@@ -192,6 +192,8 @@
     <Border DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Height="26"
             BorderBrush="{DynamicResource Edge}" BorderThickness="0,1,0,0">
       <Grid ColumnDefinitions="Auto,*,Auto" Margin="12,0">
+        <!-- Live engine state + GPU/hardware-accel status (UI.md §3.7); driven by UpdateEngineStatus(). The
+             initial values here are just the parked state before the transport is wired. -->
         <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
           <Ellipse x:Name="StateDot" Width="8" Height="8" Fill="{DynamicResource Good}" VerticalAlignment="Center" />
           <TextBlock x:Name="EngineStateText" Foreground="{DynamicResource MutedText}" FontSize="11"
@@ -200,7 +202,8 @@
         <!-- Media info / transient messages (export + save status). -->
         <TextBlock x:Name="StatusText" Grid.Column="1" Margin="16,0" VerticalAlignment="Center"
                    Foreground="{DynamicResource FaintText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="" />
-        <!-- Live telemetry: fps · resolution · duration. NO framework/runtime text (UI.md §3.7). -->
+        <!-- Live telemetry: (measured while playing, else nominal) fps · resolution · duration. NO framework/
+             runtime text (UI.md §3.7). Polled at 1 Hz only during playback — see the perf note in the code-behind. -->
         <TextBlock x:Name="TelemetryText" Grid.Column="2" VerticalAlignment="Center"
                    FontFamily="Cascadia Code,Consolas,monospace" FontSize="11"
                    Foreground="{DynamicResource MutedText}" Text="" />

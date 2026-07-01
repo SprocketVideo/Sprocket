@@ -1827,6 +1827,40 @@ Tags reference the [UI.md §4 checklist](UI.md).
         build (0 warnings); a `SPROCKET_APP_SECONDS` smoke launch starts the shell with the new dialog and tears down
         cleanly (exit 0). Full suite: **661 tests green** (Core 215, Media 30, Render 50, Audio 23, Playback 52,
         Export 65, Persistence 90, App 136).
+    - **✅ Status-bar telemetry strand DONE (`Sprocket.App`: `StatusBarFormat` + live status-bar driver in
+      `MainWindow`; 7 new tests — App 136 → 143; full suite 661 → 668).** The fifth and final surface strand of
+      step 29 — **only hardware export encoders now remain**. The status bar was half-static (a fixed green dot +
+      "Ready", and a *nominal*-rate telemetry cell); this makes it live per UI.md §3.7 — render/decode state,
+      **GPU / hardware-accel status**, **live fps**, resolution, duration — with **no framework/runtime text**
+      (UI.md §3.7 / §5), reusing the diagnostics counters the Playback Statistics overlay already reads
+      ([ARCHITECTURE §15](ARCHITECTURE.md)):
+      - **The non-negotiable perf rule (ARCHITECTURE.md §1).** Zero work lands on the render/decode hot path: the
+        readout only *reads* the engine's existing cumulative counters (`GetStatistics()` — a couple of
+        `Interlocked` reads) and its cached decode-info snapshot (`GetActiveVideoDecodeInfo()`, managed, never
+        native state). The live poll is a 1 Hz `DispatcherTimer` that runs **only while playing** — it is started
+        on the transition to Playing and stopped on Paused/Stopped, so a paused/idle editor incurs **no periodic
+        wake-ups** and the readout is purely event-driven at rest. Assignments are change-guarded (compare before
+        set) so a steady readout never re-lays-out the status bar. This is strictly lighter than the per-frame
+        `PositionChanged` marshaling that already drives the scrubber.
+      - **Live state + GPU/hw-accel (App).** The left group shows `State · GPU · <DEVICE>` (hardware) or
+        `State · CPU · software`, with the state dot green while playing, **amber on the software (CPU) path** (the
+        usual 1080p-stutter tell, matching the overlay), and neutral at rest; "Ready" is the parked/stopped word
+        (mockup wording). A one-shot `FramePresented` handler (self-unsubscribing, marshalled off the pump thread)
+        refreshes the decode path once frame 0 has decoded, so the GPU/CPU status shows at rest without any idle
+        poll. The active-monitor accessor (`_active?.CurrentEngine ?? _engine`) means a Program↔Source tab switch
+        re-points the readout, exactly as the transport does.
+      - **Live fps (App).** The right cell shows the *measured* preview rate while playing (present-count delta over
+        the real elapsed interval), settling back to the sequence's *nominal* rate when stopped — so a healthy
+        1080p preview reads its true 23.98/30/… and a struggling one visibly dips.
+      - **`StatusBarFormat` (App).** The label/telemetry strings are a pure static helper (mirroring
+        `MarkerListFormat`/`SpeedFormat`), so the code-behind only maps strings onto the `TextBlock`s + picks the
+        dot colour, and the formatting is unit-tested headlessly.
+      - **Tests (7).** `StatusBarFormatTests`: the state word for Stopped/Paused/Playing with no decode; the
+        hardware label (`Playing · GPU · D3D11VA`, device upper-cased) and software label (`Ready · CPU · software`);
+        the `fps · WxH · duration` readout and its whole-rate trimming (`30 fps`, not `30.00`). Clean build
+        (0 warnings); `SPROCKET_APP_SECONDS` smoke launches (empty + with the sample clip, exercising the transport
+        wiring and the one-shot present handler) start and tear down cleanly (exit 0). Full suite: **668 tests
+        green** (Core 215, Media 30, Render 50, Audio 23, Playback 52, Export 65, Persistence 90, App 143).
 30. **Audio loudness metering, normalization & editorial audio polish.** The delivery-grade audio
     visibility that effects alone don't provide — the first of the two audio-post layers (the second is
     plugin hosting + deeper DSP, step 31):
