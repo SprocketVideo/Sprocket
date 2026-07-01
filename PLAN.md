@@ -1820,6 +1820,74 @@ Tags reference the [UI.md §4 checklist](UI.md).
       the matching rebasing for a plain **move** (`SetClipPlacementCommand`, which today changes only
       `TimelineStart`) is the remaining gap to close as part of this step.
 
+40. **Rich text & titles (styling, lower thirds, rolling credits).** Grow the step-19 minimal Title
+    generator (single-line centred text, one fill colour, animatable size) into a professional titles
+    toolset, following the Premiere/Resolve/Final Cut convention — a title is a **generator clip on its
+    own track**, edited in place and in the Inspector. Lands entirely on existing seams
+    ([ARCHITECTURE §17](ARCHITECTURE.md)): a title is already a `ClipKind.Generator` on the
+    `GeneratorCatalog`, so this adds generator types, string / animatable params, and Render layout with
+    **no render-graph, effect-chain, or persistence redesign**. Captions / subtitles (SRT/VTT, a
+    toggleable caption track) are a **distinct subsystem deferred to a separate step**, as in every NLE.
+    Extends step 19 and depends only on done seams, so it can be **pulled forward / prioritised** whenever
+    desired.
+    - **Editable text objects (post-hoc).** A title stays fully editable after creation (the universal NLE
+      behaviour): **double-click** the clip in the Program monitor / timeline to edit the content, and an
+      Inspector TEXT section for every attribute. All edits route through the step-10 command stack (a
+      generator-param command mirroring `SetEffectParameterCommand`), so they undo / redo and coalesce
+      (drag gestures) like effect params — no new mutation path.
+    - **Typography & styling (Inspector, stored on `GeneratorSpec`).** Extend `GeneratorParamNames` with
+      **font family** (a typeface picker — step 19 hard-codes `SKTypeface.Default`), **bold** weight and
+      **italic** (`SKFontStyle`), **fill colour** (exists), **stroke / outline** (colour + width, `SKPaint`
+      stroke), **drop shadow** (colour + offset + blur, `SKImageFilter.CreateDropShadow`), a **background
+      box** (colour + opacity + padding — step 19's full-frame `backgroundColor` becomes a padded box),
+      **alignment** (left / centre / right, `SKTextAlign`; centre-only today), and **tracking** (letter
+      spacing) + **leading** (line spacing). Sizes stay fractions of frame height (resolution-independent);
+      colours stay `#AARRGGBB`. Font size stays an `AnimatableValue`; the new numeric attributes (stroke
+      width, shadow, tracking, leading) join it as animatable params so they keyframe (step 16d). String
+      attributes (family, alignment, style) live in `GeneratorSpec.Strings`.
+    - **Multi-line & paragraph layout (Render).** `RenderGeneratorContent` grows from one centred line to
+      **word-wrapped multi-line** layout in a text box (measure / break / stack lines, honouring alignment,
+      leading, tracking). Reuses the offscreen-surface → snapshot → effect-chain path; only the content
+      draw changes.
+    - **Positioning / transform (reuse step 16).** Position, scale, rotation, and anchor come from the
+      existing **Transform** effect on the title clip — not reinvented. The step-17 **action-safe /
+      title-safe** guides frame title placement.
+    - **Title templates (`GeneratorCatalog`).** Register built-ins beside step-19 Title / Color Matte:
+      **Lower Third** (a two-field name+role title with a background bar — the "chyron" / "super"), **Roll**
+      (credits), and **Crawl** (ticker) — each a generator descriptor with defaults, listed in the Project
+      bin / **Clip ▸ Insert** menu like current generators.
+    - **Rolling credits (Roll) & Crawl — a *property of the title*, duration-driven.** Following the
+      industry norm (Premiere's **Roll / Crawl** options, Resolve's **Scroll** title, Final Cut's **Scroll**
+      behaviour), scrolling is a **scroll mode on the generator**, *not* a hand-keyframed Transform. A
+      `scrollMode` (None / Roll-up / Crawl-left) param, with **clip duration setting the speed** (longer
+      clip ⇒ slower — the Resolve / FCP model) plus optional **ease-in / out** and **start / end off-screen**
+      (the Premiere options). The generator computes the offset from its **clip-local progress**, so it
+      stays a pure, deterministic function of (project, t) ([ARCHITECTURE §5](ARCHITECTURE.md)) with **no
+      fragile absolute-timeline keyframes** (cf. the step-39 keyframe-rebasing caveat). **Small additive
+      Core change:** pass the clip's local elapsed time + duration (or a normalised progress) into
+      `RenderGraph.ResolveGenerator` / `ResolvedGenerator`; today the generator receives only absolute `t`.
+      *(Deliberate departure from "everything is a keyframe": pros drive roll speed by clip length, and it
+      survives trim / move cleanly.)*
+    - **Entrance / exit animation presets.** Convenience presets applied as keyframes (step 16d) on the
+      title: **fade in / out** (the existing Fade effect + the step-39 on-timeline fade handles),
+      **pop / scale** and **slide** (Transform keyframes), and **typewriter** (a `revealFraction` param
+      driving how many characters draw). Presets author standard keyframes; nothing bespoke in the graph.
+    - **Cross-platform determinism — bundle the title fonts.** Text must rasterise **byte-identically
+      across Windows / Linux / macOS** so preview == export and the golden-frame / cross-OS PNG-hash tests
+      hold ([ARCHITECTURE §5](ARCHITECTURE.md), Verification). System-font substitution differs per OS and
+      would break that, so the title fonts are **bundled per-RID as `EmbeddedResource`s** (loaded via
+      `SKFontManager` / `SKTypeface.FromStream`) — the data-asset precedent step 37 notes for LUTs. The
+      family picker lists the bundled set; opt-in system fonts (non-delivery use) are a later add.
+    - **Persistence (additive, §12).** Every new attribute is a string or `AnimatableValue` generator
+      param, so all round-trip through the existing `GeneratorDto` with **no schema bump**; a step-19 title
+      loads unchanged and a title using none of the new fields serialises byte-identically.
+    - **Testing.** Core: generator-param command undo / redo + coalescing; scroll-offset math from
+      clip-local progress (start / steady / end, ease, off-screen); catalog registration of the new
+      templates. Render (offscreen-raster goldens): multi-line wrap + alignment, stroke, shadow, background
+      box, a lower third, and a roll at 0 / 0.5 / 1 progress. Persistence: round-trip of every new field +
+      step-19 byte-identical omission. Export: a roll renders on the deterministic raster path
+      (golden-frame).
+
 Open product questions (e.g. the mockup's user-avatar / account affordance, full panel docking)
 are tracked in [UI.md §5](UI.md).
 
