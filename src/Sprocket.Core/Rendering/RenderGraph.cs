@@ -209,7 +209,8 @@ public static class RenderGraph
 
     private static AudioBufferPlan PlanAudioBufferCore(
         Project project, Sequence sequence, Timecode bufferStart, Timecode bufferDuration,
-        double masterGainLinear, HashSet<SequenceId> path, int depth, AudioPlanScope? scope = null)
+        double masterGainLinear, HashSet<SequenceId> path, int depth, AudioPlanScope? scope = null,
+        object? busStateKey = null)
     {
         Timecode bufferEnd = bufferStart + bufferDuration;
         bool anySolo = sequence.Timeline.AudioTracks.Any(at => at is { Enabled: true, Solo: true });
@@ -239,11 +240,15 @@ public static class RenderGraph
             if (clip is null)
                 continue;
 
+            // The clip-level gain (clip gain × fade, ramped) and the track fader stay split so the mixer can run
+            // the track's insert chain between them — the standard pre-fader insert point (PLAN.md step 31).
             double trackGain = active?.UnityTrackGain == true ? 1.0 : DbToLinear(track.GainDb);
             double clipGain = DbToLinear(clip.GainDb);
-            double gainStart = trackGain * clipGain * FadeGain(clip, bufferStart);
-            double gainEnd = trackGain * clipGain * FadeGain(clip, bufferEnd);
+            double clipGainStart = clipGain * FadeGain(clip, bufferStart);
+            double clipGainEnd = clipGain * FadeGain(clip, bufferEnd);
             (double panL, double panR) = PanLaw.Balance(track.Pan);
+            ResolvedAudioChain? clipChain = ResolveAudioChain(clip.Effects, clip, bufferStart);
+            ResolvedAudioChain? trackChain = ResolveAudioChain(track.Effects, track, bufferStart);
 
             if (clip.Kind == ClipKind.Sequence)
             {
@@ -251,7 +256,8 @@ public static class RenderGraph
                 // nested clip's audio is deferred — the child sub-mix plays at 1×; see PLAN.md step 23.)
                 AudioBufferPlan? nested = PlanNestedAudio(project, clip, bufferStart, bufferDuration, path, depth);
                 if (nested is not null)
-                    layers.Add(new AudioLayer(default, clip.MapToSource(bufferStart), gainStart, gainEnd, clip.SpeedRatio, nested, panL, panR));
+                    layers.Add(new AudioLayer(default, clip.MapToSource(bufferStart), clipGainStart, clipGainEnd,
+                        trackGain, clip.SpeedRatio, nested, panL, panR, clipChain, trackChain));
             }
             else if (clip.Kind == ClipKind.Multicam)
             {
@@ -260,15 +266,49 @@ public static class RenderGraph
                 if (ResolveMulticamAngle(project, clip) is { } angle)
                     layers.Add(new AudioLayer(
                         angle.EffectiveAudioRefId, ClipSync.AngleSourceTime(angle, clip.MapToSource(bufferStart)),
-                        gainStart, gainEnd, clip.SpeedRatio, PanLeft: panL, PanRight: panR));
+                        clipGainStart, clipGainEnd, trackGain, clip.SpeedRatio,
+                        PanLeft: panL, PanRight: panR, ClipChain: clipChain, TrackChain: trackChain));
             }
             else
             {
-                layers.Add(new AudioLayer(clip.MediaRefId, clip.MapToSource(bufferStart), gainStart, gainEnd, clip.SpeedRatio, PanLeft: panL, PanRight: panR));
+                layers.Add(new AudioLayer(clip.MediaRefId, clip.MapToSource(bufferStart), clipGainStart, clipGainEnd,
+                    trackGain, clip.SpeedRatio, PanLeft: panL, PanRight: panR, ClipChain: clipChain, TrackChain: trackChain));
             }
         }
 
-        return new AudioBufferPlan(bufferStart, bufferDuration, layers, masterGainLinear);
+        // Output chains (PLAN.md step 31): the sequence's bus chain, then — at the root only — the project master
+        // chain, both pre-master-fader. A UnityMasterGain measurement scope bypasses the master chain too (it
+        // measures "before the master"). Nested sub-plans key their bus chain by the nesting clip so two clips
+        // nesting the same child sequence get independent DSP state.
+        List<ResolvedAudioChain>? outputChains = null;
+        if (ResolveAudioChain(sequence.Timeline.AudioEffects, busStateKey ?? sequence.Timeline, bufferStart) is { } bus)
+            (outputChains ??= []).Add(bus);
+        if (depth == 0 && scope?.UnityMasterGain != true &&
+            ResolveAudioChain(project.Settings.MasterAudioEffects, project.Settings, bufferStart) is { } master)
+            (outputChains ??= []).Add(master);
+
+        return new AudioBufferPlan(bufferStart, bufferDuration, layers, masterGainLinear, outputChains);
+    }
+
+    /// <summary>
+    /// Resolves the <b>audio</b> effects in <paramref name="effects"/> (ids per <see cref="EffectTypeIds.IsAudio"/>,
+    /// preserving order, skipping video effects) at time <paramref name="t"/> into a chain keyed by
+    /// <paramref name="stateKey"/>, or <see langword="null"/> when there are none — the common fast path
+    /// (PLAN.md step 31). Fades are not chain stages: they stay the gain envelope (<see cref="FadeGain"/>).
+    /// </summary>
+    private static ResolvedAudioChain? ResolveAudioChain(List<EffectInstance> effects, object stateKey, Timecode t)
+    {
+        List<ResolvedEffect>? resolved = null;
+        foreach (EffectInstance effect in effects)
+        {
+            if (!EffectTypeIds.IsAudio(effect.EffectTypeId))
+                continue;
+            var values = new Dictionary<string, double>(effect.Parameters.Count);
+            foreach ((string name, AnimatableValue value) in effect.Parameters)
+                values[name] = value.Evaluate(t);
+            (resolved ??= []).Add(new ResolvedEffect(effect.EffectTypeId, values));
+        }
+        return resolved is null ? null : new ResolvedAudioChain(stateKey, resolved);
     }
 
     private static AudioBufferPlan? PlanNestedAudio(
@@ -284,8 +324,11 @@ public static class RenderGraph
         try
         {
             // Map the buffer's start into the child's timeline; the sub-mix is rendered at unity master gain.
+            // The child's bus chain is keyed by the nesting clip so two clips nesting the same sequence keep
+            // independent DSP state (PLAN.md step 31).
             return PlanAudioBufferCore(
-                project, child, clip.MapToSource(bufferStart), bufferDuration, 1.0, path, depth + 1);
+                project, child, clip.MapToSource(bufferStart), bufferDuration, 1.0, path, depth + 1,
+                busStateKey: clip);
         }
         finally
         {

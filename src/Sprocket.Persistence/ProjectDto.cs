@@ -106,7 +106,10 @@ internal sealed record TimelineDto(
     List<TrackDto> Tracks,
     // Sequence markers (PLAN.md step 20). Additive + nullable: a marker-less timeline writes null (WhenWritingNull)
     // so pre-20 files load with no markers and a project with none serializes byte-identically.
-    List<MarkerDto>? Markers = null);
+    List<MarkerDto>? Markers = null,
+    // The sequence's audio output-bus effect chain (PLAN.md step 31). Additive + nullable: an empty chain writes
+    // null (WhenWritingNull), so pre-31 files load with none and chain-less projects serialize byte-identically.
+    List<EffectDto>? AudioEffects = null);
 
 /// <summary>A track in z-order. <see cref="Kind"/> discriminates video vs audio; the unused fields for the
 /// other kind are simply ignored (kept flat for a simple, robust format).</summary>
@@ -127,7 +130,10 @@ internal sealed record TrackDto(
     List<TransitionDto>? Transitions = null,
     // Audio track stereo balance (PLAN.md step 30). Additive + nullable: a centred track writes null
     // (WhenWritingNull), so pre-30 files load centred and un-panned projects serialize byte-identically.
-    double? Pan = null);
+    double? Pan = null,
+    // The audio track's insert effect chain (PLAN.md step 31). Additive + nullable: an empty chain writes null
+    // (WhenWritingNull), so pre-31 files load with none and chain-less tracks serialize byte-identically.
+    List<EffectDto>? Effects = null);
 
 /// <summary>A transition on a cut (PLAN.md step 25): its type id, the cut it sits on, its length, alignment, and
 /// any type parameters (null when there are none — the v1 built-ins).</summary>
@@ -220,7 +226,10 @@ internal sealed record ResolutionDto(int Width, int Height);
 internal sealed record SettingsDto(
     double MasterGainDb,
     bool UseProxies = true,
-    ProxyTier ProxyTier = ProxyTier.Half);
+    ProxyTier ProxyTier = ProxyTier.Half,
+    // The project master audio effect chain (PLAN.md step 31). Additive + nullable: an empty chain writes null
+    // (WhenWritingNull), so pre-31 files load with none and chain-less projects serialize byte-identically.
+    List<EffectDto>? MasterAudioEffects = null);
 
 /// <summary>Source-generated JSON for the DTO graph: trim/AOT-friendly, enums as strings, indented output.</summary>
 [JsonSourceGenerationOptions(

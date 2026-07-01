@@ -32,6 +32,45 @@ public static class EffectTypeIds
     /// and <see cref="EffectParamNames.Saturation"/>.
     /// </summary>
     public const string Color = "builtin.color";
+
+    /// <summary>
+    /// Audio gain/pan (PLAN.md step 31): a static per-chain-stage gain (<see cref="EffectParamNames.GainDb"/>)
+    /// and stereo balance (<see cref="EffectParamNames.Pan"/>), the simplest audio DSP stage.
+    /// </summary>
+    public const string AudioGain = "builtin.audio.gain";
+
+    /// <summary>
+    /// Three-band parametric EQ (PLAN.md step 31): low shelf, mid peak (with Q), high shelf — RBJ biquads.
+    /// Parameters: <see cref="EffectParamNames.LowGainDb"/>/<see cref="EffectParamNames.LowFreq"/>,
+    /// <see cref="EffectParamNames.MidGainDb"/>/<see cref="EffectParamNames.MidFreq"/>/<see cref="EffectParamNames.MidQ"/>,
+    /// <see cref="EffectParamNames.HighGainDb"/>/<see cref="EffectParamNames.HighFreq"/>.
+    /// </summary>
+    public const string AudioEq = "builtin.audio.eq";
+
+    /// <summary>
+    /// Dynamic-range compressor (PLAN.md step 31): peak-envelope feed-forward design. Parameters:
+    /// <see cref="EffectParamNames.ThresholdDb"/>, <see cref="EffectParamNames.Ratio"/>,
+    /// <see cref="EffectParamNames.AttackMs"/>, <see cref="EffectParamNames.ReleaseMs"/>,
+    /// <see cref="EffectParamNames.MakeupDb"/>.
+    /// </summary>
+    public const string AudioCompressor = "builtin.audio.compressor";
+
+    /// <summary>
+    /// Reverb (PLAN.md step 31): Freeverb-style comb/allpass network. Parameters:
+    /// <see cref="EffectParamNames.RoomSize"/>, <see cref="EffectParamNames.Damping"/>,
+    /// <see cref="EffectParamNames.Mix"/> (wet/dry).
+    /// </summary>
+    public const string AudioReverb = "builtin.audio.reverb";
+
+    /// <summary>
+    /// Whether an effect type id names an <b>audio</b> chain stage (PLAN.md step 31). The render graph uses
+    /// this to split a clip's single effect stack: audio ids feed the mixer's DSP chain, everything else feeds
+    /// the video shader chain (where unknown ids pass through). Built-in audio effects share the
+    /// <c>builtin.audio.</c> prefix; hosted audio plugins (VST3/AU, ARCHITECTURE.md §19) will register their own
+    /// namespaced audio ids when they land.
+    /// </summary>
+    public static bool IsAudio(string effectTypeId) =>
+        effectTypeId.StartsWith("builtin.audio.", StringComparison.Ordinal);
 }
 
 /// <summary>Well-known parameter names used by the built-in effects.</summary>
@@ -70,6 +109,57 @@ public static class EffectParamNames
 
     /// <summary>Saturation (1.0 = unchanged, 0 = greyscale) — <see cref="EffectTypeIds.Color"/>.</summary>
     public const string Saturation = "saturation";
+
+    /// <summary>Gain in decibels (0 = unity) — <see cref="EffectTypeIds.AudioGain"/>.</summary>
+    public const string GainDb = "gainDb";
+
+    /// <summary>Stereo balance in [-1, 1] (0 = centre) — <see cref="EffectTypeIds.AudioGain"/>.</summary>
+    public const string Pan = "pan";
+
+    /// <summary>Low-shelf gain in dB — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    public const string LowGainDb = "lowGainDb";
+
+    /// <summary>Low-shelf corner frequency in Hz — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    public const string LowFreq = "lowFreq";
+
+    /// <summary>Mid-peak gain in dB — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    public const string MidGainDb = "midGainDb";
+
+    /// <summary>Mid-peak centre frequency in Hz — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    public const string MidFreq = "midFreq";
+
+    /// <summary>Mid-peak Q (bandwidth) — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    public const string MidQ = "midQ";
+
+    /// <summary>High-shelf gain in dB — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    public const string HighGainDb = "highGainDb";
+
+    /// <summary>High-shelf corner frequency in Hz — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    public const string HighFreq = "highFreq";
+
+    /// <summary>Compressor threshold in dBFS — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
+    public const string ThresholdDb = "thresholdDb";
+
+    /// <summary>Compression ratio (N:1) — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
+    public const string Ratio = "ratio";
+
+    /// <summary>Compressor attack time in milliseconds — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
+    public const string AttackMs = "attackMs";
+
+    /// <summary>Compressor release time in milliseconds — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
+    public const string ReleaseMs = "releaseMs";
+
+    /// <summary>Compressor make-up gain in dB — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
+    public const string MakeupDb = "makeupDb";
+
+    /// <summary>Reverb room size in [0, 1] — <see cref="EffectTypeIds.AudioReverb"/>.</summary>
+    public const string RoomSize = "roomSize";
+
+    /// <summary>Reverb high-frequency damping in [0, 1] — <see cref="EffectTypeIds.AudioReverb"/>.</summary>
+    public const string Damping = "damping";
+
+    /// <summary>Reverb wet/dry mix in [0, 1] (0 = dry only) — <see cref="EffectTypeIds.AudioReverb"/>.</summary>
+    public const string Mix = "mix";
 }
 
 /// <summary>

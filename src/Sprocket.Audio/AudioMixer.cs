@@ -1,4 +1,5 @@
 using System.Numerics;
+using Sprocket.Audio.Effects;
 using Sprocket.Core.Audio;
 using Sprocket.Core.Model;
 using Sprocket.Core.Rendering;
@@ -9,14 +10,22 @@ namespace Sprocket.Audio;
 /// <summary>
 /// Fills one interleaved float32 output buffer for a timeline range by executing the render graph's
 /// <see cref="AudioBufferPlan"/> (ARCHITECTURE.md §6): for each audible audio layer it pulls PCM from that
-/// source through the <see cref="IPcmReader"/> seam, applies the layer's gain envelope (a linear ramp across
-/// the buffer, which is how fades work), and sums into the mix; then it applies master gain and clamps.
+/// source through the <see cref="IPcmReader"/> seam, runs the layer's audio effect chains (PLAN.md step 31),
+/// applies the layer's gain envelope (a linear ramp across the buffer, which is how fades work), and sums into
+/// the mix; then it runs the plan's output chains (sequence bus / project master) and applies master gain and
+/// clamps.
 /// </summary>
 /// <remarks>
 /// <para>The mixer keeps each source's reader positioned for sequential playback and only issues a
 /// <see cref="IPcmReader.SeekTo"/> when the requested source time jumps (a scrub), so steady playback never
 /// re-seeks. It is driven by a single feeder thread (the audio engine), so it holds no locks.</para>
 /// <para>Readers are resolved lazily by <see cref="MediaRefId"/> and owned by the mixer (disposed with it).</para>
+/// <para><b>Effect chains (§19).</b> Each <see cref="ResolvedAudioChain"/> runs as an in-place block DSP pass
+/// over the layer/bus scratch, in the standard signal order: clip effects → clip gain/fade → track inserts →
+/// track fader + pan → sum → bus/master chains → master gain → hard limit. Stateful <see cref="IAudioEffect"/>
+/// instances are kept per <see cref="ResolvedAudioChain.StateKey"/> so filter memory and tails carry across
+/// buffers; DSP state is deliberately <em>not</em> reset on seeks (tails/envelopes settle within milliseconds,
+/// matching how NLEs behave). Unknown effect ids pass through, mirroring the video pipeline (§15).</para>
 /// </remarks>
 public sealed class AudioMixer : IDisposable
 {
@@ -45,8 +54,18 @@ public sealed class AudioMixer : IDisposable
         }
     }
 
+    // The stateful effect instances of one chain, keyed by the resolved ids so a chain edit (add/remove/reorder)
+    // rebuilds the instances while parameter-only changes keep the DSP state (PLAN.md step 31).
+    private sealed class ChainState
+    {
+        public string[] Ids = [];
+        public IAudioEffect?[] Effects = [];
+    }
+
     private readonly Func<MediaRefId, IPcmReader?> _resolve;
+    private readonly Func<string, IAudioEffect?> _effectFactory;
     private readonly Dictionary<MediaRefId, SourceState> _states = new();
+    private readonly Dictionary<object, ChainState> _chainStates = new();
     // One layer scratch buffer per nesting depth (PLAN.md step 23): mixing a nested-sequence layer recurses, and
     // each depth needs its own scratch so the sub-mix doesn't clobber the parent's. Index 0 is the (common,
     // non-nested) top level — kept allocation-free in steady state exactly as before.
@@ -54,8 +73,13 @@ public sealed class AudioMixer : IDisposable
     private bool _disposed;
 
     /// <summary>Creates a mixer for the given output format. <paramref name="resolveReader"/> maps a media id to
-    /// its PCM reader (returning null for an unavailable/offline source, which mixes as silence).</summary>
-    public AudioMixer(int sampleRate, int channels, Func<MediaRefId, IPcmReader?> resolveReader)
+    /// its PCM reader (returning null for an unavailable/offline source, which mixes as silence).
+    /// <paramref name="effectFactory"/> maps an audio effect type id to a fresh stateful DSP instance (PLAN.md
+    /// step 31), defaulting to the built-ins (<see cref="BuiltInAudioEffects.Create"/>); a null result is a
+    /// pass-through.</summary>
+    public AudioMixer(
+        int sampleRate, int channels, Func<MediaRefId, IPcmReader?> resolveReader,
+        Func<string, IAudioEffect?>? effectFactory = null)
     {
         if (sampleRate <= 0) throw new ArgumentOutOfRangeException(nameof(sampleRate));
         if (channels <= 0) throw new ArgumentOutOfRangeException(nameof(channels));
@@ -63,6 +87,7 @@ public sealed class AudioMixer : IDisposable
         SampleRate = sampleRate;
         Channels = channels;
         _resolve = resolveReader;
+        _effectFactory = effectFactory ?? BuiltInAudioEffects.Create;
     }
 
     /// <summary>Output sample rate in Hz.</summary>
@@ -115,9 +140,10 @@ public sealed class AudioMixer : IDisposable
     }
 
     /// <summary>
-    /// Sums one buffer plan into <paramref name="dest"/> (overwritten): each media layer's PCM (with its gain
-    /// ramp) plus each nested-sequence layer's recursively-mixed sub-mix (PLAN.md step 23), then scales by the
-    /// plan's master gain. No hard-limit here — that happens once at the top so nested sub-mixes sum cleanly.
+    /// Sums one buffer plan into <paramref name="dest"/> (overwritten): each media layer's PCM (through its
+    /// effect chains and gain ramp) plus each nested-sequence layer's recursively-mixed sub-mix (PLAN.md
+    /// step 23), then runs the plan's output chains and scales by the plan's master gain. No hard-limit here —
+    /// that happens once at the top so nested sub-mixes sum cleanly.
     /// </summary>
     private void MixPlanInto(Span<float> dest, AudioBufferPlan plan, int frames, int depth)
     {
@@ -128,10 +154,11 @@ public sealed class AudioMixer : IDisposable
         {
             if (al.NestedPlan is { } nested)
             {
-                // A nested-sequence layer: mix the child plan into the per-depth scratch, then sum it in under
-                // this layer's (the nesting clip's) gain envelope. (Retimed nested audio plays at 1× — step 23.)
+                // A nested-sequence layer: mix the child plan into the per-depth scratch, then process/sum it in
+                // under this layer's (the nesting clip's) chains and gain envelope. (Retimed nested audio plays
+                // at 1× — step 23.)
                 MixPlanInto(layer, nested, frames, depth + 1);
-                SumWithRamp(dest, layer, frames, al.GainStartLinear, al.GainEndLinear, al.PanLeft, al.PanRight);
+                ProcessAndSumLayer(dest, layer, frames, al);
                 continue;
             }
 
@@ -152,10 +179,91 @@ public sealed class AudioMixer : IDisposable
                 ReadResampled(state, layer, frames, al.SpeedRatio.ToDouble());
             }
 
-            SumWithRamp(dest, layer, frames, al.GainStartLinear, al.GainEndLinear, al.PanLeft, al.PanRight);
+            ProcessAndSumLayer(dest, layer, frames, al);
         }
 
+        if (plan.OutputChains is { } chains)
+            foreach (ResolvedAudioChain chain in chains)
+                RunChain(dest, frames, chain);
+
         ApplyGain(dest, plan.MasterGainLinear);
+    }
+
+    /// <summary>
+    /// Runs one layer's signal chain over its scratch and sums it into <paramref name="dest"/> in the standard
+    /// order (PLAN.md step 31): clip effects → clip gain/fade ramp → track inserts (pre-fader) → track fader +
+    /// pan → sum. A chain-less layer folds both gain stages into the single summing ramp — the original,
+    /// untouched fast path.
+    /// </summary>
+    private void ProcessAndSumLayer(Span<float> dest, Span<float> layer, int frames, AudioLayer al)
+    {
+        if (al.ClipChain is null && al.TrackChain is null)
+        {
+            SumWithRamp(dest, layer, frames, al.GainStartLinear, al.GainEndLinear, al.PanLeft, al.PanRight);
+            return;
+        }
+
+        if (al.ClipChain is { } clipChain)
+            RunChain(layer, frames, clipChain);
+        ApplyRamp(layer, frames, al.ClipGainStartLinear, al.ClipGainEndLinear);
+        if (al.TrackChain is { } trackChain)
+            RunChain(layer, frames, trackChain);
+        SumWithRamp(dest, layer, frames, al.TrackGainLinear, al.TrackGainLinear, al.PanLeft, al.PanRight);
+    }
+
+    /// <summary>
+    /// Runs a resolved audio effect chain in place over <paramref name="buffer"/> (PLAN.md step 31). The chain's
+    /// stateful <see cref="IAudioEffect"/> instances are kept per <see cref="ResolvedAudioChain.StateKey"/> and
+    /// rebuilt only when the chain's effect ids change, so filter memory / envelopes / tails carry across
+    /// buffers. Ids the factory doesn't know yield a null instance and pass through (§15).
+    /// </summary>
+    private void RunChain(Span<float> buffer, int frames, ResolvedAudioChain chain)
+    {
+        ChainState state = GetChainState(chain);
+        for (int i = 0; i < chain.Effects.Count; i++)
+            state.Effects[i]?.Process(buffer[..(frames * Channels)], frames, SampleRate, Channels, chain.Effects[i]);
+    }
+
+    private ChainState GetChainState(ResolvedAudioChain chain)
+    {
+        if (!_chainStates.TryGetValue(chain.StateKey, out ChainState? state))
+        {
+            state = new ChainState();
+            _chainStates[chain.StateKey] = state;
+        }
+
+        bool same = state.Ids.Length == chain.Effects.Count;
+        for (int i = 0; same && i < state.Ids.Length; i++)
+            same = state.Ids[i] == chain.Effects[i].EffectTypeId;
+        if (!same)
+        {
+            state.Ids = new string[chain.Effects.Count];
+            state.Effects = new IAudioEffect?[chain.Effects.Count];
+            for (int i = 0; i < chain.Effects.Count; i++)
+            {
+                state.Ids[i] = chain.Effects[i].EffectTypeId;
+                state.Effects[i] = _effectFactory(state.Ids[i]);
+            }
+        }
+        return state;
+    }
+
+    /// <summary>Scales the buffer in place by a per-frame gain that ramps linearly from
+    /// <paramref name="gainStart"/> to <paramref name="gainEnd"/> — the clip-level gain/fade stage when a
+    /// layer's chains force the gain stages apart (PLAN.md step 31).</summary>
+    private void ApplyRamp(Span<float> buffer, int frames, double gainStart, double gainEnd)
+    {
+        if (gainStart == 1.0 && gainEnd == 1.0)
+            return;
+        double step = frames > 1 ? (gainEnd - gainStart) / frames : 0.0;
+        int c = Channels;
+        for (int f = 0; f < frames; f++)
+        {
+            var gain = (float)(gainStart + step * f);
+            int baseIndex = f * c;
+            for (int ch = 0; ch < c; ch++)
+                buffer[baseIndex + ch] *= gain;
+        }
     }
 
     /// <summary>Resolves the reader for a media id and seeks it if the requested source time has jumped.</summary>

@@ -699,7 +699,14 @@ audio is the **master clock** (§6/§8), so an uncompensated latency would skew 
 
 **Built-in managed effects first.** Parametric EQ (biquads), compressor, reverb, and gain/pan as
 pure C# DSP (`System.Numerics` SIMD where it helps) — no native dependency, cross-platform, and
-**deterministic** (golden-PCM testable like the render graph).
+**deterministic** (golden-PCM testable like the render graph). *(Implemented PLAN step 31, the
+built-in phase: `IAudioEffect` in Core; chains at all four scopes — `Clip.Effects` via the
+`builtin.audio.*` id prefix, `AudioTrack.Effects`, `Timeline.AudioEffects`,
+`ProjectSettings.MasterAudioEffects`; `RenderGraph` resolves them into `ResolvedAudioChain`s with
+split clip/track gains so the mixer runs inserts pre-fader; the four built-ins live in
+`Sprocket.Audio/Effects`. Parameters evaluate per block at the buffer start — the sample-accurate
+in-block ramp below is a later refinement. Native hosting, delay compensation, and the state-blob
+persistence remain outstanding with the step-33 plugin host.)*
 
 **Native plugin hosting (VST3 + AU) — via a C-ABI bridge, no C++/CLI.** The VST3 SDK is C++/COM-style
 and Audio Units are Objective-C; both violate the managed-only rule if bound directly. Per §1.4 each

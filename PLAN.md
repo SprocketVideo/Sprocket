@@ -2047,6 +2047,68 @@ Tags reference the [UI.md §4 checklist](UI.md).
     deliberately before distribution (cf. the FFmpeg LGPL/GPL note). A track or chain can also be
     **frozen** (pre-rendered) via the render cache (step 32) so heavy or non-deterministic plugins
     aren't recomputed every playback pass.
+    - **🟡 PARTIAL — built-in managed phase DONE; native VST3/AU hosting NOT started** (`Sprocket.Core/Audio/IAudioEffect.cs`
+      + `Sprocket.Audio/Effects/*` + mixer/render-graph/persistence wiring; 37 new tests — Core +12, Audio +21,
+      Persistence +4, all green). The step's "built-in managed effects first" phase shipped whole; the native
+      half was deliberately deferred because it builds on the step-33 plugin host, which doesn't exist yet.
+      Delivered:
+      - **The `IAudioEffect` seam (Core, §19):** process one block of interleaved float32 in place at the
+        project rate/layout + `Reset()`; stateful implementations, driven by the single mixing thread,
+        allocation-free in steady state (§1). The pure-data `EffectInstance`/`AnimatableValue` model is reused
+        unchanged — an audio chain is an ordered `EffectInstance[]`, keyframeable like any effect (params are
+        evaluated **per block** at the buffer start; the sample-accurate in-block ramp of §19 stays a later
+        refinement). `EffectTypeIds.IsAudio` (the `builtin.audio.*` prefix) splits a clip's single effect stack:
+        audio ids feed the mixer chain, video ids feed the shaders, and **Fade stays the shared gain envelope**
+        (not a chain stage) so one fade keeps driving video alpha + audio gain.
+      - **All four chain scopes (§19), clip → track → sequence bus → master:** clip chains live on the existing
+        `Clip.Effects`; new chain lists on `AudioTrack.Effects` (inserts), `Timeline.AudioEffects` (the
+        sequence's output bus — a nested sequence's chain processes the sub-mix its nesting clip receives, keyed
+        per nesting clip so two nests of one child keep independent DSP state), and
+        `ProjectSettings.MasterAudioEffects` (beside the master gain it precedes). `RenderGraph.PlanAudioBuffer`
+        resolves them into the plan (`ResolvedAudioChain` — evaluated params + an identity `StateKey` the
+        executor persists DSP state under) and **splits the layer gain** into clip-level (clip gain × fade,
+        ramped) and track-fader (static) parts so the mixer can run inserts at the standard **pre-fader** point;
+        the combined `GainStartLinear`/`GainEndLinear` remain as computed properties, so every existing
+        gain consumer/test reads exactly what it did before. A `UnityMasterGain` measurement scope (step 30)
+        bypasses the master chain too.
+      - **Mixer execution (§6/§19):** per layer — clip chain → clip gain/fade ramp → track inserts → track
+        fader + pan → sum; then per plan — bus/master `OutputChains` → master gain → single top-level hard
+        limit. Chain-less layers take the **byte-identical pre-31 fast path** (one combined summing ramp).
+        Stateful effect instances are cached per `StateKey` and rebuilt only when the chain's ids change, so
+        filter memory/envelopes/tails carry across buffers (deliberately not reset on seeks — tails settle in
+        ms, matching NLE behaviour); unknown ids pass through, mirroring the video pipeline (§15). Export and
+        loudness analysis inherit the chains for free (both drive this mixer).
+      - **Four built-in managed effects (`Sprocket.Audio/Effects`, pure C#, deterministic):** **Gain/Pan**
+        (dB + the step-30 `PanLaw` balance), **Parametric EQ** (three-band low-shelf / mid-peak-with-Q /
+        high-shelf, RBJ-cookbook biquads per channel, coefficients recomputed only on param change, 0 dB bands
+        bypassed exactly), **Compressor** (stereo-linked peak envelope, one-pole attack/release, hard-knee
+        threshold/ratio + make-up — the textbook feed-forward design), and **Reverb** (Freeverb: 8 damped
+        combs + 4 allpasses per channel, standard 44.1 kHz tunings scaled to the project rate, +23-sample
+        stereo spread; `mix = 0` is an exact pass-through). All registered in `EffectCatalog` under
+        `EffectCategory.Audio` with typed parameter descriptors, so the Effects browser lists them and the
+        type-driven Inspector edits them (clip scope works end-to-end in the UI today via the existing
+        add-effect flow).
+      - **Persistence (§12):** additive + nullable `effects` (audio tracks), `audioEffects` (timeline bus), and
+        `masterAudioEffects` (settings) DTO fields — no schema bump; empty chains write nothing, so pre-31
+        files load with none and chain-less projects serialize **byte-identically**. New
+        `AddChainEffectCommand`/`RemoveChainEffectCommand` (Core) make track/bus/master chain edits undoable
+        with position-preserving undo (clip scope reuses `AddEffectCommand`).
+      - **Tests (37):** plan resolution (per-scope chains + state keys, audio/video id filtering, split-gain
+        composition, keyframed per-block evaluation, unity-scope bypass, nested-bus keying, command
+        apply/revert); DSP units (gain/pan math, EQ pass-through / shelf boost / mid cut / cross-block state
+        continuity, compressor above/below threshold + make-up, reverb tail + reset); mixer integration
+        (each scope applies, **pre-fader insert order proven** via a compressor that must see the signal before
+        the fader, clip fade feeding the track chain, unknown-id pass-through, bus tail ringing across buffers
+        past the clip's end, chain-less fast path unchanged); persistence round-trips + the byte-identical
+        empty-chain check. Full suite: **781 tests green** (Core 243, Media 34, Render 50, Audio 67,
+        Playback 52, Export 77, Persistence 95, App 163); clean build (0 warnings), smoke launch exit 0.
+      - **Still outstanding (blocked on / sequenced with step 33):** the native **VST3 / AU hosting** via
+        per-format C-ABI bridge shims (`sprocket_vst3host` / `sprocket_auhost`), plugin scan/instantiate off
+        the audio thread, plugin editor GUI embedding, **plugin delay compensation**, the opaque state-blob
+        persistence + offline-plugin bypass, per-RID bridge bundling (steps 35–36), and the VST3 SDK licensing
+        decision. A dedicated track/bus/master chain **UI** (mixer-panel inserts) is also future work — today
+        those scopes are model + command + persistence complete and clip-scope editing is live in the
+        Inspector/browser.
 32. **Preview render cache (pre-render / "freeze").** Expensive subgraphs — nested sequences
     (step 23), adjustment-layer spans (step 19), deep effect chains, and audio plugin chains
     (step 31) — shouldn't be recomputed every playback pass. Because the render graph is a **pure,

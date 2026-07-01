@@ -603,6 +603,46 @@ public sealed class AddEffectCommand(Clip clip, EffectInstance effect) : EditCom
     public override void Revert() => clip.Effects.Remove(effect);
 }
 
+/// <summary>
+/// Appends an effect to an audio effect chain — a track's insert chain (<see cref="AudioTrack.Effects"/>), a
+/// sequence bus (<see cref="Timeline.AudioEffects"/>), or the project master chain
+/// (<see cref="ProjectSettings.MasterAudioEffects"/>) — undo removes it (PLAN.md step 31). The clip-scope
+/// chain is the clip's ordinary effect stack, edited by <see cref="AddEffectCommand"/>.
+/// </summary>
+public sealed class AddChainEffectCommand(IList<EffectInstance> chain, EffectInstance effect)
+    : EditCommand("Add audio effect")
+{
+    /// <inheritdoc />
+    public override void Apply() => chain.Add(effect);
+
+    /// <inheritdoc />
+    public override void Revert() => chain.Remove(effect);
+}
+
+/// <summary>Removes an effect from an audio effect chain; undo re-inserts it at the same position — chain
+/// order is the processing order (PLAN.md step 31).</summary>
+public sealed class RemoveChainEffectCommand(IList<EffectInstance> chain, EffectInstance effect)
+    : EditCommand("Remove audio effect")
+{
+    private int _index = -1;
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _index = chain.IndexOf(effect);
+        if (_index >= 0)
+            chain.RemoveAt(_index);
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        if (_index < 0)
+            return;
+        chain.Insert(Math.Min(_index, chain.Count), effect);
+    }
+}
+
 /// <summary>Removes an effect from a clip; undo re-inserts it at the same stack position (order matters, §5d).</summary>
 public sealed class RemoveEffectCommand(Clip clip, EffectInstance effect) : EditCommand("Remove effect")
 {

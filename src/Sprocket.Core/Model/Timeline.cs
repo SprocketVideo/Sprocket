@@ -38,6 +38,14 @@ public sealed class Timeline
     /// stack; drawn on the ruler, navigable, and listed in the markers panel. Unordered — navigation sorts.</summary>
     public List<Marker> Markers { get; } = new();
 
+    /// <summary>
+    /// The sequence's audio output-bus chain (PLAN.md step 31, ARCHITECTURE.md §19): ordered
+    /// <see cref="EffectInstance"/>s of audio effect types, applied by the mixer to this sequence's summed
+    /// mix after all tracks — for the active sequence that is the bus before the project master chain; for a
+    /// nested sequence it processes the sub-mix the nesting clip receives. Edited through the command stack.
+    /// </summary>
+    public List<EffectInstance> AudioEffects { get; } = new();
+
     /// <summary>The video tracks, bottom→top.</summary>
     public IEnumerable<VideoTrack> VideoTracks => Tracks.OfType<VideoTrack>();
 

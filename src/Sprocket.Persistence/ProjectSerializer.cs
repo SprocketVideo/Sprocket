@@ -109,7 +109,9 @@ public static class ProjectSerializer
         foreach (MediaRef m in project.MediaPool.Items)
             media.Add(ToDto(m, projectDir, inlineMediaPaths));
 
-        var settings = new SettingsDto(project.Settings.MasterGainDb, project.Settings.UseProxies, project.Settings.ProxyTier);
+        var settings = new SettingsDto(
+            project.Settings.MasterGainDb, project.Settings.UseProxies, project.Settings.ProxyTier,
+            ToEffectList(project.Settings.MasterAudioEffects));
 
         // Multicam sources are orthogonal to the sequence shape; null (omitted) when there are none, so a
         // multicam-free project serializes byte-identically (WhenWritingNull).
@@ -196,7 +198,19 @@ public static class ProjectSerializer
         foreach (Track track in t.Tracks)
             tracks.Add(ToDto(track));
         return new TimelineDto(ToDto(t.FrameRate), new ResolutionDto(t.Resolution.Width, t.Resolution.Height),
-            t.SampleRate, tracks, ToMarkerList(t.Markers));
+            t.SampleRate, tracks, ToMarkerList(t.Markers), ToEffectList(t.AudioEffects));
+    }
+
+    /// <summary>Converts an audio effect chain to DTOs, returning <see langword="null"/> when empty so a
+    /// chain-less track/timeline/project serializes byte-identically to a pre-step-31 file (WhenWritingNull).</summary>
+    private static List<EffectDto>? ToEffectList(List<EffectInstance> effects)
+    {
+        if (effects.Count == 0)
+            return null;
+        var list = new List<EffectDto>(effects.Count);
+        foreach (EffectInstance e in effects)
+            list.Add(ToDto(e));
+        return list;
     }
 
     /// <summary>Converts a marker list to DTOs, returning <see langword="null"/> when empty so a marker-less
@@ -222,7 +236,7 @@ public static class ProjectSerializer
         return track switch
         {
             VideoTrack v => new TrackDto(TrackKind.Video, v.Name, v.Enabled, v.Opacity, v.BlendMode, 0, false, false, clips, transitions),
-            AudioTrack a => new TrackDto(TrackKind.Audio, a.Name, a.Enabled, 1.0, BlendMode.Normal, a.GainDb, a.Muted, a.Solo, clips, transitions, a.Pan != 0 ? a.Pan : null),
+            AudioTrack a => new TrackDto(TrackKind.Audio, a.Name, a.Enabled, 1.0, BlendMode.Normal, a.GainDb, a.Muted, a.Solo, clips, transitions, a.Pan != 0 ? a.Pan : null, ToEffectList(a.Effects)),
             _ => throw new NotSupportedException($"Unknown track type {track.GetType().Name}."),
         };
     }
@@ -315,6 +329,7 @@ public static class ProjectSerializer
         project.Settings.MasterGainDb = dto.Settings.MasterGainDb;
         project.Settings.UseProxies = dto.Settings.UseProxies;
         project.Settings.ProxyTier = dto.Settings.ProxyTier;
+        AddEffects(project.Settings.MasterAudioEffects, dto.Settings.MasterAudioEffects);
         if (dto.MulticamSources is { } multicams)
             foreach (MulticamSourceDto m in multicams)
                 project.MulticamSources.Add(FromDto(m));
@@ -391,7 +406,18 @@ public static class ProjectSerializer
         foreach (TrackDto track in t.Tracks)
             timeline.Tracks.Add(FromDto(track));
         AddMarkers(timeline.Markers, t.Markers);
+        AddEffects(timeline.AudioEffects, t.AudioEffects);
         return timeline;
+    }
+
+    /// <summary>Restores an audio effect chain (if any) into a model chain list. Null/absent (pre-step-31
+    /// files) leaves it empty.</summary>
+    private static void AddEffects(List<EffectInstance> target, List<EffectDto>? dtos)
+    {
+        if (dtos is null)
+            return;
+        foreach (EffectDto e in dtos)
+            target.Add(FromDto(e));
     }
 
     /// <summary>Restores markers (if any) into a model marker list. Null/absent (pre-step-20 files) leaves it empty.</summary>
@@ -411,6 +437,8 @@ public static class ProjectSerializer
             TrackKind.Audio => new AudioTrack { Name = t.Name, Enabled = t.Enabled, GainDb = t.GainDb, Muted = t.Muted, Solo = t.Solo, Pan = t.Pan ?? 0 },
             _ => throw new InvalidDataException($"Unknown track kind {t.Kind}."),
         };
+        if (track is AudioTrack audio)
+            AddEffects(audio.Effects, t.Effects);
         foreach (ClipDto c in t.Clips)
             track.Clips.Add(FromDto(c));
         if (t.Transitions is { } transitions)

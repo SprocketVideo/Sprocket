@@ -9,6 +9,14 @@ public sealed class ProjectSettings
     public double MasterGainDb { get; set; }
 
     /// <summary>
+    /// The project master audio chain (PLAN.md step 31, ARCHITECTURE.md §19): ordered
+    /// <see cref="EffectInstance"/>s of audio effect types, applied by the mixer to the final mix after the
+    /// active sequence's bus chain and before <see cref="MasterGainDb"/> (pre-master-fader, the standard
+    /// insert point). Edited through the command stack.
+    /// </summary>
+    public List<EffectInstance> MasterAudioEffects { get; } = new();
+
+    /// <summary>
     /// Whether the preview uses lower-resolution proxies when available (PLAN.md step 18). Default-on: <em>on</em>
     /// means "use a proxy once one is ready, else the original", so playback is never interrupted while proxies
     /// build in the background. Export always pulls full-resolution originals regardless (ARCHITECTURE.md §17).

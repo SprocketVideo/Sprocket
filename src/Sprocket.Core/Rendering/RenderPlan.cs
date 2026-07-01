@@ -125,14 +125,29 @@ public sealed record ResolvedTransition(
 public sealed record VideoFramePlan(Resolution Resolution, Timecode Time, IReadOnlyList<VideoLayer> Layers);
 
 /// <summary>
-/// One resolved audio layer for a buffer. The gain is given at both ends of the buffer so the mixer
-/// can apply a linear ramp across it (fades, ARCHITECTURE.md §6); for a constant gain the two values
-/// are equal.
+/// One resolved audio effect chain (PLAN.md step 31, ARCHITECTURE.md §19): the ordered effects with their
+/// parameters evaluated at the buffer's start time, plus the identity key the executor uses to persist the
+/// chain's DSP state (filter memory, envelopes, tails) across buffers.
+/// </summary>
+/// <param name="StateKey">An <b>identity</b> key naming which model chain this is (the clip, track, timeline,
+/// or project object). Never serialized and never dereferenced — the mixer only uses it to look up/persist the
+/// chain's stateful <see cref="Audio.IAudioEffect"/> instances between buffers, so the same chain keeps its
+/// filter state while two chains with identical effects stay independent.</param>
+/// <param name="Effects">The chain's effects in processing order, evaluated at the buffer's start.</param>
+public sealed record ResolvedAudioChain(object StateKey, IReadOnlyList<ResolvedEffect> Effects);
+
+/// <summary>
+/// One resolved audio layer for a buffer. The clip-level gain is given at both ends of the buffer so the mixer
+/// can apply a linear ramp across it (fades, ARCHITECTURE.md §6); for a constant gain the two values are equal.
+/// The mixer's per-layer order is the standard NLE/DAW signal flow (PLAN.md step 31): clip effects
+/// (<see cref="ClipChain"/>) → clip gain/fade ramp → track inserts (<see cref="TrackChain"/>, pre-fader) →
+/// track fader (<see cref="TrackGainLinear"/>) + pan → sum into the bus.
 /// </summary>
 /// <param name="MediaRefId">Source to pull PCM from.</param>
 /// <param name="SourceStart">Time within the source corresponding to the start of the buffer.</param>
-/// <param name="GainStartLinear">Linear gain at the start of the buffer.</param>
-/// <param name="GainEndLinear">Linear gain at the end of the buffer.</param>
+/// <param name="ClipGainStartLinear">Clip-level linear gain (clip gain × fade) at the start of the buffer.</param>
+/// <param name="ClipGainEndLinear">Clip-level linear gain at the end of the buffer.</param>
+/// <param name="TrackGainLinear">The track fader's static linear gain, applied after the track chain.</param>
 /// <param name="SpeedRatio">Playback speed (source time per timeline time, PLAN.md step 21). 1/1 = normal; the
 /// mixer resamples the source PCM by this factor. Defaults to 1/1 so non-retimed callers are unaffected.</param>
 /// <param name="NestedPlan">The child sequence's resolved audio plan (a nested-sequence layer, PLAN.md step 23):
@@ -141,15 +156,29 @@ public sealed record VideoFramePlan(Resolution Resolution, Timecode Time, IReadO
 /// <param name="PanLeft">Left-channel pan/balance gain in [0, 1] (PLAN.md step 30). 1.0 (the default) is the
 /// centred / mono case — applied by the mixer on top of the gain ramp for a stereo output.</param>
 /// <param name="PanRight">Right-channel pan/balance gain in [0, 1] (PLAN.md step 30). 1.0 = centred.</param>
+/// <param name="ClipChain">The clip's audio effect chain (PLAN.md step 31), or <see langword="null"/> when the
+/// clip has no audio effects (the common fast path).</param>
+/// <param name="TrackChain">The track's insert chain (PLAN.md step 31), or <see langword="null"/> when empty.</param>
 public sealed record AudioLayer(
     MediaRefId MediaRefId,
     Timecode SourceStart,
-    double GainStartLinear,
-    double GainEndLinear,
+    double ClipGainStartLinear,
+    double ClipGainEndLinear,
+    double TrackGainLinear,
     Rational SpeedRatio,
     AudioBufferPlan? NestedPlan = null,
     double PanLeft = 1.0,
-    double PanRight = 1.0);
+    double PanRight = 1.0,
+    ResolvedAudioChain? ClipChain = null,
+    ResolvedAudioChain? TrackChain = null)
+{
+    /// <summary>The combined linear gain (clip × track) at the start of the buffer — what a chain-less mix
+    /// applies in one ramp, and the value gain-focused tests/consumers read.</summary>
+    public double GainStartLinear => ClipGainStartLinear * TrackGainLinear;
+
+    /// <summary>The combined linear gain (clip × track) at the end of the buffer.</summary>
+    public double GainEndLinear => ClipGainEndLinear * TrackGainLinear;
+}
 
 /// <summary>
 /// Restricts an audio buffer plan to a measurement scope (PLAN.md step 30 loudness normalization). With the
@@ -174,8 +203,12 @@ public sealed record AudioPlanScope(
 /// <param name="BufferDuration">Length of the buffer.</param>
 /// <param name="Layers">Audio layers to sum.</param>
 /// <param name="MasterGainLinear">Master output gain (linear) to apply after summing.</param>
+/// <param name="OutputChains">Audio effect chains to run over this plan's summed mix, in order, before
+/// <paramref name="MasterGainLinear"/> (PLAN.md step 31): the sequence's bus chain, plus — at the root —
+/// the project master chain. <see langword="null"/> when there are none (the common fast path).</param>
 public sealed record AudioBufferPlan(
     Timecode BufferStart,
     Timecode BufferDuration,
     IReadOnlyList<AudioLayer> Layers,
-    double MasterGainLinear);
+    double MasterGainLinear,
+    IReadOnlyList<ResolvedAudioChain>? OutputChains = null);

@@ -117,6 +117,15 @@ public sealed class AudioTrack : Track
         set => _pan = Math.Clamp(value, -1.0, 1.0);
     }
 
+    /// <summary>
+    /// The track's audio insert chain (PLAN.md step 31, ARCHITECTURE.md §19): ordered
+    /// <see cref="EffectInstance"/>s of audio effect types, applied by the mixer to the track's content
+    /// <em>after</em> the clip level (clip effects + clip gain/fade) and <em>before</em> the track fader
+    /// (<see cref="GainDb"/>) and <see cref="Pan"/> — the standard pre-fader insert point. Edited through
+    /// the command stack like every other model mutation.
+    /// </summary>
+    public List<EffectInstance> Effects { get; } = new();
+
     /// <summary>Whether the track is muted (excluded from the mix).</summary>
     public bool Muted { get; set; }
 

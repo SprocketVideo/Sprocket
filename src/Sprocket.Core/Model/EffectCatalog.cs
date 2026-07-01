@@ -121,6 +121,56 @@ public static class EffectCatalog
             [
                 new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05),
             ]),
+
+        // ── Audio chain stages (PLAN.md step 31) — executed by the mixer, not the shader pipeline. ──
+        new EffectDescriptor(
+            EffectTypeIds.AudioGain,
+            "Gain / Pan",
+            EffectCategory.Audio,
+            "Adjusts level and stereo balance.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.GainDb, "Gain", 0.0, -24.0, 24.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.Pan, "Pan", 0.0, -1.0, 1.0, 0.05),
+            ]),
+
+        new EffectDescriptor(
+            EffectTypeIds.AudioEq,
+            "Parametric EQ",
+            EffectCategory.Audio,
+            "Three-band EQ: low shelf, mid peak, high shelf.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.LowGainDb, "Low Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.LowFreq, "Low Freq", 100.0, 20.0, 500.0, 5.0, "Hz"),
+                new EffectParameterDescriptor(EffectParamNames.MidGainDb, "Mid Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.MidFreq, "Mid Freq", 1000.0, 200.0, 8000.0, 50.0, "Hz"),
+                new EffectParameterDescriptor(EffectParamNames.MidQ, "Mid Q", 1.0, 0.3, 8.0, 0.1),
+                new EffectParameterDescriptor(EffectParamNames.HighGainDb, "High Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.HighFreq, "High Freq", 8000.0, 2000.0, 16000.0, 100.0, "Hz"),
+            ]),
+
+        new EffectDescriptor(
+            EffectTypeIds.AudioCompressor,
+            "Compressor",
+            EffectCategory.Audio,
+            "Evens out dynamics: attenuates peaks above the threshold.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.ThresholdDb, "Threshold", -18.0, -60.0, 0.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.Ratio, "Ratio", 4.0, 1.0, 20.0, 0.5),
+                new EffectParameterDescriptor(EffectParamNames.AttackMs, "Attack", 10.0, 0.1, 200.0, 1.0, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.ReleaseMs, "Release", 100.0, 10.0, 1000.0, 10.0, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.MakeupDb, "Make-up", 0.0, 0.0, 24.0, 0.5, "dB"),
+            ]),
+
+        new EffectDescriptor(
+            EffectTypeIds.AudioReverb,
+            "Reverb",
+            EffectCategory.Audio,
+            "Adds room ambience (Freeverb-style).",
+            [
+                new EffectParameterDescriptor(EffectParamNames.RoomSize, "Room Size", 0.5, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.5, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+            ]),
     ];
 
     /// <summary>The descriptors in a given category, in display order.</summary>
