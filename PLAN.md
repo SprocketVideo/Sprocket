@@ -1647,6 +1647,16 @@ Tags reference the [UI.md §4 checklist](UI.md).
       outputs.
     - **Presets.** An export dropdown of saved selections over the step-27 matrix (container × codec ×
       quality × resolution / frame-rate), user-definable and persisted.
+    - **Hardware export encoders (carried over from step 27).** Step 27 shipped the *software* codec matrix and
+      left hardware encode explicitly deferred; finish it here. Add hardware `ExportVideoCodec` options
+      (**NVENC / QSV / AMF** on Windows, **VAAPI / NVENC** on Linux, **VideoToolbox** on macOS) behind the
+      existing `IHardwareContext`, negotiated by a runtime encoder probe with **automatic software fallback**
+      (`libx264`/`libx265`/SVT-AV1). `MediaEncoder` already selects encoders by name — the seam exists; the work
+      is the encoder-probe/fallback path plus the `hw_frames_ctx` **GPU-frame upload** so the composited frames
+      reach the GPU encoder (the binding surface for this is catalogued in
+      [`Native/FUTURE_BINDINGS.md`](src/Sprocket.Media/Native/FUTURE_BINDINGS.md) — "hardware encode … still
+      open"). Preview/cache intermediates use the same hardware encoders for speed (step 32); **final delivery
+      keeps a deterministic software path available** for golden-frame reproducibility (§5).
     - **Status-bar telemetry.** Surface engine state, GPU / hardware-accel status, live fps, resolution,
       and duration ([ARCHITECTURE §15](ARCHITECTURE.md)) — **no framework/runtime text** in the UI
       ([UI.md §3.7](UI.md)).
