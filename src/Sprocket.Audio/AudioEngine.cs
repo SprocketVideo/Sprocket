@@ -70,6 +70,12 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
     /// </summary>
     public LoudnessSnapshot CurrentLoudness => _meter.TakeSnapshot();
 
+    /// <summary>Raised when a feeder iteration throws (a decode/device hiccup). The feeder swallows it and
+    /// keeps running so audio recovers on the next buffer — mirroring <c>PlaybackEngine.PumpError</c> — rather
+    /// than faulting the task (which would rethrow at <see cref="DisposeAsync"/> and, awaited from an async-void
+    /// app handler, crash the process). Fires on the feeder thread; subscribers may surface it.</summary>
+    public event Action<Exception>? FeedError;
+
     /// <inheritdoc />
     public Timecode Now
     {
@@ -140,9 +146,9 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
     private async Task FeedLoopAsync(CancellationToken ct)
     {
         Timecode advance = Timecode.FromSamples(_bufferFrames, _sampleRate);
-        try
+        while (!ct.IsCancellationRequested)
         {
-            while (!ct.IsCancellationRequested)
+            try
             {
                 Timecode pos;
                 long gen;
@@ -186,10 +192,19 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
                 if (enqueued)
                     _meter.Process(_mixBuffer);
             }
-        }
-        catch (OperationCanceledException)
-        {
-            // Stopping.
+            catch (OperationCanceledException)
+            {
+                break; // cancellation is teardown — leave the loop
+            }
+            catch (Exception ex)
+            {
+                // A mix/enqueue/decode/device hiccup must NOT fault the feeder task: a faulted task rethrows at
+                // DisposeAsync (awaited from an async-void app handler → process crash) and permanently kills
+                // audio. Surface it and keep feeding so the next buffer recovers (cf. PlaybackEngine.PumpError).
+                FeedError?.Invoke(ex);
+                try { await Task.Delay(20, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { break; }
+            }
         }
     }
 

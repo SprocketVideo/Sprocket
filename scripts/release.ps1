@@ -302,6 +302,20 @@ function Add-FFmpegNatives([string] $rid, [string] $publishDir) {
     return $true
 }
 
+# Bundle Linux desktop integration into a published linux-* folder: the app icon plus a .desktop template and
+# install/uninstall scripts (packaging/linux/) that register an application launcher + hicolor icon for the
+# current user, so Sprocket gets a proper icon in the applications menu / dock / file browser (PLAN.md step 36
+# — desktop integration; the AppImage/tarball + code-signing parts of that step are still outstanding).
+function Add-LinuxDesktopIntegration([string] $publishDir) {
+    $srcDir = Join-Path $repoRoot 'packaging/linux'
+    $icon = Join-Path $repoRoot 'src/Sprocket.App/Assets/sprocket.png'
+    foreach ($f in @('install.sh', 'uninstall.sh', 'sprocket.desktop')) {
+        Copy-Item (Join-Path $srcDir $f) -Destination (Join-Path $publishDir $f) -Force
+    }
+    Copy-Item $icon -Destination (Join-Path $publishDir 'sprocket.png') -Force
+    Write-Host "    bundled Linux desktop integration (install.sh + icon)"
+}
+
 if (-not (Test-Path $appProject)) {
     throw "Cannot find app project at $appProject"
 }
@@ -365,6 +379,10 @@ foreach ($rid in $Rids) {
         Write-Host "    [warn] $rid ships without FFmpeg natives — decode will not work until the" -ForegroundColor Yellow
         Write-Host "           FFmpeg 8 .dylib files are placed next to the executable. Re-run with" -ForegroundColor Yellow
         Write-Host "           -OsxX64FFmpegUrl / -OsxArm64FFmpegUrl to bundle them (ARCHITECTURE.md §11)." -ForegroundColor Yellow
+    }
+
+    if ($rid -like 'linux-*') {
+        Add-LinuxDesktopIntegration $publishDir
     }
 
     if ($NoZip) {

@@ -13,6 +13,29 @@ public enum HardwareAccelMode
     Disabled,
 }
 
+/// <summary>
+/// The <c>SPROCKET_HWACCEL</c> environment override, read once. Set <c>SPROCKET_HWACCEL</c> to
+/// <c>off</c> / <c>0</c> / <c>false</c> / <c>no</c> / <c>none</c> / <c>software</c> / <c>sw</c> /
+/// <c>disabled</c> to force <b>software decode everywhere</b> — a safety valve for platforms whose GPU
+/// decode stack is unstable enough to crash the process (notably a broken VAAPI driver on Linux, which can
+/// segfault natively inside FFmpeg where no managed handler can catch it). Any other value, or leaving it
+/// unset, keeps the default hardware-with-software-fallback probe (<see cref="HardwareAccelMode.Auto"/>).
+/// </summary>
+public static class HardwareAccelSettings
+{
+    /// <summary>Whether the user forced software decode via <c>SPROCKET_HWACCEL</c>.</summary>
+    public static bool ForceSoftware { get; } = ReadForceSoftware();
+
+    private static bool ReadForceSoftware()
+    {
+        string? v = Environment.GetEnvironmentVariable("SPROCKET_HWACCEL");
+        if (string.IsNullOrWhiteSpace(v))
+            return false;
+        return v.Trim().ToLowerInvariant()
+            is "off" or "0" or "false" or "no" or "none" or "software" or "sw" or "disabled";
+    }
+}
+
 /// <summary>The FFmpeg <c>AVHWDeviceType</c> values Sprocket targets (numeric values match FFmpeg's enum).
 /// Replaces the binding-specific enum so no FFmpeg type leaks across the Media public surface.</summary>
 public enum HardwareDeviceType

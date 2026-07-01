@@ -113,6 +113,12 @@ public sealed unsafe class MediaSource : IDisposable
             IntPtr codecpar = st->codecpar;
             AvRational videoTimeBase = st->time_base;
 
+            // A user override (SPROCKET_HWACCEL=off) forces software decode as a safety valve for an unstable
+            // platform GPU decode stack (e.g. a VAAPI driver that segfaults natively — uncatchable managed-side).
+            // Only downgrades Auto→Disabled; an explicit Disabled from a caller (tests) is already software.
+            if (hwAccel == HardwareAccelMode.Auto && HardwareAccelSettings.ForceSoftware)
+                hwAccel = HardwareAccelMode.Disabled;
+
             // Negotiate a hardware device + its decoder pixel format, then open the decoder. If hardware setup
             // or open fails, tear it down and open a plain software decoder (the guaranteed fallback, §11).
             IHardwareContext? hw = null;

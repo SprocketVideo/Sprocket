@@ -19,7 +19,9 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Embedded in the Windows PE binary; this is the icon file browsers / the taskbar show.
-         Windows-only — Linux/macOS app icons are handled by per-RID packaging (PLAN.md steps 24-25). -->
+         Windows-only — Linux desktop-integration icons are installed per-user by packaging/linux/install.sh
+         (bundled into the linux-* release by scripts/release.ps1); the macOS .app icon is part of the
+         still-outstanding packaging work (PLAN.md step 36). -->
     <ApplicationIcon>Assets/sprocket.ico</ApplicationIcon>
   </PropertyGroup>
 

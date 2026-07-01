@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Sprocket
+GenericName=Video Editor
+Comment=Cross-platform, non-destructive video editor
+# @EXEC@ is replaced with the absolute path of the extracted Sprocket binary by install.sh.
+Exec=@EXEC@ %f
+Icon=sprocket
+Terminal=false
+Categories=AudioVideo;AudioVideoEditing;Video;
+Keywords=video;editor;timeline;cut;clip;
+StartupNotify=true
+StartupWMClass=Sprocket

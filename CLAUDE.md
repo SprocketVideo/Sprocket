@@ -20,8 +20,11 @@ editor feels familiar to users also using professional tools. Note any deliberat
 
 The project is mid-build: the **vertical slice (PLAN steps 1–9) is complete** — import, trim, GPU
 effects (brightness/fade), audio master clock + mixer, hardware-accel decode, MP4 export, and JSON
-save/load, all on one cross-platform managed codebase. The post-slice UI build-out (steps 10+) and
-cross-platform packaging (steps 24–25) remain.
+save/load, all on one cross-platform managed codebase. The post-slice feature build-out is done
+through **step 30**; **cross-platform native-lib bundling and packaging/distribution (PLAN steps
+35–36) are NOT complete** — `scripts/release.ps1` produces per-RID self-contained zips with the
+FFmpeg natives bundled, but installers/AppImage/`.app` bundles, code-signing, and full desktop
+integration remain outstanding (see the status notes on steps 35–36 in [PLAN.md](PLAN.md)).
 
 Do not commit `.NET` build artifacts: never add any `/bin` or `/obj` directory, or anything under
 them, to version control.

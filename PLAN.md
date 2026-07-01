@@ -2092,11 +2092,23 @@ Tags reference the [UI.md §4 checklist](UI.md).
     into the publish output for `win-x64`, `linux-x64`, `osx-x64`, `osx-arm64` so the app runs with no
     system FFmpeg ([ARCHITECTURE §11](ARCHITECTURE.md)). Needed for the slice to *run* on Linux/macOS
     at all; promoted to its own step because it gates every on-device verification.
+    - **🟡 PARTIAL — NOT COMPLETE (`scripts/release.ps1`).** Self-contained single-file publish per RID
+      with the FFmpeg 8 natives bundled next to the exe, and SkiaSharp natives resolved transitively via
+      the NuGet native-asset packages. **Still outstanding:** OpenAL Soft is **not** bundled (the app
+      relies on a system `libopenal` on Linux, and degrades to the software clock if it is missing), and
+      there is no CI matrix build.
 36. **Packaging & distribution (incl. macOS executable).** Produce a runnable artifact per OS: a
     Windows folder/installer, a Linux AppImage/tarball, and a **macOS `.app` bundle** with the FFmpeg
     dylibs under `Contents/Frameworks` (resolved via `@loader_path`), **code-signed and notarized**,
     shipped for Apple Silicon (`osx-arm64`) and Intel (`osx-x64`). CI builds on win/linux/macOS runners;
     a smoke launch + sample export validates each artifact.
+    - **⏳ NOT DONE.** `scripts/release.ps1` currently emits only a per-RID self-contained **`.zip`** (no
+      installer / AppImage / `.app`). A **Linux desktop-integration** slice has been added — the app icon
+      plus a `.desktop` entry and `install.sh`/`uninstall.sh` (`packaging/linux/`) that register a launcher
+      and hicolor icon for the current user, so Sprocket gets a proper icon in the applications menu / dock.
+      **Still outstanding:** a real Linux AppImage/tarball with the desktop entry integrated; the macOS
+      `.app` bundle with `@loader_path` dylibs; **code-signing + notarization**; a Windows installer; and
+      the CI smoke-launch / sample-export validation of each artifact.
 37. **Log media & color management (D-Log).** Support DJI **D-Log / D-Log M / D-Log 2** as a
     per-clip **input color transform**, landing on the existing effect seam
     ([ARCHITECTURE §18](ARCHITECTURE.md), §7, §17) — **not** via FFmpeg's `lut3d`/`WriteableBitmap`,

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,6 +52,16 @@ internal static class AboutDialog
             Source = AppIcon.Bitmap,
         };
 
+        var openLogs = new Button
+        {
+            Content = "Open Logs Folder",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Padding = new Thickness(12, 4),
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            CornerRadius = new CornerRadius(5),
+        };
+
         var close = new Button
         {
             Content = "Close",
@@ -65,8 +76,8 @@ internal static class AboutDialog
         {
             Title = "About Sprocket",
             Icon = AppIcon.Window,
-            Width = 380,
-            Height = 270,
+            Width = 420,
+            Height = 380,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
@@ -82,11 +93,29 @@ internal static class AboutDialog
                     Centered($"Version {Program.AppVersion}", 12, FontWeight.Normal, Palette.MutedTextBrush),
                     Centered($"Media engine: {ffmpeg}", 12, FontWeight.Normal, Palette.MutedTextBrush),
                     Centered("A cross-platform, non-destructive video editor. Free and open source.", 12, FontWeight.Normal, Palette.MutedTextBrush),
+                    // Where crash / exception logs are written (CrashLog), so a user hitting a problem can find the
+                    // log without knowing the per-OS convention. The path is selectable; the button opens the folder.
+                    Centered("Logs are written to:", 11, FontWeight.Normal, Palette.MutedTextBrush),
+                    Selectable(CrashLog.LogDirectory),
+                    openLogs,
                     close,
                 },
             },
         };
 
+        openLogs.Click += async (_, _) =>
+        {
+            try
+            {
+                Directory.CreateDirectory(CrashLog.LogDirectory); // may not exist yet if nothing has been logged
+                if (TopLevel.GetTopLevel(dialog)?.Launcher is { } launcher)
+                    await launcher.LaunchUriAsync(new Uri(CrashLog.LogDirectory));
+            }
+            catch
+            {
+                // Best-effort: on a headless / unusual environment the launcher may be unavailable.
+            }
+        };
         close.Click += (_, _) => dialog.Close();
         return dialog.ShowDialog(owner);
     }
@@ -97,6 +126,17 @@ internal static class AboutDialog
         FontSize = size,
         FontWeight = weight,
         Foreground = brush,
+        TextWrapping = TextWrapping.Wrap,
+        TextAlignment = TextAlignment.Center,
+        HorizontalAlignment = HorizontalAlignment.Center,
+    };
+
+    // A wrapped, user-selectable path so it can be copied out of the About box.
+    private static SelectableTextBlock Selectable(string text) => new()
+    {
+        Text = text,
+        FontSize = 11,
+        Foreground = Palette.TextBrush,
         TextWrapping = TextWrapping.Wrap,
         TextAlignment = TextAlignment.Center,
         HorizontalAlignment = HorizontalAlignment.Center,

@@ -61,6 +61,31 @@ Windows and Linux archives are self-contained builds — unzip and run the `Spro
 - **Linux:** unzip, then `chmod +x Sprocket` and run `./Sprocket`. FFmpeg 8 is bundled.
 - **macOS:** if a macOS asset is attached to the release, read the macOS section below first.
 
+### 🐧 Linux: if the app closes when you open a video
+
+Some Linux systems have an unstable GPU video-decode driver (VAAPI) that can crash the app the first
+time it decodes a clip — for example when you use **File ▸ Open Sample Project** or import media. If
+Sprocket closes at that moment, force software decoding by setting `SPROCKET_HWACCEL=off` before launch:
+
+```bash
+SPROCKET_HWACCEL=off ./Sprocket
+```
+
+If that fixes it, your system's hardware decoder was the culprit — playback simply uses the CPU instead.
+
+Two things that help us pin it down (please include them in a bug report):
+
+- **Logs** are written to `~/.local/share/Sprocket/logs/`. The exact folder is also shown under
+  **Help ▸ About** (with an *Open Logs Folder* button). Attach the newest log file.
+- You can check decoding from a terminal without the UI. From the unzipped folder:
+
+```bash
+./Sprocket --probe Samples/sample.mp4
+```
+
+This prints the media's details (resolution, codec, whether hardware decode was used) — or the full
+error if it fails.
+
 ### 🍎 macOS
 
 Some releases may omit macOS downloads entirely. If a release has no `osx-x64` or `osx-arm64` asset

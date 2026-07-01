@@ -60,15 +60,25 @@ public partial class App : Application
         PlaybackEngine? oldEngine = _engine;
         ProxyService? oldProxy = _proxy;
 
-        MediaBootstrap.Result result = MediaBootstrap.CreateForProject(request.Project, request.Status);
-        MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath, result.Proxy, result.AudioClock);
-        _desktop.MainWindow = window;
-        window.Show();
+        try
+        {
+            MediaBootstrap.Result result = MediaBootstrap.CreateForProject(request.Project, request.Status);
+            MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath, result.Proxy, result.AudioClock);
+            _desktop.MainWindow = window;
+            window.Show();
 
-        oldWindow?.Close();
-        oldProxy?.Dispose(); // stop the previous session's proxy worker before its engine tears down
-        if (oldEngine is not null)
-            await oldEngine.DisposeAsync();
+            oldWindow?.Close();
+            oldProxy?.Dispose(); // stop the previous session's proxy worker before its engine tears down
+            if (oldEngine is not null)
+                await oldEngine.DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            // This is an async void handler: an escaped exception would terminate the whole editor. Building a
+            // session opens decoders / an audio device — a failure there (a bad file, an unstable device) must
+            // not take the app down. Log it and leave the current session in place rather than crashing mid-swap.
+            CrashLog.Write("Failed to open session", ex);
+        }
     }
 
     private async void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)

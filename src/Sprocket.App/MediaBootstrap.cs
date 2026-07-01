@@ -181,7 +181,9 @@ internal static class MediaBootstrap
             var mixer = new AudioMixer(sampleRate, channels, id => OpenPcmReader(project, id, sampleRate, channels));
             output = new OpenAlAudioOutput();
             output.Configure(sampleRate, channels);
-            return (new AudioEngine(output, mixer, project), true); // the engine takes ownership
+            var engine = new AudioEngine(output, mixer, project); // the engine takes ownership
+            engine.FeedError += ex => CrashLog.Write("Audio feeder error", ex); // don't let audio faults vanish
+            return (engine, true);
         }
         catch
         {

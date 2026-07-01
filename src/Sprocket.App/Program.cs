@@ -16,6 +16,11 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // Install the global crash logger first, before anything that can fault, so even an early failure
+        // (e.g. FFmpeg natives missing) is written to a discoverable log file rather than vanishing with the
+        // window. The log directory is surfaced in Help ▸ About (see CrashLog).
+        CrashLog.Install();
+
         // Pre-load any FFmpeg natives bundled next to the executable, in dependency order, before
         // anything touches FFmpeg (ARCHITECTURE.md §11). No-op on Windows / local dev.
         FFmpegLoader.EnsureBundledNativesLoaded();
@@ -37,8 +42,18 @@ internal static class Program
         if (probeIdx >= 0)
             return RunProbe(probeIdx + 1 < args.Length ? args[probeIdx + 1] : "");
 
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
-        return 0;
+        try
+        {
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            // An exception that escaped the Avalonia message loop. AppDomain.UnhandledException usually also
+            // fires, but capture it here too so a startup/UI-thread crash is logged before the process exits.
+            CrashLog.Write("Fatal exception in main loop", ex);
+            throw;
+        }
     }
 
     private static int RunProbe(string path)
