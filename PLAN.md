@@ -2904,6 +2904,51 @@ Tags reference the [UI.md §4 checklist](UI.md).
       master/track/clip effects are reflected, cancellation removes partial files, and the default
       MP4/H.264/AAC behaviour remains byte-for-byte compatible where already asserted.
 
+45. **Channel-aware update checks (notify + direct download link, not self-update).** Tell the user when a
+    newer Sprocket build is available without changing the current GitHub release semantics. **Keep alpha /
+    beta / rc builds published as GitHub prereleases** (the current `scripts/gh-release.ps1` default) and make
+    the app's discovery logic understand release channels instead of pretending GitHub has only one "latest"
+    build. The first shipping slice is **notification + deep-link to the correct download asset** only; it does
+    **not** download, replace binaries, or run installers. Sequence this **after packaging/distribution is stable
+    enough that the published assets are trustworthy install targets** (step 36), but before any future
+    auto-update story.
+    - **Release-source policy (product rule first).** The app must not use GitHub's `releases/latest` endpoint for
+      prerelease-aware discovery because GitHub defines "latest" as the newest **non-prerelease** release.
+      Instead, query the **releases list** and filter locally. Recommended default policy: **match current
+      channel** — a stable build notifies only about newer stable releases; an alpha/beta/rc build may notify
+      about newer prereleases. This preserves the current release flow while avoiding false "up to date"
+      results during alpha.
+    - **Version model (App, pure).** Add a tiny SemVer-ish parser/comparer in `Sprocket.App` over the existing
+      `Program.AppVersion` surface: understand `0.2.0`, `0.2.0-alpha.1`, `0.2.0-beta.2`, optional leading `v`,
+      and ignore build metadata (`+sha`). Numeric parts compare first; prerelease labels compare only when both
+      sides are prereleases. The parser should reject malformed tags cleanly so a bad GitHub release does not
+      break startup.
+    - **Background service (App).** Add an `UpdateCheckService` following the pattern of other long-lived
+      app-level services (`AutosaveService`, `McpServerService`): fire asynchronously after the main window is
+      ready, never block startup, cache the last successful check/result, rate-limit checks across launches, and
+      expose an immutable state/result to the UI. Public GitHub API only; no credentials, no MCP involvement.
+    - **Release filtering + asset targeting.** The service reads release metadata (`tag_name`, `prerelease`,
+      `draft`, `html_url`, `assets[]`) and picks the newest acceptable release by policy. For a hit, resolve the
+      best matching published asset for the current platform/RID (`win-x64`, `win-arm64`, `linux-x64`,
+      `linux-arm64`, `osx-x64`, `osx-arm64`) from the step-36/`dist` naming scheme; if no exact asset exists,
+      fall back to the release page instead of hiding the update.
+    - **User settings & preferences.** Extend the user-scoped settings with: update checks enabled, release
+      channel policy (`StableOnly` / `MatchCurrentChannel` / optional explicit prerelease opt-in), and any cached
+      last-check metadata needed for throttling. Surface those controls in Preferences with conservative wording:
+      stable users are not opted into prereleases accidentally; alpha users can stay on the alpha track.
+    - **UI affordance.** Surface availability in a lightweight, non-modal way: status bar, Help/About, or a small
+      banner/button in the shell. The first cut should say **what version is available** and offer **Download** /
+      **View release notes** actions. Do not interrupt editing with modal prompts on launch, and do not nag on
+      every startup once a result has already been dismissed for the same version.
+    - **Scope guardrails.** Explicitly out of scope here: background downloading, silent patching, replacing the
+      running app, installer orchestration, code-signing trust flow, rollback, delta updates, or modifying the
+      release pipeline. Those belong to a later packaging/update step once each OS has a first-class install path.
+    - **Tests.** Headless tests for version parsing and ordering (`0.2.0-alpha.1 < 0.2.0-alpha.2 < 0.2.0 <
+      0.2.1-alpha.1`), channel filtering (stable ignores prereleases; alpha sees newer prereleases), asset
+      selection per RID, settings round-trip with additive fields, throttling/dismissal logic, and malformed API
+      payload handling. Manual verification should mock both a stable-only and prerelease-heavy release list and
+      confirm startup remains non-blocking.
+
 **Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
 program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a
 numbered still to an image-sequence media item — is *feasible on the seams this codebase already
