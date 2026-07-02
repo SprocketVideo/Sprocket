@@ -2340,7 +2340,8 @@ Tags reference the [UI.md §4 checklist](UI.md).
       clearing local derived artifacts (**proxy cache** and **render cache**), **video-export
       metadata defaults** (author/copyright/comment/title defaults applied by the export dialog / queue),
       an **autosave interval** control if the fixed debounce from step 20 needs to become user-tunable,
-      plus the **MCP enabled flag** and **MCP port** for this step.
+      and, once the MCP server for this step is implemented, an **MCP enabled** toggle plus an
+      **MCP listen port** control.
     - **MCP server.** A new component (e.g. `Sprocket.Mcp`, referenced by `Sprocket.App`) exposing
       the official **C# MCP SDK** (`ModelContextProtocol`) over a local transport, bound to
       **loopback**. Started/stopped purely from the settings toggle — **never auto-started**; a
