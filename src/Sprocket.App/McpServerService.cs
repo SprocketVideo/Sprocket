@@ -8,8 +8,9 @@ namespace Sprocket.App;
 /// The app-scoped controller for the loopback MCP server (PLAN.md step 38). Lives on <see cref="App"/> —
 /// not the window — because File ▸ New/Open rebuilds the whole <c>MainWindow</c>: the listener survives the
 /// swap and only its <see cref="IEditorSession"/> slot is re-pointed at the new session. Started/stopped
-/// purely by the user-settings toggle (honouring the persisted flag at launch is that toggle's state —
-/// never auto-started otherwise); a port or token change restarts the listener.
+/// only by an explicit user switch: the settings toggle (honouring the persisted flag at launch is that
+/// toggle's state) or the session-only <c>--mcp</c> / <c>--mcp-port</c> launch flags (<see cref="CliOptions"/>)
+/// — never auto-started otherwise; a port or token change restarts the listener.
 /// </summary>
 internal sealed class McpServerService : IAsyncDisposable
 {

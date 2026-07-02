@@ -2490,6 +2490,20 @@ Tags reference the [UI.md §4 checklist](UI.md).
       - **Read-side ergonomics:** `get_project_state(sections=…)` trims the payload and reports
         `dirty`; `list_effect_types(category, nameQuery)` filters the catalog and now emits the
         descriptor `step`/`unit` fields.
+    - **✅ FOLLOW-ON DONE (2026-07-02 — CLI scripting flags; `Sprocket.App/CliOptions.cs` (new),
+      `App.axaml.cs`, `MediaBootstrap.Create(string? path)`, `Program.cs`/`McpServerService.cs` docs;
+      +15 App tests (`CliOptionsTests`), verified end-to-end: flag launch → readiness line → MCP
+      `initialize` over HTTP.)** `--mcp` starts the loopback MCP server for the session (persisted
+      port/token settings) and `--mcp-port <n>` overrides the port (implies `--mcp`) — so
+      `Sprocket clip.mp4 --mcp` launches straight into a scriptable editing session. The override is
+      **session-only** (never written to settings; a later Preferences apply supersedes it), preserving
+      the never-auto-started rule — the CLI flag is as explicit a user switch as the toggle. When the
+      flag is used the app prints one `mcp: listening on http://127.0.0.1:<port>/mcp` line to stdout
+      (errors to stderr) so launch-and-connect scripts can wait deterministically instead of polling.
+      Tokens stay off argv (visible to other processes): a session-only bearer token comes from
+      **`SPROCKET_MCP_TOKEN`** instead. Unknown `--flags` are ignored for media-path detection, so the
+      first bare arg remains the file to open. Deliberate scope: no headless `--no-ui` mode (the
+      session lives in `MainWindow`).
 
 39. **Fade handles & opacity rubber-band (on-timeline fade editing + visualization).** Make a clip's
     fade in/out directly **visible and editable on the timeline**, so a fade is never an invisible

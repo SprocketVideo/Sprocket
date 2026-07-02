@@ -28,15 +28,16 @@ internal static class MediaBootstrap
         PlaybackEngine? Engine, Project? Project, string Status, ProxyService? Proxy = null, AudioEngine? AudioClock = null);
 
     /// <summary>
-    /// Builds the launch session. With a playable media file given on the command line (<c>args[0]</c>), opens a
-    /// session over it; otherwise opens an empty, importable project (ARCHITECTURE.md §15) so File ▸ Import /
-    /// drag-drop / Open Sample Project bring the editor to life. Launch no longer generates a sample clip, so
-    /// there is no slow first-run path to cover. If opening a command-line file fails the app still degrades to an
-    /// empty project rather than dead-ending, with the reason shown in the status line.
+    /// Builds the launch session. With a playable media file given on the command line (the first non-flag
+    /// argument, extracted by <see cref="CliOptions.Parse"/>), opens a session over it; otherwise opens an empty,
+    /// importable project (ARCHITECTURE.md §15) so File ▸ Import / drag-drop / Open Sample Project bring the
+    /// editor to life. Launch no longer generates a sample clip, so there is no slow first-run path to cover. If
+    /// opening a command-line file fails the app still degrades to an empty project rather than dead-ending, with
+    /// the reason shown in the status line.
     /// </summary>
-    public static Result Create(string[] args)
+    public static Result Create(string? mediaPath)
     {
-        string? path = args.Length > 0 && File.Exists(args[0]) ? args[0] : null;
+        string? path = mediaPath is not null && File.Exists(mediaPath) ? mediaPath : null;
         if (path is null)
             return CreateEmpty(attemptedPath: null, error: null);
         try

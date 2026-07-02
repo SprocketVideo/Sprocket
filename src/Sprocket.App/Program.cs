@@ -11,7 +11,9 @@ internal static class Program
     /// <summary>
     /// Entry point for the slice's editor app: opens a media file (first CLI arg, or a generated sample
     /// clip), builds a one-video-track project, and plays it in the Skia preview with a transport
-    /// (PLAN.md step 4).
+    /// (PLAN.md step 4). Scripting flags <c>--mcp</c> / <c>--mcp-port &lt;n&gt;</c> (parsed by
+    /// <see cref="CliOptions"/> once Avalonia hands the args to <see cref="App"/>) start the loopback MCP
+    /// server for this session, e.g. <c>Sprocket clip.mp4 --mcp</c> to script edits against an opened clip.
     /// </summary>
     [STAThread]
     public static int Main(string[] args)

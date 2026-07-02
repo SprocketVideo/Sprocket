@@ -32,12 +32,18 @@ public partial class App : Application
             // and hand the shell to the lifetime, which shows it. MediaBootstrap.Create degrades to an empty
             // project rather than throwing, so this can't strand the user.
             _mcp = new McpServerService();
-            MediaBootstrap.Result result = MediaBootstrap.Create(desktop.Args ?? []);
+            CliOptions cli = CliOptions.Parse(desktop.Args ?? []);
+            if (cli.Error is not null)
+                Console.Error.WriteLine($"mcp: {cli.Error}");
+            MediaBootstrap.Result result = MediaBootstrap.Create(cli.MediaPath);
             desktop.MainWindow = BuildWindow(result.Engine, result.Project, result.Status, projectPath: null, result.Proxy, result.AudioClock);
 
-            // Honour the persisted MCP toggle (PLAN.md step 38): applying the stored settings IS the user's
-            // switch — the server is never started unless that toggle was left on.
-            _ = _mcp.ApplyAsync(UserSettingsFile.Load());
+            // Start the MCP server only on an explicit user switch (PLAN.md step 38): the persisted Preferences
+            // toggle, or the --mcp / --mcp-port scripting flags. The CLI override is session-only — it is never
+            // written back to the settings file, and a later Preferences apply supersedes it.
+            UserSettings startupSettings = cli.ApplyTo(
+                UserSettingsFile.Load(), Environment.GetEnvironmentVariable(CliOptions.McpTokenEnvVar));
+            _ = StartMcpAsync(_mcp, startupSettings, announce: cli.McpRequested);
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -94,6 +100,22 @@ public partial class App : Application
     /// <summary>Applies the MCP fields of the user settings — starts, stops, or restarts the loopback MCP
     /// server (PLAN.md step 38). Called by the Preferences dialog and once at startup.</summary>
     internal void ApplyMcpSettings(UserSettings settings) => _ = _mcp?.ApplyAsync(settings);
+
+    /// <summary>
+    /// Applies the startup MCP settings and — when the server was requested from the command line — prints a
+    /// single readiness line to stdout, so a launch-and-connect script can wait for the port deterministically
+    /// instead of sleeping and retrying (failures go to stderr with a non-ambiguous prefix).
+    /// </summary>
+    private static async Task StartMcpAsync(McpServerService mcp, UserSettings settings, bool announce)
+    {
+        await mcp.ApplyAsync(settings);
+        if (!announce)
+            return;
+        if (mcp.State == McpServerService.McpState.Listening)
+            Console.WriteLine($"mcp: listening on http://127.0.0.1:{mcp.Port}/mcp");
+        else if (mcp.State == McpServerService.McpState.Error)
+            Console.Error.WriteLine($"mcp: failed to start on port {mcp.Port}: {mcp.LastError}");
+    }
 
     private async void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
