@@ -2353,6 +2353,62 @@ Tags reference the [UI.md §4 checklist](UI.md).
       step-19 byte-identical omission. Export: a roll renders on the deterministic raster path
       (golden-frame).
 
+41. **Reverb quality upgrade (studio / convolution / creative reverbs + audio freeze).** The current
+    `ReverbEffect` (`src/Sprocket.Audio/Effects/ReverbEffect.cs`) is a Freeverb-style Schroeder/Moorer
+    network — 8 damped combs into 4 allpasses per channel with fixed tunings. It's a good **low-CPU
+    editorial ambience** effect (allocation-free steady state, linear per-sample work, honours the
+    `IAudioEffect` contract), but its parameter surface (Room Size / Damping / Mix only, see
+    `EffectCatalog`) and its algorithm ceiling — no early reflections, predelay, modulation, diffusion
+    control, shimmer, or impulse-response realism — can't produce convincing rooms/halls/plates or lush
+    BigSky-class creative spaces. The path is **hybrid**: keep the current reverb as the cheap realtime
+    option and add higher tiers, with heavy tails pushed through the step-32 audio render cache
+    ("freeze") so they don't run on every playback pass. **Sequencing: deliberately deferred until after
+    step 37 at minimum**; depends on the step-31 audio effect-chain scopes (done) and the step-32
+    preview-render-cache architecture (the audio/`IPcmReader` side of which this step is the first real
+    consumer of).
+    - **Quality tiers (following the DAW convention — cheap algorithmic / quality algorithmic /
+      convolution):** keep the existing effect as **Reverb (Lite)**; add **Studio Reverb** (realtime
+      high-quality algorithmic — a modern FDN or Dattorro-style plate/hall with modulated delay lines,
+      early reflections, damping filters, stereo decorrelation, bounded internal buffers), **Convolution
+      Reverb** (realistic captured spaces — **partitioned convolution** so long IRs are practical, IR
+      load off the audio thread, latency/tail metadata exposed; managed deterministic implementation
+      first, a small C-ABI FFT helper only if profiling demands it — consistent with the no-C++/CLI
+      rule), and **Creative Reverb** (shimmer / cloud / bloom / nonlinear modes — original algorithms
+      covering the familiar sonic categories, **no proprietary-algorithm cloning**).
+    - **Core descriptors & presets first (everything else hangs off this).** Extend `EffectTypeIds` /
+      `EffectParamNames` / `EffectCatalog` with typed descriptors: predelay, decay time, size, diffusion,
+      modulation depth/rate, early/late balance, width, low/high damping, tone, shimmer pitch/mix,
+      freeze/hold, wet/dry. Presets: room, chamber, plate, hall, cathedral, ambient bloom, shimmer,
+      cloud, nonlinear/soft-reverse. The typed-descriptor → Inspector pipeline (step 16/33) means the UI
+      falls out for free. New DSP registers via `BuiltInAudioEffects`.
+    - **CPU controls.** Per-effect quality modes (Draft / Realtime / High / Offline), preview tail-length
+      caps, oversampling only offline/frozen, and a chain CPU-cost indicator (an optional metadata
+      surface beside `IAudioEffect` for latency/tail/cost). Studio Reverb must hold a reliable realtime
+      mode; convolution and creative modes strongly steer users to freeze for long tails.
+    - **Audio freeze / pre-render via the step-32 cache.** Mirror the `ProxyService`/`ProxyCache`
+      background-worker pattern: an audio-cache service keyed by a **content hash** of the frozen
+      clip/track/range effect state + time range + sample rate + channel layout + quality mode, writing
+      local discardable PCM/WAV and exposing it back as an **`IPcmReader`** during preview — exactly the
+      step-32 seam, no new render-graph machinery. **Non-destructive and undoable:** cache identity is
+      recorded without ever treating the cache as source media; *Render Audio Effects / Freeze / Unfreeze /
+      Delete Render Files* are step-10 commands; edits mark the cache **dirty** rather than silently
+      playing stale audio. UI: context-menu freeze commands, render-bar state on the timeline, Inspector
+      badges for frozen chains, warnings on likely-CPU-heavy chains.
+    - **Export determinism preserved (§17).** Export re-renders from originals and live effects,
+      **ignoring the preview freeze/cache by default**; opting into a full-quality cache is a later,
+      explicit add gated on the cache's quality settings + content hash matching export settings.
+    - **Testing & verification.** Deterministic DSP tests + preset output snapshots; freeze-equivalence
+      tests (live chain vs frozen cache match within tolerance for deterministic built-ins); cache
+      invalidation tests (param edits, trims, source path/mtime, sample rate, channel layout, quality
+      mode ⇒ new key or dirty); persistence/undo round-trips; benchmark/stress tests mixing several
+      long-tail reverbs at 48 kHz stereo at the production buffer size asserting **no steady-state
+      allocations on the audio thread**; manual audition of representative presets comparing live vs
+      frozen CPU. Existing `AudioEffectsTests` / `AudioMixerChainTests` cover only pass-through/tail/reset
+      basics — this step adds the perceptual/budget layer.
+    - **Further considerations:** IR licensing (bundled impulse responses need clear redistribution
+      rights, or user IR import only); once VST3/AU hosting lands (steps 31/33), the same freeze system
+      should cover third-party and non-deterministic plugin chains.
+
 Open product questions (e.g. the mockup's user-avatar / account affordance, full panel docking)
 are tracked in [UI.md §5](UI.md).
 
