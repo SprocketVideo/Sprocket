@@ -11,6 +11,9 @@ Features:
 - effects like brightness, color, contrast
 - fades
 - volume level mixing
+- stop-motion animation support: import numbered image sequences as clips at a chosen frame rate,
+  import single stills, frame hold / freeze-frame, and duplicate/remove-frame editing ("on twos");
+  live capture from a camera is a possible later addition, not committed
 - supports plugins eventually
 - can leverage OSS wherever possible especially around handling video formats or advanced things like color grading
 

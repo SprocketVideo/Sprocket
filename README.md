@@ -20,13 +20,14 @@ frames never touch the managed heap per frame.
 
 ![Sprocket UI](screenshots/sprocket-ui.png)
 
-> **Project status — mid-build.** The end-to-end vertical slice is complete (import → trim → GPU
-> effects → audio mixing → export → save/load), and the editor has grown into a full panelled NLE:
-> multi-track timeline, editing tools, media bin, inspector, dual monitors, and undo/redo. What
-> remains is proxy media, generators, transitions, plugins, and per-OS packaging — see the
-> [Roadmap](#roadmap). The three guiding documents are authoritative: [BRIEF.md](BRIEF.md) (the
-> *what*), [ARCHITECTURE.md](ARCHITECTURE.md) (the *how/why*), and [PLAN.md](PLAN.md) (the build
-> order with per-step status).
+> **Project status — late-stage build.** The editor is a full panelled NLE with its feature
+> build-out essentially complete: multi-track editing with professional trim tools, GPU effects /
+> keyframing / color grading, generators & transitions, proxy media & render caching, a full
+> export pipeline, and AI control over MCP. What remains is per-OS packaging (installers,
+> AppImage, notarized `.app`) and native plugin hosting (VST3/AU, OpenColorIO/OFX) — see the
+> [Roadmap](#roadmap). The guiding documents are authoritative: [BRIEF.md](BRIEF.md) (the *what*),
+> [ARCHITECTURE.md](ARCHITECTURE.md) (the *how/why*), [PLAN.md](PLAN.md) (the build order with
+> per-step status), and [FEATURES.md](FEATURES.md) (the canonical user-facing feature inventory).
 
 ---
 
@@ -36,37 +37,42 @@ frames never touch the managed heap per frame.
 
 - **Non-destructive editing** — edits change a clip's in/out points, position, and effect stack;
   source media is never rewritten.
-- **First-class undo/redo** — every model mutation routes through an inverse-command stack, with
-  gesture coalescing (a slider drag is one undo step) and an edit-history surface.
-- **Multiple video & audio tracks** — N video + N audio tracks, composited top-down with per-track
-  opacity, blend mode, and mute/solo/enable.
-- **Custom timeline** — ruler + playhead, clip filmstrips and audio waveforms, drag-move, edge-trim,
-  snapping, and zoom. Editing tools: **Select**, **Blade** (razor split), **Slip**, plus **Hand**
-  and **Zoom** view tools.
-- **Linked A/V** — companion audio and video move and cut together.
-- **GPU effects** — Brightness, Color (exposure / contrast / saturation), and a geometric
-  **Transform** (scale / position / rotation / anchor / opacity), all as SkSL shaders that compose
-  identically on preview and export. Video and audio **fades** driven by one envelope.
-- **Keyframing** — animate any effect parameter with Hold/Linear interpolation and a per-parameter
-  keyframe lane (add / move / delete keyframes).
-- **Audio mixing** — sample-accurate mixer with per-clip gain envelopes, per-track gain, mute/solo,
-  and a master gain + limiter. **Audio is the master clock** for A/V sync.
-- **Hardware-accelerated decode** — D3D11VA / CUDA / QSV on Windows, VAAPI / CUDA on Linux,
-  VideoToolbox on macOS, with automatic software fallback.
-- **Media bin & browsers** — poster-frame thumbnails, waveforms, format/resolution badges, search,
-  and an effects browser. Import via dialog or OS drag-and-drop.
-- **Dual Source / Program monitors** — safe-area / framing-grid overlay, Fit/50/100/200% zoom, and
-  full transport (jump-to-start/end, frame-step, play/pause).
-- **Full-resolution export** — renders the timeline to H.264 / AAC MP4 through the *same* render
-  graph that drives preview, at full source resolution.
-- **Project save/load** — the timeline serializes to versioned JSON with relative + absolute media
-  paths (a moved project relinks its media); offline media is tolerated.
+- **Full editing toolset** — multi-track timeline (filmstrips, waveforms, snapping, zoom) with
+  Select / Blade / Slip / Hand / Zoom tools, ripple & roll trims, linked A/V, markers,
+  constant-speed retime, nested sequences, and multicam.
+- **First-class undo/redo** — every model mutation (including AI edits) routes through an
+  inverse-command stack, with gesture coalescing and an edit-history surface.
+- **GPU effects & keyframing** — brightness, color, and geometric transform as SkSL shaders that
+  compose identically on preview and export; animate any effect parameter with keyframe lanes and
+  an editable velocity graph.
+- **Color grading** — white balance, color wheels, curves, and an HSL qualifier, plus DJI
+  D-Log / D-Log M input transforms applied as GPU LUTs.
+- **Generators, titles, adjustment layers & transitions** — title/text generator clips (including
+  scrolling titles), adjustment layers whose effect stacks apply to everything beneath, and a
+  transition library with overlapping-clip resolution.
+- **Audio** — sample-accurate mixer with per-clip gain envelopes, per-track gain/pan/mute/solo,
+  built-in audio effects, loudness metering & normalization, and a master limiter. **Audio is the
+  master clock** for A/V sync.
+- **Performance** — proxy media (edit low-res, export from originals), a timeline render cache,
+  hardware-accelerated decode (D3D11VA / CUDA / QSV, VAAPI, VideoToolbox) with software fallback,
+  and premultiplied-alpha compositing of alpha-channel media.
+- **Export & delivery** — a format matrix beyond H.264/AAC MP4, export presets, an export queue
+  with burn-ins & handles, hardware encoders, and EDL/SMPTE interchange — all through the *same*
+  render graph that drives preview.
+- **Projects** — versioned JSON save/load with relative + absolute media paths, autosave + crash
+  recovery, media relinking, and offline-media tolerance.
+- **AI control & scripting** — an opt-in, loopback-only MCP server (~65 tools) lets AI assistants
+  edit the timeline — undoably, through the same command stack — plus headless CLI flags for
+  diagnostics and scripting.
+
+The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step build status in
+[PLAN.md](PLAN.md).
 
 ### Planned
 
-Proxy media (edit against low-res, export from originals) · title/text generators & adjustment
-layers · alpha-channel compositing · transitions · export presets · a plugin system · advanced
-color management (OpenColorIO / OFX) · DJI D-Log input color transforms. See the
+Per-OS packaging (installers, AppImage, signed/notarized macOS `.app`) · native plugin hosting —
+VST3/AU audio and OpenColorIO/OFX (the managed plugin host and built-in effects ship today) ·
+variable/ramped speed, reverse & freeze-frame retime · additional reverbs & audio freeze. See the
 [Roadmap](#roadmap).
 
 ---
@@ -261,20 +267,19 @@ P/Invoke against a C ABI — there is no C++/CLI — so one managed build serves
 
 ## Roadmap
 
-The vertical slice (steps 1–9) and the post-slice editor build-out (steps 10–17) are complete.
-Remaining work, in rough dependency order (full detail in [PLAN.md](PLAN.md)):
+The vertical slice (steps 1–9) and the feature build-out are complete — proxy media, generators &
+adjustment layers, alpha compositing, transitions, the export pipeline (presets, queue, burn-ins,
+hardware encoders), the render cache, the color-grading suite, D-Log, and the MCP server all ship
+today. Remaining work (full detail and per-step status in [PLAN.md](PLAN.md)):
 
-- **Proxy media** — generate and edit against low-res proxies; export from full-res originals.
-- **Generators & adjustment layers** — title/text generator clips; effect stacks that apply to all
-  tracks beneath them.
-- **Alpha-channel compositing** — premultiplied-alpha path through the render graph.
-- **Transitions** — transition library + overlapping-clip resolution.
-- **Export presets & telemetry** — preset dropdown; GPU / hardware-accel / fps status in the status bar.
-- **Plugins & advanced color** — collectible-`AssemblyLoadContext` plugin host; OpenColorIO / OFX.
-- **Cross-platform native-lib bundling & packaging** — Windows installer, Linux AppImage/tarball,
-  signed/notarized macOS `.app`; CI across win/linux/macOS runners.
-- **Log media & color management** — DJI D-Log / D-Log M / D-Log 2 as per-clip input color
-  transforms (GPU LUT), not a CPU round-trip.
+- **Packaging & distribution** — Windows installer, Linux AppImage/tarball, signed/notarized macOS
+  `.app`, desktop integration, and CI across win/linux/macOS runners. Today `scripts/release.ps1`
+  produces per-RID self-contained zips with the FFmpeg natives bundled.
+- **Native plugin & color hosting** — VST3/AU audio plugins and OpenColorIO / OFX. The managed
+  plugin host (collectible `AssemblyLoadContext`) and the built-in managed effects ship today.
+- **Advanced retime** — variable/ramped speed, reverse, and freeze-frame (constant-speed retime
+  ships today).
+- **Audio extras** — additional reverbs and audio freeze.
 
 ---
 

@@ -122,6 +122,10 @@ north-star layout; the vertical slice implements a subset of it without changing
     premultiplied compositing** support. **[new]**.
   - Audio shows a **waveform** thumbnail + `duration · WAV` (`Ambient_Score.aif`,
     `SFX_Whoosh.wav`).
+  - **Image sequences and stills** (PLAN step 42, not in the mockup) get their own badges — a
+    sequence shows `SEQ · 240 frames @ 12`, a still shows its format — and importing a file from a
+    numbered run prompts **Import as image sequence** with a frame-rate choice (12/15/24 presets,
+    default = project rate); Preferences gains a **Still image default duration** (5 s).
   - Implies: thumbnail/poster generation, **waveform rendering**, and a probe step surfacing
     duration/resolution/format/alpha. Probe already exists ([ARCHITECTURE §11](ARCHITECTURE.md));
     thumbnails + waveforms are **[new]** UI-side rendering.
@@ -225,6 +229,8 @@ dropped frames, GPU path).
 | Export with presets | slice+ | export §11 + preset UI |
 | Status bar: GPU/hw-accel/fps/duration telemetry | new (surface) | diagnostics §15 |
 | Alpha-channel media compositing | new | premultiplied-alpha path in render graph |
+| Image-sequence & still import (SEQ badges, import prompt, still-duration pref) | new | PLAN step 42, `image2` open path §11 |
+| Frame hold + Duplicate/Remove Frame (Clip menu, hold badge, Inspector Hold row) | new | PLAN step 43, constant time-map on `MapToSource` |
 
 **Legend** — *slice*: in the vertical-slice DoD ([PLAN.md](PLAN.md)); *slice+*: slice has the
 core, mockup extends it; *new*: not yet planned, but lands on an existing seam; *deferred*:

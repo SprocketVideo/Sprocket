@@ -1237,7 +1237,9 @@ Tags reference the [UI.md §4 checklist](UI.md).
       - **Deferred (noted, on the same seam — additive when picked up):** **reverse** playback (the `Reverse` flag —
         needs backward decode in the feed/export provider, not just a negated map), keyframed **speed ramps** (an
         integrated time map from a keyframed-speed `AnimatableValue`), **freeze frame** (speed 0 — needs an
-        independent timeline duration rather than one derived from the source span), and **pitch-preserving**
+        independent timeline duration rather than one derived from the source span; **now picked up by step 43**,
+        which models it as a `HoldFrameAt`/`HoldDuration` field rather than speed 0, leaving the
+        `SpeedRatio > 0` invariant intact), and **pitch-preserving**
         time-stretch / frame-interpolated slow-motion (step 31 / a later quality tier behind the same seam).
 22. **Ripple / roll / slide editing.** Trim modes that preserve timeline continuity — basic editor
     ergonomics — extending the step-12/13 timeline tools (Select / Blade / Slip already exist). Each is a
@@ -2752,6 +2754,136 @@ Tags reference the [UI.md §4 checklist](UI.md).
     - **Further considerations:** IR licensing (bundled impulse responses need clear redistribution
       rights, or user IR import only); once VST3/AU hosting lands (steps 31/33), the same freeze system
       should cover third-party and non-deterministic plugin chains.
+
+42. **Image-sequence & still import (stop-motion tier 1).** Import a folder of numbered stills as one
+    video clip at a user-chosen frame rate, plus single-still import with a configurable default
+    duration — the Premiere/Resolve stop-motion on-ramp (and the same feature unlocks time-lapse and
+    VFX frame-run workflows). Lands on the existing import → probe → `MediaRef` → feed-factory seams
+    (§11, §17); the render graph and export need no new machinery because a sequence decodes like any
+    other video once FFmpeg's `image2` demuxer opens it.
+    - **Model (Core, §4).** `MediaRef` gains a `MediaKind Kind` (`File` default / `ImageSequence` /
+      `Still`) and, for sequences, a nullable `SequencePattern` (printf-style `%0Nd` absolute path),
+      `SequenceStartNumber`, and `SequenceFrameCount`. The intrinsic fps stays in `Info.FrameRate`
+      (single source of truth — no second fps field) and `Info.Duration = FrameCount / fps`. A still
+      probes as `Kind = Still` with `Info.Duration` set from the new **still-image default duration**
+      preference at import (5 s, the Premiere default), but its media headroom is **unbounded**: the
+      trim/drop clamps that read `media.Info.Duration` (`TimelineControl`, `TimelineMath`) treat still
+      media as infinite, so a still clip extends freely like a step-19 generator. Core stays pure data —
+      pattern strings and counts only, no IO.
+    - **Media (§11) + binding.** `MediaSource.Open`/`ProbeInfo` grow an overload taking an open request
+      derived from the `MediaRef` (Media already references Core): input-format name + an options
+      dictionary. New binding surface (recorded in `Native/FUTURE_BINDINGS.md`):
+      `av_find_input_format("image2")` and an `avformat_open_input` overload marshalling a `ref IntPtr`
+      options dict (`av_dict_set` is already bound) carrying `framerate`, `start_number`, and
+      `pattern_type sequence`. Frames then flow through the existing decoder/scaler/pool — no new pixel
+      path, no managed pixels (§1). Stills get a dedicated `StillFrameFeed : IVideoFrameFeed` that
+      decodes **once** and serves the held native frame for any requested time (no decode ring, no
+      per-frame work). **Sweep every `MediaSource.Open(path)` call site** through the new request
+      mapper, keyed off `MediaRef.Kind` — the preview feed factory (`MediaBootstrap`),
+      `PlaybackEngine`'s nested-feed opener, `VideoExporter` (so preview = export), and
+      `ThumbnailService`.
+    - **Import & UI.** The picker gains an **Image** filter (`*.png *.jpg *.jpeg *.tif *.tiff *.bmp
+      *.tga *.webp *.dpx`); `MediaImport` grows a pure, headless-tested **sequence-detection helper**
+      (given one picked file, find the contiguous numbered sibling run → pattern + start + count,
+      refusing gaps/mixed padding). When a run is detected, an import dialog offers **Import as image
+      sequence** (the Premiere-checkbox convention; a deliberate departure from Resolve's silent
+      auto-grouping so a deliberate single-still import stays one click) with an fps combo
+      (12 / 15 / 24 stop-motion presets + the project rate; **default = project timeline fps** —
+      departs from Premiere's global "Indeterminate Media Timebase" preference in favour of a
+      per-import choice). Preferences gains **Still image default duration** (5 s). Media-bin badges
+      for sequences ("SEQ · 240 frames @ 12") and stills.
+    - **Interpret Footage (fps reassignment).** A `ReinterpretFootageCommand` (step 10) rewrites the
+      media's `Info.FrameRate`/`Duration` **and rescales every referencing clip's
+      `SourceIn`/`SourceOut` by oldFps/newFps** (exact `Timecode.Scale(Rational)`, Int128 math) so the
+      same *frames* stay selected and clip timeline durations stretch accordingly — Premiere-consistent
+      "Interpret Footage ▸ Assume this frame rate". One undo entry (clip rescales + media rewrite in a
+      `CompositeCommand`); entry points: media-bin context menu + Clip menu. Works on any video media,
+      not just sequences (it is also the whole-clip "shoot on twos" lever for step 43).
+    - **Persistence (§12).** Additive nullable `MediaRefDto` fields (`kind`, `sequencePattern`,
+      `sequenceStartNumber`, `sequenceFrameCount`) with `WhenWritingNull` — ordinary files write none
+      and serialize byte-identically, **no schema bump**. The step-28 media-link sidecar and batch
+      relink must accept a pattern path (relinking a moved folder rewrites the pattern's directory).
+      The proxy service (step 18) skips sequence/still media in its first cut (`ProxyPolicy`).
+    - **Tests.** Media — extend the `TestVideo.cs` fixture generator to emit a numbered PNG run via the
+      `ffmpeg` CLI; probe it at a chosen fps (duration/fps/count exact), decode frame N at t = N/fps
+      (golden hash), a single PNG probes as `Still` with alpha intact. Core — reinterpret rescale
+      exactness (12→24 fps keeps frame indices; undo restores byte-exact ticks), sequence duration
+      math on NTSC rates. Persistence — round-trip of the new fields + absence-is-byte-identical +
+      pattern-path relink. App — sequence-detection helper (runs, gaps, mixed padding, start ≠ 0,
+      single file) and the unbounded-still trim clamp.
+    - **Risks.** `image2` `pattern_type`/`start_number` quirks (non-contiguous numbering must be
+      rejected at detection time, not discovered mid-decode); very large stills (decode-once bounds the
+      cost, but one 100 MP still is a large native allocation — surface dimensions in the import
+      dialog); decoder coverage in the BtbN gpl natives varies for exotic formats (DPX; keep EXR out of
+      the default filter) — per-file graceful import failure already exists; audit everywhere
+      `Info.Duration` is assumed finite (trim clamps, drop-duration, slip bounds).
+
+43. **Frame-level retime tools: frame hold + stop-motion frame edits (tier 2).** Freeze-frame and
+    per-frame timing surgery ("on twos", duplicate/remove a frame) on the existing clip/command/render
+    seams. **This lifts exactly one item from step 21's deferral — freeze frame — and models it as a
+    hold field, not speed 0**, so the `SpeedRatio > 0` invariant, the derived-duration formula, and the
+    audio resampler's positive-factor assumption are all untouched (reverse and keyframed ramps remain
+    deferred on step 21's seam).
+    - **Model (Core, §4).** `Clip` gains a nullable `HoldFrameAt` (a source-time `Timecode`) and a
+      `HoldDuration` (`Timecode`). When held: `Duration => HoldDuration` (the independent timeline
+      duration the step-21 deferral note called for) and `MapToSource(t) => HoldFrameAt` — a constant
+      map, so preview and export render the identical frame across the span with zero new render-graph
+      plumbing (§5). `SourceIn/Out` and `SpeedRatio` are retained untouched for exact **un-hold**.
+      Precedence is defined: a held clip ignores its speed ratio. Blade split copies the hold
+      (`CloneContentForSpan`); trimming a held clip edits `HoldDuration` with no media clamp (like
+      generators/stills); slip on a held clip moves `HoldFrameAt`. Video holds only — linked audio
+      keeps playing normally, matching Premiere.
+    - **Commands & UI.** `SetClipHoldCommand` (apply/revert/coalesce, one undo entry). Menu surface
+      follows Premiere naming: **Clip ▸ Frame Hold Options…** (hold the whole clip at In Point /
+      Playhead / a source timecode), **Add Frame Hold** (split at the playhead; the right-hand part
+      becomes a freeze of the playhead frame), and **Insert Frame Hold Segment** (insert a 2 s freeze
+      at the playhead and ripple downstream) — the latter two are `CompositeCommand`s over the existing
+      blade (step 13) + ripple (step 22) primitives. Inspector shows a Hold row (frame + duration) on
+      held clips; the clip body gets a hold badge.
+    - **Stop-motion frame edits.** On any clip (image sequences especially), **Duplicate Frame** —
+      split at the source-frame boundary under the playhead, insert a one-frame hold of that frame,
+      ripple downstream (+1 frame) — and **Remove Frame** — extract that frame's timeline span and
+      ripple-close (−1 frame). Both are pure `CompositeCommand`s snapped to the exact source-frame
+      grid via `Rational` math (correct on NTSC rates). Repeated Duplicate Frame *is* per-frame "on
+      twos/threes"; **whole-clip on-twos = Interpret Footage at half rate (step 42)** — a deliberate
+      departure from Dragonframe-style X-sheet editing, which stays out of scope (a run of hold
+      segments covers the same ground inside an editor).
+    - **Playback/decode.** The frame feeds already serve arbitrary source times; add a **repeat-frame
+      fast path** so a held span doesn't re-seek/re-decode the same frame every pump tick (the
+      `StillFrameFeed` from step 42 is the model; the ring feed can short-circuit an identical
+      source-frame request).
+    - **Persistence (§12).** Additive nullable `ClipDto` fields `holdAtTicks` / `holdDurationTicks`
+      (`WhenWritingNull`) — unheld clips serialize byte-identically, no schema bump.
+    - **Tests.** Core — held `Duration`/`MapToSource` constancy, hold-ignores-speed precedence,
+      split-copies-hold, un-hold restores the derived duration exactly, command undo/coalesce,
+      duplicate/remove-frame composites (downstream shift exactness and frame-grid snap at 12, 24,
+      30000/1001). Persistence — hold round-trip + absence-is-byte-identical. Render/Export —
+      golden-frame: a held clip renders the identical hash across its span and equals the unheld
+      frame at `HoldFrameAt`; export a sequence after duplicate+remove edits and hash the frame run.
+      App — hold trim clamp (no media limit), playhead→source-frame-boundary math.
+    - **Risks.** Interaction matrix with existing per-clip features (transitions overlapping a held
+      edge; markers positioned in source time on a constant map); linked-A/V ripple correctness when
+      Insert Frame Hold Segment pushes downstream video but audio must follow (reuse the step-22
+      companion composites); decode-ring thrash without the repeat-frame fast path; UX ambiguity
+      between Remove Frame (this step, frame-grid) and ripple delete (step 22, span) — keep distinct
+      shortcuts.
+
+**Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
+program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a
+numbered still to an image-sequence media item — is *feasible on the seams this codebase already
+has*: FFmpeg's device demuxers (`dshow` on Windows, `v4l2` on Linux, `avfoundation` on macOS) open
+through the same `av_find_input_format` + options-dict door step 42 adds for `image2`, a live feed is
+just another `IVideoFrameFeed`, onion-skinning is one more Skia layer blend in the existing compositor
+(§7/§10), and captured frames append to a step-42 `ImageSequence` MediaRef whose `SequenceFrameCount`
+grows through a command. Deferred deliberately: device capture is the first *input*-device surface in
+the app (permission prompts, device enumeration/selection UI, per-OS format negotiation, hot-unplug),
+`avdevice` is an entirely new native library to bundle and version-guard per RID (steps 35–36 are
+themselves unfinished), and a capture UI is a new workspace mode rather than a timeline feature —
+each a bigger lift than the editing tiers above, and none of it is needed to *edit* stop-motion shot
+in a dedicated capture tool (Dragonframe, Stop Motion Studio) and imported via step 42. Revisit after
+packaging stabilizes; the prerequisite work is: bundle `avdevice`, bind device enumeration/open
+(~6 imports, listed in `Native/FUTURE_BINDINGS.md`), a `CaptureService` behind `IVideoFrameFeed`, and
+the capture workspace.
 
 Open product questions (e.g. the mockup's user-avatar / account affordance, full panel docking)
 are tracked in [UI.md §5](UI.md).

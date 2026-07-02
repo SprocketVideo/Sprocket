@@ -63,5 +63,17 @@ upload path. Bound for it:
   `AV_FRAME_DATA_DISPLAYMATRIX`. Add when VFR/rotation handling is prioritized.
 - `AVFrame` misc already captured: `pict_type=120`, `flags=276`.
 
+### Step 42 — image-sequence & still import
+- **`av_find_input_format`** (to force the `image2` demuxer) and an **`avformat_open_input` overload
+  marshalling a `ref IntPtr` options dict** (today's binding passes `IntPtr.Zero` for both `fmt` and
+  `options`; `av_dict_set` is already bound) carrying `framerate`, `start_number`, `pattern_type sequence`.
+- No new struct offsets — the opened context decodes through the existing surface.
+
+### Unscheduled — live stop-motion capture (future step after 42/43; see PLAN)
+- Would need the **libavdevice** library bundled + version-guarded per RID (a whole new native lib —
+  gated on PLAN steps 35–36) and ~6 imports: `avdevice_register_all`, device enumeration
+  (`avdevice_list_input_sources` + `AVDeviceInfoList`/`AVDeviceInfo` views), then the same
+  `av_find_input_format("dshow"/"v4l2"/"avfoundation")` + options-dict open that step 42 adds.
+
 ### Step 31 — VST3/AU audio plugins
 - Not FFmpeg — separate native C-ABI bridge shims per format (see PLAN §31 / ARCHITECTURE §13).

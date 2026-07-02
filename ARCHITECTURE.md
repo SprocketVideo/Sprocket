@@ -149,6 +149,12 @@ EffectInstance
 moving edits `TimelineStart`; effects are an additive list. The source bytes are never
 written.
 
+*The schematic above is the vertical-slice shape; later PLAN steps add fields **additively** on the
+same records — e.g. `Clip.SpeedRatio` (step 21, a strictly-positive `Rational` retime),
+`Clip.HoldFrameAt`/`HoldDuration` (step 43, frame hold as a constant time-map — not speed 0), and
+`MediaRef.Kind` + sequence pattern/start/count (step 42, image-sequence & still media). Each stays
+pure data and serializes additively (§12).*
+
 **Undo/redo is a first-class requirement** (see [BRIEF.md](BRIEF.md)), not an afterthought.
 Every model mutation goes through a **command stack** (snapshot or inverse-command) — there is
 no "direct" mutation path that bypasses it. Because the model is pure data with no native
@@ -415,6 +421,17 @@ varies (§5/§17). **Export resolution is capped at 4K for now** (≤ 3840×2160
 5K/6K/8K may be enabled later) — an **export-side limit only**; import, the timeline, and sequence
 canvas sizes are unrestricted.
 
+**Image sequences & stills (PLAN step 42).** A numbered still run imports as one video clip by
+opening the same decode pipeline through FFmpeg's **`image2` demuxer**: `MediaSource` gains an open
+request derived from the `MediaRef` (input-format via `av_find_input_format` + an options dict —
+`framerate`, `start_number`, `pattern_type sequence` — through an `avformat_open_input` overload; see
+[Native/FUTURE_BINDINGS.md]). Downstream nothing changes — the sequence decodes, scales, and pools
+like any other stream (§1 holds). A single still is `MediaRef.Kind = Still`: a decode-once
+`StillFrameFeed` serves the held native frame for any requested time, and trim clamps treat its
+duration as unbounded, like a generator. Live *capture* devices (`dshow`/`v4l2`/`avfoundation`) would
+enter through this same input-format door but need `avdevice` bundled — explicitly unscheduled (see
+PLAN's future-step note).
+
 **Preview vs. delivery codecs.** Encoding done *for playback* — proxies (§17) and
 render-cache/freeze intermediates (§20) — optimises for **encode + decode speed and instant scrub,
 not size or final quality**: prefer **all-intra** (no inter-frame dependencies) and **hardware**
@@ -459,7 +476,11 @@ distribution.
 - Serialize `Project` to **JSON** (`System.Text.Json`, source-generated for AOT-friendliness).
 - Store **relative media paths** where possible + an absolute fallback; on load, if a
   `MediaRef` can't be resolved, mark it "offline" and prompt to relink — never fail the load.
-- Version the schema (`"schemaVersion"`) from v1 for forward migration.
+- Version the schema (`"schemaVersion"`) from v1 for forward migration. The house pattern for new
+  features is **additive nullable DTO fields** written with `WhenWritingNull`, so projects not using
+  the feature serialize byte-identically and pre-feature files still load with no schema bump (used
+  by steps 21/26/27/37; steps 42/43 follow it for the sequence/still `MediaRefDto` fields and the
+  `ClipDto` hold fields).
 - The model is plain data (no native handles), so it serializes cleanly and round-trips in
   tests.
 
@@ -642,6 +663,19 @@ own section but noted here so the "additive, not a rewrite" invariant stays cano
   a single marshal point puts every tool callback on the model-owning UI thread (§8). No new
   mutation path, no second source of truth; the transport (stateless Streamable HTTP over a plain
   `HttpListener`) can be swapped without touching the tool layer.
+- **Image-sequence & still media (stop-motion tier 1)** — an **alternate open request on the existing
+  `MediaSource`/frame-feed seams**, not a new pixel path: FFmpeg's `image2` demuxer turns a numbered
+  still run into an ordinary decodable stream (Core's `MediaRef` gains a `Kind` + sequence
+  pattern/count as pure data; a single still is a decode-once feed with unbounded trim headroom, like
+  a generator). Preview, export, and thumbnails all reuse the same decode/scale/pool machinery
+  (PLAN step 42).
+- **Frame hold / freeze (stop-motion tier 2)** — **a constant time-map on the existing
+  `Clip.MapToSource` seam**: a held clip maps every timeline time to one source `Timecode`
+  (`HoldFrameAt`) with an independent `HoldDuration`, so preview and export render the identical
+  frame with no render-graph change and the `SpeedRatio > 0` invariant stays intact. Duplicate/remove-
+  frame edits are composites of the existing blade + ripple commands (PLAN step 43). Live stop-motion
+  *capture* (device input, onion skin) is explicitly unscheduled — see the future-step note in
+  [PLAN.md](PLAN.md).
 - **Collaboration-ready format & asset-link split** — persistence-layer only (§12): the diffable
   project file references sources by stable `MediaRef` **Id**, while each user's absolute asset paths
   move to a separate local sidecar, so a pulled project-file change never forces a relink. The Core

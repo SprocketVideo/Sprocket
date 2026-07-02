@@ -5,13 +5,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 Sprocket — a cross-platform (Windows 11, Linux, macOS) non-destructive video editor in C# / .NET 10.
-The work is structured around three documents that must stay authoritative; read them before
+The work is structured around a set of documents that must stay authoritative; read them before
 making non-trivial changes:
 
 - [BRIEF.md](BRIEF.md) — the feature brief (the *what*).
 - [ARCHITECTURE.md](ARCHITECTURE.md) — the detailed technical design the implementation must conform to (the *how/why*). Sections are referenced throughout the code as `§N`.
 - [PLAN.md](PLAN.md) — feasibility analysis and the numbered build order, with a ✅ status note recorded inline on each completed step. **When you complete a build-order step, update its PLAN.md entry** the same way existing steps are annotated.
 - [UI.md](UI.md) — the target UI mockup and the features it implies.
+- [FEATURES.md](FEATURES.md) — the user-facing feature inventory and documentation-coverage
+  matrix (drives the user docs in `../sprocket-docs`). **When a user-facing feature ships or
+  changes behavior, add or amend its row in the same change** (new features start ❌ undocumented).
+  **Edit rows in place — never restructure or regenerate this file.** Its Status/Docs columns and
+  audit stamp are accumulated hand-verified state, and its section grouping is the docs site's
+  intended information architecture; a re-org destroys both and forces a full re-audit. Scope every
+  edit to the rows the change actually affects.
+- [README.md](README.md) — the public landing page. Its **Features / Planned / Roadmap** sections
+  are a deliberately *coarse-grained* snapshot of PLAN.md + FEATURES.md (feature areas, not every
+  item). **When you mark a PLAN.md step complete or add/amend a FEATURES.md row, check whether
+  those README sections need the same update** — edit them only when a whole feature area appears
+  or the remaining-work list changes, so the README stays honest without tracking every detail.
 
 **When planning a feature, compare it to how leading video editors
 do the equivalent thing.** Prefer re-using their established behavior — the feature's implementation
