@@ -16,10 +16,38 @@ namespace Sprocket.App;
 /// the closest semantic match the set has.
 /// </para>
 /// </summary>
+/// <summary>
+/// The reference (larger-axis) dimension for each icon tier. An icon's other axis is still derived from its own
+/// aspect ratio (see the per-icon comments in <see cref="Icons"/>) — <c>Stretch="Uniform"</c> against a box sized
+/// to anything other than the icon's exact aspect ratio leaves slack that can render off-center (see StepBack/
+/// StepForward in MainWindow.axaml), so only one axis is ever a shared constant.
+/// </summary>
+public static class IconSizes
+{
+    /// Window caption glyphs (minimize/maximize/close) — the title bar's own compact 34px height caps these.
+    public const double Chrome = 8;
+
+    /// Dense inline controls: per-item toggles and small remove buttons (Inspector effect rows, marker list rows,
+    /// the Timeline's copy-drag "+" badge).
+    public const double Compact = 11;
+
+    /// Default control icon: toolbar, transport, and Inspector section glyphs.
+    public const double Default = 13;
+
+    /// Multi-element composite icons (e.g. chevron + diamond) that need extra width to read clearly at a glance.
+    public const double Composite = 15;
+
+    /// Large content-placeholder graphics (e.g. the media bin's poster-fallback icon before a thumbnail loads) —
+    /// not a control icon, so it sits outside the control-icon scale above.
+    public const double Placeholder = 20;
+}
+
 public static class Icons
 {
-    // Window chrome.
-    public static readonly Geometry Minimize = Geometry.Parse("M5,12 L19,12");
+    // Window chrome. Minimize is a filled bar rather than a stroked line: a perfectly horizontal line has a
+    // zero-height bounding box, and Stretch="Uniform" against a zero-height box collapses the render to a
+    // near-invisible dot instead of a line.
+    public static readonly Geometry Minimize = Geometry.Parse("M5,11 L19,11 L19,13 L5,13 Z");
     public static readonly Geometry Maximize = Geometry.Parse("M5,3 L19,3 A2,2 0 0 1 21,5 L21,19 A2,2 0 0 1 19,21 L5,21 A2,2 0 0 1 3,19 L3,5 A2,2 0 0 1 5,3 Z");
     public static readonly Geometry Restore = Geometry.Parse("M11,9 L20,9 A2,2 0 0 1 22,11 L22,20 A2,2 0 0 1 20,22 L11,22 A2,2 0 0 1 9,20 L9,11 A2,2 0 0 1 11,9 Z M5,15 H4 a2,2 0 0 1 -2,-2 V4 a2,2 0 0 1 2,-2 h9 a2,2 0 0 1 2,2 v1");
     public static readonly Geometry Close = Geometry.Parse("M18,6 L6,18 M6,6 L18,18");
@@ -31,12 +59,21 @@ public static class Icons
     public static readonly Geometry Pause = Geometry.Parse("M6,4 L10,4 L10,20 L6,20 Z M14,4 L18,4 L18,20 L14,20 Z");
     public static readonly Geometry FastForward = Geometry.Parse("M13,19 L22,12 L13,5 Z M2,19 L11,12 L2,5 Z");
     public static readonly Geometry SkipForward = Geometry.Parse("M5,4 L15,12 L5,20 Z M19,5 L19,19");
-    public static readonly Geometry ChevronLeft = Geometry.Parse("M15,18 L9,12 L15,6");
-    public static readonly Geometry ChevronRight = Geometry.Parse("M9,18 L15,12 L9,6");
 
-    // Keyframe state (used for both the Inspector's per-parameter toggle and the transport's prev/next-keyframe
-    // composite icons alongside ChevronLeft/ChevronRight above).
+    // Keyframe state (used for the Inspector's per-parameter toggle).
     public static readonly Geometry Diamond = Geometry.Parse("M13.06,4.58 L19.42,10.94 A1.5,1.5 0 0 1 19.42,13.06 L13.06,19.42 A1.5,1.5 0 0 1 10.94,19.42 L4.58,13.06 A1.5,1.5 0 0 1 4.58,10.94 L10.94,4.58 A1.5,1.5 0 0 1 13.06,4.58 Z");
+
+    // Prev/next-keyframe transport icons: chevron + diamond baked into ONE geometry (rather than composing two
+    // separately-stretched Paths in a StackPanel) so the gap between them is an authored constant, not the
+    // difference of two independent Stretch="Uniform" gutters — which rendered a visibly uneven gap between the
+    // two directions despite both Paths using the same size numbers. Diamond here is Diamond above, scaled 0.606x
+    // and translated (translate/scale only, never mirrored, since mirroring would flip the arc sweep-flags).
+    public static readonly Geometry PrevKeyframe = Geometry.Parse(
+        "M15,18 L9,12 L15,6 M22.14,7.5 L26,11.36 A0.91,0.91 0 0 1 26,12.64 L22.14,16.5 A0.91,0.91 0 0 1 20.86,16.5 " +
+        "L17,12.64 A0.91,0.91 0 0 1 17,11.36 L20.86,7.5 A0.91,0.91 0 0 1 22.14,7.5 Z");
+    public static readonly Geometry NextKeyframe = Geometry.Parse(
+        "M14.14,7.5 L18,11.36 A0.91,0.91 0 0 1 18,12.64 L14.14,16.5 A0.91,0.91 0 0 1 12.86,16.5 " +
+        "L9,12.64 A0.91,0.91 0 0 1 9,11.36 L12.86,7.5 A0.91,0.91 0 0 1 14.14,7.5 Z M20,18 L26,12 L20,6");
 
     // Inspector / effects. A single Eye glyph is used for both on/off states (color-coded, as the Unicode
     // "👁" it replaces was) rather than swapping to a crossed-out variant.

@@ -270,8 +270,8 @@ public sealed class InspectorPanel : UserControl
             StrokeThickness = 1.5,
             StrokeLineCap = PenLineCap.Round,
             StrokeJoin = PenLineJoin.Round,
-            Width = 13,
-            Height = 13,
+            Width = IconSizes.Default,
+            Height = IconSizes.Default,
             Stretch = Stretch.Uniform,
         };
         var toggle = new ToggleButton
@@ -293,7 +293,7 @@ public sealed class InspectorPanel : UserControl
             Content = new ShapesPath
             {
                 Data = Icons.Close, Stroke = FaintText, StrokeThickness = 1.5, StrokeLineCap = PenLineCap.Round,
-                Width = 10, Height = 10, Stretch = Stretch.Uniform,
+                Width = IconSizes.Compact, Height = IconSizes.Compact, Stretch = Stretch.Uniform,
             },
             Padding = new Avalonia.Thickness(6, 1),
             Background = Brushes.Transparent,
@@ -337,8 +337,8 @@ public sealed class InspectorPanel : UserControl
             Fill = Brushes.Transparent,
             Stroke = FaintText,
             StrokeThickness = 1.5,
-            Width = 11,
-            Height = 11,
+            Width = IconSizes.Compact,
+            Height = IconSizes.Compact,
             Stretch = Stretch.Uniform,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -349,8 +349,8 @@ public sealed class InspectorPanel : UserControl
             StrokeThickness = 1.5,
             StrokeLineCap = PenLineCap.Round,
             StrokeJoin = PenLineJoin.Round,
-            Width = 13,
-            Height = 13,
+            Width = IconSizes.Default,
+            Height = IconSizes.Default,
             Stretch = Stretch.Uniform,
             VerticalAlignment = VerticalAlignment.Center,
         };

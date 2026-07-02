@@ -155,19 +155,22 @@
         <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Top">
           <Button x:Name="MinButton" Classes="caption"
                   AutomationProperties.Name="Minimize" ToolTip.Tip="Minimize">
-            <Path Data="{x:Static local:Icons.Minimize}" Stroke="{Binding $parent[ContentPresenter].Foreground}"
-                  StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" Width="16" Height="16" Stretch="Uniform" />
+            <!-- Height is Minimize's own 14:2 aspect ratio at the Chrome reference width — see IconSizes. -->
+            <Path Data="{x:Static local:Icons.Minimize}" Fill="{DynamicResource MutedText}"
+                  Width="{x:Static local:IconSizes.Chrome}" Height="1.14" Stretch="Uniform" />
           </Button>
           <!-- MaxButtonIcon's Data + the button's accessible name toggle Maximize/Restore in OnPropertyChanged. -->
           <Button x:Name="MaxButton" Classes="caption"
                   AutomationProperties.Name="Maximize" ToolTip.Tip="Maximize">
-            <Path x:Name="MaxButtonIcon" Data="{x:Static local:Icons.Maximize}" Stroke="{Binding $parent[ContentPresenter].Foreground}"
-                  StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" Width="16" Height="16" Stretch="Uniform" />
+            <Path x:Name="MaxButtonIcon" Data="{x:Static local:Icons.Maximize}" Stroke="{DynamicResource MutedText}"
+                  StrokeThickness="1.2" StrokeLineCap="Round" StrokeJoin="Round"
+                  Width="{x:Static local:IconSizes.Chrome}" Height="{x:Static local:IconSizes.Chrome}" Stretch="Uniform" />
           </Button>
           <Button x:Name="CloseButton" Classes="caption close"
                   AutomationProperties.Name="Close" ToolTip.Tip="Close">
-            <Path Data="{x:Static local:Icons.Close}" Stroke="{Binding $parent[ContentPresenter].Foreground}"
-                  StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" Width="16" Height="16" Stretch="Uniform" />
+            <Path Data="{x:Static local:Icons.Close}" Stroke="{DynamicResource MutedText}"
+                  StrokeThickness="1.2" StrokeLineCap="Round" StrokeJoin="Round"
+                  Width="{x:Static local:IconSizes.Chrome}" Height="{x:Static local:IconSizes.Chrome}" Stretch="Uniform" />
           </Button>
         </StackPanel>
       </Grid>
@@ -296,48 +299,49 @@
               <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" VerticalAlignment="Center">
                 <Button x:Name="JumpStartButton" Grid.Column="0" Classes="transport"
                         AutomationProperties.Name="Jump to start" ToolTip.Tip="Jump to start">
-                  <Path Data="{x:Static local:Icons.SkipBack}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="15" Height="15" Stretch="Uniform" />
+                  <Path Data="{x:Static local:Icons.SkipBack}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="11.4" Height="{x:Static local:IconSizes.Default}" Stretch="Uniform" />
                 </Button>
+                <!-- Width/Height below are each icon's own bounding-box aspect ratio (not a shared square box):
+                     Stretch="Uniform" only centers within *empty* space in the box, and Rewind/FastForward's
+                     bounding box tested as top-anchored rather than centered when given vertical slack it didn't
+                     need — giving them a visible upward offset next to the full-height Skip/Play icons. Sizing
+                     each box to its exact aspect ratio leaves no slack to mis-center. One axis is always the
+                     IconSizes.Default reference dimension; the other is that icon's own aspect-derived literal. -->
                 <Button x:Name="StepBackButton" Grid.Column="1" Classes="transport" Margin="4,0,0,0"
                         AutomationProperties.Name="Step back one frame" ToolTip.Tip="Step back one frame">
-                  <Path Data="{x:Static local:Icons.Rewind}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="15" Height="15" Stretch="Uniform" />
+                  <Path Data="{x:Static local:Icons.Rewind}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="{x:Static local:IconSizes.Default}" Height="9.1" Stretch="Uniform" />
                 </Button>
                 <!-- PlayPauseIcon's Data + the button's accessible name toggle Play/Pause as playback state changes. -->
                 <Button x:Name="PlayPauseButton" Grid.Column="2" Classes="transport play" Margin="4,0,0,0"
                         AutomationProperties.Name="Play" ToolTip.Tip="Play / Pause (Space)">
-                  <Path x:Name="PlayPauseIcon" Data="{x:Static local:Icons.Play}" Fill="White" Width="15" Height="15" Stretch="Uniform" />
+                  <Path x:Name="PlayPauseIcon" Data="{x:Static local:Icons.Play}" Fill="White" Width="10.1" Height="{x:Static local:IconSizes.Default}" Stretch="Uniform" />
                 </Button>
                 <Button x:Name="StepForwardButton" Grid.Column="3" Classes="transport" Margin="4,0,0,0"
                         AutomationProperties.Name="Step forward one frame" ToolTip.Tip="Step forward one frame">
-                  <Path Data="{x:Static local:Icons.FastForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="15" Height="15" Stretch="Uniform" />
+                  <Path Data="{x:Static local:Icons.FastForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="{x:Static local:IconSizes.Default}" Height="9.1" Stretch="Uniform" />
                 </Button>
                 <Button x:Name="JumpEndButton" Grid.Column="4" Classes="transport" Margin="4,0,0,0"
                         AutomationProperties.Name="Jump to end" ToolTip.Tip="Jump to end">
-                  <Path Data="{x:Static local:Icons.SkipForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="15" Height="15" Stretch="Uniform" />
+                  <Path Data="{x:Static local:Icons.SkipForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="11.4" Height="{x:Static local:IconSizes.Default}" Stretch="Uniform" />
                 </Button>
+                <!-- Chevron+diamond baked into one Icons.PrevKeyframe/NextKeyframe geometry (Icons.cs) instead of
+                     composing two separately-stretched Paths: that composition rendered a visibly uneven gap
+                     between the diamond and the arrow depending on which side the arrow was on. -->
                 <Button x:Name="PrevKeyframeButton" Grid.Column="5" Classes="transport" Margin="12,0,0,0"
                         AutomationProperties.Name="Previous keyframe"
                         ToolTip.Tip="Jump to previous keyframe of the selected clip — press [">
-                  <StackPanel Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
-                    <Path Data="{x:Static local:Icons.ChevronLeft}" Stroke="{DynamicResource Text}" StrokeThickness="2.2"
-                          StrokeLineCap="Round" StrokeJoin="Round" Width="9" Height="12" Stretch="Uniform" />
-                    <Path Data="{x:Static local:Icons.Diamond}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
-                          StrokeJoin="Round" Width="9" Height="9" Stretch="Uniform" />
-                  </StackPanel>
+                  <Path Data="{x:Static local:Icons.PrevKeyframe}" Stroke="{DynamicResource Text}" StrokeThickness="1.9"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="{x:Static local:IconSizes.Composite}" Height="10.6" Stretch="Uniform" />
                 </Button>
                 <Button x:Name="NextKeyframeButton" Grid.Column="6" Classes="transport" Margin="4,0,0,0"
                         AutomationProperties.Name="Next keyframe"
                         ToolTip.Tip="Jump to next keyframe of the selected clip — press ]">
-                  <StackPanel Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
-                    <Path Data="{x:Static local:Icons.Diamond}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
-                          StrokeJoin="Round" Width="9" Height="9" Stretch="Uniform" />
-                    <Path Data="{x:Static local:Icons.ChevronRight}" Stroke="{DynamicResource Text}" StrokeThickness="2.2"
-                          StrokeLineCap="Round" StrokeJoin="Round" Width="9" Height="12" Stretch="Uniform" />
-                  </StackPanel>
+                  <Path Data="{x:Static local:Icons.NextKeyframe}" Stroke="{DynamicResource Text}" StrokeThickness="1.9"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="{x:Static local:IconSizes.Composite}" Height="10.6" Stretch="Uniform" />
                 </Button>
                 <TextBlock x:Name="PositionText" Grid.Column="7" Margin="14,0,10,0" VerticalAlignment="Center"
                            FontFamily="Cascadia Code,Consolas,monospace" Foreground="{DynamicResource Text}"

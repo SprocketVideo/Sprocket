@@ -29,6 +29,16 @@
     <x:Double x:Key="SliderHorizontalThumbHeight">14</x:Double>
     <CornerRadius x:Key="SliderThumbCornerRadius">7</CornerRadius>
 
+    <!-- The Inspector's collapsible sections (Clip / each effect) are Expanders; Fluent's defaults (a 32px
+         chevron button, 20px left margin ahead of it, 48px header min-height, 16px content padding) are sized
+         for a full-width settings page, not a ~280px side panel with 12px headers — against that the chevron
+         rendered comically oversized. Shrunk to match the panel's other 11–13px controls. -->
+    <x:Double x:Key="ExpanderChevronButtonSize">16</x:Double>
+    <Thickness x:Key="ExpanderChevronMargin">0,0,4,0</Thickness>
+    <x:Double x:Key="ExpanderMinHeight">28</x:Double>
+    <Thickness x:Key="ExpanderHeaderPadding">4,0,0,0</Thickness>
+    <Thickness x:Key="ExpanderContentPadding">0</Thickness>
+
     <!-- Placeholder text must clear WCAG AA (≥4.5:1) on the dark input surface — Fluent's default is too dim. -->
     <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{x:Static app:Palette.FaintText}" />
   </Application.Resources>
@@ -86,9 +96,17 @@
       <Setter Property="Background" Value="{DynamicResource RaisedBg}" />
       <Setter Property="Foreground" Value="{DynamicResource Text}" />
     </Style>
+    <Style Selector="Button.caption:pointerover Path">
+      <Setter Property="Stroke" Value="{DynamicResource Text}" />
+      <Setter Property="Fill" Value="{DynamicResource Text}" />
+    </Style>
     <Style Selector="Button.close:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource Danger}" />
       <Setter Property="Foreground" Value="White" />
+    </Style>
+    <Style Selector="Button.close:pointerover Path">
+      <Setter Property="Stroke" Value="White" />
+      <Setter Property="Fill" Value="White" />
     </Style>
 
     <!-- Primary action button (Export). -->

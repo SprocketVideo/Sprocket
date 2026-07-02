@@ -946,7 +946,7 @@ public sealed class TimelineControl : Control
         var rounded = new RoundedRect(rect, 4);
         ctx.DrawRectangle(isVideo ? VideoGhostFill : AudioGhostFill, SelectPen, rounded);
         if (_movePreviewCopy)
-            DrawIcon(ctx, Icons.Plus, new Rect(rect.X + 4, rect.Y + 2, 12, 12), Brushes.White);
+            DrawIcon(ctx, Icons.Plus, new Rect(rect.X + 4, rect.Y + 2, IconSizes.Compact, IconSizes.Compact), Brushes.White);
     }
 
     /// <summary>The render-bar spans to draw over the ruler (PLAN.md step 32) — computed by

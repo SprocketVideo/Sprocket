@@ -1248,7 +1248,7 @@ public partial class MainWindow : Window
                 Content = new ShapesPath
                 {
                     Data = Icons.Close, Stroke = Avalonia.Media.Brushes.Gray, StrokeThickness = 1.6,
-                    StrokeLineCap = PenLineCap.Round, Width = 9, Height = 9, Stretch = Stretch.Uniform,
+                    StrokeLineCap = PenLineCap.Round, Width = IconSizes.Compact, Height = IconSizes.Compact, Stretch = Stretch.Uniform,
                 },
                 Padding = new Thickness(6, 2),
             };
