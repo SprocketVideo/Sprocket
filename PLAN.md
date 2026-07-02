@@ -2868,6 +2868,32 @@ Tags reference the [UI.md §4 checklist](UI.md).
       between Remove Frame (this step, frame-grid) and ripple delete (step 22, span) — keep distinct
       shortcuts.
 
+44. **Audio-only export delivery.** Add an explicit user-facing **audio-only** export mode for writing
+    the active sequence's master mix without rendering or muxing a video stream. This is a later
+    delivery feature, not part of the completed step-27 container/video/audio matrix: that step writes
+    audio codecs inside movie containers, while this one exports sound as the product. Follow the
+    Premiere / Resolve / Final Cut convention — an **Audio only** export format or mode with common
+    audio targets such as **WAV/PCM, FLAC, MP3, AAC/M4A, and Opus** where the bundled FFmpeg build
+    supports them — rather than forcing users through a dummy video export.
+    - **Export model.** Extend `ExportOptions` / `ExportFormat` with a delivery kind or equivalent
+      shape that can represent normal A/V export, existing **video-only** export, and the new
+      **audio-only** export without changing `default(ExportOptions)` (still MP4/H.264/AAC). Audio-only
+      formats should validate against an audio-container/codec matrix, choose the correct extension and
+      save-dialog filter, and reject incompatible combinations up front.
+    - **Rendering path.** Reuse `RenderGraph.PlanAudioBuffer` and the existing `AudioMixer` / chain
+      execution so the output is the same master mix heard in playback and measured by loudness tools;
+      do **not** render video frames, open video encoders, or require a video stream. Range exports,
+      in/out marks, handles, sample rate, channel count, metadata, progress, cancellation, failure
+      cleanup, and reveal-in-folder should match the existing export job plumbing.
+    - **UI / presets / automation.** Surface the mode in `ExportSettingsDialog` with video controls
+      hidden or disabled when audio-only is selected; allow built-in and user presets to capture it;
+      add an MCP/API path alongside `export_video` when the tool surface is ready, using the same
+      background-export status/cancel model.
+    - **Tests.** Export tests should round-trip representative audio-only formats and assert there is no
+      video stream, audio duration/rate/channels match the selected range, muted/soloed tracks and
+      master/track/clip effects are reflected, cancellation removes partial files, and the default
+      MP4/H.264/AAC behaviour remains byte-for-byte compatible where already asserted.
+
 **Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
 program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a
 numbered still to an image-sequence media item — is *feasible on the seams this codebase already
