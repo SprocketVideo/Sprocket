@@ -34,6 +34,14 @@ public static class EffectTypeIds
     public const string Color = "builtin.color";
 
     /// <summary>
+    /// ACES filmic tone mapping (PLAN.md step 33): sRGB → scene-linear → exposure → the fitted ACES
+    /// RRT + ODT curve → sRGB, all in the shader. Parameter: <see cref="EffectParamNames.Exposure"/> (stops).
+    /// The first built-in realised through the <see cref="Sprocket.Core.Rendering.IVideoEffect"/> registry
+    /// (the same path plugin effects use) rather than a hard-coded pipeline case.
+    /// </summary>
+    public const string AcesFilmic = "builtin.aces.filmic";
+
+    /// <summary>
     /// Audio gain/pan (PLAN.md step 31): a static per-chain-stage gain (<see cref="EffectParamNames.GainDb"/>)
     /// and stereo balance (<see cref="EffectParamNames.Pan"/>), the simplest audio DSP stage.
     /// </summary>
@@ -66,11 +74,15 @@ public static class EffectTypeIds
     /// Whether an effect type id names an <b>audio</b> chain stage (PLAN.md step 31). The render graph uses
     /// this to split a clip's single effect stack: audio ids feed the mixer's DSP chain, everything else feeds
     /// the video shader chain (where unknown ids pass through). Built-in audio effects share the
-    /// <c>builtin.audio.</c> prefix; hosted audio plugins (VST3/AU, ARCHITECTURE.md §19) will register their own
-    /// namespaced audio ids when they land.
+    /// <c>builtin.audio.</c> prefix (the fast path); a plugin audio effect (PLAN.md step 33) is recognised by
+    /// its registered <see cref="EffectCatalog"/> descriptor carrying <see cref="EffectCategory.Audio"/>.
+    /// An unregistered (missing-plugin) audio id therefore routes to the video chain, where unknown ids
+    /// pass through — a no-op either way.
     /// </summary>
     public static bool IsAudio(string effectTypeId) =>
-        effectTypeId.StartsWith("builtin.audio.", StringComparison.Ordinal);
+        effectTypeId.StartsWith("builtin.audio.", StringComparison.Ordinal)
+        || (!effectTypeId.StartsWith("builtin.", StringComparison.Ordinal)
+            && EffectCatalog.Find(effectTypeId)?.Category == EffectCategory.Audio);
 }
 
 /// <summary>Well-known parameter names used by the built-in effects.</summary>

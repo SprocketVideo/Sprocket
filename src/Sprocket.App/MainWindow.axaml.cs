@@ -104,7 +104,7 @@ public partial class MainWindow : Window
     private MenuItem? _nestMenuItem, _openSequenceMenuItem; // Sequence menu (PLAN.md step 23)
     private MenuItem? _snappingMenuItem, _guidesMenuItem, _showProjectMenuItem, _showInspectorMenuItem, _showStatsMenuItem;
     private PlaybackStatsOverlay? _statsOverlay; // floating playback-diagnostics window (View ▸ Playback Statistics)
-    private System.Collections.Generic.IReadOnlyList<MenuItem> _effectsMenuItems = [];
+    private MenuItem? _effectsMenu;
     private ToggleButton? _snappingToggle, _guidesToggle;
     private Grid? _workspaceGrid, _outerGrid;
     private Border? _projectPane, _inspectorPane;
@@ -342,18 +342,11 @@ public partial class MainWindow : Window
         insertItems.Add(adjustmentItem);
         this.FindControl<MenuItem>("ClipInsertMenuItem")!.ItemsSource = insertItems;
 
-        // ── Effects (populated from the registry, PLAN.md steps 15–16) ──
+        // ── Effects (populated from the registry incl. plugins, PLAN.md steps 15–16, 33; rebuilt on open so
+        // it only offers effects relevant to the selected clip's track kind — see EffectRelevance) ──
         var effectsMenu = this.FindControl<MenuItem>("EffectsMenu")!;
-        var effectItems = new System.Collections.Generic.List<MenuItem>();
-        foreach (EffectDescriptor descriptor in EffectCatalog.BuiltIns)
-        {
-            string id = descriptor.Id; // capture per iteration
-            var item = new MenuItem { Header = descriptor.DisplayName };
-            item.Click += (_, _) => _timeline?.ApplyEffectToSelected(id);
-            effectItems.Add(item);
-        }
-        effectsMenu.ItemsSource = effectItems;
-        _effectsMenuItems = effectItems;
+        _effectsMenu = effectsMenu;
+        RefreshEffectsMenu();
         effectsMenu.SubmenuOpened += (_, _) => RefreshEffectsMenu();
 
         // ── View ──
@@ -1250,11 +1243,27 @@ public partial class MainWindow : Window
         SetStatus($"Normalized clip to {target:0.#} LUFS ({MixerFormat.GainDbLabel(gain)}).");
     }
 
+    /// <summary>Rebuilds the Effects menu for the current selection: only the effects relevant to the selected
+    /// clip's track kind (audio DSP vs video/colour shaders, <see cref="EffectRelevance"/>), disabled when
+    /// nothing is selected. Rebuilt on every open so plugin registrations and selection changes are honoured.</summary>
     private void RefreshEffectsMenu()
     {
-        bool sel = _timeline?.HasSelection == true;
-        foreach (MenuItem item in _effectsMenuItems)
-            item.IsEnabled = sel;
+        if (_effectsMenu is null)
+            return;
+        Clip? selected = _timeline?.SelectedClip;
+        var items = new System.Collections.Generic.List<MenuItem>();
+        System.Collections.Generic.IEnumerable<EffectDescriptor> effects =
+            selected is not null && _project is not null
+                ? EffectRelevance.For(_project.Timeline, selected)
+                : EffectCatalog.All;
+        foreach (EffectDescriptor descriptor in effects)
+        {
+            string id = descriptor.Id; // capture per iteration
+            var item = new MenuItem { Header = descriptor.DisplayName, IsEnabled = selected is not null };
+            item.Click += (_, _) => _timeline?.ApplyEffectToSelected(id);
+            items.Add(item);
+        }
+        _effectsMenu.ItemsSource = items;
     }
 
     /// <summary>Clip ▸ Speed / Duration (PLAN.md step 21): prompts for a speed percentage and retimes the

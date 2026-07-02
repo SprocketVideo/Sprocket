@@ -355,7 +355,7 @@ public sealed class MediaBrowserPanel : UserControl
             Margin = new Avalonia.Thickness(0, 0, 0, 4),
         });
 
-        foreach (EffectDescriptor effect in EffectCatalog.BuiltIns)
+        foreach (EffectDescriptor effect in EffectCatalog.All)
             _effectsList.Children.Add(EffectRow(effect));
     }
 

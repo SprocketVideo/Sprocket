@@ -130,6 +130,62 @@ half4 main(float2 coord) {
 
     private static readonly SKSamplingOptions Sampling = new(SKFilterMode.Linear);
 
+    // ── Registered shader effects (PLAN.md step 33, ARCHITECTURE.md §13) ─────────────────────────────
+    // The process-wide registry of IVideoEffect implementations — built-in shader effects (ACES) plus
+    // plugin-contributed ones — shared by every pipeline instance (preview, export, thumbnails) so an
+    // effect registered at plugin-load time renders everywhere. Each *instance* keeps its own compiled
+    // SKRuntimeEffect cache (below), matching the existing one-pipeline-per-thread ownership model.
+    private static readonly object RegistryGate = new();
+    private static readonly Dictionary<string, IVideoEffect> Registry = new(StringComparer.Ordinal);
+
+    static SkiaEffectPipeline() => RegisterEffect(new Effects.AcesFilmicEffect());
+
+    /// <summary>
+    /// Registers (or replaces) a shader-backed effect for all pipeline instances. Compiles the effect's SkSL
+    /// once up front and throws <see cref="InvalidOperationException"/> on a compile error, so a broken
+    /// plugin fails loudly at load time instead of mid-draw.
+    /// </summary>
+    public static void RegisterEffect(IVideoEffect effect)
+    {
+        ArgumentNullException.ThrowIfNull(effect);
+        CompileRegistered(effect).Dispose(); // validate the SkSL up front
+        lock (RegistryGate)
+            Registry[effect.Descriptor.Id] = effect;
+    }
+
+    /// <summary>Removes a registered plugin effect (built-in ids are refused); its uses degrade to pass-through.
+    /// Returns whether it was present.</summary>
+    public static bool UnregisterEffect(string effectTypeId)
+    {
+        if (effectTypeId.StartsWith("builtin.", StringComparison.Ordinal))
+            return false;
+        lock (RegistryGate)
+            return Registry.Remove(effectTypeId);
+    }
+
+    private static IVideoEffect? FindRegistered(string effectTypeId)
+    {
+        lock (RegistryGate)
+            return Registry.GetValueOrDefault(effectTypeId);
+    }
+
+    private static SKRuntimeEffect CompileRegistered(IVideoEffect effect) =>
+        SKRuntimeEffect.CreateShader(effect.SkslSource, out string err)
+            ?? throw new InvalidOperationException($"Effect '{effect.Descriptor.Id}' SkSL failed to compile: {err}");
+
+    /// <summary>Adapts <see cref="SKRuntimeEffectUniforms"/> to the GPU-agnostic Core seam.</summary>
+    private sealed class SkUniformWriter(SKRuntimeEffectUniforms uniforms) : IUniformWriter
+    {
+        public void Set(string name, float value) => uniforms[name] = value;
+        public void Set(string name, float[] values) => uniforms[name] = values;
+    }
+
+    private sealed record CachedRegisteredEffect(IVideoEffect Source, SKRuntimeEffect Compiled);
+
+    // Per-instance compiled cache for registered effects, keyed by effect type id. Entries are invalidated
+    // by reference-comparing the registered IVideoEffect, so a re-registered (reloaded) plugin recompiles.
+    private readonly Dictionary<string, CachedRegisteredEffect> _registeredCache = new(StringComparer.Ordinal);
+
     private readonly SKRuntimeEffect _brightness;
     private readonly SKRuntimeEffect _fade;
     private readonly SKRuntimeEffect _color;
@@ -575,7 +631,43 @@ half4 main(float2 coord) {
                 return BuildTransformShader(effect, src, dest);
 
             default:
-                return null;
+                return BuildRegisteredEffectShader(effect, src);
+        }
+    }
+
+    /// <summary>
+    /// Builds the shader for a registry-backed effect (built-in ACES or a plugin, PLAN.md step 33), or
+    /// <see langword="null"/> to pass through when the id has no registration (e.g. a project referencing an
+    /// uninstalled plugin) or the effect faults while binding — degrade, don't crash (§15).
+    /// </summary>
+    private SKShader? BuildRegisteredEffectShader(ResolvedEffect effect, SKShader src)
+    {
+        IVideoEffect? registered = FindRegistered(effect.EffectTypeId);
+        if (registered is null)
+        {
+            if (_registeredCache.Remove(effect.EffectTypeId, out CachedRegisteredEffect? stale))
+                stale.Compiled.Dispose(); // the plugin was unregistered (unloaded) since we last drew it
+            return null;
+        }
+
+        try
+        {
+            if (!_registeredCache.TryGetValue(effect.EffectTypeId, out CachedRegisteredEffect? cached)
+                || !ReferenceEquals(cached.Source, registered))
+            {
+                cached?.Compiled.Dispose();
+                cached = new CachedRegisteredEffect(registered, CompileRegistered(registered));
+                _registeredCache[effect.EffectTypeId] = cached;
+            }
+
+            var uniforms = new SKRuntimeEffectUniforms(cached.Compiled);
+            registered.BindUniforms(effect, new SkUniformWriter(uniforms));
+            var children = new SKRuntimeEffectChildren(cached.Compiled) { ["src"] = src };
+            return cached.Compiled.ToShader(uniforms, children);
+        }
+        catch
+        {
+            return null; // a faulting effect passes through rather than killing the frame
         }
     }
 
@@ -629,6 +721,9 @@ half4 main(float2 coord) {
         foreach (SKShader s in _scratch)
             s.Dispose();
         _scratch.Clear();
+        foreach (CachedRegisteredEffect cached in _registeredCache.Values)
+            cached.Compiled.Dispose();
+        _registeredCache.Clear();
         _paint.Dispose();
         _brightness.Dispose();
         _fade.Dispose();

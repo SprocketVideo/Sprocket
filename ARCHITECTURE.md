@@ -48,7 +48,7 @@ Sprocket.slnx
 │   ├── Sprocket.Playback     // playback engine: scheduling, ring buffers, A/V sync, transport.
 │   ├── Sprocket.Export       // offline export: drives the render graph + mixer → MediaEncoder (MP4).
 │   ├── Sprocket.Persistence  // versioned JSON project (de)serialization (System.Text.Json source-gen).
-│   ├── Sprocket.Plugins      // (planned, PLAN step 23) IVideoEffect contract + AssemblyLoadContext host.
+│   ├── Sprocket.Plugins      // plugin host (PLAN step 33): collectible AssemblyLoadContext + effect discovery.
 │   └── Sprocket.App          // Avalonia UI (MVVM): timeline control, preview surface, panels.
 │       (Sprocket.Spike — standalone PLAN step 1 de-risk artifact, not part of the app)
 └── tests/
@@ -70,7 +70,7 @@ Sprocket.App ──► Sprocket.Playback ──► Sprocket.Render ──► Spr
      │   │          └──► Sprocket.Media ──────────► Sprocket.Core
      │   └──► Sprocket.Export ──► {Core, Media, Render, Audio}
      └──► Sprocket.Persistence ──► Sprocket.Core
-                Sprocket.Plugins ──► Sprocket.Core   (planned)
+                Sprocket.Plugins ──► Sprocket.Core
 ```
 
 `Sprocket.Export` composes the same four lower layers Playback uses plus Audio — it reuses the render
@@ -491,14 +491,36 @@ directory and preferred when present; missing media loads offline rather than fa
 
 ---
 
-## 13. Plugin system (deferred — designed-for, not built)
+## 13. Plugin system (built — PLAN step 33)
 
-- Built-in effects already implement `IVideoEffect` (compile SkSL, build shader, declare typed
-  params). Plugins implement the same contract.
-- Load plugin assemblies in a **collectible `AssemblyLoadContext`** so they can be unloaded;
-  isolate dependencies. Discover effects by attribute/interface scan.
+- **The contract is declarative and lives in Core** (`Sprocket.Core/Rendering/IVideoEffect.cs`): an
+  `IVideoEffect` supplies its `EffectDescriptor` (id, display name, category, typed parameter
+  descriptors — the Inspector builds its UI from these), its **SkSL source** (must declare
+  `uniform shader src;` and operate on premultiplied colour), and a per-frame `BindUniforms` over the
+  GPU-agnostic `IUniformWriter`. The Render layer owns compilation/execution
+  (`SkiaEffectPipeline.RegisterEffect` — a process-wide registry the effect-chain `switch` falls back
+  to), so plugins never reference SkiaSharp and run identically in preview and export (§5, §7). The
+  built-in **ACES Filmic** effect ships through this exact path, keeping the seam permanently exercised.
+- **Audio effect plugins** implement `IAudioEffectProvider` (Core): descriptor (category **Audio**, so
+  the render graph routes it to the mixer via `EffectTypeIds.IsAudio`'s catalog lookup) + a factory for
+  stateful `IAudioEffect` DSP instances. The mixer's `effectFactory` seam (already a ctor parameter)
+  consults the plugin host first, then the built-ins.
+- **Host** (`Sprocket.Plugins`, depends only on Core): loads each plugin assembly in a **collectible
+  `AssemblyLoadContext`** (`PluginLoadContext`) with `AssemblyDependencyResolver` isolation;
+  `Sprocket.*` assemblies defer to the default context so type identities unify. Effects are discovered
+  by **interface scan** (public, non-abstract, parameterless ctor). Every per-file/per-type failure is
+  recorded in `PluginHost.Errors`, never thrown (§15); reserved `builtin.` ids are rejected. `Unload`
+  drops references and collects the context (verified by test).
+- **Wiring** is the App composition root's job (`PluginService`): scans `<exe>/Plugins` and
+  `%APPDATA%/Sprocket/Plugins` at startup, registers descriptors into `EffectCatalog`
+  (`Register`/`Unregister`/`All` — browsers, menus, and the Inspector draw from `All`) and shaders into
+  `SkiaEffectPipeline`. Persistence already round-trips unknown effect ids losslessly, and both chains
+  treat unregistered ids as pass-through, so a project referencing an uninstalled plugin degrades to a
+  no-op instead of failing.
 - A future P/Invoke adapter can host OSS standards (OFX / frei0r) against their C ABI — again,
-  no C++/CLI, so it stays cross-platform.
+  no C++/CLI, so it stays cross-platform. Native audio plugin hosting (VST3/AU) rides the same
+  C-ABI-bridge plan (§19). A full **OpenColorIO/ACES config** host slots in as another effect-chain
+  stage via a C-ABI wrapper; the built-in ACES Filmic stage covers the fitted RRT+ODT transform today.
 - Security/stability: plugins run in-process for v1 (trusted); an out-of-process host is a
   later option if untrusted plugins matter.
 

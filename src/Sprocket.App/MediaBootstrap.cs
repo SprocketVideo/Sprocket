@@ -178,7 +178,9 @@ internal static class MediaBootstrap
         OpenAlAudioOutput? output = null;
         try
         {
-            var mixer = new AudioMixer(sampleRate, channels, id => OpenPcmReader(project, id, sampleRate, channels));
+            var mixer = new AudioMixer(
+                sampleRate, channels, id => OpenPcmReader(project, id, sampleRate, channels),
+                PluginService.AudioEffectFactory); // plugin audio effects first, then built-ins (step 33)
             output = new OpenAlAudioOutput();
             output.Configure(sampleRate, channels);
             var engine = new AudioEngine(output, mixer, project); // the engine takes ownership
@@ -200,7 +202,9 @@ internal static class MediaBootstrap
     {
         int sampleRate = project.Timeline.SampleRate > 0 ? project.Timeline.SampleRate : 48000;
         const int channels = 2;
-        return new AudioMixer(sampleRate, channels, id => OpenPcmReader(project, id, sampleRate, channels));
+        return new AudioMixer(
+            sampleRate, channels, id => OpenPcmReader(project, id, sampleRate, channels),
+            PluginService.AudioEffectFactory);
     }
 
     /// <summary>Opens a standalone PCM reader for one source (clip-scope loudness measurement, PLAN.md step 30), or

@@ -2138,6 +2138,44 @@ Tags reference the [UI.md §4 checklist](UI.md).
 33. **Plugins & advanced color management.** Plugin host (collectible `AssemblyLoadContext`,
     [ARCHITECTURE §13](ARCHITECTURE.md)), then OpenColorIO / ACES / OFX scene-linear color management.
     (The creative color-grading toolset — wheels, curves, qualifiers, scopes — is its own step, 34.)
+    - **🟡 PARTIAL — plugin host DONE; native OCIO / OFX / VST3 hosting outstanding
+      (`src/Sprocket.Plugins/*`; `Sprocket.Core/Rendering/IVideoEffect.cs` + `Core/Audio/IAudioEffectProvider.cs`;
+      `Sprocket.Render/Effects/AcesFilmicEffect.cs`; `Sprocket.App/PluginService.cs`; 30 new tests — Core +7,
+      Render +9, App +4, Plugins +10; full suite 811 green, 0 warnings, smoke launch exit 0).** Delivered:
+      - **`IVideoEffect` contract (Core, §13):** declarative — catalog `EffectDescriptor` (typed params → the
+        Inspector UI falls out), SkSL source (`uniform shader src;`, premultiplied colour), and a per-frame
+        `BindUniforms` over the GPU-agnostic `IUniformWriter`. Render owns compile/execute:
+        `SkiaEffectPipeline.RegisterEffect/UnregisterEffect` is a process-wide registry (validated compile at
+        registration; per-pipeline compiled cache; a faulting/unregistered effect degrades to pass-through per
+        §15) that the effect-chain `switch` falls back to — so plugins never touch SkiaSharp and render
+        identically in preview and export (§5/§7). `IAudioEffectProvider` (Core) is the audio analogue:
+        descriptor (category **Audio** — `EffectTypeIds.IsAudio` now consults the catalog so plugin audio ids
+        route to the mixer chain) + a factory for stateful `IAudioEffect` DSP instances, injected into
+        `AudioMixer`'s existing `effectFactory` seam (plugins first, then built-ins).
+      - **Plugin host (`Sprocket.Plugins` → Core only):** `PluginLoadContext` (collectible ALC,
+        `AssemblyDependencyResolver` isolation, `Sprocket.*` deferred to the default context so contract type
+        identities unify) + `PluginHost` (interface scan for public parameterless-ctor implementations;
+        per-file/per-type failures recorded in `Errors`, never thrown; reserved `builtin.` ids rejected;
+        `Unload` verified collectible by test). Discovery from `<exe>/Plugins` and `%APPDATA%/Sprocket/Plugins`,
+        wired by `Sprocket.App/PluginService` at startup (broken plugins log to the crash log and are skipped).
+        `EffectCatalog` grew `Register`/`Unregister`/`All`; browsers, the Effects menu, and the Inspector draw
+        from `All`, so plugin effects appear everywhere built-ins do (and persistence already round-trips
+        unknown ids — a project using an uninstalled plugin loads with those effects passing through).
+        End-to-end proven by a real separate plugin assembly (`tests/Sprocket.TestPlugin`, loaded through the
+        ALC path only) and an app smoke launch with it installed.
+      - **ACES color management (first slice):** a built-in **ACES Filmic** effect (`builtin.aces.filmic`,
+        keyframeable exposure) — sRGB → scene-linear → exposure → the fitted ACES RRT+ODT tone curve (Stephen
+        Hill approximation) → sRGB, premultiplied-safe, entirely in SkSL. Deliberately implemented **through
+        the new registry** (not a hard-coded pipeline case) so the plugin seam is exercised by a built-in.
+      - **Effect-relevance filtering (UX fix, alongside):** the Inspector's `+ Effect` flyout and the Effects
+        menu now offer only the effects that apply to the selected clip's track kind (`EffectRelevance`):
+        audio-track clips get the audio DSP stages, video-track clips the video/colour shader stages —
+        cross-kind effects would silently no-op, so they're no longer offered.
+      - **Still outstanding:** hosting a full **OpenColorIO/ACES config** (native lib via a C-ABI P/Invoke
+        wrapper — per-RID bundling belongs to steps 35–36) with working-space management beyond the built-in
+        fit; an **OFX / frei0r** C-ABI adapter; the native **VST3/AU audio plugin bridges** + plugin editor
+        GUIs + delay compensation + opaque state-blob persistence (carried from step 31); plugin
+        unload/reload UI (plugins currently load for the app's lifetime) and a Manage Plugins panel.
 34. **Color grading.** A professional grading toolset on top of the step-16 `Color` effect, all as
     SkSL effect-chain stages (§7) so preview and export stay identical and GPU-resident (§1, §5):
     **lift / gamma / gain color wheels** (shadows / mids / highlights), **RGB + per-channel curves**,

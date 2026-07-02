@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sprocket.TestPlugin — a real, separate plugin assembly used by Sprocket.Plugins.Tests to exercise the
+    plugin host end-to-end (PLAN.md step 33): it is NOT assembly-referenced by the tests (see the
+    ReferenceOutputAssembly="false" reference there); the host loads the built DLL into a collectible
+    AssemblyLoadContext exactly as a third-party plugin would be. Contains a shader video effect, an audio
+    DSP effect, plus deliberately-bad citizens (a reserved "builtin." id, a throwing constructor) to prove
+    the host degrades per ARCHITECTURE.md §15 instead of failing the whole load.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sprocket.Core\Sprocket.Core.csproj" />
+  </ItemGroup>
+
+</Project>

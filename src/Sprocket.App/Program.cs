@@ -25,6 +25,17 @@ internal static class Program
         // anything touches FFmpeg (ARCHITECTURE.md §11). No-op on Windows / local dev.
         FFmpegLoader.EnsureBundledNativesLoaded();
 
+        // Load effect plugins (PLAN.md step 33) before the UI builds its catalogs/menus. Defensive by
+        // design — a broken plugin is logged and skipped, never fatal (§15).
+        try
+        {
+            PluginService.Initialize();
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("Plugin initialization failed", ex);
+        }
+
         if (args.Contains("--version"))
         {
             Console.WriteLine($"Sprocket {AppVersion}");

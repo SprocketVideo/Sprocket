@@ -453,7 +453,7 @@ public sealed class InspectorPanel : UserControl
         };
 
         var items = new List<MenuItem>();
-        foreach (EffectDescriptor descriptor in EffectCatalog.BuiltIns)
+        foreach (EffectDescriptor descriptor in RelevantEffects(clip))
         {
             var item = new MenuItem { Header = descriptor.DisplayName };
             item.Click += (_, _) => _history!.Execute(new AddEffectCommand(clip, descriptor.CreateInstance()));
@@ -462,6 +462,11 @@ public sealed class InspectorPanel : UserControl
         add.Flyout = new MenuFlyout { ItemsSource = items };
         return add;
     }
+
+    /// <summary>The catalog effects (built-in + plugin, PLAN.md step 33) that make sense for this clip —
+    /// audio DSP stages for an audio-track clip, video/colour shader stages otherwise (<see cref="EffectRelevance"/>).</summary>
+    private IEnumerable<EffectDescriptor> RelevantEffects(Clip clip) =>
+        _project is null ? EffectCatalog.All : EffectRelevance.For(_project.Timeline, clip);
 
     // ── Editing ───────────────────────────────────────────────────────────────────────────────────────
 

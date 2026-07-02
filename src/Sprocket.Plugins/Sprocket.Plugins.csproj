@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sprocket.Plugins — the plugin host (ARCHITECTURE.md §13, PLAN.md step 33). Loads third-party
+    effect assemblies into collectible AssemblyLoadContexts (so they can be unloaded and their
+    dependencies stay isolated) and discovers their IVideoEffect / IAudioEffectProvider
+    implementations by interface scan. Depends ONLY on Sprocket.Core (the contract assembly);
+    registration into the catalogs / render pipeline is wired by the Sprocket.App composition root,
+    keeping the host free of GPU/UI types (§2).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
+  </ItemGroup>
+
+</Project>
