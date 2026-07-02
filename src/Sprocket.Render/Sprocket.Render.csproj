@@ -25,6 +25,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Bundled title fonts (PLAN.md step 40): text must rasterise byte-identically across
+         Windows/Linux/macOS so preview == export and the cross-OS golden tests hold (§5) —
+         system-font substitution differs per OS, so titles never use system fonts. Liberation
+         (SIL OFL 1.1, see Fonts/LICENSE-Liberation.txt) supplies a sans/serif/mono family in
+         four styles each; TitleFonts loads them via SKTypeface.FromStream and caches. -->
+    <EmbeddedResource Include="Fonts\*.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Pinned to the SkiaSharp version Avalonia 12.0.5 is built against so the types
          produced here match the ones the ISkiaSharpApiLeaseFeature hands back in the app
          (ARCHITECTURE.md §14). A mismatched feed would load a second, incompatible assembly. -->

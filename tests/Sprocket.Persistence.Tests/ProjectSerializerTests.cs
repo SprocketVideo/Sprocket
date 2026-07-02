@@ -276,6 +276,60 @@ public class ProjectSerializerTests
     }
 
     [Fact]
+    public void Round_Trips_Rich_Title_Attributes()
+    {
+        // PLAN.md step 40: the typography/styling/scroll attributes are ordinary generator string/animatable
+        // parameters, so they ride the existing GeneratorDto with no schema bump. A representative selection —
+        // including a keyframed typewriter reveal — must survive field-for-field (a step-19 title using none
+        // of the new fields keeps its byte-identical serialization, covered by the media-only test below).
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var project = new Project(timeline);
+
+        var track = new VideoTrack { Name = "V1" };
+        var spec = new GeneratorSpec(GeneratorTypeIds.LowerThird)
+            .SetString(GeneratorParamNames.Text, "Name")
+            .SetString(GeneratorParamNames.Text2, "Role")
+            .SetString(GeneratorParamNames.FontFamily, "Liberation Serif")
+            .SetString(GeneratorParamNames.Bold, "true")
+            .SetString(GeneratorParamNames.Alignment, "left")
+            .SetString(GeneratorParamNames.StrokeColor, "#FF102030")
+            .SetString(GeneratorParamNames.BoxColor, "#B4101418")
+            .SetString(GeneratorParamNames.ScrollMode, TitleScrollModes.Roll)
+            .SetString(GeneratorParamNames.ScrollEaseIn, "true")
+            .SetString(GeneratorParamNames.ScrollOffscreen, "false")
+            .Set(GeneratorParamNames.FontSize, 0.07)
+            .Set(GeneratorParamNames.FontSize2, 0.045)
+            .Set(GeneratorParamNames.Tracking, 0.05)
+            .Set(GeneratorParamNames.Leading, 1.4)
+            .Set(GeneratorParamNames.StrokeWidth, 0.004)
+            .Set(GeneratorParamNames.PositionX, 0.24)
+            .Set(GeneratorParamNames.PositionY, 0.82)
+            .Set(GeneratorParamNames.RevealFraction, AnimatableValue.Animated(
+            [
+                new Keyframe(Timecode.Zero, 0.0),
+                new Keyframe(Timecode.FromSeconds(2), 1.0),
+            ]));
+        track.Clips.Add(Clip.CreateGenerator(spec, Timecode.FromSeconds(5), Timecode.Zero));
+        timeline.Tracks.Add(track);
+
+        GeneratorSpec g = RoundTrip(project).Timeline.VideoTracks.Single().Clips.Single().Generator!;
+        Assert.Equal(GeneratorTypeIds.LowerThird, g.GeneratorTypeId);
+        Assert.Equal("Role", g.GetString(GeneratorParamNames.Text2));
+        Assert.Equal("Liberation Serif", g.GetString(GeneratorParamNames.FontFamily));
+        Assert.Equal("true", g.GetString(GeneratorParamNames.Bold));
+        Assert.Equal("left", g.GetString(GeneratorParamNames.Alignment));
+        Assert.Equal("#FF102030", g.GetString(GeneratorParamNames.StrokeColor));
+        Assert.Equal("#B4101418", g.GetString(GeneratorParamNames.BoxColor));
+        Assert.Equal(TitleScrollModes.Roll, g.GetString(GeneratorParamNames.ScrollMode));
+        Assert.Equal("true", g.GetString(GeneratorParamNames.ScrollEaseIn));
+        Assert.Equal("false", g.GetString(GeneratorParamNames.ScrollOffscreen));
+        Assert.Equal(0.05, g.Parameters[GeneratorParamNames.Tracking].Evaluate(Timecode.Zero), 6);
+        Assert.Equal(1.4, g.Parameters[GeneratorParamNames.Leading].Evaluate(Timecode.Zero), 6);
+        Assert.Equal(0.82, g.Parameters[GeneratorParamNames.PositionY].Evaluate(Timecode.Zero), 6);
+        Assert.Equal(0.5, g.Parameters[GeneratorParamNames.RevealFraction].Evaluate(Timecode.FromSeconds(1)), 6);
+    }
+
+    [Fact]
     public void Media_Only_Clip_Omits_Kind_And_Generator_In_Json()
     {
         // The step-19 clip fields are additive + nullable: a plain media project must not emit them, so pre-19

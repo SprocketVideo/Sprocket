@@ -546,7 +546,8 @@ half4 main(float2 coord) {
     }
 
     /// <summary>Draws one generator's content into a transparent <paramref name="width"/>×<paramref name="height"/>
-    /// canvas. Solid colour fills the frame; a title draws a background fill (often transparent) then centred text.
+    /// canvas. Solid colour fills the frame; the title-family generators (Title / Lower Third / Roll / Crawl) draw
+    /// via <see cref="TitleRenderer"/> (rich text + scroll, PLAN.md step 40).
     /// Unknown generator ids leave the canvas transparent (a generator plugin with no Render binding is a no-op).</summary>
     private static void RenderGeneratorContent(SKCanvas canvas, ResolvedGenerator generator, int width, int height)
     {
@@ -558,28 +559,9 @@ half4 main(float2 coord) {
                 canvas.Clear(ParseColor(generator.GetString(GeneratorParamNames.Color), SKColors.Black));
                 break;
 
-            case GeneratorTypeIds.Title:
-            {
-                canvas.Clear(ParseColor(generator.GetString(GeneratorParamNames.BackgroundColor), SKColors.Transparent));
-
-                string text = generator.GetString(GeneratorParamNames.Text);
-                if (string.IsNullOrEmpty(text))
-                    break;
-
-                float fontFraction = (float)generator.Get(GeneratorParamNames.FontSize, 0.12);
-                float textSize = Math.Max(1f, fontFraction * height);
-                using var font = new SKFont(SKTypeface.Default, textSize);
-                using var paint = new SKPaint
-                {
-                    Color = ParseColor(generator.GetString(GeneratorParamNames.Color), SKColors.White),
-                    IsAntialias = true,
-                };
-                // Centre the text: x at the frame centre (Center align), baseline placed so the glyph box is centred.
-                font.MeasureText(text, out SKRect bounds);
-                float baseline = height / 2f - bounds.MidY;
-                canvas.DrawText(text, width / 2f, baseline, SKTextAlign.Center, font, paint);
+            case var id when GeneratorTypeIds.IsTitle(id):
+                TitleRenderer.Draw(canvas, generator, width, height);
                 break;
-            }
 
             // Unknown generator: leave transparent.
         }
@@ -587,7 +569,7 @@ half4 main(float2 coord) {
 
     /// <summary>Parses a <c>#AARRGGBB</c>/<c>#RRGGBB</c> colour string, falling back to <paramref name="fallback"/>.</summary>
     private static SKColor ParseColor(string value, SKColor fallback) =>
-        !string.IsNullOrWhiteSpace(value) && SKColor.TryParse(value, out SKColor color) ? color : fallback;
+        TitleRenderer.ParseColor(value, fallback);
 
     private void ResetPaint()
     {

@@ -23,10 +23,14 @@ public sealed record ResolvedEffect(string EffectTypeId, IReadOnlyDictionary<str
 /// <param name="GeneratorTypeId">The generator type, e.g. <see cref="GeneratorTypeIds.Title"/>.</param>
 /// <param name="Strings">String parameters (text, colour hex).</param>
 /// <param name="Parameters">Numeric parameters, evaluated at the frame's time.</param>
+/// <param name="Progress">The clip's normalised local progress at the frame's time — 0 at the clip's start,
+/// 1 at its end (PLAN.md step 40). Drives duration-relative content such as a rolling/crawling title; 0 for
+/// callers that resolve a bare spec with no clip context.</param>
 public sealed record ResolvedGenerator(
     string GeneratorTypeId,
     IReadOnlyDictionary<string, string> Strings,
-    IReadOnlyDictionary<string, double> Parameters)
+    IReadOnlyDictionary<string, double> Parameters,
+    double Progress = 0.0)
 {
     /// <summary>Gets a numeric parameter, or <paramref name="fallback"/> if it is not set.</summary>
     public double Get(string name, double fallback = 0) =>

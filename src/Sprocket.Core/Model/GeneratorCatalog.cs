@@ -50,6 +50,42 @@ public static class GeneratorCatalog
                 .SetString(GeneratorParamNames.BackgroundColor, "#00000000")
                 .Set(GeneratorParamNames.FontSize, 0.12)),
 
+        // The step-40 title templates share the Title render path (rich text + scroll); each id is distinct so
+        // the browser/timeline label them and their defaults differ (PLAN.md step 40).
+        new GeneratorDescriptor(
+            GeneratorTypeIds.LowerThird, "Lower Third", "Name + role over a background bar, lower-left.",
+            () => new GeneratorSpec(GeneratorTypeIds.LowerThird)
+                .SetString(GeneratorParamNames.Text, "Name")
+                .SetString(GeneratorParamNames.Text2, "Role")
+                .SetString(GeneratorParamNames.Color, "#FFFFFFFF")
+                .SetString(GeneratorParamNames.BackgroundColor, "#00000000")
+                .SetString(GeneratorParamNames.BoxColor, "#B4101418")
+                .SetString(GeneratorParamNames.Alignment, "left")
+                .Set(GeneratorParamNames.FontSize, 0.07)
+                .Set(GeneratorParamNames.FontSize2, 0.045)
+                .Set(GeneratorParamNames.BoxPadding, 0.02)
+                .Set(GeneratorParamNames.PositionX, 0.24)
+                .Set(GeneratorParamNames.PositionY, 0.82)),
+
+        new GeneratorDescriptor(
+            GeneratorTypeIds.Roll, "Credits Roll", "Multi-line credits scrolling bottom to top.",
+            () => new GeneratorSpec(GeneratorTypeIds.Roll)
+                .SetString(GeneratorParamNames.Text, "Credits\nDirected by\nName\nProduced by\nName")
+                .SetString(GeneratorParamNames.Color, "#FFFFFFFF")
+                .SetString(GeneratorParamNames.BackgroundColor, "#00000000")
+                .SetString(GeneratorParamNames.ScrollMode, TitleScrollModes.Roll)
+                .Set(GeneratorParamNames.FontSize, 0.06)),
+
+        new GeneratorDescriptor(
+            GeneratorTypeIds.Crawl, "Crawl", "A single line crawling right to left.",
+            () => new GeneratorSpec(GeneratorTypeIds.Crawl)
+                .SetString(GeneratorParamNames.Text, "Crawl text")
+                .SetString(GeneratorParamNames.Color, "#FFFFFFFF")
+                .SetString(GeneratorParamNames.BackgroundColor, "#00000000")
+                .SetString(GeneratorParamNames.ScrollMode, TitleScrollModes.Crawl)
+                .Set(GeneratorParamNames.FontSize, 0.06)
+                .Set(GeneratorParamNames.PositionY, 0.85)),
+
         new GeneratorDescriptor(
             GeneratorTypeIds.SolidColor, "Color Matte", "A solid colour fill.",
             () => new GeneratorSpec(GeneratorTypeIds.SolidColor)

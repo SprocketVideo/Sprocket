@@ -204,6 +204,14 @@ public sealed class TimelineControl : Control
     /// </summary>
     public event Action<Track, Rect>? TrackRenameRequested;
 
+    /// <summary>
+    /// Raised when a title-family generator clip is double-clicked, requesting the inline text editor
+    /// (PLAN.md step 40 — a title stays editable post-hoc). The <see cref="Rect"/> is the clip's body in
+    /// control-local coordinates so the shell can position the editor over it (the timeline is custom-drawn
+    /// and cannot host a child <c>TextBox</c> itself).
+    /// </summary>
+    public event Action<Clip, Rect>? TitleEditRequested;
+
     /// <summary>Whether edge/playhead snapping is active during drags.</summary>
     public bool Snapping { get; set; } = true;
 
@@ -1421,6 +1429,20 @@ public sealed class TimelineControl : Control
                 return;
             }
 
+            // Double-click a title clip → inline text editing (PLAN.md step 40), mirroring the track rename.
+            if (e.ClickCount == 2 && _activeTool == EditTool.Select
+                && clip.Kind == ClipKind.Generator && clip.Generator is { } gen
+                && GeneratorTypeIds.IsTitle(gen.GeneratorTypeId))
+            {
+                Select(clip);
+                int lane = LaneAtY(p.Y);
+                double top = lane >= 0 ? LaneTop(lane) : p.Y;
+                double x0 = Math.Max(_headerWidth, TimelineMath.XAtTicks(clip.TimelineStart.Ticks, _pxPerSecond, _scrollX, _headerWidth));
+                double x1 = TimelineMath.XAtTicks(clip.TimelineEnd.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+                TitleEditRequested?.Invoke(clip, new Rect(x0 + 2, top + 4, Math.Max(60, x1 - x0 - 4), 20));
+                return;
+            }
+
             Select(clip);
             // Fade handles / opacity rubber-band (PLAN.md step 39) win over move/trim in the top handle band
             // and on the envelope line.
@@ -1616,6 +1638,21 @@ public sealed class TimelineControl : Control
             return;
         Execute(SetPropertyCommand<string>.Create(
             "Rename track", () => track.Name, v => track.Name = v, trimmed));
+    }
+
+    /// <summary>
+    /// Commits the inline title text edit through the edit history (one undoable
+    /// <see cref="SetGeneratorStringCommand"/>, PLAN.md step 40). No-op when unchanged or the clip is not a
+    /// title. Called by the shell's overlay editor, mirroring <see cref="CommitTrackRename"/>.
+    /// </summary>
+    public void CommitTitleText(Clip clip, string newText)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (_history is null || clip.Generator is not { } gen)
+            return;
+        if (newText == gen.GetString(GeneratorParamNames.Text))
+            return;
+        Execute(new SetGeneratorStringCommand(gen, GeneratorParamNames.Text, newText));
     }
 
     private bool TryHitClip(Point p, out Clip? clip, out ClipDragMode mode)

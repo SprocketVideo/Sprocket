@@ -90,7 +90,7 @@ public static class RenderGraph
             case ClipKind.Generator:
                 return new VideoLayer(
                     default, sourceT, effects, opacity, blend,
-                    LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t));
+                    LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t, LocalProgress(clip, t)));
 
             case ClipKind.Adjustment:
                 return new VideoLayer(default, sourceT, effects, opacity, blend, LayerKind.Adjustment);
@@ -424,17 +424,41 @@ public static class RenderGraph
     public static ResolvedGenerator ResolveGenerator(GeneratorSpec generator, Timecode t)
     {
         ArgumentNullException.ThrowIfNull(generator);
-        return ResolveGeneratorCore(generator, t);
+        return ResolveGeneratorCore(generator, t, progress: 0.0);
     }
 
-    private static ResolvedGenerator ResolveGeneratorCore(GeneratorSpec generator, Timecode t)
+    /// <summary>
+    /// Resolves a generator <b>clip</b> at timeline time <paramref name="t"/>, carrying the clip's normalised
+    /// local progress (0 at the clip's start, 1 at its end) so duration-relative content — a rolling/crawling
+    /// title (PLAN.md step 40) — stays a pure, deterministic function of (project, t) with the clip's duration
+    /// setting the speed. Throws when the clip is not a generator clip.
+    /// </summary>
+    public static ResolvedGenerator ResolveGenerator(Clip clip, Timecode t)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (clip.Generator is null)
+            throw new ArgumentException("Clip is not a generator clip.", nameof(clip));
+        return ResolveGeneratorCore(clip.Generator, t, LocalProgress(clip, t));
+    }
+
+    /// <summary>The clip's normalised local progress at <paramref name="t"/>: 0 at <see cref="Clip.TimelineStart"/>,
+    /// 1 at its end, clamped to [0, 1] (a zero-length clip reads 0).</summary>
+    private static double LocalProgress(Clip clip, Timecode t)
+    {
+        long duration = clip.Duration.Ticks;
+        if (duration <= 0)
+            return 0.0;
+        return Math.Clamp((double)(t.Ticks - clip.TimelineStart.Ticks) / duration, 0.0, 1.0);
+    }
+
+    private static ResolvedGenerator ResolveGeneratorCore(GeneratorSpec generator, Timecode t, double progress)
     {
         var values = new Dictionary<string, double>(generator.Parameters.Count);
         foreach ((string name, AnimatableValue value) in generator.Parameters)
             values[name] = value.Evaluate(t);
         // Copy the string map so the resolved generator is an immutable snapshot independent of later edits.
         var strings = new Dictionary<string, string>(generator.Strings);
-        return new ResolvedGenerator(generator.GeneratorTypeId, strings, values);
+        return new ResolvedGenerator(generator.GeneratorTypeId, strings, values, progress);
     }
 
     private static ResolvedEffect[] ResolveEffectsCore(Clip clip, Timecode t)

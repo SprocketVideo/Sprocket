@@ -127,6 +127,15 @@ public sealed class InspectorPanel : UserControl
         if (_clip.Kind == ClipKind.Multicam)
             _body.Children.Add(BuildMulticamSection(_clip));
 
+        // Title-family generator clips get the TEXT sections (PLAN.md step 40): content + typography,
+        // styling (stroke/shadow/box), and scroll/animate — every attribute editable post-hoc.
+        if (_clip.Kind == ClipKind.Generator && _clip.Generator is { } gen && GeneratorTypeIds.IsTitle(gen.GeneratorTypeId))
+        {
+            _body.Children.Add(BuildTextSection(_clip, gen));
+            _body.Children.Add(BuildTextStyleSection(gen));
+            _body.Children.Add(BuildScrollSection(gen));
+        }
+
         foreach (EffectInstance effect in _clip.Effects)
             _body.Children.Add(BuildEffectSection(_clip, effect));
 
@@ -242,6 +251,424 @@ public sealed class InspectorPanel : UserControl
         return Section("Multicam", content, expanded: true);
     }
 
+    // ── Title sections (PLAN.md step 40) ──────────────────────────────────────────────────────────────
+    // Every attribute of a title-family generator is editable post-hoc: content + typography in TEXT,
+    // stroke/shadow/box in TEXT STYLE, and the roll/crawl + entrance/exit animation in SCROLL & ANIMATE.
+    // String attributes commit SetGeneratorStringCommand (typing coalesces to one undo entry per focus);
+    // numeric ones ride the same animatable rows as effect parameters, so they keyframe (step 16d).
+
+    private Control BuildTextSection(Clip clip, GeneratorSpec gen)
+    {
+        var rows = new StackPanel { Spacing = 4, Margin = new Avalonia.Thickness(4, 4, 4, 2) };
+
+        rows.Children.Add(BuildTextEntryRow(gen, "Text", GeneratorParamNames.Text, multiline: true));
+        rows.Children.Add(BuildTextEntryRow(gen, "Secondary", GeneratorParamNames.Text2, multiline: false));
+        rows.Children.Add(BuildFontRow(gen));
+        rows.Children.Add(BuildStyleTogglesRow(gen));
+        rows.Children.Add(BuildColorRow(gen, "Fill", GeneratorParamNames.Color, "#FFFFFFFF"));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.FontSize, "Size", 0.12, 0.02, 0.5, 0.005));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.FontSize2, "Size 2", 0.07, 0.02, 0.5, 0.005));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.Tracking, "Tracking", 0.0, -0.1, 0.5, 0.005));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.Leading, "Leading", 1.2, 0.8, 2.5, 0.05));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.PositionX, "Position X", 0.5, 0.0, 1.0, 0.005));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.PositionY, "Position Y", 0.5, 0.0, 1.0, 0.005));
+        rows.Children.Add(BuildPresetsRow(clip, gen));
+
+        return Section("Text", rows, expanded: true);
+    }
+
+    private Control BuildTextStyleSection(GeneratorSpec gen)
+    {
+        var rows = new StackPanel { Spacing = 4, Margin = new Avalonia.Thickness(4, 4, 4, 2) };
+        rows.Children.Add(BuildColorRow(gen, "Stroke", GeneratorParamNames.StrokeColor, "#FF000000"));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.StrokeWidth, "Stroke width", 0.0, 0.0, 0.02, 0.0005));
+        rows.Children.Add(BuildColorRow(gen, "Shadow", GeneratorParamNames.ShadowColor, "#00000000"));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.ShadowOffsetX, "Shadow X", 0.004, -0.05, 0.05, 0.001));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.ShadowOffsetY, "Shadow Y", 0.004, -0.05, 0.05, 0.001));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.ShadowBlur, "Shadow blur", 0.004, 0.0, 0.05, 0.001));
+        rows.Children.Add(BuildColorRow(gen, "Box", GeneratorParamNames.BoxColor, "#00000000"));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.BoxPadding, "Box padding", 0.02, 0.0, 0.1, 0.002));
+        return Section("Text Style", rows, expanded: false);
+    }
+
+    private Control BuildScrollSection(GeneratorSpec gen)
+    {
+        var rows = new StackPanel { Spacing = 4, Margin = new Avalonia.Thickness(4, 4, 4, 2) };
+
+        // Scroll mode (Roll / Crawl — a property of the title, PLAN.md step 40): the clip's duration sets
+        // the speed, so there is no speed slider — trim the clip to retime the roll.
+        var mode = new ComboBox
+        {
+            ItemsSource = new[] { "None", "Roll", "Crawl" },
+            FontSize = 11,
+            MinHeight = 24,
+            Width = 100,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        mode.SelectionChanged += (_, _) =>
+        {
+            if (_suppress)
+                return;
+            string value = mode.SelectedIndex switch { 1 => TitleScrollModes.Roll, 2 => TitleScrollModes.Crawl, _ => "" };
+            ExecuteGeneratorString(gen, GeneratorParamNames.ScrollMode, value, coalescing: false);
+        };
+        rows.Children.Add(LabeledRow("Mode", mode));
+
+        rows.Children.Add(BuildFlagRow(gen, "Ease in", GeneratorParamNames.ScrollEaseIn, defaultOn: false));
+        rows.Children.Add(BuildFlagRow(gen, "Ease out", GeneratorParamNames.ScrollEaseOut, defaultOn: false));
+        rows.Children.Add(BuildFlagRow(gen, "Start / end off-screen", GeneratorParamNames.ScrollOffscreen, defaultOn: true));
+        rows.Children.Add(GenRow(gen, GeneratorParamNames.RevealFraction, "Reveal", 1.0, 0.0, 1.0, 0.01));
+
+        _valueRefreshers.Add(() =>
+        {
+            _suppress = true;
+            mode.SelectedIndex = gen.GetString(GeneratorParamNames.ScrollMode, TitleScrollModes.None) switch
+            {
+                TitleScrollModes.Roll => 1,
+                TitleScrollModes.Crawl => 2,
+                _ => 0,
+            };
+            _suppress = false;
+        });
+
+        return Section("Scroll & Animate", rows, expanded: false);
+    }
+
+    /// <summary>A string attribute editor: live preview while typing, one undo entry per focus (the focus
+    /// opens a coalescing scope like a slider drag; consecutive <see cref="SetGeneratorStringCommand"/>s of
+    /// the same parameter merge inside it).</summary>
+    private Control BuildTextEntryRow(GeneratorSpec gen, string label, string param, bool multiline)
+    {
+        var box = new TextBox
+        {
+            FontSize = 11,
+            MinHeight = multiline ? 48 : 22,
+            Padding = new Avalonia.Thickness(6, 4),
+            Background = PanelBg,
+            BorderBrush = Edge,
+            Foreground = TextBrush,
+            AcceptsReturn = multiline,
+            TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
+        };
+        box.GotFocus += (_, _) => BeginDrag();
+        box.LostFocus += (_, _) => EndDrag();
+        box.TextChanged += (_, _) =>
+        {
+            if (_suppress)
+                return;
+            ExecuteGeneratorString(gen, param, box.Text ?? "", coalescing: _dragScope is not null);
+        };
+
+        var stack = new StackPanel { Spacing = 2 };
+        stack.Children.Add(new TextBlock { Text = label, FontSize = 11, Foreground = FaintText });
+        stack.Children.Add(box);
+
+        _valueRefreshers.Add(() =>
+        {
+            string current = gen.GetString(param);
+            if (box.Text == current)
+                return; // don't reset the caret while the user is typing
+            _suppress = true;
+            box.Text = current;
+            _suppress = false;
+        });
+        return stack;
+    }
+
+    private Control BuildFontRow(GeneratorSpec gen)
+    {
+        var combo = new ComboBox
+        {
+            ItemsSource = Sprocket.Render.TitleFonts.Families,
+            FontSize = 11,
+            MinHeight = 24,
+            Width = 140,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (_suppress || combo.SelectedItem is not string family)
+                return;
+            ExecuteGeneratorString(gen, GeneratorParamNames.FontFamily, family, coalescing: false);
+        };
+        _valueRefreshers.Add(() =>
+        {
+            _suppress = true;
+            string current = gen.GetString(GeneratorParamNames.FontFamily, Sprocket.Render.TitleFonts.DefaultFamily);
+            combo.SelectedIndex = Math.Max(0, Sprocket.Render.TitleFonts.Families.ToList().IndexOf(current));
+            _suppress = false;
+        });
+        return LabeledRow("Font", combo);
+    }
+
+    /// <summary>Bold / Italic toggles and the left/centre/right alignment radio group on one row.</summary>
+    private Control BuildStyleTogglesRow(GeneratorSpec gen)
+    {
+        ToggleButton Make(string text, string tip)
+        {
+            var b = new ToggleButton
+            {
+                Content = text,
+                FontSize = 11,
+                Width = 26,
+                Height = 22,
+                Padding = new Avalonia.Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Background = RaisedBg,
+            };
+            ToolTip.SetTip(b, tip);
+            return b;
+        }
+
+        ToggleButton bold = Make("B", "Bold");
+        bold.FontWeight = FontWeight.Bold;
+        ToggleButton italic = Make("I", "Italic");
+        italic.FontStyle = FontStyle.Italic;
+        ToggleButton left = Make("⟸", "Align left");
+        ToggleButton centre = Make("≡", "Align centre");
+        ToggleButton right = Make("⟹", "Align right");
+
+        bold.Click += (_, _) => ExecuteGeneratorString(
+            gen, GeneratorParamNames.Bold, bold.IsChecked == true ? "true" : "", coalescing: false);
+        italic.Click += (_, _) => ExecuteGeneratorString(
+            gen, GeneratorParamNames.Italic, italic.IsChecked == true ? "true" : "", coalescing: false);
+        left.Click += (_, _) => ExecuteGeneratorString(gen, GeneratorParamNames.Alignment, "left", coalescing: false);
+        centre.Click += (_, _) => ExecuteGeneratorString(gen, GeneratorParamNames.Alignment, "", coalescing: false);
+        right.Click += (_, _) => ExecuteGeneratorString(gen, GeneratorParamNames.Alignment, "right", coalescing: false);
+
+        var group = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 3,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        group.Children.Add(bold);
+        group.Children.Add(italic);
+        group.Children.Add(new Border { Width = 6 });
+        group.Children.Add(left);
+        group.Children.Add(centre);
+        group.Children.Add(right);
+
+        _valueRefreshers.Add(() =>
+        {
+            _suppress = true;
+            bold.IsChecked = gen.GetString(GeneratorParamNames.Bold) == "true";
+            italic.IsChecked = gen.GetString(GeneratorParamNames.Italic) == "true";
+            string align = gen.GetString(GeneratorParamNames.Alignment, "center");
+            left.IsChecked = align == "left";
+            right.IsChecked = align == "right";
+            centre.IsChecked = align is not ("left" or "right");
+            _suppress = false;
+        });
+
+        return LabeledRow("Style", group);
+    }
+
+    /// <summary>A colour attribute as a swatch + <c>#AARRGGBB</c> hex box (Enter/blur commits; invalid input reverts).</summary>
+    private Control BuildColorRow(GeneratorSpec gen, string label, string param, string fallback)
+    {
+        var swatch = new Border
+        {
+            Width = 22,
+            Height = 22,
+            CornerRadius = new Avalonia.CornerRadius(3),
+            BorderBrush = Edge,
+            BorderThickness = new Avalonia.Thickness(1),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var box = new TextBox
+        {
+            Width = 92,
+            FontSize = 11,
+            MinHeight = 22,
+            Height = 22,
+            Padding = new Avalonia.Thickness(6, 2),
+            Background = PanelBg,
+            BorderBrush = Edge,
+            Foreground = TextBrush,
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        void Commit()
+        {
+            if (_suppress)
+                return;
+            string text = (box.Text ?? "").Trim();
+            if (text.Length > 0 && !Avalonia.Media.Color.TryParse(text, out _))
+            {
+                RefreshValues(); // invalid hex → revert to the model value
+                return;
+            }
+            ExecuteGeneratorString(gen, param, text, coalescing: false);
+        }
+        box.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
+        box.LostFocus += (_, _) => Commit();
+
+        var group = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        group.Children.Add(swatch);
+        group.Children.Add(box);
+
+        _valueRefreshers.Add(() =>
+        {
+            string current = gen.GetString(param, fallback);
+            _suppress = true;
+            box.Text = current;
+            swatch.Background = Avalonia.Media.Color.TryParse(current, out Avalonia.Media.Color c)
+                ? new SolidColorBrush(c)
+                : Brushes.Transparent;
+            _suppress = false;
+        });
+
+        return LabeledRow(label, group);
+    }
+
+    /// <summary>A boolean string flag (<c>"true"</c>/<c>"false"</c>/absent) as a checkbox. When
+    /// <paramref name="defaultOn"/> the unchecked state writes an explicit <c>"false"</c> (absent = on)
+    /// and the checked state clears the entry.</summary>
+    private Control BuildFlagRow(GeneratorSpec gen, string label, string param, bool defaultOn)
+    {
+        var check = new CheckBox { MinHeight = 22, HorizontalAlignment = HorizontalAlignment.Right };
+        check.Click += (_, _) =>
+        {
+            if (_suppress)
+                return;
+            bool on = check.IsChecked == true;
+            string value = defaultOn ? (on ? "" : "false") : (on ? "true" : "");
+            ExecuteGeneratorString(gen, param, value, coalescing: false);
+        };
+        _valueRefreshers.Add(() =>
+        {
+            _suppress = true;
+            check.IsChecked = defaultOn
+                ? gen.GetString(param, "true") != "false"
+                : gen.GetString(param) == "true";
+            _suppress = false;
+        });
+        return LabeledRow(label, check);
+    }
+
+    /// <summary>An animatable numeric generator parameter row — the same slider/box/keyframe-lane UI effect
+    /// parameters use, running <see cref="SetGeneratorParameterCommand"/> (PLAN.md step 40).</summary>
+    private Control GenRow(GeneratorSpec gen, string name, string display, double def, double min, double max, double step)
+    {
+        var p = new EffectParameterDescriptor(name, display, def, min, max, step);
+        return BuildAnimatableRow(
+            p,
+            () => gen.Parameters.TryGetValue(name, out AnimatableValue? v) ? v : AnimatableValue.Constant(def),
+            (next, coalescing) => ExecuteGeneratorParam(gen, name, next, coalescing));
+    }
+
+    /// <summary>
+    /// The entrance/exit animation presets (PLAN.md step 40): each authors standard keyframes through the
+    /// command stack — Fade rides the step-39 fade envelope, Pop/Slide author Transform keyframes, and
+    /// Typewriter keyframes the title's reveal fraction. One undo entry per preset.
+    /// </summary>
+    private Control BuildPresetsRow(Clip clip, GeneratorSpec gen)
+    {
+        var button = new Button
+        {
+            Content = "Animate ▾",
+            FontSize = 11,
+            Padding = new Avalonia.Thickness(10, 3),
+            Background = RaisedBg,
+            Foreground = TextBrush,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Avalonia.Thickness(0, 4, 0, 0),
+        };
+        var items = new List<MenuItem>();
+        void Add(string header, Action apply)
+        {
+            var item = new MenuItem { Header = header };
+            item.Click += (_, _) => apply();
+            items.Add(item);
+        }
+
+        long start = clip.TimelineStart.Ticks;
+        long end = clip.TimelineEnd.Ticks;
+        long fade = Math.Min(Timecode.FromSeconds(1).Ticks, clip.Duration.Ticks / 2);
+        long pop = Math.Min(Timecode.FromSeconds(0.5).Ticks, clip.Duration.Ticks);
+        long type = Math.Min(Timecode.FromSeconds(2).Ticks, clip.Duration.Ticks);
+
+        Add("Fade In", () =>
+        {
+            (long _, long fadeOut) = FadeOps.ReadFades(clip);
+            ExecuteEdit(new SetClipFadeCommand(
+                clip,
+                FadeOps.BuildOpacity(FadeOps.FadeOpacity(clip), start, end, fade, fadeOut),
+                "Fade in"), coalescing: false);
+        });
+        Add("Fade Out", () =>
+        {
+            (long fadeIn, long _) = FadeOps.ReadFades(clip);
+            ExecuteEdit(new SetClipFadeCommand(
+                clip,
+                FadeOps.BuildOpacity(FadeOps.FadeOpacity(clip), start, end, fadeIn, fade),
+                "Fade out"), coalescing: false);
+        });
+        Add("Pop In", () => ApplyTransformPreset(clip, "Pop in", EffectParamNames.Scale, 0.2, 1.0, pop));
+        Add("Slide In From Left", () => ApplyTransformPreset(clip, "Slide in", EffectParamNames.PositionX, -1.0, 0.0, pop));
+        Add("Slide In From Right", () => ApplyTransformPreset(clip, "Slide in", EffectParamNames.PositionX, 1.0, 0.0, pop));
+        Add("Typewriter", () => ExecuteGeneratorParam(
+            gen,
+            GeneratorParamNames.RevealFraction,
+            AnimatableValue.Animated(
+            [
+                new Keyframe(new Timecode(start), 0.0),
+                new Keyframe(new Timecode(start + type), 1.0),
+            ]),
+            coalescing: false));
+
+        button.Flyout = new MenuFlyout { ItemsSource = items };
+        return button;
+    }
+
+    /// <summary>Authors an entrance keyframe pair on the clip's Transform effect, adding the effect first when
+    /// the clip has none — grouped as one undo entry (<see cref="CompositeCommand"/>).</summary>
+    private void ApplyTransformPreset(Clip clip, string label, string param, double from, double to, long lengthTicks)
+    {
+        long start = clip.TimelineStart.Ticks;
+        var value = AnimatableValue.Animated(
+        [
+            new Keyframe(new Timecode(start), from, Interpolation.EaseInOut),
+            new Keyframe(new Timecode(start + lengthTicks), to),
+        ]);
+
+        EffectInstance? transform = clip.Effects.FirstOrDefault(e => e.EffectTypeId == EffectTypeIds.Transform);
+        if (transform is not null)
+        {
+            ExecuteEdit(new SetEffectParameterCommand(transform, param, value), coalescing: false);
+            return;
+        }
+
+        var created = new EffectInstance(EffectTypeIds.Transform);
+        ExecuteEdit(new CompositeCommand(label,
+        [
+            new AddEffectCommand(clip, created),
+            new SetEffectParameterCommand(created, param, value),
+        ]), coalescing: false);
+    }
+
+    /// <summary>A label on the left with an arbitrary editor docked right.</summary>
+    private static Control LabeledRow(string label, Control editor)
+    {
+        var row = new DockPanel();
+        DockPanel.SetDock(editor, Dock.Right);
+        row.Children.Add(editor);
+        row.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 11,
+            Foreground = FaintText,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        return row;
+    }
+
     private Control BuildEffectSection(Clip clip, EffectInstance effect)
     {
         EffectDescriptor? descriptor = EffectCatalog.Find(effect.EffectTypeId);
@@ -329,7 +756,21 @@ public sealed class InspectorPanel : UserControl
         return section;
     }
 
-    private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p)
+    private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p) =>
+        BuildAnimatableRow(
+            p,
+            () => ParamValue(effect, p),
+            (next, coalescing) => ExecuteParam(effect, p.Name, next, coalescing));
+
+    /// <summary>
+    /// One animatable numeric parameter row (slider + numeric box + keyframe toggle + keyframe lane), driven
+    /// by delegates so effect parameters (<see cref="EffectInstance.Parameters"/>) and generator parameters
+    /// (<see cref="GeneratorSpec.Parameters"/>, PLAN.md step 40) share the identical editing UI: <paramref
+    /// name="get"/> reads the current <see cref="AnimatableValue"/>, <paramref name="execute"/> runs an edit
+    /// through the command stack (coalescing mid-drag).
+    /// </summary>
+    private Control BuildAnimatableRow(
+        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute)
     {
         var keyGlyph = new ShapesPath
         {
@@ -415,6 +856,20 @@ public sealed class InspectorPanel : UserControl
         };
 
         // Slider drag → coalesced edits (one undo entry); numeric box → a single discrete edit.
+        void Commit(double value, bool coalescing) =>
+            execute(AnimatableEditing.SetValueAt(get(), _playhead(), value), coalescing);
+        void CommitBox()
+        {
+            if (_suppress)
+                return;
+            if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+            {
+                RefreshValues(); // revert the text to the model value
+                return;
+            }
+            Commit(Math.Clamp(v, p.Min, p.Max), coalescing: false);
+        }
+
         slider.AddHandler(PointerPressedEvent, (_, _) => BeginDrag(), RoutingStrategies.Tunnel);
         slider.AddHandler(PointerReleasedEvent, (_, _) => EndDrag(), RoutingStrategies.Tunnel);
         slider.PointerCaptureLost += (_, _) => EndDrag();
@@ -422,20 +877,27 @@ public sealed class InspectorPanel : UserControl
         {
             if (_suppress)
                 return;
-            CommitValue(effect, p, e.NewValue, coalescing: _dragScope is not null);
+            Commit(e.NewValue, coalescing: _dragScope is not null);
         };
 
         box.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
             {
-                CommitFromBox(effect, p, box);
+                CommitBox();
                 e.Handled = true;
             }
         };
-        box.LostFocus += (_, _) => CommitFromBox(effect, p, box);
+        box.LostFocus += (_, _) => CommitBox();
 
-        keyButton.Click += (_, _) => ToggleKeyframe(effect, p);
+        keyButton.Click += (_, _) =>
+        {
+            AnimatableValue current = get();
+            Timecode t = _playhead();
+            execute(current.IsAnimated
+                ? AnimatableEditing.DisableKeyframing(current, t)
+                : AnimatableEditing.EnableKeyframing(current, t), false);
+        };
 
         // Header line: label + keyframe toggle + numeric box; slider below.
         var top = new DockPanel { Margin = new Avalonia.Thickness(0, 0, 0, 2) };
@@ -457,7 +919,7 @@ public sealed class InspectorPanel : UserControl
         var lane = new KeyframeLane { IsVisible = false };
         lane.DragStarted += BeginDrag;
         lane.DragEnded += EndDrag;
-        lane.Edited += (next, coalescing) => ExecuteParam(effect, p.Name, next, coalescing);
+        lane.Edited += (next, coalescing) => execute(next, coalescing);
 
         graphButton.Click += (_, _) =>
         {
@@ -474,7 +936,7 @@ public sealed class InspectorPanel : UserControl
         // glyph + the lane.
         _valueRefreshers.Add(() =>
         {
-            AnimatableValue value = ParamValue(effect, p);
+            AnimatableValue value = get();
             double v = value.Evaluate(_playhead());
             _suppress = true;
             slider.Value = Math.Clamp(v, p.Min, p.Max);
@@ -538,32 +1000,13 @@ public sealed class InspectorPanel : UserControl
         _editing = false;
     }
 
-    private void CommitFromBox(EffectInstance effect, EffectParameterDescriptor p, TextBox box)
-    {
-        if (_suppress)
-            return;
-        if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
-        {
-            RefreshValues(); // revert the text to the model value
-            return;
-        }
-        v = Math.Clamp(v, p.Min, p.Max);
-        CommitValue(effect, p, v, coalescing: false);
-    }
-
-    private void CommitValue(EffectInstance effect, EffectParameterDescriptor p, double value, bool coalescing)
-    {
-        AnimatableValue current = ParamValue(effect, p);
-        AnimatableValue next = AnimatableEditing.SetValueAt(current, _playhead(), value);
-        ExecuteParam(effect, p.Name, next, coalescing);
-    }
-
     /// <summary>
-    /// Runs a parameter edit through the command stack. <paramref name="coalescing"/> (true mid-drag) keeps the
+    /// Runs an edit through the command stack. <paramref name="coalescing"/> (true mid-drag) keeps the
     /// panel in editing mode so <see cref="OnHistoryChanged"/> refreshes values rather than rebuilding the
-    /// section out from under an active gesture. Shared by the slider/numeric editors and the keyframe lane.
+    /// section out from under an active gesture. Shared by the slider/numeric editors, the keyframe lane,
+    /// and the title text/string editors (PLAN.md step 40).
     /// </summary>
-    private void ExecuteParam(EffectInstance effect, string name, AnimatableValue next, bool coalescing)
+    private void ExecuteEdit(IEditCommand command, bool coalescing)
     {
         if (_history is null)
             return;
@@ -572,7 +1015,7 @@ public sealed class InspectorPanel : UserControl
         _editing = true; // a single discrete commit shouldn't trigger a rebuild mid-update either
         try
         {
-            _history.Execute(new SetEffectParameterCommand(effect, name, next));
+            _history.Execute(command);
         }
         finally
         {
@@ -581,18 +1024,14 @@ public sealed class InspectorPanel : UserControl
         RefreshValues();
     }
 
-    private void ToggleKeyframe(EffectInstance effect, EffectParameterDescriptor p)
-    {
-        if (_history is null)
-            return;
-        AnimatableValue current = ParamValue(effect, p);
-        Timecode t = _playhead();
-        AnimatableValue next = current.IsAnimated
-            ? AnimatableEditing.DisableKeyframing(current, t)
-            : AnimatableEditing.EnableKeyframing(current, t);
-        _history.Execute(new SetEffectParameterCommand(effect, p.Name, next));
-        // history.Changed → Rebuild() (not editing) refreshes the section + keyframe glyph.
-    }
+    private void ExecuteParam(EffectInstance effect, string name, AnimatableValue next, bool coalescing) =>
+        ExecuteEdit(new SetEffectParameterCommand(effect, name, next), coalescing);
+
+    private void ExecuteGeneratorParam(GeneratorSpec generator, string name, AnimatableValue next, bool coalescing) =>
+        ExecuteEdit(new SetGeneratorParameterCommand(generator, name, next), coalescing);
+
+    private void ExecuteGeneratorString(GeneratorSpec generator, string name, string value, bool coalescing) =>
+        ExecuteEdit(new SetGeneratorStringCommand(generator, name, value), coalescing);
 
     private void RefreshValues()
     {

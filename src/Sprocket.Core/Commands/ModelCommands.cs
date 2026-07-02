@@ -789,6 +789,117 @@ public sealed class SetEffectParameterCommand : EditCommand
 }
 
 /// <summary>
+/// Sets one numeric (animatable) generator parameter (e.g. a title's font size, tracking, or scroll reveal —
+/// PLAN.md step 40), mirroring <see cref="SetEffectParameterCommand"/> for <see cref="GeneratorSpec.Parameters"/>.
+/// Coalesces with further sets of the same parameter on the same spec, so a slider drag is one undo entry.
+/// </summary>
+public sealed class SetGeneratorParameterCommand : EditCommand
+{
+    private readonly GeneratorSpec _generator;
+    private readonly string _name;
+    private readonly AnimatableValue? _oldValue;
+    private readonly bool _hadValue;
+    private AnimatableValue _newValue;
+
+    /// <summary>Captures the parameter's current value (if any) and records the new one to apply.</summary>
+    public SetGeneratorParameterCommand(GeneratorSpec generator, string name, AnimatableValue newValue)
+        : base($"Set {name}")
+    {
+        ArgumentNullException.ThrowIfNull(generator);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(newValue);
+        _generator = generator;
+        _name = name;
+        _hadValue = generator.Parameters.TryGetValue(name, out AnimatableValue? existing);
+        _oldValue = existing;
+        _newValue = newValue;
+    }
+
+    /// <inheritdoc />
+    public override void Apply() => _generator.Parameters[_name] = _newValue;
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        if (_hadValue)
+            _generator.Parameters[_name] = _oldValue!;
+        else
+            _generator.Parameters.Remove(_name);
+    }
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        if (next is SetGeneratorParameterCommand other
+            && ReferenceEquals(other._generator, _generator)
+            && other._name == _name)
+        {
+            _newValue = other._newValue;
+            return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
+/// Sets one string generator parameter (a title's text, font family, colour hex, alignment, scroll mode —
+/// PLAN.md step 40) on <see cref="GeneratorSpec.Strings"/>. Setting an empty value removes the entry so a
+/// cleared attribute serializes as absent (the step-19 default). Coalesces with further sets of the same
+/// parameter on the same spec, so live typing in the title editor is one undo entry.
+/// </summary>
+public sealed class SetGeneratorStringCommand : EditCommand
+{
+    private readonly GeneratorSpec _generator;
+    private readonly string _name;
+    private readonly string? _oldValue;
+    private string _newValue;
+
+    /// <summary>Captures the parameter's current value (if any) and records the new one to apply.</summary>
+    public SetGeneratorStringCommand(GeneratorSpec generator, string name, string newValue)
+        : base($"Set {name}")
+    {
+        ArgumentNullException.ThrowIfNull(generator);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(newValue);
+        _generator = generator;
+        _name = name;
+        _oldValue = generator.Strings.TryGetValue(name, out string? existing) ? existing : null;
+        _newValue = newValue;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        if (_newValue.Length == 0)
+            _generator.Strings.Remove(_name);
+        else
+            _generator.Strings[_name] = _newValue;
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        if (_oldValue is null)
+            _generator.Strings.Remove(_name);
+        else
+            _generator.Strings[_name] = _oldValue;
+    }
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        if (next is SetGeneratorStringCommand other
+            && ReferenceEquals(other._generator, _generator)
+            && other._name == _name)
+        {
+            _newValue = other._newValue;
+            return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
 /// Sets a clip's fade opacity envelope — the keyframed <see cref="EffectParamNames.Opacity"/> on the clip's
 /// <see cref="EffectTypeIds.Fade"/> effect — creating the Fade effect when the clip has none (PLAN.md step 39).
 /// This is the primitive the on-timeline fade handles and opacity rubber-band drive: because creation and the

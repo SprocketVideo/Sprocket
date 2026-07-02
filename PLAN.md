@@ -2474,6 +2474,72 @@ Tags reference the [UI.md §4 checklist](UI.md).
       box, a lower third, and a roll at 0 / 0.5 / 1 progress. Persistence: round-trip of every new field +
       step-19 byte-identical omission. Export: a roll renders on the deterministic raster path
       (golden-frame).
+    - **✅ DONE (`Sprocket.Core`: `Model/Generator.cs` param names + `TitleScrollModes`/`TitleScroll` +
+      `GeneratorCatalog` templates + `Rendering/{RenderPlan,RenderGraph}` clip-local progress +
+      `Commands/ModelCommands` generator commands; `Sprocket.Render`: `TitleFonts` + `TitleRenderer` +
+      bundled `Fonts/*.ttf`; `Sprocket.App`: Inspector TEXT/Text-Style/Scroll sections + timeline
+      double-click editor + animation presets; 40 new tests — Core 269 → 291, Render 93 → 109,
+      Persistence 106 → 107, Export 86 → 87; full suite **965 green**, clean build 0 warnings, smoke launch
+      exit 0.)** The step-19 minimal Title grew into the professional titles toolset, all on existing seams
+      (no render-graph/effect-chain/persistence redesign). Delivered:
+      - **Typography & styling (`TitleRenderer`, Render):** word-wrapped multi-line layout (hard newlines +
+        measure/break to 90 % frame width) with **alignment** (left/centre/right), **tracking** (manual
+        per-glyph advance — Skia has no letter-spacing) and **leading**; **bold/italic**, **stroke**
+        (round-joined outline pass), **drop shadow** (offset + blur-mask pass), and a **padded background
+        box** that moves with the block (the lower third's bar). New generator params: string attributes
+        (`fontFamily`/`bold`/`italic`/`align`/`strokeColor`/`shadowColor`/`boxColor`/`text2`/`scrollMode`/…)
+        in `GeneratorSpec.Strings`, numeric ones (stroke width, shadow x/y/blur, box padding, tracking,
+        leading, `fontSize2`, position, reveal) as `AnimatableValue`s so they keyframe (step 16d). A
+        **block position** (`positionX`/`positionY`, animatable) places the text box — a small addition
+        beyond the step's bullets so the Lower Third template can anchor lower-left without conscripting
+        the Transform effect; scale/rotation still come from Transform (step 16). Sizes stay fractions of
+        frame height; colours stay `#AARRGGBB`. A step-19 title (no new params) renders as before.
+      - **Cross-platform determinism — bundled fonts (`TitleFonts`, Render):** the **Liberation** family
+        trio (Sans / Serif / Mono, four styles each — SIL OFL 1.1, licence shipped alongside) embedded as
+        `EmbeddedResource`s and loaded once via `SKTypeface.FromStream` (the step-37 data-asset precedent);
+        titles never touch system fonts, so text rasterises byte-identically across the three OSes (§5).
+        The Inspector family picker lists the bundled set; opt-in system fonts stay a later add.
+      - **Roll & Crawl — duration-driven scroll on the generator:** `ResolvedGenerator` gains **`Progress`**
+        (the clip's normalised local time, computed by the planner and the preview's
+        `RenderGraph.ResolveGenerator(clip, t)` overload) so scrolling is a pure function of (project, t):
+        clip duration sets the speed, the motion survives trim/move, and no absolute-time keyframes are
+        involved (the step-39 caveat). `scrollMode` = roll (bottom→top) / crawl (right→left, flattened to
+        one line) with **ease-in/out** (`TitleScroll.Eased` — smoothstep / p² / 1−(1−p)²) and
+        **start/end off-screen** toggles (off = rest at the block's position, the Premiere options).
+      - **Templates (`GeneratorCatalog`):** **Lower Third** (name+role over a translucent bar, left-aligned,
+        anchored lower-left), **Credits Roll**, and **Crawl** — distinct ids (`builtin.gen.lowerthird`/
+        `.roll`/`.crawl`) sharing the Title render path via `GeneratorTypeIds.IsTitle`, so the browser/
+        timeline label them individually while Render has one rich-text code path.
+      - **Editable post-hoc (App):** the Inspector grows **Text / Text Style / Scroll & Animate** sections
+        for title clips — multi-line text + secondary field (live preview while typing; one undo entry per
+        focus via the coalescing scope), font picker, B/I + alignment toggles, colour swatch+hex rows, and
+        every numeric attribute on the same animatable slider/keyframe-lane rows effect parameters use
+        (`BuildParamRow` refactored into a delegate-driven `BuildAnimatableRow`). **Double-clicking a title
+        clip on the timeline** overlays an inline text editor (mirroring the track-rename overlay; Enter/
+        blur commit, Esc cancels). In-place editing on the Program monitor is deferred.
+      - **Command stack (step 10):** new Core `SetGeneratorParameterCommand` (animatable, coalescing per
+        spec+param — a slider drag is one entry) and `SetGeneratorStringCommand` (empty value removes the
+        entry so cleared attributes serialize as absent; typing coalesces), mirroring the effect-parameter
+        command; the timeline/Inspector/presets all route through them.
+      - **Entrance/exit presets ("Animate ▾" in the Text section):** **Fade In/Out** ride the step-39 fade
+        envelope (`FadeOps.BuildOpacity` + `SetClipFadeCommand`), **Pop In** and **Slide In From Left/
+        Right** author `EaseInOut` Transform keyframes (adding the Transform effect in the same
+        `CompositeCommand` when absent — one undo entry), and **Typewriter** keyframes the new
+        `reveal` fraction (0→1), which truncates drawn characters in reading order while the block's
+        layout stays fixed.
+      - **Persistence:** zero schema change — every new attribute rides the existing `GeneratorDto`
+        string/parameter dictionaries; a rich round-trip test covers the new fields (incl. a keyframed
+        reveal) and step-19 titles keep serializing byte-identically.
+      - **Tests (40):** Core 22 (`TitleTests` — easing curves/clamps, clip-local progress through both
+        resolve paths + the plan, template defaults, `IsTitle`, command apply/revert/coalesce); Render 16
+        (`TitleRendererTests` — centring, hard-line stack + word wrap, alignment, stroke/shadow/box,
+        position, lower third, reveal 0/half/full, roll off-screen at 0 and 1 + crossing at 0.5 + monotonic
+        motion, crawl right→left, anchored (non-off-screen) roll, bold coverage, tracking width);
+        Persistence 1 (rich-title round-trip); Export 1 (a Credits Roll scrolls through the frame on the
+        deterministic raster export — off-screen / visible / off-screen by whole-frame luminance).
+      - **Deferred:** WYSIWYG editing in the Program monitor (timeline double-click + Inspector cover
+        post-hoc editing today); captions/subtitles (SRT/VTT) stay their own step as noted; opt-in system
+        fonts; per-word/character styling spans (a title has one style per field).
 
 41. **Reverb quality upgrade (studio / convolution / creative reverbs + audio freeze).** The current
     `ReverbEffect` (`src/Sprocket.Audio/Effects/ReverbEffect.cs`) is a Freeverb-style Schroeder/Moorer

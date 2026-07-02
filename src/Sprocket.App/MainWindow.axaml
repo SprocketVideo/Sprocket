@@ -430,6 +430,10 @@
             <TextBox x:Name="TrackRenameEditor" IsVisible="False"
                      HorizontalAlignment="Left" VerticalAlignment="Top"
                      FontSize="11.5" Padding="2,1" MinHeight="0" />
+            <!-- Inline title text editor (PLAN.md step 40): shown over a double-clicked title clip. -->
+            <TextBox x:Name="TitleTextEditor" IsVisible="False"
+                     HorizontalAlignment="Left" VerticalAlignment="Top"
+                     FontSize="11.5" Padding="2,1" MinHeight="0" />
           </Panel>
         </DockPanel>
       </Border>

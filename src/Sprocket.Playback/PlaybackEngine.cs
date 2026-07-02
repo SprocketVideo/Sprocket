@@ -411,7 +411,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
                     case ClipKind.Generator:
                         layers.Add(new PresentedVideoLayer(
                             0, 0, res.Width, res.Height, clip.MapToSource(pos), effects, track.Opacity, track.BlendMode,
-                            LayerKind.Generator, RenderGraph.ResolveGenerator(clip.Generator!, pos)));
+                            LayerKind.Generator, RenderGraph.ResolveGenerator(clip, pos)));
                         break;
 
                     case ClipKind.Adjustment:

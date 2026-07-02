@@ -61,6 +61,8 @@ public partial class MainWindow : Window
     // Inline track-rename editor (overlaid on the timeline): the TextBox and the track being renamed.
     private TextBox? _trackRenameEditor;
     private Sprocket.Core.Model.Track? _renameTarget;
+    private TextBox? _titleTextEditor;
+    private Sprocket.Core.Model.Clip? _titleEditTarget;
 
     // Dual monitors (PLAN.md step 17): the Program monitor wraps the main engine; the Source monitor previews
     // the selected clip's source. The transport bar drives whichever is active.
@@ -1032,6 +1034,7 @@ public partial class MainWindow : Window
         timeline.ClipPlaced += UpdateTimelineHeader; // a media-bin drop / paste may extend the timeline
         timeline.Status += SetStatus;                 // transition hints, etc. (PLAN.md step 25)
         WireTrackRename(timeline);
+        WireTitleEdit(timeline);
         UpdateRenderBar(); // initial render-bar state (a reopened project may already have valid renders, step 32)
 
         this.FindControl<Button>("ZoomInButton")!.Click += (_, _) => timeline.ZoomIn();
@@ -1134,6 +1137,67 @@ public partial class MainWindow : Window
         _renameTarget = null;
         if (_trackRenameEditor is not null)
             _trackRenameEditor.IsVisible = false;
+    }
+
+    /// <summary>
+    /// Wires the inline title text editor (PLAN.md step 40), mirroring the track-rename overlay: the timeline
+    /// raises <see cref="TimelineControl.TitleEditRequested"/> on a title-clip double-click; we position the
+    /// overlaid <c>TitleTextEditor</c> over the clip and focus it. Enter / lost-focus commit through the edit
+    /// history (one undoable command); Escape cancels.
+    /// </summary>
+    private void WireTitleEdit(TimelineControl timeline)
+    {
+        _titleTextEditor = this.FindControl<TextBox>("TitleTextEditor")!;
+
+        timeline.TitleEditRequested += (clip, rect) =>
+        {
+            _titleEditTarget = clip;
+            _titleTextEditor.Margin = new Thickness(rect.X, rect.Y, 0, 0);
+            _titleTextEditor.Width = rect.Width;
+            _titleTextEditor.Height = rect.Height;
+            _titleTextEditor.Text = clip.Generator?.GetString(Sprocket.Core.Model.GeneratorParamNames.Text) ?? "";
+            _titleTextEditor.IsVisible = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _titleTextEditor.Focus();
+                _titleTextEditor.SelectAll();
+            });
+        };
+
+        _titleTextEditor.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter || e.Key == Key.Return)
+            {
+                CommitTitleEdit();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                CancelTitleEdit();
+                e.Handled = true;
+            }
+        };
+        _titleTextEditor.LostFocus += (_, _) => CommitTitleEdit();
+    }
+
+    // Commits the inline title edit (no-op if the editor is hidden / nothing targeted). Clearing the target
+    // and hiding before delegating means the LostFocus that hiding triggers re-enters as a no-op.
+    private void CommitTitleEdit()
+    {
+        if (_titleEditTarget is null || _titleTextEditor is null || !_titleTextEditor.IsVisible)
+            return;
+        Sprocket.Core.Model.Clip target = _titleEditTarget;
+        string text = _titleTextEditor.Text ?? string.Empty;
+        _titleEditTarget = null;
+        _titleTextEditor.IsVisible = false;
+        _timeline?.CommitTitleText(target, text);
+    }
+
+    private void CancelTitleEdit()
+    {
+        _titleEditTarget = null;
+        if (_titleTextEditor is not null)
+            _titleTextEditor.IsVisible = false;
     }
 
     /// <summary>Binds a tool-palette radio button to its <see cref="EditTool"/> on the timeline.</summary>
