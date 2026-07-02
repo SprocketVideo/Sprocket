@@ -13,13 +13,14 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 > A full re-audit only needs `git log 92226ec..HEAD` plus RELEASE_NOTES.md
 > diffs; update the affected rows and bump this stamp.
 
-**Statuses**
+**Doc-coverage symbols** — every feature listed here is shipped and working; this column
+only tracks whether a user guide covers it yet, not whether it exists.
 
 | | |
 |---|---|
 | ✅ | documented — the Docs column links to the covering guide + anchor |
 | 🟡 | partially documented — exists in a guide but incomplete or shallow |
-| ❌ | undocumented — shipped in the app, no guide covers it |
+| ❌ | undocumented — shipped in the app, no guide covers it yet |
 | ➖ | deliberately not documented (internal, developer-facing, or disabled in the UI) |
 
 **Maintenance contract**
@@ -29,7 +30,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
   This complements PLAN.md's step markers: PLAN tracks *build order*, this file
   tracks *doc coverage*.
 - **Docs side (`../sprocket-docs`):** when a guide is written or extended,
-  update the affected rows' Status and Docs columns in the same change.
+  update the affected rows' Docs status and Docs columns in the same change.
 - The section grouping below is the intended docs-site information
   architecture: new guides should map to one section (or a coherent slice).
 - Docs anchors listed here are load-bearing (see sprocket-docs/CLAUDE.md) —
@@ -39,7 +40,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 1. Application window & layout
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Main screen layout (menu bar, toolbar, panels, timeline, status bar) | UI.md §3; Sprocket.App/MainWindow.axaml | getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Frameless window chrome (drag, double-click maximize, caption buttons) | MainWindow.axaml.cs `WireWindowChrome` | — | ❌ |
@@ -54,7 +55,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 2. Projects & saving
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | New Project (`Ctrl+N`) | MainWindow.axaml.cs `NewProject` | getting-started.md#open-something-to-work-with | ✅ |
 | Open Project (`Ctrl+O`) | MainWindow.axaml.cs `OpenProjectAsync` | getting-started.md#open-something-to-work-with | ✅ |
@@ -67,7 +68,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 3. Importing media & the Project panel
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Import Media (`Ctrl+I`, file picker) | MainWindow.axaml.cs `ImportDialogAsync` | getting-started.md#open-something-to-work-with | ✅ |
 | Drag-and-drop files from OS to import | MainWindow.axaml.cs:795 | getting-started.md#open-something-to-work-with | ✅ |
@@ -80,7 +81,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 4. Timeline editing
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Select tool — move & edge-trim | UI.md §3.2; TimelineControl.cs | editing-on-the-timeline.md#select--move-and-trim | ✅ |
 | Blade tool — split clips | TimelineControl.cs `BladeClip` | getting-started.md#5-split-a-clip-with-the-blade | ✅ |
@@ -106,7 +107,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 5. Clips: speed, generators, multicam, sequences
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Clip Speed / Duration dialog (constant speed, presets) | Dialogs.cs `SpeedDialog`; PLAN.md step 21 | — | ❌ (Inspector shows Speed; never explained) |
 | Insert generators: Title, Lower Third, Credits Roll, Crawl, Color Matte | Sprocket.Core/Model/GeneratorCatalog.cs | — | ❌ |
@@ -119,7 +120,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 6. Playback, monitors & scopes
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Transport: play/pause (`Space`), jump start/end, frame step | MainWindow.axaml.cs:899–903 | getting-started.md#1-play-and-preview-your-video | ✅ |
 | Scrubber + timeline-ruler scrubbing | MainWindow.axaml.cs:910; TimelineControl.cs:1406 | getting-started.md#1-play-and-preview-your-video | ✅ |
@@ -131,7 +132,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 7. Effects, keyframing & color
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Applying effects (Effects menu, browser drag, + Effect button) | MainWindow.axaml.cs `RefreshEffectsMenu`; `ApplyEffectToSelected` | getting-started.md#7-change-how-a-clip-looks | 🟡 (guide names only 4 effects; catalog has 14 — see accuracy note below) |
 | Transform effect (scale/position/rotation/anchor/opacity) | Sprocket.Core/Model/EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | ✅ |
@@ -146,7 +147,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 8. Audio
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Track mute / solo | TimelineControl.cs headers | getting-started.md#8-adjust-the-audio | ✅ |
 | Audio fades (Fade effect; fade handles on clips) | EffectCatalog.cs; TimelineControl fade handles | getting-started.md#8-adjust-the-audio | 🟡 (effect covered; on-clip handles not) |
@@ -157,7 +158,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 9. Export & delivery
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Export Settings dialog (`Ctrl+E`): container/codec/quality/resolution/frame rate | Dialogs.cs `ExportSettingsDialog` | getting-started.md#12-export-your-finished-video | ✅ |
 | Format matrix: MP4/MOV/MKV/WebM/AVI/TS × H.264/HEVC/AV1/VP9/MPEG-2/ProRes × AAC/MP3/PCM/FLAC/AC-3/Opus | Sprocket.Export/ExportFormat.cs | — | ❌ (needs a reference table) |
@@ -174,7 +175,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 10. Performance: proxies & render cache
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Proxy media (automatic background proxies; status-bar indicator) | Sprocket.App/Proxy/*.cs; PLAN.md step 18 | — | ❌ |
 | Render In to Out / Selection / Audio (Sequence menu) | MainWindow.axaml.cs `RenderRangeAsync` | — | ❌ |
@@ -184,7 +185,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 11. Preferences
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Preferences dialog (`Ctrl+,`) | Sprocket.App/PreferencesDialog.cs | — | ❌ |
 | Cache management (clear proxy / render caches) | PreferencesDialog.cs | — | ❌ |
@@ -194,7 +195,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 
 ## 12. Keyboard shortcuts
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Complete shortcut reference | MainWindow.axaml.cs:456–547 key handlers; menu InputGestures | getting-started.md#keyboard-shortcuts-worth-knowing | 🟡 (a "worth knowing" table exists; full reference page missing — code is the only complete source, incl. `I`/`O`, `[`/`]`, `1`–`9`, `Shift+M`, `Ctrl+Y`, `Ctrl+Shift+E`, `Ctrl+,`) |
 
@@ -204,7 +205,7 @@ One row per feature at the granularity a user thinks of ("Ripple edit", not
 dedicated guide (enable → connect → edit by prompt), not a footnote under
 Preferences or an "advanced" page.
 
-| Feature | Source of truth | Docs | Status |
+| Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Enable AI control (Edit ▸ Preferences, or `--mcp` / `--mcp-port` flags) | Sprocket.App/PreferencesDialog.cs; CliOptions.cs | — | ❌ |
 | Connect an AI client (Copy setup command, bearer token, loopback security model) | PreferencesDialog.cs; McpServerService.cs | — | ❌ |
