@@ -153,13 +153,22 @@
         </StackPanel>
 
         <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Top">
-          <Button x:Name="MinButton" Classes="caption" Content="—"
-                  AutomationProperties.Name="Minimize" ToolTip.Tip="Minimize" />
-          <!-- MaxButton's glyph + accessible name toggle Maximize/Restore in OnPropertyChanged. -->
-          <Button x:Name="MaxButton" Classes="caption" Content="▢"
-                  AutomationProperties.Name="Maximize" ToolTip.Tip="Maximize" />
-          <Button x:Name="CloseButton" Classes="caption close" Content="✕"
-                  AutomationProperties.Name="Close" ToolTip.Tip="Close" />
+          <Button x:Name="MinButton" Classes="caption"
+                  AutomationProperties.Name="Minimize" ToolTip.Tip="Minimize">
+            <Path Data="{x:Static local:Icons.Minimize}" Stroke="{Binding $parent[ContentPresenter].Foreground}"
+                  StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" Width="16" Height="16" Stretch="Uniform" />
+          </Button>
+          <!-- MaxButtonIcon's Data + the button's accessible name toggle Maximize/Restore in OnPropertyChanged. -->
+          <Button x:Name="MaxButton" Classes="caption"
+                  AutomationProperties.Name="Maximize" ToolTip.Tip="Maximize">
+            <Path x:Name="MaxButtonIcon" Data="{x:Static local:Icons.Maximize}" Stroke="{Binding $parent[ContentPresenter].Foreground}"
+                  StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" Width="16" Height="16" Stretch="Uniform" />
+          </Button>
+          <Button x:Name="CloseButton" Classes="caption close"
+                  AutomationProperties.Name="Close" ToolTip.Tip="Close">
+            <Path Data="{x:Static local:Icons.Close}" Stroke="{Binding $parent[ContentPresenter].Foreground}"
+                  StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" Width="16" Height="16" Stretch="Uniform" />
+          </Button>
         </StackPanel>
       </Grid>
     </Border>
@@ -280,27 +289,56 @@
             <!-- Transport (under the monitor, UI.md §3.4). -->
             <Border DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Padding="10,5"
                     BorderBrush="{DynamicResource Edge}" BorderThickness="0,1,0,0">
-              <!-- Full transport (UI.md §3.4): ⏮ ◀◀ ▶ ▶▶ ⏭ — jump-to-start, frame-step back, play/pause,
-                   frame-step forward, jump-to-end — plus jump-to-previous/next-keyframe (◆◀ ▶◆, PLAN.md
-                   step 16d). Drives whichever monitor (Program/Source) is active. -->
+              <!-- Full transport (UI.md §3.4): jump-to-start, frame-step back, play/pause, frame-step forward,
+                   jump-to-end — plus jump-to-previous/next-keyframe (chevron + diamond composite, PLAN.md
+                   step 16d). Drives whichever monitor (Program/Source) is active. Icons are Icons.cs vector
+                   geometry, not glyph text, so they render identically across platforms. -->
               <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" VerticalAlignment="Center">
-                <Button x:Name="JumpStartButton" Grid.Column="0" Classes="transport" Content="⏮"
-                        AutomationProperties.Name="Jump to start" ToolTip.Tip="Jump to start" />
-                <Button x:Name="StepBackButton" Grid.Column="1" Classes="transport" Content="◀◀" Margin="4,0,0,0"
-                        AutomationProperties.Name="Step back one frame" ToolTip.Tip="Step back one frame" />
-                <!-- PlayPauseButton's glyph + accessible name toggle Play/Pause as playback state changes. -->
-                <Button x:Name="PlayPauseButton" Grid.Column="2" Classes="transport play" Content="▶" Margin="4,0,0,0"
-                        AutomationProperties.Name="Play" ToolTip.Tip="Play / Pause (Space)" />
-                <Button x:Name="StepForwardButton" Grid.Column="3" Classes="transport" Content="▶▶" Margin="4,0,0,0"
-                        AutomationProperties.Name="Step forward one frame" ToolTip.Tip="Step forward one frame" />
-                <Button x:Name="JumpEndButton" Grid.Column="4" Classes="transport" Content="⏭" Margin="4,0,0,0"
-                        AutomationProperties.Name="Jump to end" ToolTip.Tip="Jump to end" />
-                <Button x:Name="PrevKeyframeButton" Grid.Column="5" Classes="transport" Content="◆◀" Margin="12,0,0,0"
+                <Button x:Name="JumpStartButton" Grid.Column="0" Classes="transport"
+                        AutomationProperties.Name="Jump to start" ToolTip.Tip="Jump to start">
+                  <Path Data="{x:Static local:Icons.SkipBack}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="15" Height="15" Stretch="Uniform" />
+                </Button>
+                <Button x:Name="StepBackButton" Grid.Column="1" Classes="transport" Margin="4,0,0,0"
+                        AutomationProperties.Name="Step back one frame" ToolTip.Tip="Step back one frame">
+                  <Path Data="{x:Static local:Icons.Rewind}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="15" Height="15" Stretch="Uniform" />
+                </Button>
+                <!-- PlayPauseIcon's Data + the button's accessible name toggle Play/Pause as playback state changes. -->
+                <Button x:Name="PlayPauseButton" Grid.Column="2" Classes="transport play" Margin="4,0,0,0"
+                        AutomationProperties.Name="Play" ToolTip.Tip="Play / Pause (Space)">
+                  <Path x:Name="PlayPauseIcon" Data="{x:Static local:Icons.Play}" Fill="White" Width="15" Height="15" Stretch="Uniform" />
+                </Button>
+                <Button x:Name="StepForwardButton" Grid.Column="3" Classes="transport" Margin="4,0,0,0"
+                        AutomationProperties.Name="Step forward one frame" ToolTip.Tip="Step forward one frame">
+                  <Path Data="{x:Static local:Icons.FastForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="15" Height="15" Stretch="Uniform" />
+                </Button>
+                <Button x:Name="JumpEndButton" Grid.Column="4" Classes="transport" Margin="4,0,0,0"
+                        AutomationProperties.Name="Jump to end" ToolTip.Tip="Jump to end">
+                  <Path Data="{x:Static local:Icons.SkipForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="15" Height="15" Stretch="Uniform" />
+                </Button>
+                <Button x:Name="PrevKeyframeButton" Grid.Column="5" Classes="transport" Margin="12,0,0,0"
                         AutomationProperties.Name="Previous keyframe"
-                        ToolTip.Tip="Jump to previous keyframe of the selected clip — press [" />
-                <Button x:Name="NextKeyframeButton" Grid.Column="6" Classes="transport" Content="▶◆" Margin="4,0,0,0"
+                        ToolTip.Tip="Jump to previous keyframe of the selected clip — press [">
+                  <StackPanel Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
+                    <Path Data="{x:Static local:Icons.ChevronLeft}" Stroke="{DynamicResource Text}" StrokeThickness="2.2"
+                          StrokeLineCap="Round" StrokeJoin="Round" Width="9" Height="12" Stretch="Uniform" />
+                    <Path Data="{x:Static local:Icons.Diamond}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
+                          StrokeJoin="Round" Width="9" Height="9" Stretch="Uniform" />
+                  </StackPanel>
+                </Button>
+                <Button x:Name="NextKeyframeButton" Grid.Column="6" Classes="transport" Margin="4,0,0,0"
                         AutomationProperties.Name="Next keyframe"
-                        ToolTip.Tip="Jump to next keyframe of the selected clip — press ]" />
+                        ToolTip.Tip="Jump to next keyframe of the selected clip — press ]">
+                  <StackPanel Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
+                    <Path Data="{x:Static local:Icons.Diamond}" Stroke="{DynamicResource Text}" StrokeThickness="1.8"
+                          StrokeJoin="Round" Width="9" Height="9" Stretch="Uniform" />
+                    <Path Data="{x:Static local:Icons.ChevronRight}" Stroke="{DynamicResource Text}" StrokeThickness="2.2"
+                          StrokeLineCap="Round" StrokeJoin="Round" Width="9" Height="12" Stretch="Uniform" />
+                  </StackPanel>
+                </Button>
                 <TextBlock x:Name="PositionText" Grid.Column="7" Margin="14,0,10,0" VerticalAlignment="Center"
                            FontFamily="Cascadia Code,Consolas,monospace" Foreground="{DynamicResource Text}"
                            Text="0:00.00" />

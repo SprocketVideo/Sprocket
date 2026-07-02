@@ -922,7 +922,7 @@ public sealed class TimelineControl : Control
     }
 
     // The cross-track drag ghost (PLAN.md step 16e): highlights the target lane and draws a translucent block
-    // where the clip will land (its current snapped start + duration), with a "＋" hint while copying (Alt).
+    // where the clip will land (its current snapped start + duration), with a "+" hint while copying (Alt).
     // The real clip stays drawn in place — the model isn't mutated until release.
     private void DrawMovePreview(DrawingContext ctx, Size size)
     {
@@ -946,7 +946,7 @@ public sealed class TimelineControl : Control
         var rounded = new RoundedRect(rect, 4);
         ctx.DrawRectangle(isVideo ? VideoGhostFill : AudioGhostFill, SelectPen, rounded);
         if (_movePreviewCopy)
-            ctx.DrawText(Label("＋", 13, Brushes.White), new Point(rect.X + 6, rect.Y + 3));
+            DrawIcon(ctx, Icons.Plus, new Rect(rect.X + 4, rect.Y + 2, 12, 12), Brushes.White);
     }
 
     /// <summary>The render-bar spans to draw over the ruler (PLAN.md step 32) — computed by
@@ -1164,7 +1164,7 @@ public sealed class TimelineControl : Control
 
             if (isVideo)
             {
-                DrawToggle(ctx, EnableBox(top), "👁", track.Enabled);
+                DrawToggle(ctx, EnableBox(top), Icons.Eye, track.Enabled);
             }
             else
             {
@@ -1178,12 +1178,32 @@ public sealed class TimelineControl : Control
     private static void DrawToggle(DrawingContext ctx, Rect box, string glyph, bool on)
     {
         ctx.DrawRectangle(on ? ToggleOn : ToggleOff, null, new RoundedRect(box, 3));
-        // Center the glyph in the box rather than a fixed left offset — narrower glyphs (S, the eye)
+        // Center the glyph in the box rather than a fixed left offset — narrower glyphs (S)
         // otherwise sit left with extra space on their right.
         var text = Label(glyph, 10, on ? Brushes.White : MutedText);
         ctx.DrawText(text, new Point(
             box.X + (box.Width - text.Width) / 2,
             box.Y + (box.Height - text.Height) / 2));
+    }
+
+    private static void DrawToggle(DrawingContext ctx, Rect box, Geometry icon, bool on)
+    {
+        ctx.DrawRectangle(on ? ToggleOn : ToggleOff, null, new RoundedRect(box, 3));
+        var iconBox = new Rect(box.X + 4, box.Y + 4, Math.Max(0, box.Width - 8), Math.Max(0, box.Height - 8));
+        DrawIcon(ctx, icon, iconBox, on ? Brushes.White : MutedText);
+    }
+
+    /// <summary>Draws vector icon geometry (Icons.cs) uniformly scaled and centered into <paramref name="box"/>
+    /// — the DrawingContext equivalent of an Avalonia Path with Stretch="Uniform", for the custom-drawn
+    /// Timeline canvas where there's no element tree to host a Path control.</summary>
+    private static void DrawIcon(DrawingContext ctx, Geometry icon, Rect box, IBrush stroke)
+    {
+        Rect bounds = icon.Bounds;
+        double scale = Math.Min(box.Width / bounds.Width, box.Height / bounds.Height);
+        double tx = box.X + (box.Width - bounds.Width * scale) / 2 - bounds.X * scale;
+        double ty = box.Y + (box.Height - bounds.Height * scale) / 2 - bounds.Y * scale;
+        using (ctx.PushTransform(new Matrix(scale, 0, 0, scale, tx, ty)))
+            ctx.DrawGeometry(null, new Pen(stroke, 2, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round), icon);
     }
 
     private Rect MuteBox(double laneTop) => new(_headerWidth - 56, laneTop + TrackHeight - 24, 22, 17);

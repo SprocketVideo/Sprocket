@@ -29,6 +29,7 @@ using Sprocket.Persistence.Interchange;
 using Sprocket.Playback;
 using Sprocket.Render;
 using Ellipse = Avalonia.Controls.Shapes.Ellipse; // aliased so it doesn't drag Shapes.Path into scope (clashes with System.IO.Path)
+using ShapesPath = Avalonia.Controls.Shapes.Path;
 
 namespace Sprocket.App;
 
@@ -69,6 +70,7 @@ public partial class MainWindow : Window
     private PreviewSurface? _preview;
     private ScopeState? _scopeState; // shared grading-scope state: monitor surface produces, ScopeView consumes (PLAN.md step 34)
     private Button? _playPause;
+    private ShapesPath? _playPauseIcon; // swapped between Icons.Play / Icons.Pause by SetPlayPauseGlyph
     private Button? _prevKeyframeButton, _nextKeyframeButton;
     private Slider? _scrubber;
     private TextBlock? _positionText, _durationText;
@@ -98,6 +100,7 @@ public partial class MainWindow : Window
     private long _prevPresented, _prevStatsTs; // baseline for the live-fps delta (frames presented, Stopwatch ticks)
     private MenuItem? _undoMenuItem, _redoMenuItem;
     private Button? _exportButton, _maxButton;
+    private ShapesPath? _maxButtonIcon; // swapped between Icons.Maximize / Icons.Restore by OnPropertyChanged
     private Control? _root;
     private WindowState _lastNonMinimizedState = WindowState.Normal; // persisted on close (ignores Minimized)
 
@@ -169,6 +172,7 @@ public partial class MainWindow : Window
         _redoMenuItem = this.FindControl<MenuItem>("RedoMenuItem")!;
         _exportButton = this.FindControl<Button>("ExportButton")!;
         _maxButton = this.FindControl<Button>("MaxButton")!;
+        _maxButtonIcon = this.FindControl<ShapesPath>("MaxButtonIcon")!;
 
         // Reopen the way the user left it: centred (WindowStartupLocation in XAML) unless they had it maximized.
         WindowState = WindowStateStore.Load();
@@ -249,7 +253,8 @@ public partial class MainWindow : Window
             if (_maxButton is not null)
             {
                 bool maximized = WindowState == WindowState.Maximized;
-                _maxButton.Content = maximized ? "❐" : "▢";
+                if (_maxButtonIcon is not null)
+                    _maxButtonIcon.Data = maximized ? Icons.Restore : Icons.Maximize;
                 AutomationProperties.SetName(_maxButton, maximized ? "Restore" : "Maximize");
             }
             if (WindowState != WindowState.Minimized)
@@ -776,6 +781,7 @@ public partial class MainWindow : Window
     private void WireTransport()
     {
         _playPause = this.FindControl<Button>("PlayPauseButton")!;
+        _playPauseIcon = this.FindControl<ShapesPath>("PlayPauseIcon")!;
         _scrubber = this.FindControl<Slider>("Scrubber")!;
         _positionText = this.FindControl<TextBlock>("PositionText")!;
         _durationText = this.FindControl<TextBlock>("DurationText")!;
@@ -888,14 +894,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Keeps the Play/Pause button's glyph and its screen-reader name in sync: while playing it shows the
-    /// pause glyph and announces "Pause"; while paused it shows the play glyph and announces "Play".
+    /// Keeps the Play/Pause button's icon and its screen-reader name in sync: while playing it shows the
+    /// pause icon and announces "Pause"; while paused it shows the play icon and announces "Play".
     /// </summary>
     private void SetPlayPauseGlyph(bool playing)
     {
         if (_playPause is null)
             return;
-        _playPause.Content = playing ? "❚❚" : "▶";
+        if (_playPauseIcon is not null)
+            _playPauseIcon.Data = playing ? Icons.Pause : Icons.Play;
         AutomationProperties.SetName(_playPause, playing ? "Pause" : "Play");
     }
 
@@ -1236,7 +1243,15 @@ public partial class MainWindow : Window
             Grid.SetColumn(seek, 1);
             row.Children.Add(seek);
 
-            var remove = new Button { Content = "✕", FontSize = 11, Padding = new Thickness(6, 2) };
+            var remove = new Button
+            {
+                Content = new ShapesPath
+                {
+                    Data = Icons.Close, Stroke = Avalonia.Media.Brushes.Gray, StrokeThickness = 1.6,
+                    StrokeLineCap = PenLineCap.Round, Width = 9, Height = 9, Stretch = Stretch.Uniform,
+                },
+                Padding = new Thickness(6, 2),
+            };
             ToolTip.SetTip(remove, "Remove marker");
             remove.Click += (_, _) => { _timeline?.RemoveMarker(captured); if (this.FindControl<Button>("MarkersButton")?.Flyout is Flyout f) f.Content = BuildMarkersPanel(); };
             Grid.SetColumn(remove, 2);

@@ -12,6 +12,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
+using ShapesPath = Avalonia.Controls.Shapes.Path; // aliased so it doesn't clash with System.IO.Path
 
 namespace Sprocket.App.MediaBrowser;
 
@@ -270,11 +271,16 @@ public sealed class MediaBrowserPanel : UserControl
             CornerRadius = new Avalonia.CornerRadius(3),
             ClipToBounds = true,
         };
-        var fallback = new TextBlock
+        var fallback = new ShapesPath
         {
-            Text = useWaveform ? "♪" : "▦",
-            FontSize = 22,
-            Foreground = FaintText,
+            Data = useWaveform ? Icons.Music : Icons.Film,
+            Stroke = FaintText,
+            StrokeThickness = 1.6,
+            StrokeLineCap = PenLineCap.Round,
+            StrokeJoin = PenLineJoin.Round,
+            Width = 20,
+            Height = 20,
+            Stretch = Stretch.Uniform,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };

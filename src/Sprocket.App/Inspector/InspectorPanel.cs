@@ -12,6 +12,7 @@ using Avalonia.Media;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
+using ShapesPath = Avalonia.Controls.Shapes.Path; // aliased so it doesn't clash with System.IO.Path
 
 namespace Sprocket.App.Inspector;
 
@@ -259,16 +260,25 @@ public sealed class InspectorPanel : UserControl
         // visible and editable while previewing without it.
         rows.Opacity = effect.Enabled ? 1.0 : 0.5;
 
-        // Header with an enable/disable toggle (eye glyph, matching the track-header convention in
-        // TimelineControl) and a remove (✕) button.
+        // Header with an enable/disable toggle (eye icon, matching the track-header convention in
+        // TimelineControl) and a remove (x) button.
         var header = new DockPanel();
+        var toggleIcon = new ShapesPath
+        {
+            Data = Icons.Eye,
+            Stroke = effect.Enabled ? TextBrush : FaintText,
+            StrokeThickness = 1.5,
+            StrokeLineCap = PenLineCap.Round,
+            StrokeJoin = PenLineJoin.Round,
+            Width = 13,
+            Height = 13,
+            Stretch = Stretch.Uniform,
+        };
         var toggle = new ToggleButton
         {
-            Content = "👁",
-            FontSize = 11,
+            Content = toggleIcon,
             Padding = new Avalonia.Thickness(6, 1),
             Background = Brushes.Transparent,
-            Foreground = effect.Enabled ? TextBrush : FaintText,
             VerticalAlignment = VerticalAlignment.Center,
             IsChecked = effect.Enabled,
         };
@@ -280,11 +290,13 @@ public sealed class InspectorPanel : UserControl
         };
         var remove = new Button
         {
-            Content = "✕",
-            FontSize = 11,
+            Content = new ShapesPath
+            {
+                Data = Icons.Close, Stroke = FaintText, StrokeThickness = 1.5, StrokeLineCap = PenLineCap.Round,
+                Width = 10, Height = 10, Stretch = Stretch.Uniform,
+            },
             Padding = new Avalonia.Thickness(6, 1),
             Background = Brushes.Transparent,
-            Foreground = FaintText,
             VerticalAlignment = VerticalAlignment.Center,
         };
         ToolTip.SetTip(remove, "Remove effect");
@@ -319,21 +331,27 @@ public sealed class InspectorPanel : UserControl
 
     private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p)
     {
-        var keyGlyph = new TextBlock
+        var keyGlyph = new ShapesPath
         {
-            Text = "◇",
-            FontSize = 13,
-            LineHeight = 13,
-            TextAlignment = TextAlignment.Center,
+            Data = Icons.Diamond,
+            Fill = Brushes.Transparent,
+            Stroke = FaintText,
+            StrokeThickness = 1.5,
+            Width = 11,
+            Height = 11,
+            Stretch = Stretch.Uniform,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        var graphGlyph = new TextBlock
+        var graphGlyph = new ShapesPath
         {
-            Text = "∿",
-            FontSize = 13,
-            // No explicit LineHeight: the sine-wave glyph sits high in its em box and a
-            // LineHeight tied to FontSize clips its top (unlike the symmetric diamond above).
-            TextAlignment = TextAlignment.Center,
+            Data = Icons.Activity,
+            Stroke = FaintText,
+            StrokeThickness = 1.5,
+            StrokeLineCap = PenLineCap.Round,
+            StrokeJoin = PenLineJoin.Round,
+            Width = 13,
+            Height = 13,
+            Stretch = Stretch.Uniform,
             VerticalAlignment = VerticalAlignment.Center,
         };
         var slider = new Slider
@@ -363,7 +381,6 @@ public sealed class InspectorPanel : UserControl
         var keyButton = new Button
         {
             Content = keyGlyph,
-            FontSize = 12,
             Width = 24,
             Height = 22,
             Padding = new Avalonia.Thickness(0),
@@ -378,12 +395,10 @@ public sealed class InspectorPanel : UserControl
         var graphButton = new Button
         {
             Content = graphGlyph,
-            FontSize = 12,
             Width = 24,
             Height = 22,
             Padding = new Avalonia.Thickness(0),
             Background = Brushes.Transparent,
-            Foreground = FaintText,
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
@@ -447,7 +462,7 @@ public sealed class InspectorPanel : UserControl
         graphButton.Click += (_, _) =>
         {
             lane.GraphMode = !lane.GraphMode;
-            graphButton.Foreground = lane.GraphMode ? Accent : FaintText;
+            graphGlyph.Stroke = lane.GraphMode ? Accent : FaintText;
         };
 
         var stack = new StackPanel();
@@ -465,8 +480,8 @@ public sealed class InspectorPanel : UserControl
             slider.Value = Math.Clamp(v, p.Min, p.Max);
             box.Text = InspectorFormat.Value(v, p.Unit);
             _suppress = false;
-            keyGlyph.Text = value.IsAnimated ? "◆" : "◇";
-            keyButton.Foreground = value.IsAnimated ? Accent : FaintText;
+            keyGlyph.Fill = value.IsAnimated ? Accent : Brushes.Transparent;
+            keyGlyph.Stroke = value.IsAnimated ? Accent : FaintText;
 
             graphButton.IsVisible = value.IsAnimated;
             lane.IsVisible = value.IsAnimated;
