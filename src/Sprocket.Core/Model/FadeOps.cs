@@ -1,16 +1,13 @@
-using System;
-using System.Collections.Generic;
-using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 
-namespace Sprocket.App;
+namespace Sprocket.Core.Model;
 
 /// <summary>
-/// Pure logic for the on-timeline fade handles and opacity rubber-band (PLAN.md step 39): reading a clip's
-/// fade-in/out lengths from its Fade effect's opacity keyframes, rebuilding the envelope for a handle drag,
-/// and the rubber-band's grab/adjust operations. Kept free of Avalonia types so the envelope semantics are
-/// unit-tested headlessly; the drawing + pointer interaction in <see cref="Timeline.TimelineControl"/> rest on
-/// this. The fade is the existing keyframed <see cref="EffectTypeIds.Fade"/> /
+/// Pure logic for a clip's fade envelope (PLAN.md step 39): reading a clip's fade-in/out lengths from its
+/// Fade effect's opacity keyframes, rebuilding the envelope for a new pair of fade lengths, and the opacity
+/// rubber-band's grab/adjust operations. Shared by the App's on-timeline fade handles and the MCP
+/// <c>set_clip_fade</c> tool (which is why it lives in Core — both stacks author the identical envelope
+/// shape). The fade is the existing keyframed <see cref="EffectTypeIds.Fade"/> /
 /// <see cref="EffectParamNames.Opacity"/> <see cref="AnimatableValue"/> that drives both video alpha (shader)
 /// and audio gain (mixer), so these edits stay in sync with the Inspector's keyframe lane — every mutation
 /// goes through <see cref="Sprocket.Core.Commands.SetClipFadeCommand"/> (undoable by construction, step 10).

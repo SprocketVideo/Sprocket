@@ -54,7 +54,7 @@ public class McpEndToEndTests
 
         // The advertised tool list is the full surface, with schemas generated from the signatures.
         IList<McpClientTool> tools = await client.ListToolsAsync();
-        Assert.Equal(22, tools.Count);
+        Assert.Equal(new SprocketTools(session).BuildTools().Count, tools.Count);
         McpClientTool addMarker = tools.Single(t => t.Name == "add_marker");
         Assert.Contains("positionTicks", addMarker.JsonSchema.GetRawText());
 
@@ -96,7 +96,7 @@ public class McpEndToEndTests
             await using McpClient client = await McpClient.CreateAsync(new HttpClientTransport(
                 new HttpClientTransportOptions { Endpoint = new Uri(host.Url) }));
             IList<McpClientTool> tools = await client.ListToolsAsync();
-            Assert.Equal(22, tools.Count);
+            Assert.Equal(new SprocketTools(session).BuildTools().Count, tools.Count);
 
             CallToolResult added = await client.CallToolAsync("add_marker",
                 new Dictionary<string, object?> { ["positionTicks"] = 240000L, ["name"] = "http" });
@@ -134,7 +134,7 @@ public class McpEndToEndTests
                     Endpoint = new Uri(host.Url),
                     AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer s3cret" },
                 }));
-            Assert.Equal(22, (await client.ListToolsAsync()).Count);
+            Assert.Equal(new SprocketTools(new FakeEditorSession()).BuildTools().Count, (await client.ListToolsAsync()).Count);
         }
     }
 
@@ -154,7 +154,7 @@ public class McpEndToEndTests
         current = new FakeEditorSession(); // session swap (File > New) — same host serves the new session
         await using McpClient client = await McpClient.CreateAsync(new HttpClientTransport(
             new HttpClientTransportOptions { Endpoint = new Uri(host.Url) }));
-        Assert.Equal(22, (await client.ListToolsAsync()).Count);
+        Assert.Equal(new SprocketTools(new FakeEditorSession()).BuildTools().Count, (await client.ListToolsAsync()).Count);
     }
 
     /// <summary>An OS-assigned free TCP port (bind :0, read it back, release).</summary>

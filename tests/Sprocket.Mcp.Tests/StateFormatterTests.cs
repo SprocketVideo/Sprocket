@@ -24,11 +24,11 @@ public class StateFormatterTests
     {
         var session = new FakeEditorSession();
         MediaRef media = session.ImportMedia(@"C:\media\shot.mp4").Value!;
-        Clip clip = session.PlaceClip(media.Id.Value, 240000, null, null).Value!;
+        Clip clip = session.PlaceClip(media.Id.Value, 240000, null, null, linked: true, includeVideo: true, includeAudio: true).Value!;
         session.Project.Timeline.Markers.Add(new Marker(Timecode.FromSeconds(0.5), "beat"));
 
         string json = StateFormatter.ProjectState(
-            session.Project, session.History, @"C:\projects\demo.sprocket.json",
+            session.Project, session.History, @"C:\projects\demo.sprocket.json", dirty: true,
             playheadTicks: 120000, durationTicks: session.Project.Timeline.Duration.Ticks, playing: false);
         JsonNode root = JsonNode.Parse(json)!;
 
@@ -65,7 +65,7 @@ public class StateFormatterTests
     {
         var session = new FakeEditorSession();
         MediaRef media = session.ImportMedia(@"C:\media\shot.mp4").Value!;
-        session.PlaceClip(media.Id.Value, 0, null, null);
+        session.PlaceClip(media.Id.Value, 0, null, null, linked: true, includeVideo: true, includeAudio: true);
         Track video = session.Project.Timeline.Tracks[0];
 
         string? filtered = StateFormatter.ClipList(session.Project, RuntimeIds.IdOf(video));
@@ -82,7 +82,7 @@ public class StateFormatterTests
     [Fact]
     public void EffectTypes_Lists_The_Catalog_With_Parameters()
     {
-        string json = StateFormatter.EffectTypes();
+        string json = StateFormatter.EffectTypes()!;
         JsonArray effects = JsonNode.Parse(json)!["effect_types"]!.AsArray();
         JsonNode brightness = effects.Single(e => (string)e!["type_id"]! == EffectTypeIds.Brightness)!;
         JsonNode amount = brightness["parameters"]!.AsArray()

@@ -36,6 +36,20 @@ public class SprocketToolsTests
             "seek", "play", "pause", "undo", "redo", "save_project",
             "import_media", "add_clip_to_timeline", "trim_clip", "move_clip", "split_clip", "delete_clip",
             "add_effect", "set_effect_parameter", "remove_effect", "add_marker", "remove_marker",
+            // Clip tools (step 38 follow-on)
+            "get_clip", "duplicate_clip", "unlink_clip", "link_clips", "set_clip_fade",
+            "set_effect_parameter_keyframes", "copy_effects", "set_effect_enabled",
+            "set_clip_speed", "set_clip_gain", "ripple_trim", "roll_edit", "slide_clip", "ripple_delete",
+            // Structure tools
+            "add_track", "remove_track", "list_transition_types", "add_transition", "remove_transition",
+            "set_transition", "update_marker", "list_generator_types", "add_generator_clip",
+            "set_generator_text", "set_generator_parameter", "list_audio_chain", "add_chain_effect",
+            "remove_chain_effect", "set_chain_effect_parameter",
+            "begin_edit_group", "end_edit_group", "cancel_edit_group",
+            // Session tools
+            "open_project", "close_project", "new_project", "save_project_as",
+            "export_video", "get_export_status", "cancel_export",
+            "stop", "go_to_start", "go_to_end", "step_frames",
         ];
         Assert.Equal(expected.Length, names.Count);
         foreach (string name in expected)
@@ -63,7 +77,7 @@ public class SprocketToolsTests
         Assert.Equal(240000 + 120000, clip.TimelineStart.Ticks);
         Assert.Equal(120000, clip.SourceIn.Ticks); // the source in moved with the edge
         Assert.Equal(originalEnd, clip.TimelineEnd.Ticks); // out edge untouched
-        Assert.Equal("Trim clip", session.History.UndoLabel);
+        Assert.Equal("Trim linked clips", session.History.UndoLabel); // the placed pair trims together
 
         session.History.Undo();
         Assert.Equal(240000, clip.TimelineStart.Ticks);

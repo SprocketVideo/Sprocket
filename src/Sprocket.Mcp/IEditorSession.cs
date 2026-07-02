@@ -60,21 +60,74 @@ public interface IEditorApi
     McpResult<MediaRef> ImportMedia(string absolutePath);
 
     /// <summary>
-    /// Places a media-pool item on the timeline via the App's placement path (linked audio+video like a
-    /// bin drop, input color transform prepended for detected log media). Track indexes are into
-    /// <c>Timeline.VideoTracks</c> / <c>AudioTracks</c>; <see langword="null"/> picks the first compatible
-    /// track. Returns the primary placed clip (its linked partner shares <see cref="Clip.LinkGroupId"/>).
+    /// Places a media-pool item on the timeline via the App's placement path (input color transform
+    /// prepended for detected log media). Track indexes are into <c>Timeline.VideoTracks</c> /
+    /// <c>AudioTracks</c>; <see langword="null"/> picks the first compatible track.
+    /// <paramref name="includeVideo"/> / <paramref name="includeAudio"/> restrict which of the source's
+    /// streams get a clip; when both land and <paramref name="linked"/> is on they share a fresh
+    /// <see cref="Clip.LinkGroupId"/> and place as one undo entry (like a bin drop). Returns the primary
+    /// placed clip.
     /// </summary>
-    McpResult<Clip> PlaceClip(Guid mediaId, long startTicks, int? videoTrackIndex, int? audioTrackIndex);
+    McpResult<Clip> PlaceClip(
+        Guid mediaId, long startTicks, int? videoTrackIndex, int? audioTrackIndex,
+        bool linked, bool includeVideo, bool includeAudio);
 
     /// <summary>Forces the paused preview to re-decode/recomposite after a structural edit
     /// (a seek to the current position; no-op while playing).</summary>
     void RefreshPreview();
 
+    /// <summary>Whether the document has edits not yet written to <see cref="ProjectPath"/> (the App's
+    /// title-bar dirty indicator).</summary>
+    bool IsDirty { get; }
+
     /// <summary>Saves the project to its existing path. Returns <see langword="false"/> when the project is
-    /// untitled (a save-as file dialog cannot be driven remotely).</summary>
+    /// untitled (a save-as file dialog cannot be driven remotely — use <see cref="SaveProjectAs"/>).</summary>
     bool SaveProject();
+
+    /// <summary>Saves the project to <paramref name="absolutePath"/> and re-points the document at that file
+    /// (File ▸ Save As). Returns whether the write succeeded.</summary>
+    bool SaveProjectAs(string absolutePath);
+
+    /// <summary>
+    /// Opens the project file at <paramref name="absolutePath"/>, replacing the current editing session (the
+    /// App swaps the window/session and re-attaches a fresh MCP session — this <see cref="IEditorApi"/> goes
+    /// stale after a success). The caller must have handled unsaved changes (<see cref="IsDirty"/>) first;
+    /// no dialog is shown.
+    /// </summary>
+    McpResult<bool> OpenProject(string absolutePath);
+
+    /// <summary>
+    /// Closes the current project by swapping to a fresh empty one (File ▸ New — the App has no window-less
+    /// "closed" state). Same session-swap semantics as <see cref="OpenProject"/>; the caller must have
+    /// handled unsaved changes first.
+    /// </summary>
+    McpResult<bool> NewProject();
+
+    /// <summary>
+    /// Starts a background export of the active sequence to <paramref name="outputPath"/> with the default
+    /// delivery settings (MP4 / H.264 + AAC, CRF quality), returning immediately — poll
+    /// <see cref="ExportStatus"/> for progress. Fails when an export is already running or the timeline is
+    /// empty. <paramref name="rangeInTicks"/>/<paramref name="rangeOutTicks"/> select a half-open timeline
+    /// slice (<see langword="null"/> = whole timeline).
+    /// </summary>
+    McpResult<bool> StartExport(string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks);
+
+    /// <summary>The state of the current (or most recently finished) export started via
+    /// <see cref="StartExport"/>.</summary>
+    McpExportStatus ExportStatus { get; }
+
+    /// <summary>Requests cancellation of the running export (a no-op when none is running).</summary>
+    void CancelExport();
 }
+
+/// <summary>
+/// The observable state of an MCP-initiated export: <see cref="Running"/> with <see cref="Progress"/> in
+/// [0, 1] while encoding; afterwards exactly one of <see cref="Completed"/> / <see cref="Cancelled"/> /
+/// <see cref="Error"/> describes the outcome. <see cref="OutputPath"/> is <see langword="null"/> when no
+/// export has been started this session.
+/// </summary>
+public readonly record struct McpExportStatus(
+    bool Running, double Progress, string? OutputPath, bool Completed, bool Cancelled, string? Error);
 
 /// <summary>A success-or-error result crossing the editor seam without exceptions.</summary>
 public readonly record struct McpResult<T>(bool Ok, T? Value, string? Error)

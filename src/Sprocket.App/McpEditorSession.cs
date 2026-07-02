@@ -14,30 +14,29 @@ namespace Sprocket.App;
 /// The App's implementation of the MCP editor seam (PLAN.md step 38), bridging <c>Sprocket.Mcp</c> to one
 /// window session's project / history / transport. <see cref="OnModelThreadAsync{T}"/> is the single marshal
 /// point: every tool callback runs on the Avalonia UI thread — the thread that owns the model and
-/// <see cref="EditHistory"/> (ARCHITECTURE.md §8) — atomically with respect to user edits. Import and
-/// placement reuse the exact helpers the UI uses (<see cref="MediaImport"/> / <see cref="ClipPlacement"/>),
-/// so AI edits get link groups, log-color-transform prepends, and clamping identically to a bin drop.
+/// <see cref="EditHistory"/> (ARCHITECTURE.md §8) — atomically with respect to user edits. Import, placement,
+/// save, project lifecycle, and export all reuse the exact window flows the UI uses (minus their dialogs), so
+/// AI edits get link groups, log-color-transform prepends, clamping, and export quiescing identically to the
+/// user's own actions.
 /// </summary>
 internal sealed class McpEditorSession(
     Project project,
     EditHistory history,
-    Func<string?> projectPath,
-    Func<IMonitor?> programMonitor,
-    Func<bool> saveProject) : IEditorSession, IEditorApi
+    MainWindow window) : IEditorSession, IEditorApi
 {
     public Task<T> OnModelThreadAsync<T>(Func<IEditorApi, T> fn) =>
         Dispatcher.UIThread.InvokeAsync(() => fn(this)).GetTask();
 
     public Project Project => project;
     public EditHistory History => history;
-    public string? ProjectPath => projectPath();
-    public long PlayheadTicks => programMonitor()?.Position.Ticks ?? 0;
+    public string? ProjectPath => window.McpProjectPath;
+    public long PlayheadTicks => window.McpProgramMonitor?.Position.Ticks ?? 0;
     public long DurationTicks => project.Timeline.Duration.Ticks;
-    public bool IsPlaying => programMonitor()?.State == PlaybackState.Playing;
+    public bool IsPlaying => window.McpProgramMonitor?.State == PlaybackState.Playing;
 
-    public void Seek(long ticks) => programMonitor()?.SeekTo(new Timecode(Math.Max(0, ticks)));
-    public void Play() => programMonitor()?.Play();
-    public void Pause() => programMonitor()?.Pause();
+    public void Seek(long ticks) => window.McpProgramMonitor?.SeekTo(new Timecode(Math.Max(0, ticks)));
+    public void Play() => window.McpProgramMonitor?.Play();
+    public void Pause() => window.McpProgramMonitor?.Pause();
 
     public McpResult<MediaRef> ImportMedia(string absolutePath)
     {
@@ -47,24 +46,33 @@ internal sealed class McpEditorSession(
             : McpResult<MediaRef>.Fail(result.Error ?? "import failed.");
     }
 
-    public McpResult<Clip> PlaceClip(Guid mediaId, long startTicks, int? videoTrackIndex, int? audioTrackIndex)
+    public McpResult<Clip> PlaceClip(
+        Guid mediaId, long startTicks, int? videoTrackIndex, int? audioTrackIndex,
+        bool linked, bool includeVideo, bool includeAudio)
     {
         MediaRef? media = project.MediaPool.Get(new MediaRefId(mediaId));
         if (media is null)
             return McpResult<Clip>.Fail($"media {mediaId} is not in the pool — call list_media.");
 
+        bool wantVideo = includeVideo && media.Info.HasVideo;
+        bool wantAudio = includeAudio && media.Info.HasAudio;
+        if (!wantVideo && !wantAudio)
+            return McpResult<Clip>.Fail(includeVideo == includeAudio
+                ? "the media has no placeable streams."
+                : $"the media has no {(includeVideo ? "video" : "audio")} stream.");
+
         var videoTracks = project.Timeline.VideoTracks.ToList();
         var audioTracks = project.Timeline.AudioTracks.ToList();
         VideoTrack? video = null;
         AudioTrack? audio = null;
-        if (media.Info.HasVideo)
+        if (wantVideo)
         {
             int index = videoTrackIndex ?? 0;
             if (index < 0 || index >= videoTracks.Count)
                 return McpResult<Clip>.Fail($"video track index {index} is out of range (the sequence has {videoTracks.Count}).");
             video = videoTracks[index];
         }
-        if (media.Info.HasAudio)
+        if (wantAudio)
         {
             int index = audioTrackIndex ?? 0;
             if (index < 0 || index >= audioTracks.Count)
@@ -73,7 +81,7 @@ internal sealed class McpEditorSession(
         }
 
         ClipPlacement.PlacementResult? placement = ClipPlacement.BuildPlaceCommand(
-            media, video, audio, startTicks, linked: true, primaryIsVideo: media.Info.HasVideo);
+            media, video, audio, startTicks, linked, primaryIsVideo: wantVideo);
         if (placement is not { } result)
             return McpResult<Clip>.Fail("the sequence has no compatible track for this media.");
 
@@ -85,9 +93,32 @@ internal sealed class McpEditorSession(
     {
         // A paused preview holds its last composite; re-seeking the current position forces a fresh
         // decode/composite so the edit is visible immediately. While playing, the pump picks it up itself.
-        if (programMonitor() is { State: not PlaybackState.Playing } monitor)
+        if (window.McpProgramMonitor is { State: not PlaybackState.Playing } monitor)
             monitor.SeekTo(monitor.Position);
     }
 
-    public bool SaveProject() => saveProject();
+    public bool IsDirty => window.McpIsDirty;
+
+    public bool SaveProject() => window.McpSave();
+
+    public bool SaveProjectAs(string absolutePath) => window.McpSaveAs(absolutePath);
+
+    public McpResult<bool> OpenProject(string absolutePath) =>
+        window.McpOpenProject(absolutePath) is { } error
+            ? McpResult<bool>.Fail(error)
+            : McpResult<bool>.Success(true);
+
+    public McpResult<bool> NewProject() =>
+        window.McpNewProject() is { } error
+            ? McpResult<bool>.Fail(error)
+            : McpResult<bool>.Success(true);
+
+    public McpResult<bool> StartExport(string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks) =>
+        window.McpStartExport(outputPath, videoOnly, rangeInTicks, rangeOutTicks) is { } error
+            ? McpResult<bool>.Fail(error)
+            : McpResult<bool>.Success(true);
+
+    public McpExportStatus ExportStatus => window.McpExportStatus;
+
+    public void CancelExport() => window.McpCancelExport();
 }

@@ -841,3 +841,87 @@ public class RippleRollSlideTests
         Assert.Equal(Timecode.FromSeconds(9), n.TimelineStart);
     }
 }
+
+/// <summary>Cross-call edit transactions (the MCP edit-group primitive): commands executed inside an open
+/// transaction collapse into one undo entry on commit, revert on cancel, and never nest.</summary>
+public class EditTransactionTests
+{
+    private sealed class Increment(int[] cell, int by) : EditCommand("inc")
+    {
+        public override void Apply() => cell[0] += by;
+        public override void Revert() => cell[0] -= by;
+    }
+
+    [Fact]
+    public void Commit_Collapses_Collected_Commands_Into_One_Entry()
+    {
+        int[] cell = [0];
+        var history = new EditHistory();
+        EditHistory.EditTransaction txn = history.BeginTransaction("Batch");
+        history.Execute(new Increment(cell, 1));
+        history.Execute(new Increment(cell, 2));
+        Assert.Equal(0, history.UndoCount); // nothing landed yet
+        Assert.Equal(2, txn.Count);
+
+        txn.Commit();
+        Assert.Equal(3, cell[0]);
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal("Batch", history.UndoLabel);
+        Assert.False(history.HasOpenTransaction);
+
+        history.Undo();
+        Assert.Equal(0, cell[0]);
+        history.Redo();
+        Assert.Equal(3, cell[0]);
+    }
+
+    [Fact]
+    public void Cancel_Reverts_Collected_Commands_And_Leaves_No_Entry()
+    {
+        int[] cell = [0];
+        var history = new EditHistory();
+        EditHistory.EditTransaction txn = history.BeginTransaction("Batch");
+        history.Execute(new Increment(cell, 5));
+        txn.Cancel();
+
+        Assert.Equal(0, cell[0]);
+        Assert.Equal(0, history.UndoCount);
+        Assert.False(history.HasOpenTransaction);
+    }
+
+    [Fact]
+    public void Empty_Commit_Lands_No_Entry_And_A_Single_Command_Keeps_Its_Own_Shape()
+    {
+        int[] cell = [0];
+        var history = new EditHistory();
+        history.BeginTransaction("Empty").Commit();
+        Assert.Equal(0, history.UndoCount);
+
+        EditHistory.EditTransaction txn = history.BeginTransaction("One");
+        history.Execute(new Increment(cell, 7));
+        txn.Commit();
+        Assert.Equal(1, history.UndoCount);
+        history.Undo();
+        Assert.Equal(0, cell[0]);
+    }
+
+    [Fact]
+    public void Transactions_Do_Not_Nest_And_Undo_Seals_An_Open_One()
+    {
+        int[] cell = [0];
+        var history = new EditHistory();
+        history.Execute(new Increment(cell, 1)); // a pre-existing entry
+        EditHistory.EditTransaction txn = history.BeginTransaction("Open");
+        Assert.Throws<InvalidOperationException>(() => history.BeginTransaction("Nested"));
+
+        history.Execute(new Increment(cell, 2));
+        Assert.True(history.Undo()); // commits the group, then undoes it
+        Assert.Equal(1, cell[0]);
+        Assert.False(history.HasOpenTransaction);
+        txn.Commit(); // sealed — a late commit is a no-op, not a second entry
+        Assert.Equal(1, history.UndoCount);
+
+        Assert.True(history.Redo());
+        Assert.Equal(3, cell[0]);
+    }
+}

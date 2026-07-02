@@ -53,6 +53,25 @@ public static class RuntimeIds
         return null;
     }
 
+    /// <summary>Finds the transition with runtime id <paramref name="transitionId"/> in the project's active
+    /// sequence, also reporting its track; <see langword="null"/> when no such transition exists.</summary>
+    public static Transition? FindTransition(Project project, int transitionId, out Track? track)
+    {
+        foreach (Track t in project.Timeline.Tracks)
+        {
+            foreach (Transition transition in t.Transitions)
+            {
+                if (HasId(transition, transitionId))
+                {
+                    track = t;
+                    return transition;
+                }
+            }
+        }
+        track = null;
+        return null;
+    }
+
     /// <summary>Whether <paramref name="obj"/> already carries id <paramref name="id"/> — a pure lookup that
     /// never assigns, so probing can't burn ids or match objects the client has never been shown.</summary>
     private static bool HasId(object obj, int id) =>

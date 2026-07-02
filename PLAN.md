@@ -2451,6 +2451,45 @@ Tags reference the [UI.md §4 checklist](UI.md).
         transition, and track/sequence/multicam tools deferred (all mechanical on the same
         command-routed pattern); `split_clip`/`delete_clip` act on the addressed clip only (linked
         partner documented, not auto-affected); stateless mode has no server→client push (GET → 405).
+    - **✅ FOLLOW-ON DONE (2026-07-02 — tool surface expanded 22 → 65 after a real-use transcript
+      review; `Sprocket.Mcp/SprocketTools{,.Clips,.Structure,.Session}.cs`, `IEditorSession.cs`,
+      `StateFormatter.cs`, `RuntimeIds.cs`; `Sprocket.Core/Commands/EditHistory.cs` (cross-call
+      `BeginTransaction` groups), `Model/FadeOps.cs` (moved from App so MCP and the UI author the
+      identical fade envelope), `Clip.CloneContentForSpan` public; App seam
+      `McpEditorSession`/`MainWindow` MCP members; full suite 1103 green.)** Highlights:
+      - **Linked-aware editing everywhere:** `trim/move/split/delete` gained `includeLinked`
+        (default **true**, the NLE convention — linked partners edit together as one undo entry);
+        `add_clip_to_timeline` gained `linked` + `stream` ("video"/"audio"/"both") so a video-only
+        placement never creates the audio partner; new `duplicate_clip` (effects cloned with
+        keyframes rebased via `CloneShifted`, partners duplicated onto a fresh shared link group),
+        `unlink_clip`, `link_clips`.
+      - **Fades & animation:** `set_clip_fade(fadeIn/fadeOutTicks)` drives `SetClipFadeCommand`
+        through the shared `FadeOps.BuildOpacity` (the exact envelope the timeline handles author);
+        `set_effect_parameter_keyframes` writes `AnimatableValue.Animated` with clip-relative times
+        and per-keyframe interpolation; `get_clip` reports every parameter as constant-or-keyframes
+        (never flattened) plus fades, link partners, media, and generator detail.
+      - **Pro trims:** `ripple_trim`, `roll_edit`, `slide_clip`, `ripple_delete` (linked-aware) on
+        the existing step-22 commands; `set_clip_speed` (linked-aware retime), `set_clip_gain`,
+        `set_effect_enabled` (bypass), `copy_effects` (paste attributes).
+      - **Structure:** `add/remove_track`, transitions (`list_transition_types`, `add/remove/
+        set_transition` with runtime ids + transitions in the track read-out), `update_marker`
+        (move/rename/recolor/comment as one entry), generators/titles (`list_generator_types`,
+        `add_generator_clip` with the UI's topmost-free-else-new-track stacking,
+        `set_generator_text/parameter`), and the audio chains at all three scopes
+        (`list_audio_chain`, `add/remove_chain_effect`, `set_chain_effect_parameter`).
+      - **Edit groups:** `begin/end/cancel_edit_group` over the new `EditHistory.BeginTransaction` —
+        a multi-call AI edit lands as **one labelled undo entry** (user edits interleaving on the
+        model thread join the group; Undo/Redo seal an open group; groups don't nest);
+        `undo`/`redo` take a `steps` count.
+      - **Session & delivery:** `open_project`/`new_project`/`close_project` (dirty-gated with
+        `discardChanges`, reusing the `SessionRequested` swap — the MCP session re-attaches),
+        `save_project_as`; `export_video` (background `VideoExporter` run with the same
+        quiesce/resume discipline as the UI export, default MP4/H.264+AAC, optional range +
+        video-only) with `get_export_status` polling and `cancel_export`; transport rounded out
+        with `stop`, `go_to_start`, `go_to_end`, `step_frames`.
+      - **Read-side ergonomics:** `get_project_state(sections=…)` trims the payload and reports
+        `dirty`; `list_effect_types(category, nameQuery)` filters the catalog and now emits the
+        descriptor `step`/`unit` fields.
 
 39. **Fade handles & opacity rubber-band (on-timeline fade editing + visualization).** Make a clip's
     fade in/out directly **visible and editable on the timeline**, so a fade is never an invisible

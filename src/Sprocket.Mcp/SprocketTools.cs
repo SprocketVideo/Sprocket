@@ -17,7 +17,7 @@ namespace Sprocket.Mcp;
 /// respect to user edits, on the thread that owns the model). Failures throw <see cref="McpException"/>
 /// with actionable text; the SDK surfaces them as tool errors, never as transport faults.
 /// </summary>
-public sealed class SprocketTools(IEditorSession session)
+public sealed partial class SprocketTools(IEditorSession session)
 {
     private readonly IEditorSession _session = session;
 
@@ -35,9 +35,12 @@ public sealed class SprocketTools(IEditorSession session)
     [Description("The full state of the open project: media pool, sequences, tracks and clips (with the " +
                  "track_id / clip_id handles the edit tools take), markers, playhead, and undo/redo state. " +
                  "All times are in ticks (see ticks_per_second) with human-readable companions.")]
-    public Task<string> GetProjectState() => _session.OnModelThreadAsync(api =>
-        StateFormatter.ProjectState(api.Project, api.History, api.ProjectPath,
-            api.PlayheadTicks, api.DurationTicks, api.IsPlaying));
+    public Task<string> GetProjectState(
+        [Description("Restrict the heavyweight sections, comma-separated from: media, tracks, markers, " +
+                     "sequences, playhead, history. Omit for everything.")] string? sections = null) =>
+        _session.OnModelThreadAsync(api =>
+            StateFormatter.ProjectState(api.Project, api.History, api.ProjectPath, api.IsDirty,
+                api.PlayheadTicks, api.DurationTicks, api.IsPlaying, sections));
 
     [McpServerTool(Name = "list_media", ReadOnly = true, Idempotent = true)]
     [Description("The project's media pool: media_id, file name/path, duration, and stream kinds.")]
@@ -57,8 +60,14 @@ public sealed class SprocketTools(IEditorSession session)
         StateFormatter.PlayheadState(api.PlayheadTicks, api.DurationTicks, api.IsPlaying));
 
     [McpServerTool(Name = "list_effect_types", ReadOnly = true, Idempotent = true)]
-    [Description("The catalog of effect types that add_effect accepts, with each type's parameters and ranges.")]
-    public Task<string> ListEffectTypes() => _session.OnModelThreadAsync(_ => StateFormatter.EffectTypes());
+    [Description("The catalog of effect types that add_effect accepts, with each type's parameters and ranges. " +
+                 "Filter by category and/or a name substring to keep the payload small.")]
+    public Task<string> ListEffectTypes(
+        [Description("Restrict to one category: Video, Color, or Audio.")] string? category = null,
+        [Description("Restrict to types whose id or display name contains this text.")] string? nameQuery = null) =>
+        _session.OnModelThreadAsync(_ =>
+            StateFormatter.EffectTypes(category, nameQuery)
+            ?? throw new McpException($"unknown effect category '{category}' — use Video, Color, or Audio."));
 
     // ── Transport tools ─────────────────────────────────────────────────────────────────────────────
 
@@ -90,26 +99,53 @@ public sealed class SprocketTools(IEditorSession session)
     // ── History / persistence tools ─────────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "undo")]
-    [Description("Undoes the most recent edit (the user's or an AI edit — one shared history).")]
-    public Task<string> Undo() => _session.OnModelThreadAsync(api =>
-    {
-        string? label = api.History.CanUndo ? api.History.UndoLabel : null;
-        if (!api.History.Undo())
-            throw new McpException("nothing to undo.");
-        api.RefreshPreview();
-        return StateFormatter.HistoryState(api.History, $"undid: {label}");
-    });
+    [Description("Undoes the most recent edit(s) — the user's or an AI edit, one shared history. " +
+                 "Pass steps to undo several edits in one call.")]
+    public Task<string> Undo(
+        [Description("How many edits to undo (default 1).")] int steps = 1) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            if (steps < 1)
+                throw new McpException("steps must be at least 1.");
+            var labels = new List<string?>();
+            for (int i = 0; i < steps; i++)
+            {
+                string? label = api.History.CanUndo ? api.History.UndoLabel : null;
+                if (!api.History.Undo())
+                {
+                    if (labels.Count == 0)
+                        throw new McpException("nothing to undo.");
+                    break;
+                }
+                labels.Add(label);
+            }
+            api.RefreshPreview();
+            return StateFormatter.HistoryState(api.History, $"undid: {string.Join("; ", labels)}");
+        });
 
     [McpServerTool(Name = "redo")]
-    [Description("Redoes the most recently undone edit.")]
-    public Task<string> Redo() => _session.OnModelThreadAsync(api =>
-    {
-        string? label = api.History.CanRedo ? api.History.RedoLabel : null;
-        if (!api.History.Redo())
-            throw new McpException("nothing to redo.");
-        api.RefreshPreview();
-        return StateFormatter.HistoryState(api.History, $"redid: {label}");
-    });
+    [Description("Redoes the most recently undone edit(s). Pass steps to redo several in one call.")]
+    public Task<string> Redo(
+        [Description("How many undone edits to redo (default 1).")] int steps = 1) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            if (steps < 1)
+                throw new McpException("steps must be at least 1.");
+            var labels = new List<string?>();
+            for (int i = 0; i < steps; i++)
+            {
+                string? label = api.History.CanRedo ? api.History.RedoLabel : null;
+                if (!api.History.Redo())
+                {
+                    if (labels.Count == 0)
+                        throw new McpException("nothing to redo.");
+                    break;
+                }
+                labels.Add(label);
+            }
+            api.RefreshPreview();
+            return StateFormatter.HistoryState(api.History, $"redid: {string.Join("; ", labels)}");
+        });
 
     [McpServerTool(Name = "save_project", Idempotent = true)]
     [Description("Saves the project to its existing file. Fails while the project is untitled (a save-as " +
@@ -143,18 +179,29 @@ public sealed class SprocketTools(IEditorSession session)
         });
 
     [McpServerTool(Name = "add_clip_to_timeline")]
-    [Description("Places a media-pool item on the timeline at the given start (linked audio+video, like " +
-                 "dropping from the bin). Returns the new clip's clip_id (a linked partner shares link_group).")]
+    [Description("Places a media-pool item on the timeline at the given start (by default linked audio+video, " +
+                 "like dropping from the bin). Returns the new clip's clip_id, plus its linked partner's id " +
+                 "when one was created. Use stream=\"video\" or \"audio\" for a single-stream placement.")]
     public Task<string> AddClipToTimeline(
         [Description("media_id from list_media / import_media.")] string mediaId,
         [Description("Timeline start position in ticks.")] long startTicks,
         [Description("Video track index (into the video tracks, bottom-up); omit for the first compatible.")] int? videoTrackIndex = null,
-        [Description("Audio track index (into the audio tracks); omit for the first compatible.")] int? audioTrackIndex = null) =>
+        [Description("Audio track index (into the audio tracks); omit for the first compatible.")] int? audioTrackIndex = null,
+        [Description("Whether the source's audio+video clips share a link group and edit together (default true).")] bool linked = true,
+        [Description("Which of the source's streams to place: \"both\" (default), \"video\", or \"audio\".")] string stream = "both") =>
         _session.OnModelThreadAsync(api =>
         {
             if (!Guid.TryParse(mediaId, out Guid guid))
                 throw new McpException($"'{mediaId}' is not a media_id — call list_media.");
-            McpResult<Clip> result = api.PlaceClip(guid, Math.Max(0, startTicks), videoTrackIndex, audioTrackIndex);
+            (bool includeVideo, bool includeAudio) = stream.ToLowerInvariant() switch
+            {
+                "both" => (true, true),
+                "video" => (true, false),
+                "audio" => (false, true),
+                _ => throw new McpException("stream must be \"both\", \"video\", or \"audio\"."),
+            };
+            McpResult<Clip> result = api.PlaceClip(
+                guid, Math.Max(0, startTicks), videoTrackIndex, audioTrackIndex, linked, includeVideo, includeAudio);
             if (!result.Ok)
                 throw new McpException(result.Error ?? "placement failed.");
             api.RefreshPreview();
@@ -167,17 +214,23 @@ public sealed class SprocketTools(IEditorSession session)
                 ["history"] = StateFormatter.HistoryObject(api.History),
             };
             if (clip.LinkGroupId is { } link)
+            {
                 payload["link_group"] = link.ToString("D");
+                payload["linked_clip_ids"] = new JsonArray(api.Project.Timeline.ClipsLinkedTo(clip)
+                    .Select(l => (JsonNode)RuntimeIds.IdOf(l.Clip)).ToArray());
+            }
             return payload.ToJsonString();
         });
 
     [McpServerTool(Name = "trim_clip")]
     [Description("Trims a clip's in or out edge to a new timeline position (the source in/out moves with it, " +
-                 "like an edge trim in the timeline). The clip does not move otherwise.")]
+                 "like an edge trim in the timeline). The clip does not move otherwise. By default a linked " +
+                 "A/V partner's matching edge trims with it, as one undo entry.")]
     public Task<string> TrimClip(
         [Description("clip_id from list_clips / get_project_state.")] int clipId,
         [Description("Which edge to trim: \"in\" or \"out\".")] string edge,
-        [Description("The edge's new timeline position in ticks.")] long newTimelineTicks) =>
+        [Description("The edge's new timeline position in ticks.")] long newTimelineTicks,
+        [Description("Whether linked partner clips trim together (default true).")] bool includeLinked = true) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
@@ -186,47 +239,58 @@ public sealed class SprocketTools(IEditorSession session)
                 throw new McpException("edge must be \"in\" or \"out\".");
 
             var at = new Timecode(newTimelineTicks);
-            IEditCommand command;
-            if (trimIn)
-            {
-                if (at >= clip.TimelineEnd)
-                    throw new McpException("the in edge must stay before the clip's end.");
-                Timecode newSourceIn = clip.MapToSource(at);
-                if (newSourceIn < Timecode.Zero || newSourceIn >= clip.SourceOut)
-                    throw new McpException("that trim runs out of source media before the requested position.");
-                command = new SetClipPlacementCommand(clip, newSourceIn, clip.SourceOut, at, "Trim clip");
-            }
-            else
-            {
-                if (at <= clip.TimelineStart)
-                    throw new McpException("the out edge must stay after the clip's start.");
-                Timecode newSourceOut = clip.MapToSource(at);
-                if (newSourceOut <= clip.SourceIn)
-                    throw new McpException("that trim collapses the clip to nothing.");
-                command = new SetClipPlacementCommand(clip, clip.SourceIn, newSourceOut, clip.TimelineStart, "Trim clip");
-            }
-            api.History.Execute(command);
+            var commands = new List<IEditCommand> { BuildTrimCommand(clip, trimIn, at) };
+            if (includeLinked)
+                foreach ((Track _, Clip partner) in api.Project.Timeline.ClipsLinkedTo(clip))
+                    commands.Add(BuildTrimCommand(partner, trimIn, at));
+
+            api.History.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Trim linked clips", commands));
             api.RefreshPreview();
             return ClipResult(api, clip, "trimmed clip");
         });
 
+    private static IEditCommand BuildTrimCommand(Clip clip, bool trimIn, Timecode at)
+    {
+        if (trimIn)
+        {
+            if (at >= clip.TimelineEnd)
+                throw new McpException($"the in edge must stay before clip {RuntimeIds.IdOf(clip)}'s end.");
+            Timecode newSourceIn = clip.MapToSource(at);
+            if (newSourceIn < Timecode.Zero || newSourceIn >= clip.SourceOut)
+                throw new McpException(
+                    $"that trim runs clip {RuntimeIds.IdOf(clip)} out of source media (pass includeLinked=false " +
+                    "to trim only the addressed clip).");
+            return new SetClipPlacementCommand(clip, newSourceIn, clip.SourceOut, at, "Trim clip");
+        }
+        if (at <= clip.TimelineStart)
+            throw new McpException($"the out edge must stay after clip {RuntimeIds.IdOf(clip)}'s start.");
+        Timecode newSourceOut = clip.MapToSource(at);
+        if (newSourceOut <= clip.SourceIn)
+            throw new McpException($"that trim collapses clip {RuntimeIds.IdOf(clip)} to nothing.");
+        return new SetClipPlacementCommand(clip, clip.SourceIn, newSourceOut, clip.TimelineStart, "Trim clip");
+    }
+
     [McpServerTool(Name = "move_clip")]
     [Description("Moves a clip to a new timeline start, optionally onto another track of the same kind. " +
-                 "Keyframed effects move with the clip.")]
+                 "Keyframed effects move with the clip. By default linked partner clips shift by the same " +
+                 "delta on their own tracks, as one undo entry.")]
     public Task<string> MoveClip(
         [Description("clip_id of the clip to move.")] int clipId,
         [Description("New timeline start in ticks.")] long newStartTicks,
-        [Description("track_id of the destination track (same kind); omit to stay on the current track.")] int? targetTrackId = null) =>
+        [Description("track_id of the destination track (same kind); omit to stay on the current track.")] int? targetTrackId = null,
+        [Description("Whether linked partner clips move together (default true).")] bool includeLinked = true) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track track) = ResolveClip(api, clipId);
             var newStart = new Timecode(Math.Max(0, newStartTicks));
-            IEditCommand command;
+            long delta = newStart.Ticks - clip.TimelineStart.Ticks;
+
+            IEditCommand primary;
             if (targetTrackId is { } destId && RuntimeIds.FindTrack(api.Project, destId) is { } dest && !ReferenceEquals(dest, track))
             {
                 if (dest.GetType() != track.GetType())
                     throw new McpException($"track {destId} is a {Kind(dest)} track — a {Kind(track)} clip can't move there.");
-                command = new MoveClipToTrackCommand(track, dest, clip, newStart);
+                primary = new MoveClipToTrackCommand(track, dest, clip, newStart);
             }
             else if (targetTrackId is { } missing && RuntimeIds.FindTrack(api.Project, missing) is null)
             {
@@ -234,19 +298,37 @@ public sealed class SprocketTools(IEditorSession session)
             }
             else
             {
-                command = new SetClipPlacementCommand(clip, clip.SourceIn, clip.SourceOut, newStart);
+                primary = new SetClipPlacementCommand(clip, clip.SourceIn, clip.SourceOut, newStart);
             }
-            api.History.Execute(command);
+
+            var commands = new List<IEditCommand> { primary };
+            if (includeLinked && delta != 0)
+            {
+                foreach ((Track _, Clip partner) in api.Project.Timeline.ClipsLinkedTo(clip))
+                {
+                    long partnerStart = partner.TimelineStart.Ticks + delta;
+                    if (partnerStart < 0)
+                        throw new McpException(
+                            $"the move would push linked clip {RuntimeIds.IdOf(partner)} before the timeline " +
+                            "origin (pass includeLinked=false to move only the addressed clip).");
+                    commands.Add(new SetClipPlacementCommand(
+                        partner, partner.SourceIn, partner.SourceOut, new Timecode(partnerStart)));
+                }
+            }
+
+            api.History.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Move linked clips", commands));
             api.RefreshPreview();
             return ClipResult(api, clip, "moved clip");
         });
 
     [McpServerTool(Name = "split_clip")]
     [Description("Splits (blades) a clip at the given timeline position into two clips. Returns both clip ids. " +
-                 "A linked partner is not split automatically — split it separately if needed.")]
+                 "By default a linked partner spanning the cut splits too (the right halves stay linked to " +
+                 "each other), as one undo entry.")]
     public Task<string> SplitClip(
         [Description("clip_id of the clip to split.")] int clipId,
-        [Description("Timeline position of the cut, in ticks (must fall inside the clip).")] long positionTicks) =>
+        [Description("Timeline position of the cut, in ticks (must fall inside the clip).")] long positionTicks,
+        [Description("Whether linked partner clips split together (default true).")] bool includeLinked = true) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track track) = ResolveClip(api, clipId);
@@ -254,26 +336,58 @@ public sealed class SprocketTools(IEditorSession session)
             if (at <= clip.TimelineStart || at >= clip.TimelineEnd)
                 throw new McpException(
                     $"position {positionTicks} is outside the clip ({clip.TimelineStart.Ticks}..{clip.TimelineEnd.Ticks}).");
-            var command = new SplitClipCommand(track, clip, at);
-            api.History.Execute(command);
+
+            List<(Track Track, Clip Clip)> companions = includeLinked
+                ? api.Project.Timeline.ClipsLinkedTo(clip).Where(l => l.Clip.Contains(at)).ToList()
+                : [];
+            // Each side of a linked blade stays an independently linked A/V pair (the App's convention).
+            Guid? rightGroup = (clip.LinkGroupId is not null && companions.Count > 0) ? Guid.NewGuid() : null;
+
+            var primary = new SplitClipCommand(track, clip, at, rightGroup);
+            var commands = new List<IEditCommand> { primary };
+            var companionSplits = new List<SplitClipCommand>();
+            foreach ((Track ctrack, Clip cclip) in companions)
+            {
+                var split = new SplitClipCommand(ctrack, cclip, at, rightGroup);
+                companionSplits.Add(split);
+                commands.Add(split);
+            }
+            api.History.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Blade linked clips", commands));
             api.RefreshPreview();
-            return new JsonObject
+
+            var payload = new JsonObject
             {
                 ["left_clip_id"] = RuntimeIds.IdOf(clip),
-                ["right_clip_id"] = command.RightClip is { } right ? RuntimeIds.IdOf(right) : null,
+                ["right_clip_id"] = RuntimeIds.IdOf(primary.RightClip),
                 ["history"] = StateFormatter.HistoryObject(api.History, "split clip"),
-            }.ToJsonString();
+            };
+            if (companionSplits.Count > 0)
+                payload["linked_splits"] = new JsonArray(companionSplits
+                    .Select(s => (JsonNode)new JsonObject
+                    {
+                        ["right_clip_id"] = RuntimeIds.IdOf(s.RightClip),
+                    })
+                    .ToArray());
+            return payload.ToJsonString();
         });
 
     [McpServerTool(Name = "delete_clip", Destructive = true)]
-    [Description("Removes a clip from the timeline (undoable). A linked partner is not removed automatically.")]
-    public Task<string> DeleteClip([Description("clip_id of the clip to remove.")] int clipId) =>
+    [Description("Removes a clip from the timeline (undoable). By default linked partner clips are removed " +
+                 "too, as one undo entry.")]
+    public Task<string> DeleteClip(
+        [Description("clip_id of the clip to remove.")] int clipId,
+        [Description("Whether linked partner clips are removed together (default true).")] bool includeLinked = true) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track track) = ResolveClip(api, clipId);
-            api.History.Execute(new RemoveClipCommand(track, clip));
+            var commands = new List<IEditCommand> { new RemoveClipCommand(track, clip) };
+            if (includeLinked)
+                foreach ((Track ctrack, Clip cclip) in api.Project.Timeline.ClipsLinkedTo(clip))
+                    commands.Add(new RemoveClipCommand(ctrack, cclip));
+            api.History.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Delete clips", commands));
             api.RefreshPreview();
-            return StateFormatter.HistoryState(api.History, $"deleted clip {clipId}");
+            return StateFormatter.HistoryState(api.History,
+                commands.Count == 1 ? $"deleted clip {clipId}" : $"deleted clip {clipId} and {commands.Count - 1} linked clip(s)");
         });
 
     [McpServerTool(Name = "add_effect")]

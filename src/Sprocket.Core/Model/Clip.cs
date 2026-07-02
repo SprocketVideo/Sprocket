@@ -204,10 +204,11 @@ public sealed class Clip
 
     /// <summary>
     /// A new clip of the same <see cref="Kind"/> and content (media id / cloned generator) over the given span and
-    /// placement, <em>without</em> effects or link group. The blade split uses this for the right-hand half so the
-    /// new clip keeps a media/generator/adjustment clip's nature (PLAN.md steps 13/19).
+    /// placement, <em>without</em> effects or link group. The blade split uses this for the right-hand half, and
+    /// duplicate/paste paths use it as the content base, so the new clip keeps a media/generator/adjustment clip's
+    /// nature (PLAN.md steps 13/19).
     /// </summary>
-    internal Clip CloneContentForSpan(Timecode sourceIn, Timecode sourceOut, Timecode timelineStart) =>
+    public Clip CloneContentForSpan(Timecode sourceIn, Timecode sourceOut, Timecode timelineStart) =>
         new(Kind, MediaRefId, Generator?.Clone(), SourceSequenceId, SourceMulticamId, sourceIn, sourceOut, timelineStart)
         { SpeedRatio = _speedRatio, ActiveAngle = ActiveAngle, GainDb = GainDb };
 }

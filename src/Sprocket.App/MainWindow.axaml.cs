@@ -2282,8 +2282,163 @@ public partial class MainWindow : Window
     {
         if (_project is null)
             return null;
-        return new McpEditorSession(_project, _history, () => _currentProjectPath, () => _program,
-            saveProject: () => _currentProjectPath is { } path && SaveTo(path));
+        return new McpEditorSession(_project, _history, this);
+    }
+
+    // ── MCP session support (PLAN.md step 38 follow-on): the window-owned state and flows the
+    //    McpEditorSession seam members delegate to. All called on the UI thread (the MCP marshal point). ──
+
+    /// <summary>The document's current file path (null = untitled) — for the MCP session.</summary>
+    internal string? McpProjectPath => _currentProjectPath;
+
+    /// <summary>The Program monitor — the MCP session's transport target.</summary>
+    internal IMonitor? McpProgramMonitor => _program;
+
+    /// <summary>Whether the document has unsaved edits (the title-bar dirty indicator's condition).</summary>
+    internal bool McpIsDirty => _history.UndoCount != _savedUndoCount;
+
+    /// <summary>Saves to the current path — the MCP <c>save_project</c>. False while untitled.</summary>
+    internal bool McpSave() => _currentProjectPath is { } path && SaveTo(path);
+
+    /// <summary>Saves to an explicit path and re-points the document at it — the MCP <c>save_project_as</c>
+    /// (the dialog-free core of <see cref="SaveAsAsync"/>).</summary>
+    internal bool McpSaveAs(string path)
+    {
+        if (_project is null)
+            return false;
+        _currentProjectPath = path;
+        _projectName = ProjectDisplayName(path);
+        UpdateProjectTitle();
+        return SaveTo(path);
+    }
+
+    /// <summary>
+    /// Opens a project file for the MCP <c>open_project</c> — the dialog-free core of
+    /// <see cref="OpenProjectAsync"/> (no picker, no dirty/recovery prompts; the MCP tool gates on dirty
+    /// itself). Fires <see cref="SessionRequested"/>, which swaps the window and re-attaches a fresh MCP
+    /// session. Returns an error message, or <see langword="null"/> on success.
+    /// </summary>
+    internal string? McpOpenProject(string path)
+    {
+        if (_exporting)
+            return "an export is in progress — cancel it or wait for it to finish first.";
+        try
+        {
+            Project project = ProjectSerializer.Load(path);
+            SessionRequested?.Invoke(new SessionRequest(project, $"Opened {Path.GetFileName(path)}", path));
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return $"open failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>Starts a fresh empty project for the MCP <c>new_project</c>/<c>close_project</c> — the
+    /// dialog-free core of <see cref="NewProject"/>. Returns an error message, or <see langword="null"/>.</summary>
+    internal string? McpNewProject()
+    {
+        if (_exporting)
+            return "an export is in progress — cancel it or wait for it to finish first.";
+        var project = new Project();
+        project.Timeline.Tracks.Add(new VideoTrack { Name = "V1" });
+        project.Timeline.Tracks.Add(new AudioTrack { Name = "A1" });
+        SessionRequested?.Invoke(new SessionRequest(project, "New project", null));
+        return null;
+    }
+
+    // The MCP export mirrors ExportAsync minus its dialogs: same quiesce/resume discipline (a second
+    // concurrent libav* pipeline crashes the in-process muxer), progress into fields the status tool polls.
+    private CancellationTokenSource? _mcpExportCts;
+    private double _mcpExportProgress;
+    private string? _mcpExportPath;
+    private bool _mcpExportCompleted;
+    private bool _mcpExportCancelled;
+    private string? _mcpExportError;
+
+    /// <summary>The MCP export's observable state (<c>get_export_status</c>).</summary>
+    internal Sprocket.Mcp.McpExportStatus McpExportStatus => new(
+        _mcpExportCts is not null, _mcpExportProgress, _mcpExportPath,
+        _mcpExportCompleted, _mcpExportCancelled, _mcpExportError);
+
+    /// <summary>Requests cancellation of the MCP export (no-op when none is running).</summary>
+    internal void McpCancelExport() => _mcpExportCts?.Cancel();
+
+    /// <summary>
+    /// Starts a background export for the MCP <c>export_video</c> with the default delivery settings.
+    /// Returns an error message, or <see langword="null"/> when the export was started.
+    /// </summary>
+    internal string? McpStartExport(string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks)
+    {
+        if (_project is null)
+            return "no project is open.";
+        if (_exporting)
+            return "an export is already running — get_export_status / cancel_export.";
+        if (_project.Timeline.Duration <= Timecode.Zero)
+            return "the timeline is empty — nothing to export.";
+
+        ExportRange? range = null;
+        if (rangeInTicks is not null || rangeOutTicks is not null)
+        {
+            long rin = Math.Max(0, rangeInTicks ?? 0);
+            long rout = rangeOutTicks ?? _project.Timeline.Duration.Ticks;
+            if (rout <= rin)
+                return "the export range is empty.";
+            range = new ExportRange(new Timecode(rin), new Timecode(rout));
+        }
+
+        _mcpExportPath = outputPath;
+        _mcpExportProgress = 0;
+        _mcpExportCompleted = false;
+        _mcpExportCancelled = false;
+        _mcpExportError = null;
+        // The token source is created (and Running becomes true) before the async runner is fired, so a
+        // status poll issued right after this call never sees a not-running/not-completed gap.
+        var cts = new CancellationTokenSource();
+        _mcpExportCts = cts;
+        _ = RunMcpExportAsync(outputPath, new ExportOptions(VideoOnly: videoOnly), range, cts);
+        return null;
+    }
+
+    private async Task RunMcpExportAsync(string outputPath, ExportOptions options, ExportRange? range, CancellationTokenSource cts)
+    {
+        _exporting = true;
+        SetEnabled(false);
+        bool sourceWasActive = ReferenceEquals(_active, _source);
+        _source?.Deactivate();
+        if (_engine is not null)
+            await _engine.SuspendAsync();
+
+        var progress = new Progress<double>(p => _mcpExportProgress = p);
+        SetStatus($"Exporting (MCP) → {outputPath}");
+        try
+        {
+            await Task.Run(() => VideoExporter.Export(
+                _project!, outputPath, options, sequenceId: null, range, progress, cts.Token));
+            _mcpExportProgress = 1;
+            _mcpExportCompleted = true;
+            SetStatus($"Exported → {outputPath}");
+        }
+        catch (OperationCanceledException)
+        {
+            _mcpExportCancelled = true; // VideoExporter deletes the partial file on cancel
+            SetStatus("Export cancelled");
+        }
+        catch (Exception ex)
+        {
+            _mcpExportError = ex.Message; // ditto on failure — no corrupt file is left behind
+            SetStatus($"Export failed: {ex.Message}");
+        }
+        finally
+        {
+            _mcpExportCts = null;
+            cts.Dispose();
+            _engine?.Resume();
+            if (sourceWasActive)
+                _source?.Activate();
+            _exporting = false;
+            SetEnabled(true);
+        }
     }
 
     /// <summary>Asks the user to confirm discarding unsaved changes; returns <c>true</c> to proceed. A clean
