@@ -66,6 +66,7 @@
     <ProjectReference Include="..\Sprocket.Export\Sprocket.Export.csproj" />
     <ProjectReference Include="..\Sprocket.Persistence\Sprocket.Persistence.csproj" />
     <ProjectReference Include="..\Sprocket.Plugins\Sprocket.Plugins.csproj" />
+    <ProjectReference Include="..\Sprocket.Mcp\Sprocket.Mcp.csproj" />
   </ItemGroup>
 
 </Project>

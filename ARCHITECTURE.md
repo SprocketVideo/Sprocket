@@ -634,6 +634,14 @@ own section but noted here so the "additive, not a rewrite" invariant stays cano
 - **Color grading** — wheels / curves / qualifiers are further `IVideoEffect` effect-chain stages
   (§7); scopes read the rendered frame. Another effect-chain addition, like log media (§18, PLAN
   step 23d).
+- **AI control (MCP server)** — an external AI client drives the editor through an in-process,
+  loopback-only [MCP](https://modelcontextprotocol.io) server (`Sprocket.Mcp`, off by default,
+  PLAN step 38) that is a *pure consumer of existing seams*: every state-changing tool builds
+  `IEditCommand`s and runs them through the one `EditHistory` (§4 — AI edits are undoable by
+  construction and share the UI's validation), reads come from the same model the UI renders, and
+  a single marshal point puts every tool callback on the model-owning UI thread (§8). No new
+  mutation path, no second source of truth; the transport (stateless Streamable HTTP over a plain
+  `HttpListener`) can be swapped without touching the tool layer.
 - **Collaboration-ready format & asset-link split** — persistence-layer only (§12): the diffable
   project file references sources by stable `MediaRef` **Id**, while each user's absolute asset paths
   move to a separate local sidecar, so a pulled project-file change never forces a relink. The Core

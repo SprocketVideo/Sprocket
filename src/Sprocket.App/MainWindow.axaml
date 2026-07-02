@@ -70,6 +70,11 @@
             <Separator />
             <!-- Select All needs multi-clip selection (not yet modelled) — stays disabled. -->
             <MenuItem x:Name="SelectAllMenuItem" Header="Select _All" InputGesture="Ctrl+A" IsEnabled="False" />
+            <Separator />
+            <!-- Application-level (user-scoped) settings (PLAN.md step 38) — Edit ▸ Preferences with Ctrl+,
+                 matches the Premiere/Resolve convention on Windows/Linux. The gesture is handled in OnKeyDown;
+                 the text here is the display label (OemComma would render as "Ctrl+OemComma"). -->
+            <MenuItem x:Name="PreferencesMenuItem" Header="Pre_ferences…" InputGesture="Ctrl+," />
           </MenuItem>
           <MenuItem x:Name="ClipMenu" Header="_Clip">
             <!-- Insert generators / adjustment layer at the playhead (PLAN.md step 19); children added at runtime. -->
@@ -223,6 +228,15 @@
           <Ellipse x:Name="StateDot" Width="8" Height="8" Fill="{DynamicResource Good}" VerticalAlignment="Center" />
           <TextBlock x:Name="EngineStateText" Foreground="{DynamicResource MutedText}" FontSize="11"
                      VerticalAlignment="Center" Text="Ready" />
+          <!-- MCP server indicator (PLAN.md step 38): visible only while the loopback MCP listener runs, so the
+               user always knows when the app is externally controllable. Driven by UpdateMcpStatus(). -->
+          <StackPanel x:Name="McpStatus" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                      Margin="10,0,0,0" IsVisible="False">
+            <Border Width="1" Height="12" Background="{DynamicResource Edge}" Margin="0,0,4,0" />
+            <Ellipse x:Name="McpDot" Width="8" Height="8" Fill="{DynamicResource Good}" VerticalAlignment="Center" />
+            <TextBlock x:Name="McpLabel" Foreground="{DynamicResource MutedText}" FontSize="11"
+                       VerticalAlignment="Center" Text="" />
+          </StackPanel>
         </StackPanel>
         <!-- Media info / transient messages (export + save status). -->
         <TextBlock x:Name="StatusText" Grid.Column="1" Margin="16,0" VerticalAlignment="Center"

@@ -13,6 +13,10 @@ public partial class App : Application
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private PlaybackEngine? _engine; // the live session's engine; swapped on File ▸ New / Open (PLAN.md step 16c)
     private ProxyService? _proxy;    // the live session's proxy service (PLAN.md step 18); swapped alongside the engine
+    private McpServerService? _mcp;  // app-scoped MCP server controller (PLAN.md step 38); survives session swaps
+
+    /// <summary>The MCP server controller, for the shell's status-bar indicator.</summary>
+    internal McpServerService? McpService => _mcp;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -27,8 +31,13 @@ public partial class App : Application
             // clip is generated, so there is nothing slow to cover and no splash. Build the session synchronously
             // and hand the shell to the lifetime, which shows it. MediaBootstrap.Create degrades to an empty
             // project rather than throwing, so this can't strand the user.
+            _mcp = new McpServerService();
             MediaBootstrap.Result result = MediaBootstrap.Create(desktop.Args ?? []);
             desktop.MainWindow = BuildWindow(result.Engine, result.Project, result.Status, projectPath: null, result.Proxy, result.AudioClock);
+
+            // Honour the persisted MCP toggle (PLAN.md step 38): applying the stored settings IS the user's
+            // switch — the server is never started unless that toggle was left on.
+            _ = _mcp.ApplyAsync(UserSettingsFile.Load());
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -43,6 +52,7 @@ public partial class App : Application
         _proxy = proxy;
         var window = new MainWindow(engine, project, status, projectPath, proxy, audioClock);
         window.SessionRequested += OnSessionRequested;
+        _mcp?.AttachSession(window.CreateMcpSession()); // re-point the MCP server at the new session
         return window;
     }
 
@@ -81,8 +91,14 @@ public partial class App : Application
         }
     }
 
+    /// <summary>Applies the MCP fields of the user settings — starts, stops, or restarts the loopback MCP
+    /// server (PLAN.md step 38). Called by the Preferences dialog and once at startup.</summary>
+    internal void ApplyMcpSettings(UserSettings settings) => _ = _mcp?.ApplyAsync(settings);
+
     private async void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
+        if (_mcp is { } mcp)
+            await mcp.DisposeAsync(); // stop accepting AI edits before the session tears down
         _proxy?.Dispose();
         if (_engine is { } engine)
             await engine.DisposeAsync();

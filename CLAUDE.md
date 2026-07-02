@@ -102,7 +102,8 @@ Sprocket.App ──► Sprocket.Playback ──► Sprocket.Render ──► Spr
      │              │      │              │
      │              │      └──► Sprocket.Audio ──► Sprocket.Core
      │              └──► Sprocket.Media ──────────► Sprocket.Core
-     └──► (Persistence, later) ──► Sprocket.Core
+     ├──► Sprocket.Persistence ──► Sprocket.Core
+     └──► Sprocket.Mcp ──► Sprocket.Core (+ Persistence)
 ```
 
 - **`Sprocket.Core`** is the keystone and depends on **nothing** (no native, no UI — its build
@@ -129,6 +130,11 @@ Sprocket.App ──► Sprocket.Playback ──► Sprocket.Render ──► Spr
   sync), `SoftwareClock`, `IVideoFrameFeed`.
 - **`Sprocket.App`** — Avalonia UI shell + composition root that wires the concrete implementations
   to Core's seams.
+- **`Sprocket.Mcp`** — the in-process, loopback-only MCP server (PLAN step 38; off by default, toggled
+  in Edit ▸ Preferences). **No Avalonia** — it reaches the live session through its `IEditorSession`
+  seam (implemented in App), whose single marshal point runs every tool on the model-owning UI thread;
+  all edit tools route through `EditHistory`, so AI edits are undoable by construction. Only NuGet:
+  `ModelContextProtocol.Core` (pinned; no ASP.NET Core — the HTTP front end is a plain `HttpListener`).
 - **`Sprocket.Spike`** — the standalone de-risk spike from PLAN step 1. **Not part of the app**;
   leave it as the reference artifact.
 

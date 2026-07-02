@@ -29,6 +29,53 @@ public static class ProxyCache
         return Path.Combine(baseDir, "Sprocket", "proxies");
     }
 
+    /// <summary>Total size in bytes of everything in the proxy cache (0 when the directory is absent).</summary>
+    public static long SizeBytes()
+    {
+        try
+        {
+            var dir = new DirectoryInfo(Directory());
+            if (!dir.Exists)
+                return 0;
+            long total = 0;
+            foreach (FileInfo file in dir.EnumerateFiles("*", SearchOption.AllDirectories))
+                total += file.Length;
+            return total;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Best-effort delete of every file in the proxy cache (the Preferences "Clear proxy cache" action,
+    /// PLAN.md step 38). Files that are in use (e.g. a proxy the current session is playing) are skipped;
+    /// the directory itself is kept. Proxies regenerate on demand, so clearing is always safe. Returns the
+    /// number of files deleted.
+    /// </summary>
+    public static int DeleteAll()
+    {
+        var dir = new DirectoryInfo(Directory());
+        if (!dir.Exists)
+            return 0;
+
+        int deleted = 0;
+        foreach (FileInfo file in dir.EnumerateFiles("*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                file.Delete();
+                deleted++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // In use or locked — leave it; it will be reused or aged out naturally.
+            }
+        }
+        return deleted;
+    }
+
     /// <summary>
     /// A stable file name for the proxy of the source at <paramref name="absolutePath"/> (whose on-disk identity
     /// is <paramref name="length"/> bytes / <paramref name="lastWriteUtcTicks"/>) at the given target dimensions.

@@ -619,6 +619,14 @@ internal static class ExportSettingsDialog
         var bakeColorCheck = MakeCheck("Bake input color transform (log → Rec.709)");
         bakeColorCheck.IsChecked = true;
 
+        // Container metadata tags (PLAN.md step 38), prefilled from the user-settings defaults set in
+        // Edit ▸ Preferences. Per-export values, not preset state (they describe the work, not the format).
+        UserSettings metaDefaults = UserSettingsFile.Load();
+        TextBox metaTitle = MakeMetaBox(metaDefaults.ExportTitle);
+        TextBox metaAuthor = MakeMetaBox(metaDefaults.ExportAuthor);
+        TextBox metaCopyright = MakeMetaBox(metaDefaults.ExportCopyright);
+        TextBox metaComment = MakeMetaBox(metaDefaults.ExportComment);
+
         var savePreset = new Button
         {
             Content = "Save Preset…",
@@ -664,6 +672,9 @@ internal static class ExportSettingsDialog
                 LabeledRow("Handles (frames before / after the range)", handlesBox),
                 new TextBlock { Text = "Color", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) },
                 bakeColorCheck,
+                new TextBlock { Text = "Metadata", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) },
+                TwoColumnRow("Title", metaTitle, "Author", metaAuthor),
+                TwoColumnRow("Copyright", metaCopyright, "Comment", metaComment),
             },
         };
 
@@ -734,7 +745,11 @@ internal static class ExportSettingsDialog
                 Resolution: Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
                 FrameRate: FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value,
                 Acceleration: encodingBox.SelectedIndex == 1 ? ExportAcceleration.Hardware : ExportAcceleration.Software,
-                BakeColorTransform: bakeColorCheck.IsChecked != false));
+                BakeColorTransform: bakeColorCheck.IsChecked != false,
+                MetaTitle: metaTitle.Text,
+                MetaAuthor: metaAuthor.Text,
+                MetaCopyright: metaCopyright.Text,
+                MetaComment: metaComment.Text));
         };
         cancel.Click += (_, _) => dialog.Close((ExportOptions?)null);
 
@@ -882,6 +897,15 @@ internal static class ExportSettingsDialog
         combo.SelectedIndex = defaultIndex;
         return combo;
     }
+
+    /// <summary>A metadata text field prefilled with its user-settings default (PLAN.md step 38).</summary>
+    private static TextBox MakeMetaBox(string value) => new()
+    {
+        Text = value,
+        Foreground = Palette.TextBrush,
+        Background = Palette.PanelBgBrush,
+        FontSize = 12,
+    };
 
     private static CheckBox MakeCheck(string label) => new()
     {

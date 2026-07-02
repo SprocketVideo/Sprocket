@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sprocket.Mcp — the in-process MCP (Model Context Protocol) server (PLAN.md step 38): lets an external
+    AI client (Claude Code / Claude Desktop) inspect the open project and issue edits over a loopback-only
+    Streamable-HTTP endpoint. Off by default; started/stopped purely by the user-settings toggle in
+    Sprocket.App.
+
+    Sits beside the other feature libraries: references Core (model + command stack) and Persistence
+    (project snapshots) only — no Avalonia, no Media/FFmpeg. Everything MainWindow-owned reaches this
+    project through the IEditorSession seam, whose single marshal point keeps every tool invocation on
+    the UI thread that owns the model (ARCHITECTURE.md §8) and routes every mutation through EditHistory,
+    so AI-driven edits are undoable by construction (§4).
+
+    The official C# MCP SDK's Core package is deliberately the only NuGet: it carries no ASP.NET Core /
+    Kestrel — the HTTP front end is a plain HttpListener bound to 127.0.0.1 (McpServerHost).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sprocket.Mcp.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
+    <ProjectReference Include="..\Sprocket.Persistence\Sprocket.Persistence.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The official MCP C# SDK, Core package only (no ASP.NET Core). Pinned like the rest of the stack
+         (CLAUDE.md "Version pinning"): 1.4.0 is the current stable 1.x; 2.0 previews change transport
+         contracts — do not bump casually. -->
+    <PackageReference Include="ModelContextProtocol.Core" Version="1.4.0" />
+  </ItemGroup>
+
+</Project>

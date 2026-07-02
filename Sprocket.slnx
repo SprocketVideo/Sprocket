@@ -7,6 +7,7 @@
     <Project Path="src/Sprocket.Playback/Sprocket.Playback.csproj" />
     <Project Path="src/Sprocket.Export/Sprocket.Export.csproj" />
     <Project Path="src/Sprocket.Persistence/Sprocket.Persistence.csproj" />
+    <Project Path="src/Sprocket.Mcp/Sprocket.Mcp.csproj" />
     <Project Path="src/Sprocket.Plugins/Sprocket.Plugins.csproj" />
     <Project Path="src/Sprocket.App/Sprocket.App.csproj" />
     <Project Path="src/Sprocket.Spike/Sprocket.Spike.csproj" />
@@ -19,6 +20,7 @@
     <Project Path="tests/Sprocket.Playback.Tests/Sprocket.Playback.Tests.csproj" />
     <Project Path="tests/Sprocket.Export.Tests/Sprocket.Export.Tests.csproj" />
     <Project Path="tests/Sprocket.Persistence.Tests/Sprocket.Persistence.Tests.csproj" />
+    <Project Path="tests/Sprocket.Mcp.Tests/Sprocket.Mcp.Tests.csproj" />
     <Project Path="tests/Sprocket.Plugins.Tests/Sprocket.Plugins.Tests.csproj" />
     <Project Path="tests/Sprocket.TestPlugin/Sprocket.TestPlugin.csproj" />
     <Project Path="tests/Sprocket.App.Tests/Sprocket.App.Tests.csproj" />

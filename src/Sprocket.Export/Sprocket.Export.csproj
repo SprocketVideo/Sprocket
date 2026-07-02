@@ -20,6 +20,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Sprocket.Export.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
     <ProjectReference Include="..\Sprocket.Media\Sprocket.Media.csproj" />
     <ProjectReference Include="..\Sprocket.Render\Sprocket.Render.csproj" />

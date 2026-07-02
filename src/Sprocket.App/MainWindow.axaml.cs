@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     private readonly Sprocket.Audio.AudioEngine? _audioClock; // live loudness source for the mixer meters (PLAN.md step 30); owned by the engine
     private readonly EditHistory _history = new();
     private AutosaveService? _autosave; // periodic debounced autosave (PLAN.md step 20)
+    private UserSettings _userSettings = UserSettingsFile.Load(); // user-scoped app preferences (PLAN.md step 38)
 
     private ThumbnailService? _thumbnails;
     private MediaBrowserPanel? _mediaBrowser;
@@ -92,6 +93,12 @@ public partial class MainWindow : Window
     // Controls captured for later updates.
     private TextBlock? _statusText, _telemetryText, _engineStateText, _saveStateText, _timelineHeader;
     private Ellipse? _stateDot;
+
+    // MCP indicator (PLAN.md step 38): visible only while the app-scoped MCP listener runs.
+    private StackPanel? _mcpStatusPanel;
+    private Ellipse? _mcpDot;
+    private TextBlock? _mcpLabel;
+    private McpServerService? _mcpService;
 
     // Status-bar telemetry (PLAN.md step 29, UI.md §3.7). The live readout (state + GPU/hw-accel + fps) is polled
     // on a slow UI timer, and — critically for the no-per-frame-work rule (ARCHITECTURE.md §1) — the timer runs
@@ -169,6 +176,9 @@ public partial class MainWindow : Window
         _engineStateText = this.FindControl<TextBlock>("EngineStateText")!;
         _stateDot = this.FindControl<Ellipse>("StateDot")!;
         _saveStateText = this.FindControl<TextBlock>("SaveStateText")!;
+        _mcpStatusPanel = this.FindControl<StackPanel>("McpStatus");
+        _mcpDot = this.FindControl<Ellipse>("McpDot");
+        _mcpLabel = this.FindControl<TextBlock>("McpLabel");
         _timelineHeader = this.FindControl<TextBlock>("TimelineHeader")!;
         _undoMenuItem = this.FindControl<MenuItem>("UndoMenuItem")!;
         _redoMenuItem = this.FindControl<MenuItem>("RedoMenuItem")!;
@@ -189,11 +199,21 @@ public partial class MainWindow : Window
         _history.Changed += OnHistoryChanged;
         OnHistoryChanged(); // initialise menu-enable + save-state
 
+        // MCP indicator (PLAN.md step 38): mirror the app-scoped server's state so the user always sees when
+        // the editor is externally controllable. The service outlives this window; unhooked in OnClosed.
+        if (Application.Current is App { McpService: { } mcpService })
+        {
+            _mcpService = mcpService;
+            mcpService.StateChanged += UpdateMcpStatus;
+            UpdateMcpStatus();
+        }
+
         // Autosave (PLAN.md step 20): a debounced sidecar write driven off the dirty signal. Beside the project
         // file once it has one, else a per-user untitled slot — so a crash before the first manual save is still
         // recoverable. Independent of playback, so it runs even when no engine is available.
         if (_project is not null)
-            _autosave = new AutosaveService(_project, _history, () => _currentProjectPath);
+            _autosave = new AutosaveService(_project, _history, () => _currentProjectPath,
+                TimeSpan.FromSeconds(_userSettings.AutosaveIntervalSeconds));
 
         // Preview render cache (PLAN.md step 32): the cache dir is derived from the project path at session
         // start; still-valid renders from an earlier session validate immediately (content-hash keyed). Wire
@@ -266,6 +286,8 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        if (_mcpService is { } mcpService)
+            mcpService.StateChanged -= UpdateMcpStatus; // the service outlives this window (session swaps)
         WindowStateStore.Save(_lastNonMinimizedState); // remember maximized-or-not for next launch
         _telemetryTimer?.Stop(); // stop the status-bar poll (harmless if already idle)
         _statsOverlay?.Close(); // tear down the diagnostics overlay's poll timer
@@ -299,6 +321,7 @@ public partial class MainWindow : Window
         // Edit
         _undoMenuItem!.Click += (_, _) => _history.Undo();
         _redoMenuItem!.Click += (_, _) => _history.Redo();
+        this.FindControl<MenuItem>("PreferencesMenuItem")!.Click += (_, _) => _ = ShowPreferencesAsync();
 
         // Help
         this.FindControl<MenuItem>("AboutMenuItem")!.Click += (_, _) => _ = AboutDialog.Show(this);
@@ -429,6 +452,7 @@ public partial class MainWindow : Window
         if (ctrl && shift && e.Key == Key.E) { OpenExportQueue(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.E) { _ = ExportAsync(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.I) { _ = ImportDialogAsync(); e.Handled = true; return; }
+        if (ctrl && e.Key == Key.OemComma) { _ = ShowPreferencesAsync(); e.Handled = true; return; }
         if (ctrl && shift && e.Key == Key.Z) { _history.Redo(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.Z) { _history.Undo(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.Y) { _history.Redo(); e.Handled = true; return; }
@@ -473,6 +497,41 @@ public partial class MainWindow : Window
         else if (e.Key == Key.I) { SetMarkAtPlayhead(inPoint: true); e.Handled = true; }
         else if (e.Key == Key.O) { SetMarkAtPlayhead(inPoint: false); e.Handled = true; }
         else if (e.Key == Key.Space) { if (!_exporting) _active?.TogglePlayPause(); e.Handled = true; }
+    }
+
+    /// <summary>
+    /// Edit ▸ Preferences (PLAN.md step 38): shows the user-scoped settings dialog and applies the result —
+    /// persists to disk, rebuilds the autosave timer if its interval changed, and hands the MCP fields to the
+    /// app-scoped server controller (which starts/stops/restarts the loopback listener as needed).
+    /// </summary>
+    private async Task ShowPreferencesAsync()
+    {
+        UserSettings? updated = await PreferencesDialog.Show(this, _userSettings,
+            proxyCacheSize: Proxy.ProxyCache.SizeBytes,
+            clearProxyCache: Proxy.ProxyCache.DeleteAll,
+            renderCacheSize: () => _renderCache?.SizeBytes() ?? 0,
+            clearRenderCache: () => _renderCache?.DeleteAll());
+        if (updated is null)
+            return;
+
+        bool autosaveChanged = updated.AutosaveIntervalSeconds != _userSettings.AutosaveIntervalSeconds;
+        _userSettings = updated;
+        UserSettingsFile.Save(updated);
+
+        if (autosaveChanged && _project is not null)
+        {
+            _autosave?.Dispose();
+            _autosave = new AutosaveService(_project, _history, () => _currentProjectPath,
+                TimeSpan.FromSeconds(updated.AutosaveIntervalSeconds));
+        }
+
+        if (_mcpService is { } mcpService)
+        {
+            await mcpService.ApplyAsync(updated);
+            if (mcpService.State == McpServerService.McpState.Error)
+                await MessageDialog.Show(this, "MCP Server",
+                    mcpService.LastError ?? "The MCP server failed to start.");
+        }
     }
 
     private bool IsTypingInTextBox() =>
@@ -628,6 +687,32 @@ public partial class MainWindow : Window
             _engineStateText.Text = label;
         if (_stateDot is not null && !ReferenceEquals(_stateDot.Fill, dot))
             _stateDot.Fill = dot;
+    }
+
+    /// <summary>The status-bar MCP indicator (PLAN.md step 38): hidden while off; green dot + "MCP :port"
+    /// while listening; red dot + the bind error as tooltip when the toggle is on but the port won't bind.</summary>
+    private void UpdateMcpStatus()
+    {
+        if (_mcpStatusPanel is null || _mcpService is null)
+            return;
+        switch (_mcpService.State)
+        {
+            case McpServerService.McpState.Listening:
+                _mcpStatusPanel.IsVisible = true;
+                if (_mcpDot is not null) _mcpDot.Fill = Palette.GoodBrush;
+                if (_mcpLabel is not null) _mcpLabel.Text = $"MCP :{_mcpService.Port}";
+                ToolTip.SetTip(_mcpStatusPanel, "AI control (MCP) is enabled — a local client can inspect and edit this project.");
+                break;
+            case McpServerService.McpState.Error:
+                _mcpStatusPanel.IsVisible = true;
+                if (_mcpDot is not null) _mcpDot.Fill = Palette.BadBrush;
+                if (_mcpLabel is not null) _mcpLabel.Text = "MCP error";
+                ToolTip.SetTip(_mcpStatusPanel, _mcpService.LastError);
+                break;
+            default:
+                _mcpStatusPanel.IsVisible = false;
+                break;
+        }
     }
 
     /// <summary>
@@ -2167,7 +2252,7 @@ public partial class MainWindow : Window
         SaveTo(path);
     }
 
-    private void SaveTo(string path)
+    private bool SaveTo(string path)
     {
         try
         {
@@ -2179,11 +2264,26 @@ public partial class MainWindow : Window
             Autosave.Delete(Autosave.SidecarPath(path));
             OnHistoryChanged(); // refresh the dirty indicator
             SetStatus($"Saved → {path}");
+            return true;
         }
         catch (Exception ex)
         {
             SetStatus($"Save failed: {ex.Message}");
+            return false;
         }
+    }
+
+    /// <summary>
+    /// Builds the MCP editor-session bridge over this window's project / history / transport
+    /// (PLAN.md step 38), or <see langword="null"/> when the shell has no project. Owned by the app-scoped
+    /// <see cref="McpServerService"/>, which re-attaches on every session swap.
+    /// </summary>
+    internal Sprocket.Mcp.IEditorSession? CreateMcpSession()
+    {
+        if (_project is null)
+            return null;
+        return new McpEditorSession(_project, _history, () => _currentProjectPath, () => _program,
+            saveProject: () => _currentProjectPath is { } path && SaveTo(path));
     }
 
     /// <summary>Asks the user to confirm discarding unsaved changes; returns <c>true</c> to proceed. A clean

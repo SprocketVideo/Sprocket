@@ -2401,6 +2401,56 @@ Tags reference the [UI.md §4 checklist](UI.md).
       the model, §8); decode/render/audio threads are untouched.
     - **Security.** Off by default, loopback-only, and clearly indicated in the UI while running so
       the user knows the app is externally controllable; no remote/network exposure in this step.
+    - **✅ DONE (new `src/Sprocket.Mcp` + `tests/Sprocket.Mcp.Tests`; `Sprocket.App/{UserSettingsStore,
+      UserSettingsFile,PreferencesFormat,PreferencesDialog,McpEditorSession,McpServerService}.cs`;
+      62 new tests — App +32 (`UserSettingsStoreTests`, `PreferencesFormatTests`), Mcp +28
+      (`RuntimeIdsTests`, `StateFormatterTests`, `SprocketToolsTests`, `McpEndToEndTests`), Export +2
+      (`ExportMetadataTests`); full suite **1064 green**, 0 warnings, smoke launch exit 0.)** An external
+      AI client can now inspect and edit the open project over loopback MCP, and the app gained its
+      user-scoped Preferences. Delivered:
+      - **Preferences (the prerequisite):** a `UserSettings` record persisted to
+        `%AppData%/Sprocket/settings.json` (tested store `UserSettingsStore` + thin `UserSettingsFile`,
+        the `ExportPresetStore`/`WindowStateStore` split), surfaced in a code-built **Edit ▸ Preferences…**
+        (Ctrl+,) dialog: **clear proxy cache** (new `ProxyCache.SizeBytes/DeleteAll`) and **render cache
+        (this project)** with live sizes; **export-metadata defaults**; **autosave interval** (1–600 s,
+        fed to `AutosaveService`'s existing ctor param); and the **MCP controls** — enable toggle, port
+        (default **41008**), optional **bearer-token requirement** (token generated on first enable,
+        preserved on disable), and a **Copy setup command** button producing the paste-ready
+        `claude mcp add --transport http sprocket http://127.0.0.1:<port>/mcp [--header …]` line.
+      - **Export metadata defaults:** `ExportOptions.MetaTitle/Author/Copyright/Comment` → written by
+        `MediaEncoder` via the already-bound `av_dict_set` (after the provenance tags, so a user comment
+        wins) with FFmpeg generic keys (`title`/`artist`/`copyright`/`comment`); export-dialog "Metadata"
+        section prefills from the defaults; verified end-to-end against the `ffmpeg -i` banner.
+      - **`Sprocket.Mcp`** (references Core + Persistence + pinned **`ModelContextProtocol.Core` 1.4.0**
+        — the official SDK's no-ASP.NET-Core package): **stateless Streamable HTTP** on a plain
+        `HttpListener` bound to `http://127.0.0.1:{port}/mcp/` (`McpServerHost`, mirroring the SDK's own
+        AspNetCore stateless handler sequence — the documented fallback if ever needed); **22 tools** —
+        reads (`get_project_state`/`list_media`/`list_clips`/`get_playhead`/`list_effect_types`),
+        transport (`seek`/`play`/`pause`), history/persistence (`undo`/`redo`/`save_project`), and edits
+        (`import_media`, `add_clip_to_timeline` via the UI's own `MediaImport`/`ClipPlacement` — linked
+        A/V + log-color-transform prepend for free — `trim_clip`, `move_clip`, `split_clip`,
+        `delete_clip`, `add_effect`, `set_effect_parameter`, `remove_effect`, `add_marker`,
+        `remove_marker`). **Clips/tracks are addressed by per-session runtime ids** (`RuntimeIds`, a
+        `ConditionalWeakTable` registry — ids survive undo because commands re-insert the same
+        instances; nothing touches the model or serializer).
+      - **Commands + threading as specified:** every edit tool builds `IEditCommand`s through the one
+        `EditHistory` (undoable by construction, shared with the UI), inside a single
+        `IEditorSession.OnModelThreadAsync` callback marshalled to the UI thread (§8) — atomic against
+        user edits; a paused preview refreshes via a same-position seek after structural edits.
+      - **Lifecycle & security:** the app-scoped `McpServerService` survives File ▸ New/Open window
+        swaps (the session slot re-attaches; parked = 503), starts **only** from the settings toggle,
+        restarts on port/token change, and disposes before engine teardown; requests with an `Origin`
+        header get 403 (DNS-rebinding guard), wrong/missing token gets 401 when required; a status-bar
+        **"MCP :port" indicator** (green dot; red + tooltip on bind failure) shows whenever the editor
+        is externally controllable.
+      - **End-to-end tested with the SDK's real client:** in-memory stream transport (CI-safe, no ports)
+        and the actual HttpListener endpoint on an ephemeral port — list tools (22, schemas from
+        signatures), read state, edit, undo, tool-error (not protocol-error) on a bad id, 403/401/503
+        enforcement, and session re-attach after a swap.
+      - **Deliberate scope notes:** export start/status/cancel tools, ripple/roll/slide, speed/fade,
+        transition, and track/sequence/multicam tools deferred (all mechanical on the same
+        command-routed pattern); `split_clip`/`delete_clip` act on the addressed clip only (linked
+        partner documented, not auto-affected); stateless mode has no server→client push (GET → 405).
 
 39. **Fade handles & opacity rubber-band (on-timeline fade editing + visualization).** Make a clip's
     fade in/out directly **visible and editable on the timeline**, so a fade is never an invisible

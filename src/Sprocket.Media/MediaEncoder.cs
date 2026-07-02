@@ -165,8 +165,17 @@ public sealed unsafe class MediaEncoder : IDisposable
     /// <see langword="null"/>. Opens the output file and writes the header so the encoder is ready for
     /// <see cref="WriteVideoFrame"/>/<see cref="WriteAudioFrame"/>.
     /// </summary>
+    /// <param name="path">Output file path.</param>
+    /// <param name="video">Video stream settings.</param>
+    /// <param name="audio">Audio stream settings, or <see langword="null"/> for video-only output.</param>
+    /// <param name="containerFormat">FFmpeg muxer name, or <see langword="null"/> to guess from the extension.</param>
+    /// <param name="metadata">Optional container-level metadata tags (FFmpeg generic keys such as
+    /// <c>title</c> / <c>artist</c> / <c>copyright</c> / <c>comment</c>, mapped per container by the muxer),
+    /// written into the header after Sprocket's provenance tags — so a user-supplied <c>comment</c> wins
+    /// over the default "Created with Sprocket" (PLAN.md step 38 export-metadata defaults).</param>
     public static MediaEncoder Create(
-        string path, VideoEncoderSettings video, AudioEncoderSettings? audio = null, string? containerFormat = null)
+        string path, VideoEncoderSettings video, AudioEncoderSettings? audio = null, string? containerFormat = null,
+        IReadOnlyList<KeyValuePair<string, string>>? metadata = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         if (video.Width <= 0 || video.Height <= 0)
@@ -201,6 +210,14 @@ public sealed unsafe class MediaEncoder : IDisposable
             // Tag the file as Sprocket's output so players / ffprobe surface its provenance. Must be set
             // before WriteHeader — the muxer serializes the metadata dictionary as part of the header.
             WriteCreationMetadata(format);
+
+            // Caller-supplied tags land after the provenance defaults so they overwrite on key collision.
+            if (metadata is not null)
+            {
+                foreach ((string key, string value) in metadata)
+                    if (!string.IsNullOrEmpty(value))
+                        format.SetMetadata(key, value);
+            }
 
             // Open the output file (unless the muxer is file-less) and write the container header. NOTE:
             // avformat_write_header may rewrite each stream's time_base (the muxer picks its own timescale),

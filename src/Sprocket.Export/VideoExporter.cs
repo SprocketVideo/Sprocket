@@ -44,6 +44,12 @@ namespace Sprocket.Export;
 /// is baked into the output (the default — deliverables match the preview) or stripped so the export <b>passes
 /// through the log encoding</b> for downstream grading. Pass-through is pure plan surgery
 /// (<see cref="RenderGraph.StripEffects"/>); the project is untouched.</param>
+/// <param name="MetaTitle">Container <c>title</c> metadata tag, or <see langword="null"/>/empty for none
+/// (PLAN.md step 38 export-metadata defaults; the export dialog prefills these from the user settings).</param>
+/// <param name="MetaAuthor">Container author metadata (FFmpeg's generic <c>artist</c> key), or <see langword="null"/>.</param>
+/// <param name="MetaCopyright">Container <c>copyright</c> metadata tag, or <see langword="null"/>.</param>
+/// <param name="MetaComment">Container <c>comment</c> metadata tag, or <see langword="null"/> to keep the
+/// default "Created with Sprocket" provenance note.</param>
 public readonly record struct ExportOptions(
     ExportFormat Format = default,
     ExportQuality Quality = ExportQuality.High,
@@ -59,7 +65,11 @@ public readonly record struct ExportOptions(
     ExportAcceleration Acceleration = ExportAcceleration.Software,
     string? Preset = null,
     bool VideoOnly = false,
-    bool BakeColorTransform = true);
+    bool BakeColorTransform = true,
+    string? MetaTitle = null,
+    string? MetaAuthor = null,
+    string? MetaCopyright = null,
+    string? MetaComment = null);
 
 /// <summary>
 /// Renders a <see cref="Project"/> offline to a full-resolution movie in the chosen container/codec matrix
@@ -210,7 +220,7 @@ public static class VideoExporter
 
         try
         {
-            encoder = MediaEncoder.Create(outputPath, video, audio, format.MuxerName);
+            encoder = MediaEncoder.Create(outputPath, video, audio, format.MuxerName, BuildMetadata(options));
 
             var info = new SKImageInfo(outWidth, outHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
             surface = SKSurface.Create(info)
@@ -285,6 +295,25 @@ public static class VideoExporter
     {
         try { if (File.Exists(path)) File.Delete(path); }
         catch { /* best-effort cleanup of a partial export; never mask the original failure */ }
+    }
+
+    /// <summary>The container metadata tags for an export, or <see langword="null"/> when none are set —
+    /// FFmpeg generic keys (<c>artist</c> is the author tag), mapped per container by the muxer
+    /// (PLAN.md step 38). Exposed for tests.</summary>
+    internal static IReadOnlyList<KeyValuePair<string, string>>? BuildMetadata(in ExportOptions options)
+    {
+        List<KeyValuePair<string, string>>? tags = null;
+        Add("title", options.MetaTitle);
+        Add("artist", options.MetaAuthor);
+        Add("copyright", options.MetaCopyright);
+        Add("comment", options.MetaComment);
+        return tags;
+
+        void Add(string key, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                (tags ??= []).Add(new KeyValuePair<string, string>(key, value.Trim()));
+        }
     }
 
     /// <summary>4K delivery cap (PLAN.md step 27): DCI-4K width (UHD 3840 fits) and 4K height. An export-side
