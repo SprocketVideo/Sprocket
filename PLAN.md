@@ -2297,6 +2297,14 @@ Tags reference the [UI.md §4 checklist](UI.md).
       **Still outstanding:** a real Linux AppImage/tarball with the desktop entry integrated; the macOS
       `.app` bundle with `@loader_path` dylibs; **code-signing + notarization**; a Windows installer; and
       the CI smoke-launch / sample-export validation of each artifact.
+36a. **Third-party notices / license acknowledgements.** Before distribution, inventory every third-party
+    library, bundled native binary, codec build, font, icon, sample-media asset, and other redistributable
+    resource Sprocket ships; record license, copyright/notice text, source URL, and any source-offer or
+    attribution obligations. Generate a packaged `THIRD-PARTY-NOTICES` / `NOTICE` artifact alongside the
+    installers and expose it from **Help ▸ Third-Party Notices** (or an equivalent **Third-Party Notices** /
+    **Licenses** button inside **Help ▸ About**, whichever best matches the final platform conventions).
+    Keep the main About view focused on product name/version (step 16c); the notices surface is for
+    compliance details, including FFmpeg LGPL/GPL build choices and any bundled assets.
 37. **Log media & color management (D-Log).** Support DJI **D-Log / D-Log M / D-Log 2** as a
     per-clip **input color transform**, landing on the existing effect seam
     ([ARCHITECTURE §18](ARCHITECTURE.md), §7, §17) — **not** via FFmpeg's `lut3d`/`WriteableBitmap`,
