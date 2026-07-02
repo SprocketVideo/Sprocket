@@ -52,6 +52,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Status bar (engine state, messages, live fps/size/duration) | UI.md §3.7; MainWindow.axaml.cs `RenderTelemetry` | getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | — | ❌ |
 | Help ▸ About (version, open logs folder) | Sprocket.App/Dialogs.cs `AboutDialog` | — | ❌ |
+| Help ▸ Third-Party Notices (bundled library/font/media licenses) | Sprocket.App/Dialogs.cs `ThirdPartyNoticesDialog`; THIRD-PARTY-NOTICES.md | — | ❌ |
 
 ## 2. Projects & saving
 

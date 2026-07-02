@@ -143,6 +143,78 @@ internal static class AboutDialog
     };
 }
 
+/// <summary>The Help ▸ Third-Party Notices box (PLAN.md step 36a): the repo-root
+/// <c>THIRD-PARTY-NOTICES.md</c> (copied next to the exe by Sprocket.App.csproj so it ships in every release
+/// bundle, read by path the same way <see cref="MediaBootstrap"/> resolves the bundled sample clip), rendered
+/// in-app by <see cref="MarkdownView"/> — headings, tables, and clickable links on the native inline model, no
+/// markdown/HTML NuGet or WebView. Degrades to an explanatory message rather than failing if the file is ever
+/// missing (e.g. a dev build that hasn't copied Content items).</summary>
+internal static class ThirdPartyNoticesDialog
+{
+    public static Task Show(Window owner)
+    {
+        Control body;
+        try
+        {
+            string text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "THIRD-PARTY-NOTICES.md"));
+            body = MarkdownView.Build(text, AppContext.BaseDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            body = new SelectableTextBlock
+            {
+                Text = "THIRD-PARTY-NOTICES.md was not found next to the executable.",
+                FontSize = 13,
+                Foreground = Palette.TextBrush,
+                TextWrapping = TextWrapping.Wrap,
+            };
+        }
+        body.Margin = new Thickness(0, 0, 12, 0);
+
+        var close = new Button
+        {
+            Content = "Close",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Padding = new Thickness(18, 5),
+            Foreground = Brushes.White,
+            Background = Palette.AccentBrush,
+            CornerRadius = new CornerRadius(5),
+        };
+
+        var dialog = new Window
+        {
+            Title = "Third-Party Notices",
+            Icon = AppIcon.Window,
+            Width = 760,
+            Height = 600,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Palette.WindowBgBrush,
+            Content = new DockPanel
+            {
+                Margin = new Thickness(22),
+                Children =
+                {
+                    new StackPanel
+                    {
+                        [DockPanel.DockProperty] = Dock.Bottom,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Margin = new Thickness(0, 14, 0, 0),
+                        Children = { close },
+                    },
+                    new ScrollViewer
+                    {
+                        HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+                        Content = body,
+                    },
+                },
+            },
+        };
+
+        close.Click += (_, _) => dialog.Close();
+        return dialog.ShowDialog(owner);
+    }
+}
+
 /// <summary>A two-button confirmation (e.g. discard unsaved changes before New/Open). Returns <c>true</c> when
 /// the user accepts, <c>false</c> on cancel / close.</summary>
 internal static class ConfirmDialog

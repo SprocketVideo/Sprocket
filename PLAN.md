@@ -2307,6 +2307,16 @@ Tags reference the [UI.md §4 checklist](UI.md).
     **Licenses** button inside **Help ▸ About**, whichever best matches the final platform conventions).
     Keep the main About view focused on product name/version (step 16c); the notices surface is for
     compliance details, including FFmpeg LGPL/GPL build choices and any bundled assets.
+    - **✅ DONE (inventory + in-app surface).** [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) at the
+      repo root inventories every bundled NuGet package, native library (FFmpeg 8, OpenAL Soft), font
+      (Liberation), transcribed icon set (Feather), and bundled media (DJI D-Log LUTs, the Pixabay sample
+      clip) with license + source URL. It is copied next to the exe by `Sprocket.App.csproj` (so it rides
+      along in every `scripts/release.ps1` bundle automatically — no separate packaging step needed) and
+      surfaced via **Help ▸ Third-Party Notices** (`Dialogs.cs` `ThirdPartyNoticesDialog`), reading the
+      shipped copy by path the same way the bundled sample clip is resolved. **Still outstanding:** the
+      FFmpeg GPL-vs-LGPL build decision the notices doc flags (BtbN's `gpl-shared` build currently ships,
+      which carries GPL source-offer obligations) needs an explicit legal call before a licensed release —
+      either swap to an `*-lgpl-shared` BtbN build or honor the GPL source offer.
 37. **Log media & color management (D-Log).** Support DJI **D-Log / D-Log M / D-Log 2** as a
     per-clip **input color transform**, landing on the existing effect seam
     ([ARCHITECTURE §18](ARCHITECTURE.md), §7, §17) — **not** via FFmpeg's `lut3d`/`WriteableBitmap`,

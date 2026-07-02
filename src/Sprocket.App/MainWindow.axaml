@@ -144,6 +144,8 @@
             <MenuItem x:Name="ResetLayoutMenuItem" Header="_Reset Layout" />
           </MenuItem>
           <MenuItem Header="_Help">
+            <MenuItem x:Name="ThirdPartyNoticesMenuItem" Header="_Third-Party Notices" />
+            <Separator />
             <MenuItem x:Name="AboutMenuItem" Header="_About Sprocket" />
           </MenuItem>
         </Menu>

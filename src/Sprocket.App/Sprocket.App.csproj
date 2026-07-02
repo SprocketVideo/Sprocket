@@ -40,6 +40,14 @@
     <Content Include="Samples\sample.sprocket.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The third-party notices doc (PLAN.md step 36a), copied next to the exe so it ships in every release
+       bundle and Help ▸ Third-Party Notices (Dialogs.cs `ThirdPartyNoticesDialog`) can read it by path at
+       runtime, the same way the sample clip above is resolved from AppContext.BaseDirectory. Single source
+       of truth lives at the repo root so it stays next to LICENSE/README for anyone browsing the source. -->
+  <ItemGroup>
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.0.5" />
     <PackageReference Include="Avalonia.Desktop" Version="12.0.5" />

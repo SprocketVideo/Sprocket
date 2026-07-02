@@ -324,6 +324,7 @@ public partial class MainWindow : Window
         this.FindControl<MenuItem>("PreferencesMenuItem")!.Click += (_, _) => _ = ShowPreferencesAsync();
 
         // Help
+        this.FindControl<MenuItem>("ThirdPartyNoticesMenuItem")!.Click += (_, _) => _ = ThirdPartyNoticesDialog.Show(this);
         this.FindControl<MenuItem>("AboutMenuItem")!.Click += (_, _) => _ = AboutDialog.Show(this);
 
         KeyDown += OnKeyDown;
