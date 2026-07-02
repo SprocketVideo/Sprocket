@@ -43,6 +43,11 @@ public sealed class InspectorPanel : UserControl
     private readonly StackPanel _body;
     private readonly List<Action> _valueRefreshers = new();
 
+    // Effect-section collapse state, keyed by instance identity (reference equality) so it survives the
+    // Rebuild() that follows every add/remove/undo/redo — otherwise every effect section would reset to
+    // expanded whenever any effect in the stack was added or removed.
+    private readonly Dictionary<EffectInstance, bool> _effectExpanded = new(ReferenceEqualityComparer.Instance);
+
     private bool _suppress;          // guards programmatic slider/text updates from re-triggering edits
     private bool _editing;           // true during a drag/commit so history.Changed refreshes values, not rebuild
     private IDisposable? _dragScope; // open coalescing scope for the active slider drag
@@ -75,6 +80,8 @@ public sealed class InspectorPanel : UserControl
     /// <summary>Shows the given clip's properties (or the empty state when <see langword="null"/>).</summary>
     public void SetSelectedClip(Clip? clip)
     {
+        if (!ReferenceEquals(_clip, clip))
+            _effectExpanded.Clear();
         _clip = clip;
         Rebuild();
     }
@@ -263,6 +270,7 @@ public sealed class InspectorPanel : UserControl
         remove.Click += (_, e) =>
         {
             e.Handled = true;
+            _effectExpanded.Remove(effect);
             _history!.Execute(new RemoveEffectCommand(clip, effect));
         };
         DockPanel.SetDock(remove, Dock.Right);
@@ -276,7 +284,14 @@ public sealed class InspectorPanel : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         });
 
-        return Section(header, rows, expanded: true);
+        bool expanded = !_effectExpanded.TryGetValue(effect, out bool stored) || stored;
+        Control section = Section(header, rows, expanded);
+        if (section is Expander expander)
+        {
+            expander.Expanded += (_, _) => _effectExpanded[effect] = true;
+            expander.Collapsed += (_, _) => _effectExpanded[effect] = false;
+        }
+        return section;
     }
 
     private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p)
