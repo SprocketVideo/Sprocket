@@ -2331,12 +2331,16 @@ Tags reference the [UI.md §4 checklist](UI.md).
     over a local connection. **Disabled by default**; both the **enabled** toggle and the **listen
     port** are user-configurable in **application settings**. This is a new capability landing on
     existing seams, not a rewrite ([ARCHITECTURE §17](ARCHITECTURE.md)). Pieces:
-    - **Application settings store (prerequisite — new).** There is no app-level preferences
-      mechanism today (the only `Settings` is `Project.Settings`, which is per-project and lives in
-      the `.sprocket.json` file). Introduce a **user-scoped** settings store persisted to the
-      platform's per-user config location (e.g. `%AppData%` / `~/.config` / `~/Library/Application
-      Support`), separate from the project file; the **MCP enabled flag** and **MCP port** are its
-      first entries, surfaced in a Settings/Preferences UI.
+    - **Global Settings / Preferences dialog (prerequisite — new).** There is no app-level
+      preferences mechanism today (the only `Settings` is `Project.Settings`, which is per-project
+      and lives in the `.sprocket.json` file). Introduce a **user-scoped** settings store persisted
+      to the platform's per-user config location (e.g. `%AppData%` / `~/.config` /
+      `~/Library/Application Support`), separate from the project file, and surface it in a
+      cross-platform **Settings / Preferences** dialog. Initial entries / actions should cover:
+      clearing local derived artifacts (**proxy cache** and **render cache**), **video-export
+      metadata defaults** (author/copyright/comment/title defaults applied by the export dialog / queue),
+      an **autosave interval** control if the fixed debounce from step 20 needs to become user-tunable,
+      plus the **MCP enabled flag** and **MCP port** for this step.
     - **MCP server.** A new component (e.g. `Sprocket.Mcp`, referenced by `Sprocket.App`) exposing
       the official **C# MCP SDK** (`ModelContextProtocol`) over a local transport, bound to
       **loopback**. Started/stopped purely from the settings toggle — **never auto-started**; a
