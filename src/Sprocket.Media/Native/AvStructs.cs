@@ -58,8 +58,18 @@ internal struct AvStream
     [FieldOffset(16)] public IntPtr codecpar;     // AVCodecParameters*
     [FieldOffset(32)] public AvRational time_base;
     [FieldOffset(48)] public long duration;
+    [FieldOffset(80)] public IntPtr metadata;     // AVDictionary* — per-stream tags (color-metadata probe, step 37)
     [FieldOffset(88)] public AvRational avg_frame_rate;
     [FieldOffset(204)] public AvRational r_frame_rate;
+}
+
+/// <summary>AVDictionaryEntry: <c>{ char *key; char *value; }</c> — the view an <c>av_dict_get</c>
+/// iteration returns while walking a format/stream metadata dictionary (PLAN.md step 37).</summary>
+[StructLayout(LayoutKind.Explicit)]
+internal struct AvDictionaryEntry
+{
+    [FieldOffset(0)] public IntPtr key;
+    [FieldOffset(8)] public IntPtr value;
 }
 
 [StructLayout(LayoutKind.Explicit)]
@@ -71,7 +81,10 @@ internal struct AvCodecParameters
     [FieldOffset(48)] public long bit_rate;
     [FieldOffset(72)] public int width;
     [FieldOffset(76)] public int height;
+    [FieldOffset(100)] public int color_range;      // enum AVColorRange — color-metadata probe (step 37)
+    [FieldOffset(104)] public int color_primaries;  // enum AVColorPrimaries
     [FieldOffset(108)] public int color_trc;   // enum AVColorTransferCharacteristic — HDR-transfer probe (step 27)
+    [FieldOffset(112)] public int color_space;      // enum AVColorSpace
     [FieldOffset(128)] public AvChannelLayout ch_layout;
     [FieldOffset(152)] public int sample_rate;
 }
@@ -210,6 +223,8 @@ internal static class AvConst
     // avcodec_get_supported_config() selectors (enum AVCodecConfig).
     public const int CodecConfigPixFormat = 0;
     public const int CodecConfigSampleFormat = 3;
+
+    public const int DictIgnoreSuffix = 2;             // AV_DICT_IGNORE_SUFFIX — empty-key iteration of a dictionary
 
     public const int SeekBackward = 1;                 // AVSEEK_FLAG_BACKWARD
     public const int FmtGlobalHeader = 64;             // AVFMT_GLOBALHEADER

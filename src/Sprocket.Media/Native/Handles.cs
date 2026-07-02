@@ -46,6 +46,7 @@ internal sealed unsafe class FormatContextHandle : IDisposable
 
     // ---- input ----
     public long Duration => F->duration;
+    public IntPtr Metadata => F->metadata;   // AVDictionary* — container-level tags (color probe, step 37)
     public uint StreamCount => F->nb_streams;
     public IntPtr Stream(int i) => ((IntPtr*)F->streams)[i];
 

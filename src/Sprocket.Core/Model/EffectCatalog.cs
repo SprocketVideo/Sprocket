@@ -186,6 +186,16 @@ public static class EffectCatalog
             ]),
 
         new EffectDescriptor(
+            EffectTypeIds.ColorTransform,
+            "Input Color Transform",
+            EffectCategory.Color,
+            "Converts a log source (DJI D-Log / D-Log M) to Rec.709 via the vendor 3D LUT.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.SourceProfile, "Source Profile",
+                    0.0, 0.0, 1.0, 1.0),
+            ]),
+
+        new EffectDescriptor(
             EffectTypeIds.AcesFilmic,
             "ACES Filmic",
             EffectCategory.Color,

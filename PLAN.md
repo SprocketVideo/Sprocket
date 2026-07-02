@@ -2325,6 +2325,46 @@ Tags reference the [UI.md §4 checklist](UI.md).
       new `ProbedMediaInfo` color fields are additive (nullable/defaulted, no schema bump).
     - **Upgrade path.** Full scene-linear / OpenColorIO color management remains the later step-33
       upgrade ([ARCHITECTURE §18](ARCHITECTURE.md)).
+    - **✅ DONE (Media natives + probe, Core model/commands/graph, Render LUT stage, App auto-detect +
+      Inspector + export dialog, Export toggle, Persistence; 37 new tests — Core +16, Render +14, Media +3,
+      Persistence +1, Export +1, App +2; full suite 1002 green, 0 warnings, smoke launch clean).**
+      - **Metadata probe.** `AVCodecParameters.color_range/primaries/space` + `AVStream.metadata` offsets and
+        `av_dict_get` / `av_color_*_name` added to the hand-rolled binding (exactly the surface
+        `Native/FUTURE_BINDINGS.md` recorded); `MediaSource.Probe` now records the four color names (`""`
+        when undeclared) and scans the merged container+stream metadata dictionary for a DJI log profile —
+        five additive `ProbedMediaInfo` fields incl. `DetectedColorProfile`. Detection policy is the pure
+        `ColorProfiles.DetectDjiLog` in Core (normalised "dlog"/"dlogm" substring match over tag values,
+        most-specific wins) — conservative by design; Resolve/Premiere have no auto-detect at all, so the
+        manual tag remains the professional-parity fallback. Metadata dict is consumed at probe time, not
+        stored (keeps `ProbedMediaInfo` record equality; nothing needed it persisted).
+      - **Effect.** `builtin.colortransform` (catalog: "Input Color Transform", Color category; one numeric
+        `sourceProfile` index into the append-only `ColorProfiles.All`) — a hard-coded pipeline case, the
+        first effect to bind a **texture child**: DJI's official `.cube` (33³) parsed once by `CubeLut`,
+        packed N blue slices side-by-side into an RgbaF16 `SKImage` (linear-filterable everywhere, keeps the
+        "Not-Clipped" out-of-range samples), sampled by SkSL with hardware bilinear in-slice + manual slice
+        lerp (trilinear), unpremul→LUT→repremul. Bypass = the standard effect `Enabled` toggle; target space
+        fixed at Rec.709 until step 33.
+      - **LUT bundling.** `Sprocket.Render/Luts/*.cube` as `EmbeddedResource`s (the step-40 font precedent;
+        provenance + DJI download URLs in `Luts/NOTICE.md`), decoded/cached process-lifetime by `ColorLuts`.
+        The D-Log expectations are cross-checked in tests against DJI's public whitepaper math (linearise →
+        D-Gamut→Rec.709 matrix → 709-encode).
+      - **Auto-detect → prepend.** `ClipPlacement.PrependDetectedColorTransform` builds the transform into a
+        new video clip (index 0) before its `AddClipCommand` on both placement paths (bin drag + bootstrap),
+        so undo removes clip+transform together. New `InsertEffectAtCommand` gives the Inspector's manual
+        "+ Effect" path the same runs-first position (stack order is processing order; nothing modeled
+        "prepend" before).
+      - **Inspector.** The effect's section renders a Source Profile dropdown (`ColorProfiles.DisplayNames`)
+        instead of the auto slider row — the manual per-clip tag / override.
+      - **Export.** `ExportOptions.BakeColorTransform` (default true) + a "Bake input color transform
+        (log → Rec.709)" checkbox in Export Settings; pass-through is pure plan surgery via the new
+        `RenderGraph.StripEffects(plan, id)` (recurses nested plans + both transition sides, reuses
+        untouched instances) — the project and the shared preview path are never touched (§5).
+      - **Deliberate departures:** PLAN said "D-Log / D-Log M / D-Log 2" — **D-Log 2 does not exist** as a
+        DJI profile (no whitepaper, no LUT, no product references), so the shipped set is D-Log + D-Log M;
+        `ColorProfiles.All` is append-only for when DJI adds one. **Deferred:** the scopes log↔transformed
+        toggle (scopes tap the finished composite; a pre-transform view needs a second tap point — small,
+        standalone follow-up), an Inspector "COLOR" badge in the media bin, and HDR *output* tagging on
+        export (`AVCodecContext` color fields, noted in FUTURE_BINDINGS).
 38. **AI control via an application-hosted MCP server (off by default).** Host an in-process
     [Model Context Protocol](https://modelcontextprotocol.io) server inside `Sprocket.App` so an
     external AI client (e.g. Claude) can drive the editor — inspect the project and issue edits —

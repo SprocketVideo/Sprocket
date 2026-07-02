@@ -681,8 +681,13 @@ public sealed class InspectorPanel : UserControl
         if (parameters.Count == 0)
             rows.Children.Add(new TextBlock { Text = "No editable parameters.", FontSize = 11, Foreground = FaintText });
 
-        foreach (EffectParameterDescriptor p in parameters)
-            rows.Children.Add(BuildParamRow(effect, p));
+        // The input color transform's profile is an enum, not a slider scalar — a dropdown over the
+        // known log profiles (PLAN.md step 37) replaces the auto-generated numeric row.
+        if (effect.EffectTypeId == EffectTypeIds.ColorTransform)
+            rows.Children.Add(BuildColorProfileRow(effect));
+        else
+            foreach (EffectParameterDescriptor p in parameters)
+                rows.Children.Add(BuildParamRow(effect, p));
         // Dim the parameter rows (rather than disabling input) when the effect is off, so values stay
         // visible and editable while previewing without it.
         rows.Opacity = effect.Enabled ? 1.0 : 0.5;
@@ -754,6 +759,38 @@ public sealed class InspectorPanel : UserControl
             expander.Collapsed += (_, _) => _effectExpanded[effect] = false;
         }
         return section;
+    }
+
+    /// <summary>The input-transform profile dropdown (PLAN.md step 37): selects which log encoding the source
+    /// was shot in (<see cref="ColorProfiles"/>), committing the effect's numeric
+    /// <see cref="EffectParamNames.SourceProfile"/> index through the command stack. Auto-detected clips arrive
+    /// pre-set; this row is the manual per-clip tag / override.</summary>
+    private Control BuildColorProfileRow(EffectInstance effect)
+    {
+        var combo = new ComboBox
+        {
+            ItemsSource = ColorProfiles.DisplayNames,
+            FontSize = 11,
+            MinHeight = 24,
+            Width = 170,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (_suppress || combo.SelectedIndex < 0)
+                return;
+            ExecuteParam(effect, EffectParamNames.SourceProfile,
+                AnimatableValue.Constant(combo.SelectedIndex), coalescing: false);
+        };
+        _valueRefreshers.Add(() =>
+        {
+            _suppress = true;
+            double current = effect.Parameters.TryGetValue(EffectParamNames.SourceProfile, out AnimatableValue? v)
+                ? v.Evaluate(Sprocket.Core.Timing.Timecode.Zero) : 0.0;
+            combo.SelectedIndex = Math.Clamp((int)Math.Round(current), 0, ColorProfiles.All.Count - 1);
+            _suppress = false;
+        });
+        return LabeledRow("Source Profile", combo);
     }
 
     private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p) =>
@@ -971,7 +1008,12 @@ public sealed class InspectorPanel : UserControl
         foreach (EffectDescriptor descriptor in RelevantEffects(clip))
         {
             var item = new MenuItem { Header = descriptor.DisplayName };
-            item.Click += (_, _) => _history!.Execute(new AddEffectCommand(clip, descriptor.CreateInstance()));
+            // The input color transform must run before the creative grade (PLAN.md step 37), so the
+            // manual-tag path inserts it at the front of the stack; everything else appends as usual.
+            bool prepend = descriptor.Id == EffectTypeIds.ColorTransform;
+            item.Click += (_, _) => _history!.Execute(prepend
+                ? new InsertEffectAtCommand(clip, descriptor.CreateInstance(), 0)
+                : new AddEffectCommand(clip, descriptor.CreateInstance()));
             items.Add(item);
         }
         add.Flyout = new MenuFlyout { ItemsSource = items };

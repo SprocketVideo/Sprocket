@@ -19,15 +19,17 @@ a new FFmpeg **major**. Always confirm against the byte-identical/golden gate.
 
 ## What needs new binding surface
 
-### Step 37 — log/HDR + Step 27 — HDR-transfer probe  (LOW effort)
+### Step 37 — log/HDR + Step 27 — HDR-transfer probe  (✅ DONE)
 Read color metadata in `MediaSource.Probe`, extend `ProbedMediaInfo`.
-- Functions: `av_dict_get` (avutil) for `AVStream.metadata` / `AVFormatContext.metadata`.
-- `AVCodecParameters` fields: `color_range=100`, `color_primaries=104`, `color_trc=108`, `color_space=112`.
-- `AVStream.metadata=80`, `AVFormatContext.metadata=192`.
-- More `AVPixelFormat`/`AVColorTransferCharacteristic` int constants (trivial).
 - **✅ HDR-transfer probe DONE (step 27):** `AVCodecParameters.color_trc=108` bound + `ColorTrcSmpte2084/AribStdB67`
-  consts; `ProbedMediaInfo.IsHdr` set from it. `color_range`/`primaries`/`space` + the `metadata` dicts remain for
-  the fuller log/HDR color work (step 37).
+  consts; `ProbedMediaInfo.IsHdr` set from it.
+- **✅ Color-metadata probe DONE (step 37):** `AVCodecParameters.color_range=100`/`color_primaries=104`/
+  `color_space=112` and `AVStream.metadata=80` pasted as recorded (`AVFormatContext.metadata=192` already existed);
+  bound `av_dict_get` (empty-key + `AV_DICT_IGNORE_SUFFIX` iteration, new `AVDictionaryEntry` view) and the four
+  `av_color_*_name` functions so the probe records names, never enum ints. Validated by the Media color-probe tests
+  against a `setparams`-tagged fixture.
+- **Still unbound (deferred with the export HDR-tagging work):** `AVCodecContext` color-out fields for HDR *output*
+  tagging (`color_primaries=144`, `color_trc=148`, `colorspace=152`, `color_range=156`) — see the step-29 note below.
 
 ### Step 27 — export codec matrix  (✅ DONE)
 HEVC/AV1/VP9/ProRes + MP3/FLAC/AC-3/Opus/PCM; MOV/MKV/WebM/AVI/MPEG-TS all shipped. Chose to select encoders +

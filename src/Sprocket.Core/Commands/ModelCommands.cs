@@ -649,6 +649,21 @@ public sealed class AddEffectCommand(Clip clip, EffectInstance effect) : EditCom
 }
 
 /// <summary>
+/// Inserts an effect at a given position in a clip's effect stack; undo removes it. Stack order is the
+/// processing order (§5d), and an input color transform (PLAN.md step 37) must run <em>before</em> the
+/// creative grade — the manual-tag path inserts it at index 0, where the auto-detect path also places it.
+/// </summary>
+public sealed class InsertEffectAtCommand(Clip clip, EffectInstance effect, int index)
+    : EditCommand("Add effect")
+{
+    /// <inheritdoc />
+    public override void Apply() => clip.Effects.Insert(Math.Clamp(index, 0, clip.Effects.Count), effect);
+
+    /// <inheritdoc />
+    public override void Revert() => clip.Effects.Remove(effect);
+}
+
+/// <summary>
 /// Appends an effect to an audio effect chain — a track's insert chain (<see cref="AudioTrack.Effects"/>), a
 /// sequence bus (<see cref="Timeline.AudioEffects"/>), or the project master chain
 /// (<see cref="ProjectSettings.MasterAudioEffects"/>) — undo removes it (PLAN.md step 31). The clip-scope

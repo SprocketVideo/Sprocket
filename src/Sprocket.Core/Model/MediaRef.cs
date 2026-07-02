@@ -39,6 +39,18 @@ public readonly record struct MediaRefId(Guid Value)
 /// (an HDR-aware tone-map is a later color step); surfaced as a media-bin badge.</param>
 /// <param name="IsVariableFrameRate">Heuristic flag that the source is variable-frame-rate (its average and base
 /// frame rates disagree) — VFR sources are decoded frame-accurately by PTS regardless, so this is informational.</param>
+/// <param name="ColorRange">The declared color range as its canonical FFmpeg name (<c>"tv"</c> / <c>"pc"</c>),
+/// or <c>""</c> when unspecified — color-metadata probe (PLAN.md step 37). Informational.</param>
+/// <param name="ColorPrimaries">The declared color primaries name (e.g. <c>"bt709"</c>, <c>"bt2020"</c>),
+/// or <c>""</c> when unspecified.</param>
+/// <param name="ColorTransfer">The declared transfer characteristic name (e.g. <c>"bt709"</c>, <c>"smpte2084"</c>,
+/// <c>"arib-std-b67"</c>), or <c>""</c> when unspecified. <see cref="IsHdr"/> is derived from the same field.</param>
+/// <param name="ColorSpace">The declared color space / matrix name (e.g. <c>"bt709"</c>, <c>"bt2020nc"</c>),
+/// or <c>""</c> when unspecified.</param>
+/// <param name="DetectedColorProfile">A log profile auto-detected from the container/stream metadata at import
+/// (a <see cref="ColorProfiles"/> id, e.g. <see cref="ColorProfiles.DjiDLog"/>), or <c>""</c> when none was
+/// recognised. Drives the automatic prepend of the <see cref="EffectTypeIds.ColorTransform"/> input transform
+/// when the media is placed on the timeline; a manual per-clip tag via the Inspector is the fallback.</param>
 public sealed record ProbedMediaInfo(
     Timecode Duration,
     bool HasVideo,
@@ -54,7 +66,12 @@ public sealed record ProbedMediaInfo(
     string PixelFormatName = "",
     int BitDepth = 8,
     bool IsHdr = false,
-    bool IsVariableFrameRate = false);
+    bool IsVariableFrameRate = false,
+    string ColorRange = "",
+    string ColorPrimaries = "",
+    string ColorTransfer = "",
+    string ColorSpace = "",
+    string DetectedColorProfile = "");
 
 /// <summary>
 /// A reference to an imported source file, addressed by a stable <see cref="MediaRefId"/>.

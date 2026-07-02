@@ -76,6 +76,16 @@ public static class EffectTypeIds
     public const string HslQualifier = "builtin.hsl.qualify";
 
     /// <summary>
+    /// Input color transform (PLAN.md step 37): converts a log-encoded source (DJI D-Log / D-Log M) to the
+    /// working/display space by sampling a bundled camera-vendor 3D LUT on the GPU — the per-clip "input
+    /// transform" every professional NLE applies before creative grading, so it belongs at the <b>front</b>
+    /// of the clip's effect stack. Parameter: <see cref="EffectParamNames.SourceProfile"/> (an index into
+    /// <see cref="ColorProfiles.All"/>). Bypass = the standard <see cref="EffectInstance.Enabled"/> toggle;
+    /// the target space is fixed at Rec.709 until the step-33 OCIO/ACES upgrade.
+    /// </summary>
+    public const string ColorTransform = "builtin.colortransform";
+
+    /// <summary>
     /// Audio gain/pan (PLAN.md step 31): a static per-chain-stage gain (<see cref="EffectParamNames.GainDb"/>)
     /// and stereo balance (<see cref="EffectParamNames.Pan"/>), the simplest audio DSP stage.
     /// </summary>
@@ -257,6 +267,10 @@ public static class EffectParamNames
     public const string HueShift = "hueShift";
     /// <summary>Mask preview toggle (≥ 0.5 shows the key as greyscale) — <see cref="EffectTypeIds.HslQualifier"/>.</summary>
     public const string ShowMask = "showMask";
+
+    /// <summary>Source log profile index into <see cref="ColorProfiles.All"/> —
+    /// <see cref="EffectTypeIds.ColorTransform"/>.</summary>
+    public const string SourceProfile = "sourceProfile";
 
     /// <summary>Gain in decibels (0 = unity) — <see cref="EffectTypeIds.AudioGain"/>.</summary>
     public const string GainDb = "gainDb";

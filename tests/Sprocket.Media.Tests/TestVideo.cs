@@ -20,6 +20,7 @@ internal static class TestVideo
     private static readonly Lazy<string> LazyPath = new(Generate);
     private static readonly Lazy<string> LazyAlphaPath = new(GenerateAlpha);
     private static readonly Lazy<string> LazyAudioOnlyPath = new(GenerateAudioOnly);
+    private static readonly Lazy<string> LazyDLogMPath = new(GenerateDLogM);
 
     /// <summary>Absolute path to the fixture clip, generating it on first use.</summary>
     public static string Path => LazyPath.Value;
@@ -37,6 +38,11 @@ internal static class TestVideo
     /// RGBA buffer.</summary>
     public const int AlphaFixtureAlpha = 128;
 
+    /// <summary>Absolute path to a fixture tagged like DJI log footage (PLAN.md step 37): declared bt709
+    /// color metadata on the stream plus a container comment naming <c>D-Log M</c>, generating it on first
+    /// use. Exercises the color-metadata probe + log-profile detection.</summary>
+    public static string DLogMPath => LazyDLogMPath.Value;
+
     private static string Generate() => RunFfmpeg(
         "fixture.mp4",
         "-y " +
@@ -49,6 +55,16 @@ internal static class TestVideo
         "-y " +
         $"-f lavfi -i sine=frequency=440:sample_rate={SampleRate}:duration={DurationSeconds} " +
         "-c:a aac ");
+
+    // The setparams filter (not the -color_* output flags, which FFmpeg 8's libx264 path drops for
+    // primaries/transfer) is what reliably lands all four declarations in the encoded stream.
+    private static string GenerateDLogM() => RunFfmpeg(
+        "fixture-dlogm.mp4",
+        "-y " +
+        "-f lavfi -i \"testsrc2=size=64x64:rate=30:duration=1," +
+        "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv\" " +
+        "-c:v libx264 -pix_fmt yuv420p " +
+        "-metadata comment=\"Shot in D-Log M\" ");
 
     private static string GenerateAlpha() => RunFfmpeg(
         "fixture-alpha.mov",

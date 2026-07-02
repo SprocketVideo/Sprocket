@@ -416,6 +416,56 @@ public static class RenderGraph
     }
 
     /// <summary>
+    /// A copy of <paramref name="plan"/> with every effect of the given type removed from every layer —
+    /// including nested-sequence plans and both sides of a transition. Pure plan surgery: used by the
+    /// exporter's "pass through the log encoding" mode (PLAN.md step 37) to skip the input color transform
+    /// (<see cref="EffectTypeIds.ColorTransform"/>) without touching the project, so preview and a baked
+    /// export still share the unmodified plan (§5). Layers without a matching effect are reused as-is.
+    /// </summary>
+    public static VideoFramePlan StripEffects(VideoFramePlan plan, string effectTypeId)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentException.ThrowIfNullOrEmpty(effectTypeId);
+
+        List<VideoLayer>? changed = null;
+        for (int i = 0; i < plan.Layers.Count; i++)
+        {
+            VideoLayer layer = plan.Layers[i];
+            VideoLayer stripped = StripLayer(layer, effectTypeId);
+            if (!ReferenceEquals(stripped, layer) && changed is null)
+            {
+                changed = new List<VideoLayer>(plan.Layers.Count);
+                for (int j = 0; j < i; j++)
+                    changed.Add(plan.Layers[j]);
+            }
+            changed?.Add(stripped);
+        }
+        return changed is null ? plan : plan with { Layers = changed };
+    }
+
+    private static VideoLayer StripLayer(VideoLayer layer, string effectTypeId)
+    {
+        IReadOnlyList<ResolvedEffect> effects = layer.Effects;
+        if (effects.Any(e => e.EffectTypeId == effectTypeId))
+            effects = effects.Where(e => e.EffectTypeId != effectTypeId).ToArray();
+
+        VideoFramePlan? nested = layer.NestedPlan is null ? null : StripEffects(layer.NestedPlan, effectTypeId);
+        ResolvedTransition? transition = layer.Transition;
+        if (transition is not null)
+        {
+            VideoLayer from = StripLayer(transition.From, effectTypeId);
+            VideoLayer to = StripLayer(transition.To, effectTypeId);
+            if (!ReferenceEquals(from, transition.From) || !ReferenceEquals(to, transition.To))
+                transition = transition with { From = from, To = to };
+        }
+
+        bool unchanged = ReferenceEquals(effects, layer.Effects)
+            && ReferenceEquals(nested, layer.NestedPlan)
+            && ReferenceEquals(transition, layer.Transition);
+        return unchanged ? layer : layer with { Effects = effects, NestedPlan = nested, Transition = transition };
+    }
+
+    /// <summary>
     /// Evaluates a generator's animatable parameters at timeline time <paramref name="t"/> into a
     /// <see cref="ResolvedGenerator"/> the Render layer draws from (PLAN.md step 19). String parameters pass
     /// through unchanged. Exposed so the playback preview can resolve a generator layer off the same path the

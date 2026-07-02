@@ -290,6 +290,18 @@ public sealed unsafe class MediaSource : IDisposable
         bool isVfr = IsVariableFrameRate(st);
         string videoCodec = CodecName(vpar->codec_id);
 
+        // Color metadata + log-profile detection (PLAN.md step 37): record the codecpar color enums by their
+        // canonical names, then scan the container- and stream-level metadata tags for a known log profile
+        // (e.g. DJI D-Log) so the App can prepend the input color transform when the clip is placed.
+        string colorRange = ColorEnumName(LibAv.av_color_range_name(vpar->color_range));
+        string colorPrimaries = ColorEnumName(LibAv.av_color_primaries_name(vpar->color_primaries));
+        string colorTransfer = ColorEnumName(LibAv.av_color_transfer_name(vpar->color_trc));
+        string colorSpace = ColorEnumName(LibAv.av_color_space_name(vpar->color_space));
+        var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        CollectMetadata(format.Metadata, metadata);
+        CollectMetadata(st->metadata, metadata);
+        string detectedProfile = ColorProfiles.DetectDjiLog(metadata);
+
         Timecode duration = format.Duration > 0
             ? MediaTime.FromMicroseconds(format.Duration)          // AV_TIME_BASE (µs) container duration
             : st->duration > 0
@@ -322,7 +334,39 @@ public sealed unsafe class MediaSource : IDisposable
             PixelFormatName: pixelFormatName,
             BitDepth: bitDepth,
             IsHdr: isHdr,
-            IsVariableFrameRate: isVfr);
+            IsVariableFrameRate: isVfr,
+            ColorRange: colorRange,
+            ColorPrimaries: colorPrimaries,
+            ColorTransfer: colorTransfer,
+            ColorSpace: colorSpace,
+            DetectedColorProfile: detectedProfile);
+    }
+
+    /// <summary>Marshals an FFmpeg color-enum name, folding the "no declaration" names to <c>""</c> so the
+    /// probed fields read as absent rather than as FFmpeg's placeholder spellings.</summary>
+    private static string ColorEnumName(IntPtr name)
+    {
+        string s = Marshal.PtrToStringUTF8(name) ?? "";
+        return s is "unknown" or "unspecified" or "reserved" ? "" : s;
+    }
+
+    /// <summary>Copies every entry of an <c>AVDictionary</c> (container- or stream-level metadata) into
+    /// <paramref name="into"/> via the empty-key + <c>AV_DICT_IGNORE_SUFFIX</c> iteration idiom. Later
+    /// collections overwrite duplicate keys (stream tags win over container tags). Probe-time only.</summary>
+    private static void CollectMetadata(IntPtr dict, Dictionary<string, string> into)
+    {
+        if (dict == IntPtr.Zero)
+            return;
+        for (IntPtr e = LibAv.av_dict_get(dict, "", IntPtr.Zero, AvConst.DictIgnoreSuffix);
+             e != IntPtr.Zero;
+             e = LibAv.av_dict_get(dict, "", e, AvConst.DictIgnoreSuffix))
+        {
+            var entry = (AvDictionaryEntry*)e;
+            string? key = Marshal.PtrToStringUTF8(entry->key);
+            string? value = Marshal.PtrToStringUTF8(entry->value);
+            if (!string.IsNullOrEmpty(key) && value is not null)
+                into[key] = value;
+        }
     }
 
     /// <summary>Reads a pixel format's descriptor: whether it carries an alpha channel

@@ -341,6 +341,30 @@ public class ProjectSerializerTests
     }
 
     [Fact]
+    public void Round_Trips_Probed_Color_Metadata()
+    {
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var project = new Project(timeline);
+        var id = MediaRefId.New();
+        project.MediaPool.Add(new MediaRef(id, @"C:\media\drone.mp4",
+            new ProbedMediaInfo(Timecode.FromSeconds(10), true, new Rational(30, 1), 3840, 2160, false, 0, 0,
+                ColorRange: "tv", ColorPrimaries: "bt709", ColorTransfer: "bt709", ColorSpace: "bt709",
+                DetectedColorProfile: ColorProfiles.DjiDLogM)));
+
+        ProbedMediaInfo loaded = RoundTrip(project).MediaPool.Get(id)!.Info;
+        Assert.Equal("tv", loaded.ColorRange);
+        Assert.Equal("bt709", loaded.ColorPrimaries);
+        Assert.Equal("bt709", loaded.ColorTransfer);
+        Assert.Equal("bt709", loaded.ColorSpace);
+        Assert.Equal(ColorProfiles.DjiDLogM, loaded.DetectedColorProfile);
+
+        // Absent fields stay absent (nullable DTO members, WhenWritingNull) — pre-37 files are unaffected.
+        ProbedMediaInfo plain = RoundTrip(BuildRichProject()).MediaPool.Get(VideoId)!.Info;
+        Assert.Equal("", plain.ColorPrimaries);
+        Assert.Equal("", plain.DetectedColorProfile);
+    }
+
+    [Fact]
     public void Clip_Speed_Round_Trips()
     {
         var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);

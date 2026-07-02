@@ -31,6 +31,10 @@
          (SIL OFL 1.1, see Fonts/LICENSE-Liberation.txt) supplies a sans/serif/mono family in
          four styles each; TitleFonts loads them via SKTypeface.FromStream and caches. -->
     <EmbeddedResource Include="Fonts\*.ttf" />
+    <!-- Bundled camera-vendor 3D LUTs (PLAN.md step 37): DJI's official D-Log / D-Log M → Rec.709
+         .cube files (see Luts/NOTICE.md), decoded once into packed GPU textures by ColorLuts for the
+         builtin.colortransform input transform — the same embed-for-determinism rationale as the fonts. -->
+    <EmbeddedResource Include="Luts\*.cube" />
   </ItemGroup>
 
   <ItemGroup>

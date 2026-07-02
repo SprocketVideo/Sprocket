@@ -78,7 +78,11 @@ internal static class MediaBootstrap
 
         var videoTrack = new VideoTrack { Name = "V1" };
         if (info.HasVideo)
-            videoTrack.Clips.Add(new Clip(mediaId, Timecode.Zero, info.Duration, Timecode.Zero) { LinkGroupId = linkGroup });
+        {
+            var videoClip = new Clip(mediaId, Timecode.Zero, info.Duration, Timecode.Zero) { LinkGroupId = linkGroup };
+            ClipPlacement.PrependDetectedColorTransform(videoClip, info); // auto D-Log input transform (step 37)
+            videoTrack.Clips.Add(videoClip);
+        }
         timeline.Tracks.Add(videoTrack);
 
         // Always give the project an audio track; lay the companion clip on it only when the source has audio.

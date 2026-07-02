@@ -80,6 +80,9 @@ public static class ClipPlacement
             ? new Clip(media.Id, Timecode.Zero, sourceOut, timelineStart) { LinkGroupId = linkGroup }
             : null;
 
+        if (videoClip is not null)
+            PrependDetectedColorTransform(videoClip, media.Info);
+
         var commands = new List<IEditCommand>();
         if (videoClip is not null)
             commands.Add(new AddClipCommand(videoTrack!, videoClip));
@@ -92,6 +95,25 @@ public static class ClipPlacement
 
         Clip primary = (primaryIsVideo ? videoClip : audioClip) ?? videoClip ?? audioClip!;
         return new PlacementResult(command, primary);
+    }
+
+    /// <summary>
+    /// Prepends the input color transform (PLAN.md step 37) to a <b>new, not-yet-placed</b> video clip when
+    /// the source's import probe detected a log profile (e.g. DJI D-Log), so log footage previews correctly
+    /// the moment it lands on the timeline. The effect is built into the clip before its
+    /// <see cref="AddClipCommand"/> runs, so undo removes clip and transform together; the user can still
+    /// disable/remove or re-profile the effect in the Inspector (the manual-tag fallback).
+    /// </summary>
+    public static void PrependDetectedColorTransform(Clip clip, ProbedMediaInfo info)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(info);
+        int profile = ColorProfiles.IndexOf(info.DetectedColorProfile);
+        if (profile < 0)
+            return;
+        EffectInstance transform = new EffectInstance(EffectTypeIds.ColorTransform)
+            .Set(EffectParamNames.SourceProfile, profile);
+        clip.Effects.Insert(0, transform);
     }
 
     /// <summary>

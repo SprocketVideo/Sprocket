@@ -97,7 +97,14 @@ internal sealed record ProbedInfoDto(
     string? PixelFormatName = null,
     int? BitDepth = null,
     bool? IsHdr = null,
-    bool? IsVariableFrameRate = null);
+    bool? IsVariableFrameRate = null,
+    // Color metadata + detected log profile (PLAN.md step 37). Additive + nullable like the step-27 fields:
+    // media with no color declaration / no detected profile writes null and pre-37 files load with "".
+    string? ColorRange = null,
+    string? ColorPrimaries = null,
+    string? ColorTransfer = null,
+    string? ColorSpace = null,
+    string? DetectedColorProfile = null);
 
 internal sealed record TimelineDto(
     RationalDto FrameRate,

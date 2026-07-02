@@ -20,8 +20,46 @@ public class ClipPlacementTests
                 Timecode.FromSeconds(durationSeconds), video, video ? new Rational(30, 1) : Rational.Zero,
                 video ? 1920 : 0, video ? 1080 : 0, audio, audio ? 48000 : 0, audio ? 2 : 0));
 
+    private static MediaRef LogMedia(string detectedProfile) =>
+        new(MediaRefId.New(), "/tmp/drone.mp4",
+            new ProbedMediaInfo(
+                Timecode.FromSeconds(5), true, new Rational(30, 1), 3840, 2160, true, 48000, 2,
+                DetectedColorProfile: detectedProfile));
+
     private const double PxPerSecond = 80;
     private const double Tolerance = 8;
+
+    [Fact]
+    public void BuildPlaceCommand_Prepends_The_Input_Transform_For_Detected_Log_Media()
+    {
+        MediaRef media = LogMedia(ColorProfiles.DjiDLogM);
+        var v = new VideoTrack();
+        var a = new AudioTrack();
+
+        ClipPlacement.PlacementResult? result =
+            ClipPlacement.BuildPlaceCommand(media, v, a, 0, linked: true, primaryIsVideo: true);
+        new EditHistory().Execute(result!.Value.Command);
+
+        Clip vc = Assert.Single(v.Clips);
+        EffectInstance transform = Assert.Single(vc.Effects);
+        Assert.Equal(EffectTypeIds.ColorTransform, transform.EffectTypeId);
+        Assert.Equal(ColorProfiles.IndexOf(ColorProfiles.DjiDLogM),
+            transform.Parameters[EffectParamNames.SourceProfile].Evaluate(Timecode.Zero));
+
+        Clip ac = Assert.Single(a.Clips);
+        Assert.Empty(ac.Effects); // the input transform is a video-only stage
+    }
+
+    [Fact]
+    public void BuildPlaceCommand_Leaves_Untagged_Media_Untouched()
+    {
+        MediaRef media = Media(video: true, audio: false);
+        var v = new VideoTrack();
+        ClipPlacement.PlacementResult? result =
+            ClipPlacement.BuildPlaceCommand(media, v, null, 0, linked: false, primaryIsVideo: true);
+        new EditHistory().Execute(result!.Value.Command);
+        Assert.Empty(Assert.Single(v.Clips).Effects);
+    }
 
     [Fact]
     public void SnapStart_Snaps_Start_To_A_Nearby_Edge()

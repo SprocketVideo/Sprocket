@@ -84,6 +84,32 @@ half4 main(float2 coord) {
     return src.eval(c) * opacity;
 }";
 
+    // Input color transform (PLAN.md step 37) — converts a log-encoded source (DJI D-Log / D-Log M) to
+    // Rec.709 by sampling the vendor's 3D LUT, packed into a 2D texture (`lut` child: the N blue slices side
+    // by side, N·N × N — see CubeLut.ToPackedImage). The shader unpremultiplies, does hardware bilinear
+    // within the two neighbouring blue slices and lerps between them (trilinear total), then repremultiplies.
+    // Sample x stays inside [b·N + 0.5, b·N + N − 0.5], so linear filtering never bleeds across slices.
+    private const string ColorTransformSksl = @"
+uniform shader src;
+uniform shader lut;
+uniform float lutSize;
+half4 main(float2 coord) {
+    half4 c = src.eval(coord);
+    float a = float(c.a);
+    if (a <= 0.0) return c;
+    float3 rgb = clamp(float3(c.rgb) / a, 0.0, 1.0);
+    float n = lutSize;
+    float3 v = rgb * (n - 1.0);
+    float b0 = floor(v.b);
+    float f = v.b - b0;
+    float b1 = min(b0 + 1.0, n - 1.0);
+    float2 uv = float2(v.r + 0.5, v.g + 0.5);
+    float3 s0 = float3(lut.eval(float2(b0 * n + uv.x, uv.y)).rgb);
+    float3 s1 = float3(lut.eval(float2(b1 * n + uv.x, uv.y)).rgb);
+    float3 outRgb = clamp(mix(s0, s1, f), 0.0, 1.0);
+    return half4(half3(outRgb * a), c.a);
+}";
+
     // Transition shaders (PLAN.md step 25): each samples two child shaders — `from` (outgoing clip) and `to`
     // (incoming clip), already folded through their own effect chains — and blends them per `progress` (0 = full
     // from, 1 = full to). All operate on premultiplied colour, so they compose correctly over the lower layers.
@@ -206,6 +232,7 @@ half4 main(float2 coord) {
     private readonly SKRuntimeEffect _fade;
     private readonly SKRuntimeEffect _color;
     private readonly SKRuntimeEffect _transform;
+    private readonly SKRuntimeEffect _colorTransform;
     private readonly SKRuntimeEffect _crossDissolve;
     private readonly SKRuntimeEffect _dipToBlack;
     private readonly SKRuntimeEffect _dipToWhite;
@@ -225,6 +252,8 @@ half4 main(float2 coord) {
             ?? throw new InvalidOperationException($"Color SkSL failed to compile: {colorErr}");
         _transform = SKRuntimeEffect.CreateShader(TransformSksl, out string transformErr)
             ?? throw new InvalidOperationException($"Transform SkSL failed to compile: {transformErr}");
+        _colorTransform = SKRuntimeEffect.CreateShader(ColorTransformSksl, out string colorTransformErr)
+            ?? throw new InvalidOperationException($"Color-transform SkSL failed to compile: {colorTransformErr}");
         _crossDissolve = SKRuntimeEffect.CreateShader(CrossDissolveSksl, out string crossErr)
             ?? throw new InvalidOperationException($"Cross-dissolve SkSL failed to compile: {crossErr}");
         _dipToBlack = SKRuntimeEffect.CreateShader(DipToBlackSksl, out string dipBlackErr)
@@ -629,6 +658,9 @@ half4 main(float2 coord) {
             case EffectTypeIds.Transform:
                 return BuildTransformShader(effect, src, dest);
 
+            case EffectTypeIds.ColorTransform:
+                return BuildColorTransformShader(effect, src);
+
             default:
                 return BuildRegisteredEffectShader(effect, src);
         }
@@ -668,6 +700,27 @@ half4 main(float2 coord) {
         {
             return null; // a faulting effect passes through rather than killing the frame
         }
+    }
+
+    /// <summary>
+    /// Builds the input color transform shader (PLAN.md step 37): fetches the profile's cached packed-LUT
+    /// texture (<see cref="ColorLuts"/>) and binds it as the <c>lut</c> child beside <c>src</c> — the first
+    /// effect to feed the shader graph a texture child rather than only chained scene shaders. An unknown
+    /// profile / missing LUT asset passes through (<see langword="null"/>) rather than killing the frame.
+    /// </summary>
+    private SKShader? BuildColorTransformShader(ResolvedEffect effect, SKShader src)
+    {
+        if (!ColorLuts.TryGet(effect.Get(EffectParamNames.SourceProfile, 0.0), out SKImage lut, out int size))
+            return null;
+
+        // The LUT child samples in the packed image's own pixel space (no local matrix); the shared SKImage
+        // is process-cached, but this shader wrapper is per-draw scratch like every other chain stage.
+        SKShader lutShader = lut.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, Sampling);
+        _scratch.Add(lutShader);
+
+        var uniforms = new SKRuntimeEffectUniforms(_colorTransform) { ["lutSize"] = (float)size };
+        var children = new SKRuntimeEffectChildren(_colorTransform) { ["src"] = src, ["lut"] = lutShader };
+        return _colorTransform.ToShader(uniforms, children);
     }
 
     /// <summary>
@@ -728,6 +781,7 @@ half4 main(float2 coord) {
         _fade.Dispose();
         _color.Dispose();
         _transform.Dispose();
+        _colorTransform.Dispose();
         _crossDissolve.Dispose();
         _dipToBlack.Dispose();
         _dipToWhite.Dispose();

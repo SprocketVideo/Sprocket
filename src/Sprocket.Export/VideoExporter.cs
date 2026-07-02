@@ -40,6 +40,10 @@ namespace Sprocket.Export;
 /// (PLAN.md step 32); hardware encoders ignore it.</param>
 /// <param name="VideoOnly">Skips the audio stream entirely (no mixing, no audio encode). Used by the render cache's
 /// video intermediates (PLAN.md step 32), whose audio side is cached separately as PCM.</param>
+/// <param name="BakeColorTransform">Whether the per-clip input color transform (log → Rec.709, PLAN.md step 37)
+/// is baked into the output (the default — deliverables match the preview) or stripped so the export <b>passes
+/// through the log encoding</b> for downstream grading. Pass-through is pure plan surgery
+/// (<see cref="RenderGraph.StripEffects"/>); the project is untouched.</param>
 public readonly record struct ExportOptions(
     ExportFormat Format = default,
     ExportQuality Quality = ExportQuality.High,
@@ -54,7 +58,8 @@ public readonly record struct ExportOptions(
     Rational? FrameRate = null,
     ExportAcceleration Acceleration = ExportAcceleration.Software,
     string? Preset = null,
-    bool VideoOnly = false);
+    bool VideoOnly = false,
+    bool BakeColorTransform = true);
 
 /// <summary>
 /// Renders a <see cref="Project"/> offline to a full-resolution movie in the chosen container/codec matrix
@@ -238,7 +243,7 @@ public static class VideoExporter
                 // Emit whichever stream's next packet sits earlier on the timeline, so the muxer interleaves cleanly.
                 if (!videoDone && (audioDone || videoTick <= audioTick))
                 {
-                    RenderVideoFrame(project, sequence, rangeIn, nextVideoIndex, fps, surface, pipeline, fullRect, providers, burnIns);
+                    RenderVideoFrame(project, sequence, rangeIn, nextVideoIndex, fps, surface, pipeline, fullRect, providers, burnIns, options.BakeColorTransform);
                     using SKPixmap pixels = surface.PeekPixels();
                     encoder.WriteVideoFrame(pixels.GetPixels(), pixels.RowBytes, nextVideoIndex);
                     nextVideoIndex++;
@@ -313,10 +318,15 @@ public static class VideoExporter
         Project project, Sequence sequence, Timecode rangeIn, long frameIndex, Rational fps,
         SKSurface surface, SkiaEffectPipeline pipeline, SKRect fullRect,
         Dictionary<MediaRefId, ExportFrameProvider?> providers,
-        IReadOnlyList<BurnIn>? burnIns)
+        IReadOnlyList<BurnIn>? burnIns,
+        bool bakeColorTransform = true)
     {
         Timecode t = rangeIn + Timecode.FromFrames(frameIndex, fps);
         VideoFramePlan plan = RenderGraph.PlanVideoFrame(project, sequence, t);
+        // Pass-through-log export (PLAN.md step 37): strip the input color transform from the resolved plan
+        // (pure plan surgery — the project and the shared preview path are untouched).
+        if (!bakeColorTransform)
+            plan = RenderGraph.StripEffects(plan, EffectTypeIds.ColorTransform);
 
         surface.Canvas.Clear(SKColors.Black);
         CompositePlan(project, plan, surface, pipeline, fullRect, providers);

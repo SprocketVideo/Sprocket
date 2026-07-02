@@ -614,6 +614,11 @@ internal static class ExportSettingsDialog
             Background = Palette.PanelBgBrush,
         };
 
+        // Log-media color handling (PLAN.md step 37): baked (default — deliverables match the preview) or
+        // pass-through so a log source stays log-encoded for downstream grading. Per-export, not preset state.
+        var bakeColorCheck = MakeCheck("Bake input color transform (log → Rec.709)");
+        bakeColorCheck.IsChecked = true;
+
         var savePreset = new Button
         {
             Content = "Save Preset…",
@@ -657,6 +662,8 @@ internal static class ExportSettingsDialog
                 BurnInRow(nameCheck, namePos),
                 BurnInRow(watermarkBox, watermarkPos),
                 LabeledRow("Handles (frames before / after the range)", handlesBox),
+                new TextBlock { Text = "Color", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) },
+                bakeColorCheck,
             },
         };
 
@@ -726,7 +733,8 @@ internal static class ExportSettingsDialog
                 BurnIns: burnIns.Count > 0 ? burnIns : null,
                 Resolution: Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
                 FrameRate: FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value,
-                Acceleration: encodingBox.SelectedIndex == 1 ? ExportAcceleration.Hardware : ExportAcceleration.Software));
+                Acceleration: encodingBox.SelectedIndex == 1 ? ExportAcceleration.Hardware : ExportAcceleration.Software,
+                BakeColorTransform: bakeColorCheck.IsChecked != false));
         };
         cancel.Click += (_, _) => dialog.Close((ExportOptions?)null);
 

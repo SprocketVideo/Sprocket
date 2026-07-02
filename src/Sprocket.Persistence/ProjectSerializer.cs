@@ -190,7 +190,12 @@ public static class ProjectSerializer
         PixelFormatName: string.IsNullOrEmpty(i.PixelFormatName) ? null : i.PixelFormatName,
         BitDepth: i.BitDepth == 8 ? null : i.BitDepth,
         IsHdr: i.IsHdr ? true : null,
-        IsVariableFrameRate: i.IsVariableFrameRate ? true : null);
+        IsVariableFrameRate: i.IsVariableFrameRate ? true : null,
+        ColorRange: string.IsNullOrEmpty(i.ColorRange) ? null : i.ColorRange,
+        ColorPrimaries: string.IsNullOrEmpty(i.ColorPrimaries) ? null : i.ColorPrimaries,
+        ColorTransfer: string.IsNullOrEmpty(i.ColorTransfer) ? null : i.ColorTransfer,
+        ColorSpace: string.IsNullOrEmpty(i.ColorSpace) ? null : i.ColorSpace,
+        DetectedColorProfile: string.IsNullOrEmpty(i.DetectedColorProfile) ? null : i.DetectedColorProfile);
 
     internal static TimelineDto ToDto(Timeline t)
     {
@@ -398,7 +403,12 @@ public static class ProjectSerializer
         PixelFormatName: i.PixelFormatName ?? "",
         BitDepth: i.BitDepth ?? 8,
         IsHdr: i.IsHdr ?? false,
-        IsVariableFrameRate: i.IsVariableFrameRate ?? false);
+        IsVariableFrameRate: i.IsVariableFrameRate ?? false,
+        ColorRange: i.ColorRange ?? "",
+        ColorPrimaries: i.ColorPrimaries ?? "",
+        ColorTransfer: i.ColorTransfer ?? "",
+        ColorSpace: i.ColorSpace ?? "",
+        DetectedColorProfile: i.DetectedColorProfile ?? "");
 
     private static Timeline FromDto(TimelineDto t)
     {

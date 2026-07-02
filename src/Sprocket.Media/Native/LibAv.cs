@@ -112,7 +112,17 @@ internal static unsafe partial class LibAv
     [LibraryImport(Avutil)] internal static partial int av_channel_layout_copy(AvChannelLayout* dst, AvChannelLayout* src);
     [LibraryImport(Avutil, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int av_dict_set(ref IntPtr dict, string key, string value, int flags);
+    // Iterate/look up format- and stream-level metadata tags (AVDictionaryEntry*, or NULL at the end) — the
+    // color-metadata probe walks these with an empty key + AV_DICT_IGNORE_SUFFIX (PLAN.md step 37). Probe-time only.
+    [LibraryImport(Avutil, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr av_dict_get(IntPtr dict, string key, IntPtr prev, int flags);
     [LibraryImport(Avutil)] internal static partial void av_dict_free(ref IntPtr dict);
+    // Canonical names for the codecpar color enums (const char*, or NULL when out of range) — recorded on
+    // ProbedMediaInfo so the model/UI never carry FFmpeg enum ints (PLAN.md step 37). Probe-time only.
+    [LibraryImport(Avutil)] internal static partial IntPtr av_color_range_name(int range);
+    [LibraryImport(Avutil)] internal static partial IntPtr av_color_primaries_name(int primaries);
+    [LibraryImport(Avutil)] internal static partial IntPtr av_color_transfer_name(int transfer);
+    [LibraryImport(Avutil)] internal static partial IntPtr av_color_space_name(int space);
     [LibraryImport(Avutil)] internal static partial int av_strerror(int errnum, byte* errbuf, nuint errbufSize);
     [LibraryImport(Avutil)] internal static partial uint avutil_version();
     [LibraryImport(Avutil)] internal static partial IntPtr av_version_info();
