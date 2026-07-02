@@ -2372,6 +2372,40 @@ Tags reference the [UI.md §4 checklist](UI.md).
       clip. Copy/paste rebasing was fixed 2026-06-30 (`ClipboardOps.Paste` → `EffectInstance.CloneShifted`);
       the matching rebasing for a plain **move** (`SetClipPlacementCommand`, which today changes only
       `TimelineStart`) is the remaining gap to close as part of this step.
+    - **✅ DONE (`Sprocket.Core/Commands/ModelCommands.cs` + `Model/EffectInstance.cs`;
+      `Sprocket.App/Timeline/{FadeOps,TimelineMath,TimelineControl}.cs`; 29 new tests — Core +10
+      (`FadeCommandTests`), App +19 (`FadeOpsTests`); full suite **925 green**, clean build 0 warnings, smoke
+      launch exit 0.)** A clip's fade is now visible and editable on the timeline, and moves keep keyframed
+      effects aligned. Delivered:
+      - **Fade handles + ramp visualization (`TimelineControl.DrawFadeOverlay`):** small triangles pinned to a
+        clip's top edge at the fade-ramp tops (the corners at zero length — the "no fade" rest state);
+        dragging one inward sets the fade-in/out length, live and clamped so the two fades never cross. The
+        clip body draws the **opacity envelope line** (top = 1, bottom = 0) with the faded-away region above it
+        shaded, so any fade — handle-authored or hand-keyframed — reads at a glance; the selected clip also
+        shows its keyframe dots.
+      - **Opacity rubber-band:** the envelope line is grabbable — a vertical drag moves the grabbed segment's
+        two bounding keyframes (or a single keyframe when grabbed directly, or the whole flat level on a
+        constant/absent envelope), clamped to [0, 1]; **Ctrl+click adds a point** at the pointer, which the
+        rest of the drag then moves — the inline form of the Inspector's step-16d keyframe lane, editing the
+        very same `AnimatableValue` so the two stay in sync.
+      - **Envelope semantics in a pure, headless-tested `FadeOps`:** `ReadFades` recognises edge ramps (an
+        arbitrary interior envelope reads as 0/0), `BuildOpacity` rebuilds edge ramps while **preserving
+        interior rubber-band points and a lowered plateau level** (a shrunk fade re-tops at the plateau, not
+        mid-ramp), plus the band's `GrabKeyframes` / `WithValueDelta` / `WithAddedPoint`; handle hit-testing
+        and level↔Y mapping live in `TimelineMath` beside the other tested geometry.
+      - **One undo entry per drag via a new Core `SetClipFadeCommand`:** sets the Fade effect's opacity
+        envelope and **creates the Fade effect when the clip has none** in the same command (undo removes it
+        again), coalescing per clip — so a handle/band drag on a fade-less clip is still a single entry.
+      - **Move rebasing closed (the step's named gap), generalised to every pure-move command:** a new
+        in-place `EffectInstance.ShiftKeyframes` is applied by `SetClipPlacementCommand` (only when the source
+        span is unchanged — trims/slips stay anchored, since their timeline edges don't move),
+        `MoveClipToTrackCommand`, `RippleTrimCommand`'s downstream shifts (so ripple delete/trim keeps fades
+        aligned), and `SlideClipCommand`'s slid clip. Deltas are computed against the clip's **current** start
+        at apply/revert time, so coalesced drags and merged undo entries stay exact — proven by tests.
+      - **Deferred:** dragging a band keyframe horizontally (time) — vertical value edits + the Inspector lane
+        cover it; fade-handle snapping; and trim-time fade re-anchoring (a trimmed-shorter clip keeps its
+        keyframes at the old edge — now at least *visible* on the clip body, which was this step's motivating
+        bug class).
 
 40. **Rich text & titles (styling, lower thirds, rolling credits).** Grow the step-19 minimal Title
     generator (single-line centred text, one fill colour, animatable size) into a professional titles

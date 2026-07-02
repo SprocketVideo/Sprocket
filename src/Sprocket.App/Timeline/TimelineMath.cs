@@ -55,6 +55,20 @@ public enum ClipDragMode
     TrimEnd,
 }
 
+/// <summary>Which fade handle a pointer is over (PLAN.md step 39) — the small triangles in a clip's top
+/// corners that set the fade-in/out length.</summary>
+public enum FadeHandleKind
+{
+    /// <summary>Not over a fade handle.</summary>
+    None,
+
+    /// <summary>The left (fade-in) handle.</summary>
+    FadeIn,
+
+    /// <summary>The right (fade-out) handle.</summary>
+    FadeOut,
+}
+
 /// <summary>
 /// Pure geometry for the timeline control (PLAN.md step 12): tick↔pixel mapping, snapping, edge hit-testing,
 /// and ruler-interval selection. Kept free of Avalonia types so it is unit-tested headlessly — the rendering
@@ -195,6 +209,42 @@ public static class TimelineMath
             return -1;
         return (int)((y - rulerHeight) / laneStride);
     }
+
+    /// <summary>
+    /// Classifies a pointer against a clip's fade handles (PLAN.md step 39): the handles live in a band of
+    /// <paramref name="handleBand"/> px along the clip's top edge, at <paramref name="fadeInX"/> /
+    /// <paramref name="fadeOutX"/> (the inner ends of the fade ramps — the top corners when the fades are
+    /// zero). Within the band, the nearer handle inside <paramref name="grip"/> px wins — checked <em>before</em>
+    /// the edge-trim zones so a zero-length fade's corner handle stays reachable above the trim grip.
+    /// </summary>
+    public static FadeHandleKind HitFadeHandle(
+        double pointerX, double pointerY, double clipTop, double handleBand,
+        double fadeInX, double fadeOutX, double grip)
+    {
+        if (pointerY < clipTop || pointerY > clipTop + handleBand)
+            return FadeHandleKind.None;
+        double dIn = Math.Abs(pointerX - fadeInX);
+        double dOut = Math.Abs(pointerX - fadeOutX);
+        if (dIn > grip && dOut > grip)
+            return FadeHandleKind.None;
+        return dIn <= dOut ? FadeHandleKind.FadeIn : FadeHandleKind.FadeOut;
+    }
+
+    /// <summary>
+    /// Maps a pointer Y inside a clip's body to an opacity level in [0, 1] — the rubber-band's vertical axis
+    /// (top = 1, bottom = 0, inset by <paramref name="pad"/> px). The inverse of <see cref="FadeYAtLevel"/>.
+    /// </summary>
+    public static double FadeLevelAtY(double y, double clipTop, double clipHeight, double pad)
+    {
+        double h = clipHeight - 2 * pad;
+        if (h <= 0)
+            return 1;
+        return Math.Clamp(1 - (y - clipTop - pad) / h, 0, 1);
+    }
+
+    /// <summary>The on-screen Y of an opacity level on a clip's rubber-band — see <see cref="FadeLevelAtY"/>.</summary>
+    public static double FadeYAtLevel(double level, double clipTop, double clipHeight, double pad)
+        => clipTop + pad + (1 - Math.Clamp(level, 0, 1)) * (clipHeight - 2 * pad);
 
     /// <summary>
     /// Picks a "nice" ruler tick interval (in ticks) so labels land roughly <paramref name="targetPx"/> apart

@@ -37,6 +37,15 @@ public sealed class TimelineControl : Control
     private const double MaxPxPerSecond = 600;
     private const double SnapTolerancePx = 8;
 
+    // Fade handles + opacity rubber-band (PLAN.md step 39): the vertical inset of the band's 0/1 levels inside
+    // the clip body, the grab tolerance around the band line, and the corner-handle geometry (its grip radius
+    // and the top strip it wins in — checked before the edge-trim zones so a zero-length fade's corner handle
+    // stays reachable).
+    private const double FadeBandPad = 2;
+    private const double FadeBandGrip = 4;
+    private const double FadeHandleGrip = 6;
+    private const double FadeHandleBand = 9;
+
     private static readonly IBrush PaneBg = Brush("#101016");
     private static readonly IBrush RulerBg = Brush("#16161C");
     private static readonly IBrush HeaderBg = Brush("#1A1A22");
@@ -81,6 +90,13 @@ public sealed class TimelineControl : Control
     private static readonly IBrush NeedsRenderHeavyBar = Brush("#C94F4F");
     private static readonly IBrush InOutFill = new ImmutableSolidColorBrush(Colors.White, 0.08);
     private static readonly Pen InOutPen = new(new ImmutableSolidColorBrush(Palette.Accent, 0.9), 1);
+
+    // Fade overlay brushes (PLAN.md step 39), hoisted like the other draw-path brushes: the rubber-band line,
+    // the shading over the faded-away region above it, and the corner-handle triangles.
+    private static readonly Pen FadeBandPen = new(new ImmutableSolidColorBrush(Colors.White, 0.55), 1.2);
+    private static readonly IBrush FadeShade = new ImmutableSolidColorBrush(Colors.Black, 0.28);
+    private static readonly IBrush FadeHandleFill = new ImmutableSolidColorBrush(Colors.White, 0.75);
+    private static readonly IBrush FadePointFill = new ImmutableSolidColorBrush(Colors.White, 0.9);
 
     private Project? _project;
     private EditHistory? _history;
@@ -134,9 +150,18 @@ public sealed class TimelineControl : Control
     // Trim-family gesture state (PLAN.md step 22). A clip-body drag with the Select tool previews-then-commits
     // (MovePreview); every other edit gesture mutates the model live inside a coalescing scope. The kind is fixed
     // at BeginClipDrag from the active tool + which part of the clip was grabbed.
-    private enum DragKind { None, Trim, Slip, MovePreview, Ripple, Roll, Slide }
+    private enum DragKind { None, Trim, Slip, MovePreview, Ripple, Roll, Slide, FadeIn, FadeOut, Band }
 
     private DragKind _dragKind = DragKind.None;
+
+    // Fade-gesture state (PLAN.md step 39): the opacity envelope + fade lengths captured at press (so every
+    // drag update is computed from one stable original), the clip's on-screen rect (for level↔Y mapping), and
+    // — for a rubber-band drag — the grabbed keyframe times and the level under the initial press.
+    private AnimatableValue? _fadeOrigOpacity;
+    private long _fadeOrigIn, _fadeOrigOut;
+    private Rect _fadeClipRect;
+    private IReadOnlyList<long> _bandGrabTimes = [];
+    private double _bandPressLevel;
 
     // Ripple: the dragged clip plus any linked companions, each with its captured trim, speed/media bounds, and
     // the downstream clips on its own track (so each track stays gap-free). Captured once at drag start.
@@ -1083,6 +1108,7 @@ public sealed class TimelineControl : Control
                         DrawWaveform(ctx, rect);
                     ctx.DrawText(Label(ClipName(clip), 11, Text), new Point(rect.X + 6, rect.Y + 4));
                     DrawClipMarkers(ctx, clip, rect);
+                    DrawFadeOverlay(ctx, clip, rect);
                 }
 
                 if (ReferenceEquals(clip, _selected))
@@ -1126,6 +1152,97 @@ public sealed class TimelineControl : Control
                 ctx.DrawRectangle(null, ReferenceEquals(tr, _selectedTransition) ? SelectPen : borderPen, rounded);
             }
         }
+    }
+
+    // Fade handles + opacity rubber-band (PLAN.md step 39), drawn inside the clip's clip rect: the opacity
+    // envelope as a line across the body (top = 1, bottom = 0) with the faded-away region above it shaded so a
+    // fade reads at a glance, keyframe dots on the selected clip, and the fade-in/out handle triangles pinned
+    // to the top edge at the ramp tops (the corners when the fades are zero).
+    private void DrawFadeOverlay(DrawingContext ctx, Clip clip, Rect rect)
+    {
+        AnimatableValue? opacity = FadeOps.FadeOpacity(clip);
+        (long fadeIn, long fadeOut) = FadeOps.ReadFades(opacity, clip.TimelineStart.Ticks, clip.TimelineEnd.Ticks);
+
+        if (opacity is not null)
+        {
+            double xStart = Math.Max(rect.X, _headerWidth);
+            double xEnd = Math.Min(rect.Right, Bounds.Width);
+            if (xEnd > xStart)
+            {
+                var line = new StreamGeometry();
+                var shade = new StreamGeometry();
+                using (StreamGeometryContext lg = line.Open())
+                using (StreamGeometryContext sg = shade.Open())
+                {
+                    sg.BeginFigure(new Point(xStart, rect.Y), true);
+                    bool first = true;
+                    for (double x = xStart; ; x += 4)
+                    {
+                        if (x > xEnd)
+                            x = xEnd;
+                        long t = TimelineMath.TicksAtX(x, _pxPerSecond, _scrollX, _headerWidth);
+                        double level = Math.Clamp(opacity.Evaluate(new Timecode(t)), 0, 1);
+                        var pt = new Point(x, TimelineMath.FadeYAtLevel(level, rect.Y, rect.Height, FadeBandPad));
+                        if (first)
+                        {
+                            lg.BeginFigure(pt, false);
+                            first = false;
+                        }
+                        else
+                        {
+                            lg.LineTo(pt);
+                        }
+                        sg.LineTo(pt);
+                        if (x >= xEnd)
+                            break;
+                    }
+                    sg.LineTo(new Point(xEnd, rect.Y));
+                    sg.EndFigure(true);
+                }
+                ctx.DrawGeometry(FadeShade, null, shade);
+                ctx.DrawGeometry(null, FadeBandPen, line);
+            }
+
+            // Keyframe dots on the selected clip, so the rubber-band's grab points are visible.
+            if (ReferenceEquals(clip, _selected) && opacity.IsAnimated)
+            {
+                foreach (Keyframe k in opacity.Keyframes)
+                {
+                    double x = TimelineMath.XAtTicks(k.Time.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+                    if (x < rect.X || x > rect.Right)
+                        continue;
+                    double y = TimelineMath.FadeYAtLevel(Math.Clamp(k.Value, 0, 1), rect.Y, rect.Height, FadeBandPad);
+                    ctx.DrawEllipse(FadePointFill, null, new Point(x, y), 2.5, 2.5);
+                }
+            }
+        }
+        else if (ReferenceEquals(clip, _selected))
+        {
+            // No fade effect yet: show the band at full opacity on the selected clip so it is discoverable.
+            double y = TimelineMath.FadeYAtLevel(1, rect.Y, rect.Height, FadeBandPad);
+            ctx.DrawLine(FadeBandPen, new Point(rect.X, y), new Point(rect.Right, y));
+        }
+
+        if (rect.Width < 24)
+            return; // too narrow for meaningful handles
+        DrawFadeHandle(ctx, rect.X + TimelineMath.WidthOfTicks(fadeIn, _pxPerSecond), rect.Y,
+            ReferenceEquals(clip, _dragClip) && _dragKind == DragKind.FadeIn);
+        DrawFadeHandle(ctx, rect.Right - TimelineMath.WidthOfTicks(fadeOut, _pxPerSecond), rect.Y,
+            ReferenceEquals(clip, _dragClip) && _dragKind == DragKind.FadeOut);
+    }
+
+    // A small downward triangle pinned to the clip's top edge — the draggable fade handle.
+    private void DrawFadeHandle(DrawingContext ctx, double x, double top, bool active)
+    {
+        var tri = new StreamGeometry();
+        using (StreamGeometryContext g = tri.Open())
+        {
+            g.BeginFigure(new Point(x - 4.5, top), true);
+            g.LineTo(new Point(x + 4.5, top));
+            g.LineTo(new Point(x, top + 7));
+            g.EndFigure(true);
+        }
+        ctx.DrawGeometry(active ? Accent : FadeHandleFill, null, tri);
     }
 
     // Schematic only (real poster frames are step 15): even vertical dividers like a filmstrip.
@@ -1305,6 +1422,13 @@ public sealed class TimelineControl : Control
             }
 
             Select(clip);
+            // Fade handles / opacity rubber-band (PLAN.md step 39) win over move/trim in the top handle band
+            // and on the envelope line.
+            if (_activeTool == EditTool.Select && TryBeginFadeGesture(clip, p, e.KeyModifiers))
+            {
+                e.Pointer.Capture(this);
+                return;
+            }
             // Ripple and Roll act on an edge; a click on the clip body just selects.
             if (_activeTool is EditTool.Ripple or EditTool.Roll && mode == ClipDragMode.Move)
                 return;
@@ -1404,6 +1528,8 @@ public sealed class TimelineControl : Control
             _rippleUnits.Clear();
             _rollLeft = _rollRight = null;
             _slidePrev = _slideNext = null;
+            _fadeOrigOpacity = null;
+            _bandGrabTimes = [];
             _movePreview = false;
             _movePreviewTrack = null;
             _movePreviewCopy = false;
@@ -1584,6 +1710,9 @@ public sealed class TimelineControl : Control
             case DragKind.Ripple: UpdateRipple(pointerTicks); return;
             case DragKind.Roll: UpdateRoll(pointerTicks); return;
             case DragKind.Slide: UpdateSlide(pointerTicks); return;
+            case DragKind.FadeIn: UpdateFadeHandle(pointerTicks, fadeIn: true); return;
+            case DragKind.FadeOut: UpdateFadeHandle(pointerTicks, fadeIn: false); return;
+            case DragKind.Band: UpdateFadeBand(p); return;
             case DragKind.None: return;
         }
 
@@ -1713,6 +1842,113 @@ public sealed class TimelineControl : Control
             new Timecode(_dragOrigOut.Ticks + slip),
             _dragOrigStart,
             "Slip clip"));
+    }
+
+    // ── Fade handles & opacity rubber-band (PLAN.md step 39) ───────────────────────────────────────
+
+    // The clip's on-screen body rect (the same geometry DrawClips uses), or null when its track isn't visible.
+    private Rect? ClipRectOf(Clip clip)
+    {
+        List<(Track track, bool isVideo)> lanes = Lanes();
+        int i = lanes.FindIndex(l => l.track.Clips.Contains(clip));
+        if (i < 0)
+            return null;
+        double x0 = TimelineMath.XAtTicks(clip.TimelineStart.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+        double x1 = TimelineMath.XAtTicks(clip.TimelineEnd.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+        return new Rect(x0, LaneTop(i) + 3, Math.Max(2, x1 - x0), TrackHeight - 6);
+    }
+
+    /// <summary>
+    /// Starts a fade gesture when the press lands on a fade handle (top corners / ramp tops) or on the opacity
+    /// rubber-band line (PLAN.md step 39). Captures the envelope at press so drag updates are computed from one
+    /// stable original, and opens a coalescing scope so the whole drag is a single undo entry. Ctrl+click on
+    /// the band adds a keyframe at the pointer (which the rest of the drag then moves). Returns whether a
+    /// gesture began.
+    /// </summary>
+    private bool TryBeginFadeGesture(Clip clip, Point p, KeyModifiers mods)
+    {
+        if (_history is null || ClipRectOf(clip) is not { } rect)
+            return false;
+
+        AnimatableValue? opacity = FadeOps.FadeOpacity(clip);
+        (long fadeIn, long fadeOut) = FadeOps.ReadFades(opacity, clip.TimelineStart.Ticks, clip.TimelineEnd.Ticks);
+
+        // 1. The handle triangles along the top edge.
+        double inX = rect.X + TimelineMath.WidthOfTicks(fadeIn, _pxPerSecond);
+        double outX = rect.Right - TimelineMath.WidthOfTicks(fadeOut, _pxPerSecond);
+        FadeHandleKind handle = rect.Width >= 24
+            ? TimelineMath.HitFadeHandle(p.X, p.Y, rect.Y, FadeHandleBand, inX, outX, FadeHandleGrip)
+            : FadeHandleKind.None;
+        if (handle != FadeHandleKind.None)
+        {
+            _dragClip = clip;
+            _dragKind = handle == FadeHandleKind.FadeIn ? DragKind.FadeIn : DragKind.FadeOut;
+            _fadeOrigOpacity = opacity;
+            _fadeOrigIn = fadeIn;
+            _fadeOrigOut = fadeOut;
+            _fadeClipRect = rect;
+            _coalesce = _history.BeginCoalescing();
+            InvalidateVisual();
+            return true;
+        }
+
+        // 2. The rubber-band: within a few px of the envelope line, inside the clip body.
+        if (p.X < rect.X || p.X > rect.Right)
+            return false;
+        long pressTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, _headerWidth);
+        double level = opacity is null ? 1.0 : Math.Clamp(opacity.Evaluate(new Timecode(pressTicks)), 0, 1);
+        double bandY = TimelineMath.FadeYAtLevel(level, rect.Y, rect.Height, FadeBandPad);
+        if (Math.Abs(p.Y - bandY) > FadeBandGrip)
+            return false;
+
+        _dragClip = clip;
+        _dragKind = DragKind.Band;
+        _fadeClipRect = rect;
+        _coalesce = _history.BeginCoalescing();
+
+        long tolTicks = (long)(FadeHandleGrip / Math.Max(1e-6, _pxPerSecond) * Timecode.TicksPerSecond);
+        if (mods.HasFlag(KeyModifiers.Control))
+        {
+            // Add a point at the pointer, then let the rest of the drag move it — one coalesced undo entry.
+            AnimatableValue added = FadeOps.WithAddedPoint(opacity, pressTicks);
+            Execute(new SetClipFadeCommand(clip, added, "Add fade point"));
+            _fadeOrigOpacity = added;
+            _bandGrabTimes = [pressTicks];
+        }
+        else
+        {
+            _fadeOrigOpacity = opacity;
+            _bandGrabTimes = FadeOps.GrabKeyframes(opacity, pressTicks, tolTicks);
+        }
+        _bandPressLevel = TimelineMath.FadeLevelAtY(p.Y, rect.Y, rect.Height, FadeBandPad);
+        return true;
+    }
+
+    // Drags a fade handle: the fade length follows the pointer, clamped so the two fades never cross, and the
+    // envelope is rebuilt from the press-time original (interior rubber-band points preserved).
+    private void UpdateFadeHandle(long pointerTicks, bool fadeIn)
+    {
+        Clip clip = _dragClip!;
+        long start = clip.TimelineStart.Ticks, end = clip.TimelineEnd.Ticks;
+        long duration = Math.Max(0, end - start);
+
+        long newIn = _fadeOrigIn, newOut = _fadeOrigOut;
+        if (fadeIn)
+            newIn = Math.Clamp(pointerTicks - start, 0, duration - _fadeOrigOut);
+        else
+            newOut = Math.Clamp(end - pointerTicks, 0, duration - _fadeOrigIn);
+
+        Execute(new SetClipFadeCommand(
+            clip, FadeOps.BuildOpacity(_fadeOrigOpacity, start, end, newIn, newOut)));
+    }
+
+    // Drags the rubber-band vertically: the grabbed keyframes (or the flat level) move by the total level
+    // delta since the press, computed against the press-time original so the drag is exact.
+    private void UpdateFadeBand(Point p)
+    {
+        double level = TimelineMath.FadeLevelAtY(p.Y, _fadeClipRect.Y, _fadeClipRect.Height, FadeBandPad);
+        Execute(new SetClipFadeCommand(
+            _dragClip!, FadeOps.WithValueDelta(_fadeOrigOpacity, _bandGrabTimes, level - _bandPressLevel)));
     }
 
     // ── Ripple / roll / slide (PLAN.md step 22) ─────────────────────────────────────────────────────

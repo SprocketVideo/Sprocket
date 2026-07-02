@@ -110,11 +110,37 @@ public sealed class TrimClipCommand : EditCommand
 }
 
 /// <summary>
+/// Keyframe rebasing for clip <em>moves</em> (PLAN.md step 39). Effect keyframe times are absolute timeline
+/// time, so a command that shifts a clip along the timeline without re-trimming it must shift the clip's
+/// effect keyframes (e.g. the fade's opacity ramp) by the same delta — otherwise the fade stays anchored to
+/// the clip's old span (the "second clip plays black" bug class, fixed for paste/duplicate 2026-06-30 via
+/// <see cref="EffectInstance.CloneShifted"/>; this is the matching fix for in-place moves). The delta is
+/// computed against the clip's <em>current</em> start at apply/revert time, so repeated coalesced applies and
+/// merged undo entries stay exact. Trims (source in/out changing) deliberately don't rebase — the clip's
+/// timeline edges the keyframes align to are the ones moving.
+/// </summary>
+internal static class ClipMoveRebase
+{
+    /// <summary>Shifts every effect's animated parameters so their keyframes land <paramref name="newStartTicks"/>
+    /// relative to where the clip currently sits.</summary>
+    internal static void ShiftEffectsTo(Clip clip, long newStartTicks)
+    {
+        long delta = newStartTicks - clip.TimelineStart.Ticks;
+        if (delta == 0)
+            return;
+        var shift = new Timecode(delta);
+        foreach (EffectInstance effect in clip.Effects)
+            effect.ShiftKeyframes(shift);
+    }
+}
+
+/// <summary>
 /// Sets a clip's placement — source in/out <em>and</em> timeline start — atomically. This is the primitive a
 /// timeline drag uses: a move changes only <see cref="Clip.TimelineStart"/>; a right-edge trim changes
 /// <see cref="Clip.SourceOut"/>; a left-edge trim changes <see cref="Clip.SourceIn"/> and the start together
 /// (the right edge stays put); a slip changes both source points but not the start. Coalesces with further
-/// placements of the same clip so a whole drag is one undo entry.
+/// placements of the same clip so a whole drag is one undo entry. A pure move (source span unchanged) also
+/// shifts the clip's effect keyframes so fades stay aligned with the clip (<see cref="ClipMoveRebase"/>).
 /// </summary>
 public sealed class SetClipPlacementCommand : EditCommand
 {
@@ -139,9 +165,14 @@ public sealed class SetClipPlacementCommand : EditCommand
         _newStart = newTimelineStart;
     }
 
+    // A pure move (in/out untouched) rebases keyframes; a trim/slip leaves them anchored (PLAN.md step 39).
+    private bool IsPureMove => _newIn == _oldIn && _newOut == _oldOut;
+
     /// <inheritdoc />
     public override void Apply()
     {
+        if (IsPureMove)
+            ClipMoveRebase.ShiftEffectsTo(_clip, _newStart.Ticks);
         _clip.SourceIn = _newIn;
         _clip.SourceOut = _newOut;
         _clip.TimelineStart = _newStart;
@@ -150,6 +181,8 @@ public sealed class SetClipPlacementCommand : EditCommand
     /// <inheritdoc />
     public override void Revert()
     {
+        if (IsPureMove)
+            ClipMoveRebase.ShiftEffectsTo(_clip, _oldStart.Ticks);
         _clip.SourceIn = _oldIn;
         _clip.SourceOut = _oldOut;
         _clip.TimelineStart = _oldStart;
@@ -207,6 +240,7 @@ public sealed class MoveClipToTrackCommand : EditCommand
         _index = _from.Clips.IndexOf(_clip);
         if (_index >= 0)
             _from.Clips.RemoveAt(_index);
+        ClipMoveRebase.ShiftEffectsTo(_clip, _newStart.Ticks); // a track move is a pure move — keyframes follow
         _clip.TimelineStart = _newStart;
         _to.Clips.Add(_clip);
     }
@@ -215,6 +249,7 @@ public sealed class MoveClipToTrackCommand : EditCommand
     public override void Revert()
     {
         _to.Clips.Remove(_clip);
+        ClipMoveRebase.ShiftEffectsTo(_clip, _oldStart.Ticks);
         _clip.TimelineStart = _oldStart;
         if (_index < 0)
             _from.Clips.Add(_clip);
@@ -266,7 +301,11 @@ public sealed class RippleTrimCommand : EditCommand
         _clip.SourceIn = _newIn;
         _clip.SourceOut = _newOut;
         foreach ((Clip d, Timecode origStart) in _downstream)
+        {
+            // The downstream clips are pure moves — their effect keyframes shift with them (PLAN.md step 39).
+            ClipMoveRebase.ShiftEffectsTo(d, origStart.Ticks + _shift);
             d.TimelineStart = new Timecode(origStart.Ticks + _shift);
+        }
     }
 
     /// <inheritdoc />
@@ -275,7 +314,10 @@ public sealed class RippleTrimCommand : EditCommand
         _clip.SourceIn = _oldIn;
         _clip.SourceOut = _oldOut;
         foreach ((Clip d, Timecode origStart) in _downstream)
+        {
+            ClipMoveRebase.ShiftEffectsTo(d, origStart.Ticks);
             d.TimelineStart = origStart;
+        }
     }
 
     /// <inheritdoc />
@@ -404,6 +446,8 @@ public sealed class SlideClipCommand : EditCommand
     /// <inheritdoc />
     public override void Apply()
     {
+        // The slid clip is a pure move — its keyframes follow (PLAN.md step 39); the neighbours are trims.
+        ClipMoveRebase.ShiftEffectsTo(_clip, _newStart.Ticks);
         _clip.TimelineStart = _newStart;
         if (_prev is not null)
             _prev.SourceOut = _newPrevOut;
@@ -417,6 +461,7 @@ public sealed class SlideClipCommand : EditCommand
     /// <inheritdoc />
     public override void Revert()
     {
+        ClipMoveRebase.ShiftEffectsTo(_clip, _oldStart.Ticks);
         _clip.TimelineStart = _oldStart;
         if (_prev is not null)
             _prev.SourceOut = _oldPrevOut;
@@ -737,6 +782,85 @@ public sealed class SetEffectParameterCommand : EditCommand
             && other._name == _name)
         {
             _newValue = other._newValue;
+            return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
+/// Sets a clip's fade opacity envelope — the keyframed <see cref="EffectParamNames.Opacity"/> on the clip's
+/// <see cref="EffectTypeIds.Fade"/> effect — creating the Fade effect when the clip has none (PLAN.md step 39).
+/// This is the primitive the on-timeline fade handles and opacity rubber-band drive: because creation and the
+/// parameter set are one command, a handle drag on a fade-less clip is still a single undo entry (undo removes
+/// the created effect again). Coalesces with further fade sets of the same clip so a drag is one entry,
+/// mirroring the other drag-gesture commands.
+/// </summary>
+public sealed class SetClipFadeCommand : EditCommand
+{
+    private readonly Clip _clip;
+    private readonly EffectInstance _target;
+    private readonly bool _created;
+    private readonly AnimatableValue? _oldOpacity;
+    private AnimatableValue _newOpacity;
+
+    /// <summary>Captures the clip's current fade (the first enabled Fade effect, or a new one to add) and
+    /// records the new opacity envelope to apply.</summary>
+    public SetClipFadeCommand(Clip clip, AnimatableValue newOpacity, string label = "Adjust fade")
+        : base(label)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(newOpacity);
+        _clip = clip;
+        EffectInstance? existing = null;
+        foreach (EffectInstance e in clip.Effects)
+        {
+            if (e.Enabled && e.EffectTypeId == EffectTypeIds.Fade)
+            {
+                existing = e;
+                break;
+            }
+        }
+        _created = existing is null;
+        _target = existing ?? new EffectInstance(EffectTypeIds.Fade);
+        if (existing is not null)
+            existing.Parameters.TryGetValue(EffectParamNames.Opacity, out _oldOpacity);
+        _newOpacity = newOpacity;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        if (_created)
+            _clip.Effects.Add(_target);
+        _target.Parameters[EffectParamNames.Opacity] = _newOpacity;
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        if (_created)
+        {
+            _clip.Effects.Remove(_target);
+        }
+        else if (_oldOpacity is not null)
+        {
+            _target.Parameters[EffectParamNames.Opacity] = _oldOpacity;
+        }
+        else
+        {
+            _target.Parameters.Remove(EffectParamNames.Opacity);
+        }
+    }
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        // Later commands in the same drag find the effect this one created, so the targets match by reference.
+        if (next is SetClipFadeCommand other && ReferenceEquals(other._clip, _clip)
+            && ReferenceEquals(other._target, _target))
+        {
+            _newOpacity = other._newOpacity;
             return true;
         }
         return false;

@@ -379,4 +379,29 @@ public sealed class EffectInstance
             copy.Parameters[name] = value.Shifted(delta);
         return copy;
     }
+
+    /// <summary>
+    /// Shifts every animated parameter's keyframes by <paramref name="delta"/> <em>in place</em> (see
+    /// <see cref="AnimatableValue.Shifted"/>; constants are untouched) — the mutating counterpart of
+    /// <see cref="CloneShifted"/>. Keyframe times are absolute timeline time, so when a clip is <em>moved</em>
+    /// its effects' keyframes (e.g. a fade's opacity ramp) must shift by the same delta to stay aligned with
+    /// the clip (PLAN.md step 39); the placement commands call this alongside setting
+    /// <see cref="Clip.TimelineStart"/>.
+    /// </summary>
+    public void ShiftKeyframes(Timecode delta)
+    {
+        if (delta.Ticks == 0)
+            return;
+        List<KeyValuePair<string, AnimatableValue>>? shifted = null;
+        foreach ((string name, AnimatableValue value) in Parameters)
+        {
+            AnimatableValue s = value.Shifted(delta);
+            if (!ReferenceEquals(s, value))
+                (shifted ??= []).Add(new(name, s));
+        }
+        if (shifted is null)
+            return;
+        foreach ((string name, AnimatableValue value) in shifted)
+            Parameters[name] = value;
+    }
 }
