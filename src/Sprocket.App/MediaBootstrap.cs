@@ -60,12 +60,14 @@ internal static class MediaBootstrap
     public static Project BuildProjectFromMedia(string path)
     {
         // Probe once for format; the engine/mixer open their own per-source decoders when the session is built.
-        ProbedMediaInfo info;
-        using (MediaSource probe = MediaSource.Open(path))
-            info = probe.Info;
+        // ProbeInfo (not MediaSource.Open) so audio-only sources — .m4a / .mp3 / .wav — open a session too.
+        ProbedMediaInfo info = MediaSource.ProbeInfo(path);
 
         int sampleRate = info.SampleRate > 0 ? info.SampleRate : 48000;
-        var timeline = new Timeline(info.FrameRate, new Resolution(info.Width, info.Height), sampleRate);
+        // An audio-only source carries no video format, so the timeline keeps the default 1080p / 30 fps.
+        var timeline = info.HasVideo
+            ? new Timeline(info.FrameRate, new Resolution(info.Width, info.Height), sampleRate)
+            : new Timeline(new Rational(30, 1), new Resolution(1920, 1080), sampleRate);
         var project = new Project(timeline);
 
         var mediaId = MediaRefId.New();
@@ -75,7 +77,8 @@ internal static class MediaBootstrap
         var linkGroup = Guid.NewGuid();
 
         var videoTrack = new VideoTrack { Name = "V1" };
-        videoTrack.Clips.Add(new Clip(mediaId, Timecode.Zero, info.Duration, Timecode.Zero) { LinkGroupId = linkGroup });
+        if (info.HasVideo)
+            videoTrack.Clips.Add(new Clip(mediaId, Timecode.Zero, info.Duration, Timecode.Zero) { LinkGroupId = linkGroup });
         timeline.Tracks.Add(videoTrack);
 
         // Always give the project an audio track; lay the companion clip on it only when the source has audio.

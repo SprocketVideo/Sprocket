@@ -19,9 +19,14 @@ internal static class TestVideo
 
     private static readonly Lazy<string> LazyPath = new(Generate);
     private static readonly Lazy<string> LazyAlphaPath = new(GenerateAlpha);
+    private static readonly Lazy<string> LazyAudioOnlyPath = new(GenerateAudioOnly);
 
     /// <summary>Absolute path to the fixture clip, generating it on first use.</summary>
     public static string Path => LazyPath.Value;
+
+    /// <summary>Absolute path to an audio-only fixture (<c>.m4a</c>, AAC 48 kHz sine — no video stream),
+    /// generating it on first use. Exercises the audio-only import probe (PLAN.md step 16b).</summary>
+    public static string AudioOnlyPath => LazyAudioOnlyPath.Value;
 
     /// <summary>Absolute path to a short alpha-channel fixture clip (64×64 QuickTime Animation / <c>qtrle</c>,
     /// which stores <c>argb</c> — an alpha pixel format), generating it on first use. The whole frame is at 50%
@@ -38,6 +43,12 @@ internal static class TestVideo
         $"-f lavfi -i testsrc2=size={Width}x{Height}:rate={Fps}:duration={DurationSeconds} " +
         $"-f lavfi -i sine=frequency=440:sample_rate={SampleRate}:duration={DurationSeconds} " +
         "-c:v libx264 -g 12 -pix_fmt yuv420p -c:a aac -shortest ");
+
+    private static string GenerateAudioOnly() => RunFfmpeg(
+        "fixture.m4a",
+        "-y " +
+        $"-f lavfi -i sine=frequency=440:sample_rate={SampleRate}:duration={DurationSeconds} " +
+        "-c:a aac ");
 
     private static string GenerateAlpha() => RunFfmpeg(
         "fixture-alpha.mov",

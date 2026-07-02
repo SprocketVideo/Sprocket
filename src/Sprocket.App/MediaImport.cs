@@ -47,8 +47,9 @@ internal static class MediaImport
         ProbedMediaInfo info;
         try
         {
-            using MediaSource probe = MediaSource.Open(path);
-            info = probe.Info;
+            // ProbeInfo (not Open) so audio-only sources — .m4a / .mp3 / .wav — import too (they have no
+            // video stream for MediaSource's video decoder to open).
+            info = MediaSource.ProbeInfo(path);
         }
         catch (Exception ex)
         {

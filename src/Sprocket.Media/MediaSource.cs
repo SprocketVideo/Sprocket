@@ -149,6 +149,58 @@ public sealed unsafe class MediaSource : IDisposable
         }
     }
 
+    /// <summary>
+    /// Probes <paramref name="path"/> for stream facts without requiring a video stream: video-bearing files
+    /// are probed through the normal <see cref="Open"/> path (so dimensions come from the opened decoder, as
+    /// at playback); audio-only files (e.g. <c>.m4a</c> / <c>.mp3</c> / <c>.wav</c>) yield an audio-only
+    /// <see cref="ProbedMediaInfo"/> (<c>HasVideo = false</c>). Throws when the file has neither a decodable
+    /// video nor audio stream. This is the import-time probe (PLAN.md step 16b).
+    /// </summary>
+    public static ProbedMediaInfo ProbeInfo(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        FFmpegLoader.EnsureBundledNativesLoaded();
+
+        using (FormatContextHandle format = FormatContextHandle.OpenInput(path))
+        {
+            bool hasVideo = format.TryFindBestStream(AvConst.MediaTypeVideo, out _, out _, out IntPtr videoDecoder)
+                && videoDecoder != IntPtr.Zero;
+            if (!hasVideo)
+                return ProbeAudioOnly(format, path);
+        }
+
+        using MediaSource source = Open(path);
+        return source.Info;
+    }
+
+    /// <summary>Builds the probe info for a source with no decodable video stream. Throws when it has no
+    /// decodable audio stream either (nothing Sprocket can use).</summary>
+    private static ProbedMediaInfo ProbeAudioOnly(FormatContextHandle format, string path)
+    {
+        if (!format.TryFindBestStream(AvConst.MediaTypeAudio, out _, out IntPtr audioStream, out IntPtr decoder)
+            || decoder == IntPtr.Zero)
+            throw new InvalidOperationException($"No decodable video or audio stream found in '{path}'.");
+
+        var st = (AvStream*)audioStream;
+        var par = (AvCodecParameters*)st->codecpar;
+        Timecode duration = format.Duration > 0
+            ? MediaTime.FromMicroseconds(format.Duration)          // AV_TIME_BASE (µs) container duration
+            : st->duration > 0
+                ? MediaTime.ToTimecode(st->duration, st->time_base)
+                : Timecode.Zero;
+
+        return new ProbedMediaInfo(
+            Duration: duration,
+            HasVideo: false,
+            FrameRate: Rational.Zero,
+            Width: 0,
+            Height: 0,
+            HasAudio: true,
+            SampleRate: par->sample_rate,
+            Channels: par->ch_layout.nb_channels,
+            AudioCodec: CodecName(par->codec_id));
+    }
+
     /// <summary>Finds the first platform-preferred hardware device the decoder supports and that opens.</summary>
     private static (IHardwareContext?, int) NegotiateHardware(IntPtr codec)
     {

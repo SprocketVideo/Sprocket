@@ -67,6 +67,33 @@ public class MediaSourceTests
     }
 
     [Fact]
+    public void ProbeInfo_AudioOnlySource_Probes_Without_Video()
+    {
+        // .m4a import path (PLAN.md step 16b): ProbeInfo must succeed where MediaSource.Open (video-led) throws.
+        var info = MediaSource.ProbeInfo(TestVideo.AudioOnlyPath);
+
+        Assert.False(info.HasVideo);
+        Assert.Equal(Rational.Zero, info.FrameRate);
+        Assert.Equal(0, info.Width);
+        Assert.Equal(0, info.Height);
+        Assert.Equal("", info.VideoCodec);
+
+        Assert.True(info.HasAudio);
+        Assert.Equal(TestVideo.SampleRate, info.SampleRate);
+        Assert.True(info.Channels >= 1);
+        Assert.Equal("aac", info.AudioCodec);
+        Assert.InRange(info.Duration.ToSeconds(), 2.8, 3.2);
+    }
+
+    [Fact]
+    public void ProbeInfo_VideoSource_Matches_Open()
+    {
+        // For video-bearing files ProbeInfo delegates to the normal Open path — identical facts.
+        using MediaSource source = Open();
+        Assert.Equal(source.Info, MediaSource.ProbeInfo(TestVideo.Path));
+    }
+
+    [Fact]
     public void Open_AlphaSource_Reports_HasAlpha_On_Info_And_Frames()
     {
         using MediaSource source = MediaSource.Open(TestVideo.AlphaPath);
