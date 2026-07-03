@@ -23,11 +23,11 @@ testing. Expect rough edges.
 - **What's new in this release** is summarized in the **"What's changed"** section above (generated
   from the commits since the previous release).
 - **The full roadmap and current status** live in
-  [`PLAN.md`](https://github.com/drittich/sprocket/blob/main/PLAN.md).
+  [`PLAN.md`](https://github.com/SprocketVideo/Sprocket/blob/main/PLAN.md).
 
 ## 🐞 Found a bug? Tell us — it's quick
 
-**[→ Click here to file an issue](https://github.com/drittich/sprocket/issues/new)** (a free GitHub
+**[→ Click here to file an issue](https://github.com/SprocketVideo/Sprocket/issues/new)** (a free GitHub
 account is all you need). Or from the repo, go to the **Issues** tab → **New issue**.
 
 To help us reproduce it fast, please include what you can:

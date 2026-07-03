@@ -6,9 +6,9 @@
 
 <br clear="left" />
 
-[![CI](https://github.com/drittich/sprocket/actions/workflows/ci.yml/badge.svg)](https://github.com/drittich/sprocket/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/drittich/sprocket?include_prereleases&sort=semver&label=release)](https://github.com/drittich/sprocket/releases)
-[![Downloads](https://img.shields.io/github/downloads/drittich/sprocket/total?label=downloads)](https://github.com/drittich/sprocket/releases)
+[![CI](https://github.com/SprocketVideo/Sprocket/actions/workflows/ci.yml/badge.svg)](https://github.com/SprocketVideo/Sprocket/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/SprocketVideo/Sprocket?include_prereleases&sort=semver&label=release)](https://github.com/SprocketVideo/Sprocket/releases)
+[![Downloads](https://img.shields.io/github/downloads/drittich/sprocket/total?label=downloads)](https://github.com/SprocketVideo/Sprocket/releases)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-blue)](#platform-support)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)
 
