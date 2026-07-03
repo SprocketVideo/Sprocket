@@ -53,6 +53,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | — | ❌ |
 | Help ▸ About (version, open logs folder) | Sprocket.App/Dialogs.cs `AboutDialog` | — | ❌ |
 | Help ▸ Third-Party Notices (bundled library/font/media licenses) | Sprocket.App/Dialogs.cs `ThirdPartyNoticesDialog`; THIRD-PARTY-NOTICES.md | — | ❌ |
+| Update notifications (Help ▸ Check for Updates; status-bar badge; browser download link — never self-installs) | Sprocket.App/UpdateCheckService.cs; UpdateDialogs.cs; PLAN.md step 45 | — | ❌ |
 
 ## 2. Projects & saving
 
@@ -192,6 +193,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Cache management (clear proxy / render caches) | PreferencesDialog.cs | — | ❌ |
 | Export metadata defaults | PreferencesDialog.cs | — | ❌ |
 | Autosave interval | PreferencesDialog.cs | — | ❌ |
+| Update check settings (enable/disable, release channel) | PreferencesDialog.cs; Sprocket.App/UpdateCheck.cs | — | ❌ |
 | AI control (MCP) settings | PreferencesDialog.cs | — | ❌ (cover within the AI-control guide — see §13) |
 
 ## 12. Keyboard shortcuts

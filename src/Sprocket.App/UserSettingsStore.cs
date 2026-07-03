@@ -20,6 +20,18 @@ namespace Sprocket.App;
 /// <param name="McpRequireToken">Whether MCP requests must carry the bearer token. Off by default —
 /// the server is loopback-only either way; the token additionally shuts out other local processes.</param>
 /// <param name="McpToken">The bearer token, generated once when token auth is first enabled ("" = none yet).</param>
+/// <param name="UpdateCheckEnabled">Whether the startup update check runs (PLAN.md step 45). Notify-only —
+/// it never downloads or installs anything.</param>
+/// <param name="UpdateChannelPolicy">Which releases the check may notify about — an
+/// <see cref="Sprocket.App.UpdateChannelPolicy"/> name; unknown values fall back to MatchCurrentChannel.</param>
+/// <param name="UpdateLastCheckedUtc">Round-trip UTC timestamp of the last successful check, for the
+/// cross-launch throttle ("" = never checked).</param>
+/// <param name="UpdateAvailableTag">Cached tag of the newest acceptable release found ("" = up to date).</param>
+/// <param name="UpdateAvailableUrl">Cached release-page URL for <paramref name="UpdateAvailableTag"/>.</param>
+/// <param name="UpdateAvailableAssetName">Cached name of this platform's download asset ("" = none matched).</param>
+/// <param name="UpdateAvailableAssetUrl">Cached direct download URL for that asset ("" = none matched).</param>
+/// <param name="UpdateDismissedTag">The release tag the user dismissed ("Skip This Version") — the badge
+/// stays hidden for exactly that version, so a result never nags across startups.</param>
 public sealed record UserSettings(
     string ExportTitle = "",
     string ExportAuthor = "",
@@ -29,7 +41,15 @@ public sealed record UserSettings(
     bool McpEnabled = false,
     int McpPort = UserSettingsStore.DefaultMcpPort,
     bool McpRequireToken = false,
-    string McpToken = "");
+    string McpToken = "",
+    bool UpdateCheckEnabled = true,
+    string UpdateChannelPolicy = nameof(Sprocket.App.UpdateChannelPolicy.MatchCurrentChannel),
+    string UpdateLastCheckedUtc = "",
+    string UpdateAvailableTag = "",
+    string UpdateAvailableUrl = "",
+    string UpdateAvailableAssetName = "",
+    string UpdateAvailableAssetUrl = "",
+    string UpdateDismissedTag = "");
 
 /// <summary>
 /// The pure, headlessly-tested (de)serialization and validation logic for <see cref="UserSettings"/> —
@@ -87,6 +107,14 @@ public static class UserSettingsStore
         AutosaveIntervalSeconds = Math.Clamp(settings.AutosaveIntervalSeconds, MinAutosaveSeconds, MaxAutosaveSeconds),
         McpPort = Math.Clamp(settings.McpPort, MinPort, MaxPort),
         McpToken = settings.McpToken ?? "",
+        // Normalize the channel policy to a known enum name — a hand-edited value degrades to the default.
+        UpdateChannelPolicy = UpdateCheck.ParsePolicy(settings.UpdateChannelPolicy).ToString(),
+        UpdateLastCheckedUtc = settings.UpdateLastCheckedUtc ?? "",
+        UpdateAvailableTag = settings.UpdateAvailableTag ?? "",
+        UpdateAvailableUrl = settings.UpdateAvailableUrl ?? "",
+        UpdateAvailableAssetName = settings.UpdateAvailableAssetName ?? "",
+        UpdateAvailableAssetUrl = settings.UpdateAvailableAssetUrl ?? "",
+        UpdateDismissedTag = settings.UpdateDismissedTag ?? "",
     };
 
     /// <summary>Generates a fresh MCP bearer token: 32 random bytes, base64url (no padding, URL/header safe).</summary>

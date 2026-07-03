@@ -144,6 +144,8 @@
             <MenuItem x:Name="ResetLayoutMenuItem" Header="_Reset Layout" />
           </MenuItem>
           <MenuItem Header="_Help">
+            <MenuItem x:Name="CheckUpdatesMenuItem" Header="Check for _Updates…" />
+            <Separator />
             <MenuItem x:Name="ThirdPartyNoticesMenuItem" Header="_Third-Party Notices" />
             <Separator />
             <MenuItem x:Name="AboutMenuItem" Header="_About Sprocket" />
@@ -237,6 +239,17 @@
             <Border Width="1" Height="12" Background="{DynamicResource Edge}" Margin="0,0,4,0" />
             <Ellipse x:Name="McpDot" Width="8" Height="8" Fill="{DynamicResource Good}" VerticalAlignment="Center" />
             <TextBlock x:Name="McpLabel" Foreground="{DynamicResource MutedText}" FontSize="11"
+                       VerticalAlignment="Center" Text="" />
+          </StackPanel>
+          <!-- Update-available badge (PLAN.md step 45): the deliberately lightweight, non-modal affordance —
+               visible only while a newer, not-yet-dismissed release exists; click opens the details dialog.
+               Driven by RefreshUpdateBadge(). -->
+          <StackPanel x:Name="UpdateBadge" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                      Margin="10,0,0,0" IsVisible="False" Cursor="Hand" Background="Transparent"
+                      ToolTip.Tip="A newer version of Sprocket is available — click for details.">
+            <Border Width="1" Height="12" Background="{DynamicResource Edge}" Margin="0,0,4,0" />
+            <Ellipse Width="8" Height="8" Fill="{DynamicResource Accent}" VerticalAlignment="Center" />
+            <TextBlock x:Name="UpdateBadgeLabel" Foreground="{DynamicResource MutedText}" FontSize="11"
                        VerticalAlignment="Center" Text="" />
           </StackPanel>
         </StackPanel>

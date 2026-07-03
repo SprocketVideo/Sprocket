@@ -14,9 +14,13 @@ public partial class App : Application
     private PlaybackEngine? _engine; // the live session's engine; swapped on File ▸ New / Open (PLAN.md step 16c)
     private ProxyService? _proxy;    // the live session's proxy service (PLAN.md step 18); swapped alongside the engine
     private McpServerService? _mcp;  // app-scoped MCP server controller (PLAN.md step 38); survives session swaps
+    private UpdateCheckService? _updates; // app-scoped update checker (PLAN.md step 45); survives session swaps
 
     /// <summary>The MCP server controller, for the shell's status-bar indicator.</summary>
     internal McpServerService? McpService => _mcp;
+
+    /// <summary>The update checker, for the shell's status-bar badge and Help ▸ Check for Updates.</summary>
+    internal UpdateCheckService? UpdateService => _updates;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -32,6 +36,7 @@ public partial class App : Application
             // and hand the shell to the lifetime, which shows it. MediaBootstrap.Create degrades to an empty
             // project rather than throwing, so this can't strand the user.
             _mcp = new McpServerService();
+            _updates = new UpdateCheckService(); // before BuildWindow, so the first window can wire its badge
             CliOptions cli = CliOptions.Parse(desktop.Args ?? []);
             if (cli.Error is not null)
                 Console.Error.WriteLine($"mcp: {cli.Error}");
@@ -44,6 +49,10 @@ public partial class App : Application
             UserSettings startupSettings = cli.ApplyTo(
                 UserSettingsFile.Load(), Environment.GetEnvironmentVariable(CliOptions.McpTokenEnvVar));
             _ = StartMcpAsync(_mcp, startupSettings, announce: cli.McpRequested);
+
+            // Update check (PLAN.md step 45): fire-and-forget after the shell is handed to the lifetime —
+            // never blocks startup; throttled across launches; the window's badge mirrors the result.
+            _ = _updates.CheckAsync(startupSettings, force: false);
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -119,6 +128,7 @@ public partial class App : Application
 
     private async void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
+        _updates?.Dispose(); // cancel any in-flight update check
         if (_mcp is { } mcp)
             await mcp.DisposeAsync(); // stop accepting AI edits before the session tears down
         _proxy?.Dispose();

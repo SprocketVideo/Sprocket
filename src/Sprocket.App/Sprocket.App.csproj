@@ -23,6 +23,10 @@
          (bundled into the linux-* release by scripts/release.ps1); the macOS .app icon is part of the
          still-outstanding packaging work (PLAN.md step 36). -->
     <ApplicationIcon>Assets/sprocket.ico</ApplicationIcon>
+    <!-- Dev-build convenience: the repo-root Directory.Build.targets copies the FFmpeg 8 natives from
+         ./.ffmpeg-cache (populated once by scripts/release.ps1) next to the exe, so bin/ launches and
+         `dotnet run` start without %SPROCKET_FFMPEG8_DIR%. Best-effort; release bundling is unchanged. -->
+    <UsesFFmpegNatives>true</UsesFFmpegNatives>
   </PropertyGroup>
 
   <!-- App icon assets, served to the UI as avares:// resources (window icon, header badge, About box). -->
@@ -61,8 +65,9 @@
     <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="3.119.4" />
 
     <!-- FFmpeg 8 natives are NOT a NuGet dependency (no FFmpeg-8 runtime NuGet exists). They are
-         bundled per-RID next to the exe by scripts/release.ps1 (avcodec-62 / avutil-60 / … §11) and,
-         in local dev, resolved from %SPROCKET_FFMPEG8_DIR% by Sprocket.Media's FFmpegLoader. -->
+         bundled per-RID next to the exe by scripts/release.ps1 (avcodec-62 / avutil-60 / … §11); in
+         local dev they are copied from ./.ffmpeg-cache by the UsesFFmpegNatives opt-in above, with
+         %SPROCKET_FFMPEG8_DIR% as the fallback searched by Sprocket.Media's FFmpegLoader. -->
   </ItemGroup>
 
   <ItemGroup>

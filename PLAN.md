@@ -2948,6 +2948,24 @@ Tags reference the [UI.md §4 checklist](UI.md).
       selection per RID, settings round-trip with additive fields, throttling/dismissal logic, and malformed API
       payload handling. Manual verification should mock both a stable-only and prerelease-heavy release list and
       confirm startup remains non-blocking.
+    - **✅ DONE (`src/Sprocket.App`: `UpdateVersion.cs` + `UpdateCheck.cs` + `UpdateCheckService.cs` +
+      `UpdateDialogs.cs`, settings/Preferences/shell wiring; 54 new tests in
+      `tests/Sprocket.App.Tests/UpdateCheckTests.cs`).** Shipped exactly the notify + deep-link slice:
+      `UpdateVersion` is the pure SemVer-ish comparer (leading `v`, prerelease labels, `+meta` ignored,
+      malformed tags rejected); `UpdateCheck` holds the pure policy logic — GitHub **releases-list**
+      parsing (never `releases/latest`, which hides prereleases), channel filtering
+      (`StableOnly` / `MatchCurrentChannel` default / `IncludePrereleases`), per-RID asset targeting
+      against the `release.ps1` `Sprocket-<version>-<rid>.zip` scheme with release-page fallback, a
+      20-hour cross-launch throttle, and per-version dismissal. `UpdateCheckService` is app-scoped like
+      `McpServerService` (anonymous `HttpClient`, fired after the shell is up, result cached in the
+      additive `UserSettings` fields so throttled launches stay informed offline; failures degrade
+      silently). UI: a click-to-open status-bar badge (hidden once a version is dismissed),
+      Help ▸ Check for Updates… (bypasses switch + throttle, always answers), an Update Available
+      dialog whose Download/Release Notes buttons open the browser — nothing is downloaded, installed,
+      or replaced by the app — and an Updates section in Preferences with conservative wording.
+      Sequencing note: shipped ahead of finished installers (step 36) deliberately — the per-RID zips
+      the checker targets are already the published install artifacts, and a missing asset falls back
+      to the release page.
 
 **Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
 program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a

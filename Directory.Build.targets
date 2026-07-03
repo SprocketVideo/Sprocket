@@ -1,0 +1,42 @@
+<Project>
+
+  <!--
+    Local-dev convenience for every FFmpeg-dependent build output: the decode/encode-backed test
+    suites (Sprocket.Media/Playback/Export.Tests) AND the app itself (Sprocket.App), so a dev-built
+    Sprocket.exe launched straight from bin/ starts without anyone setting %SPROCKET_FFMPEG8_DIR%.
+
+    scripts/release.ps1 extracts the FFmpeg 8 shared natives into ./.ffmpeg-cache/extract-<rid>/.../{bin,lib}
+    (gitignored, persisted between runs). This target copies them into the opted-in project's output
+    directory — FFmpegLoader searches AppContext.BaseDirectory (the output dir) first.
+
+    Opt in per project with <UsesFFmpegNatives>true</UsesFFmpegNatives>. Best-effort and CI-safe: it no-ops
+    when the cache is absent (CI downloads the natives and sets %SPROCKET_FFMPEG8_DIR% instead, so it never
+    needs the cache). The version-suffixed extract subfolder is matched by the recursive glob, so it keeps
+    working across app-version bumps (it only changes on a new FFmpeg *major*). Release bundles are
+    unaffected: publish output only carries declared items, so scripts/release.ps1 stays the sole bundler.
+
+    This lives at the repo root; tests/Directory.Build.targets chains to it (MSBuild only auto-imports the
+    NEAREST Directory.Build.targets, so the tests stub must import this one explicitly).
+  -->
+  <!--
+    Copy ONLY the current OS's natives. The cache can hold extracts for several RIDs at once (win/linux/macOS);
+    dumping all of them into one output dir put a Linux libavcodec.so.62 next to the Windows avcodec-62.dll, and
+    FFmpegLoader on Windows picked the .so (BadImageFormatException → the whole FFmpeg load failed, which is why
+    the Media/Playback/Export suites couldn't run locally). Gating by OS keeps the output dir single-platform.
+  -->
+  <ItemGroup Condition="'$(UsesFFmpegNatives)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">
+    <FFmpegDevNative Include="$(MSBuildThisFileDirectory).ffmpeg-cache/extract-*/**/bin/*.dll" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UsesFFmpegNatives)' == 'true' and $([MSBuild]::IsOSPlatform('Linux'))">
+    <FFmpegDevNative Include="$(MSBuildThisFileDirectory).ffmpeg-cache/extract-*/**/lib/*.so*" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UsesFFmpegNatives)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
+    <FFmpegDevNative Include="$(MSBuildThisFileDirectory).ffmpeg-cache/extract-*/**/lib/*.dylib" />
+  </ItemGroup>
+
+  <Target Name="CopyFFmpegDevNatives" BeforeTargets="Build"
+          Condition="'$(UsesFFmpegNatives)' == 'true' and '@(FFmpegDevNative)' != ''">
+    <Copy SourceFiles="@(FFmpegDevNative)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
