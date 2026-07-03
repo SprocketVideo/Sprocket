@@ -23,4 +23,10 @@ internal static class DragFormats
     /// clips to apply it (PLAN.md step 25).</summary>
     public static readonly DataFormat<string> TransitionId =
         DataFormat.CreateStringApplicationFormat("sprocket-transition-id");
+
+    /// <summary>Payload: the source stack index (as a string) of an Inspector effect section being
+    /// drag-reordered within the selected clip's effect stack (PLAN.md step 51). Source and target are both
+    /// inside the Inspector; the index refers to the clip selected when the drag began.</summary>
+    public static readonly DataFormat<string> EffectReorderIndex =
+        DataFormat.CreateStringApplicationFormat("sprocket-effect-reorder-index");
 }

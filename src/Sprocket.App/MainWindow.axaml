@@ -267,7 +267,16 @@
     <!-- ── Workspace: Project | Program | Inspector  over  Timeline (all splitter-resizable) ─────── -->
     <Grid x:Name="OuterGrid" Margin="6" RowDefinitions="*,6,240">
 
-      <Grid x:Name="WorkspaceGrid" Grid.Row="0" ColumnDefinitions="240,6,*,6,300">
+      <Grid x:Name="WorkspaceGrid" Grid.Row="0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="240" />
+          <ColumnDefinition Width="6" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="6" />
+          <!-- MinWidth keeps the splitter from crushing the Inspector unusably narrow; SetPanelVisible drops
+               it to 0 while the pane is hidden so the column can still collapse. -->
+          <ColumnDefinition Width="300" MinWidth="192" />
+        </Grid.ColumnDefinitions>
 
         <!-- Project panel: tabbed media bin / effects / transitions / audio browser (PLAN.md step 15). -->
         <Border x:Name="ProjectPane" Grid.Column="0" Classes="pane">
@@ -415,7 +424,25 @@
         <Border x:Name="InspectorPane" Grid.Column="4" Classes="pane">
           <DockPanel>
             <Border DockPanel.Dock="Top" Classes="paneHeader">
-              <TextBlock Classes="title" Text="Inspector" />
+              <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Classes="title" Text="Inspector" />
+                <Button x:Name="InspectorExpandAllButton" Grid.Column="1" Padding="5,1" Background="Transparent"
+                        VerticalAlignment="Center" AutomationProperties.Name="Expand all sections"
+                        ToolTip.Tip="Expand all sections">
+                  <Path Data="{x:Static local:Icons.ChevronsDown}" Stroke="{DynamicResource MutedText}"
+                        StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round"
+                        Width="{x:Static local:IconSizes.Dense}" Height="{x:Static local:IconSizes.Dense}"
+                        Stretch="Uniform" />
+                </Button>
+                <Button x:Name="InspectorCollapseAllButton" Grid.Column="2" Padding="5,1" Background="Transparent"
+                        VerticalAlignment="Center" AutomationProperties.Name="Collapse all sections"
+                        ToolTip.Tip="Collapse all sections">
+                  <Path Data="{x:Static local:Icons.ChevronsUp}" Stroke="{DynamicResource MutedText}"
+                        StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round"
+                        Width="{x:Static local:IconSizes.Dense}" Height="{x:Static local:IconSizes.Dense}"
+                        Stretch="Uniform" />
+                </Button>
+              </Grid>
             </Border>
             <insp:InspectorPanel x:Name="Inspector" />
           </DockPanel>

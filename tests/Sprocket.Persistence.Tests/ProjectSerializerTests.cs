@@ -56,6 +56,23 @@ public class ProjectSerializerTests
         => ProjectSerializer.Deserialize(ProjectSerializer.Serialize(project));
 
     [Fact]
+    public void Round_Trips_A_Reordered_Effect_Stack_In_Order()
+    {
+        // Stack order is processing order (§5d); a MoveChainEffectCommand reorder (PLAN.md step 51) must
+        // persist exactly, not in insertion order.
+        Project project = BuildRichProject();
+        Clip clip = project.Timeline.VideoTracks.First().Clips[0];
+        clip.Effects.Add(new EffectInstance(EffectTypeIds.Transform));
+        new Core.Commands.MoveChainEffectCommand(clip.Effects, clip.Effects[2], 0).Apply();
+        Assert.Equal(EffectTypeIds.Transform, clip.Effects[0].EffectTypeId);
+
+        Clip loaded = RoundTrip(project).Timeline.VideoTracks.First().Clips[0];
+        Assert.Equal(
+            new[] { EffectTypeIds.Transform, EffectTypeIds.Brightness, EffectTypeIds.Fade },
+            loaded.Effects.Select(e => e.EffectTypeId));
+    }
+
+    [Fact]
     public void Round_Trips_Timeline_Format_And_Settings()
     {
         Project loaded = RoundTrip(BuildRichProject());

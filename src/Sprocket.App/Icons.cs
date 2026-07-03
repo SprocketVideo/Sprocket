@@ -27,6 +27,10 @@ public static class IconSizes
     /// Window caption glyphs (minimize/maximize/close) — the title bar's own compact 34px height caps these.
     public const double Chrome = 8;
 
+    /// Ultra-dense per-row glyphs sitting inside a 12px-text strip (the Inspector's effect title bars), where
+    /// even Compact reads oversized against the label.
+    public const double Dense = 10;
+
     /// Dense inline controls: per-item toggles and small remove buttons (Inspector effect rows, marker list rows,
     /// the Timeline's copy-drag "+" badge).
     public const double Compact = 11;
@@ -86,4 +90,8 @@ public static class Icons
 
     // Timeline canvas drag hint.
     public static readonly Geometry Plus = Geometry.Parse("M12,5 L12,19 M5,12 L19,12");
+
+    // Inspector pane-header expand/collapse-all (Feather chevrons-down / chevrons-up).
+    public static readonly Geometry ChevronsDown = Geometry.Parse("M7,13 L12,18 L17,13 M7,6 L12,11 L17,6");
+    public static readonly Geometry ChevronsUp = Geometry.Parse("M17,11 L12,6 L7,11 M17,18 L12,13 L7,18");
 }

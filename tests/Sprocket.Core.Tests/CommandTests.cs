@@ -393,6 +393,86 @@ public class ModelCommandTests
     }
 
     [Fact]
+    public void MoveEffect_Moves_And_Undo_Restores_The_Exact_Original_Index()
+    {
+        Clip clip = MakeClip();
+        var e0 = new EffectInstance(EffectTypeIds.Brightness);
+        var e1 = new EffectInstance(EffectTypeIds.Fade);
+        var e2 = new EffectInstance(EffectTypeIds.Transform);
+        clip.Effects.AddRange([e0, e1, e2]);
+        var history = new EditHistory();
+
+        history.Execute(new MoveChainEffectCommand(clip.Effects, e0, 2));
+        Assert.Equal([e1, e2, e0], clip.Effects);
+
+        history.Undo();
+        Assert.Equal([e0, e1, e2], clip.Effects); // exact original index, not just "back in the list"
+
+        history.Redo();
+        Assert.Equal([e1, e2, e0], clip.Effects);
+    }
+
+    [Fact]
+    public void MoveEffect_Moves_Toward_The_Front()
+    {
+        Clip clip = MakeClip();
+        var e0 = new EffectInstance(EffectTypeIds.Brightness);
+        var e1 = new EffectInstance(EffectTypeIds.Fade);
+        var e2 = new EffectInstance(EffectTypeIds.Transform);
+        clip.Effects.AddRange([e0, e1, e2]);
+        var history = new EditHistory();
+
+        history.Execute(new MoveChainEffectCommand(clip.Effects, e2, 0));
+        Assert.Equal([e2, e0, e1], clip.Effects);
+        history.Undo();
+        Assert.Equal([e0, e1, e2], clip.Effects);
+    }
+
+    [Fact]
+    public void MoveEffect_Clamps_An_Out_Of_Range_Index()
+    {
+        Clip clip = MakeClip();
+        var e0 = new EffectInstance(EffectTypeIds.Brightness);
+        var e1 = new EffectInstance(EffectTypeIds.Fade);
+        clip.Effects.AddRange([e0, e1]);
+
+        new MoveChainEffectCommand(clip.Effects, e0, 99).Apply();
+        Assert.Equal([e1, e0], clip.Effects); // clamped to the last slot
+
+        new MoveChainEffectCommand(clip.Effects, e0, -5).Apply();
+        Assert.Equal([e0, e1], clip.Effects); // clamped to the first slot
+    }
+
+    [Fact]
+    public void MoveEffect_To_Its_Current_Index_Is_A_NoOp_And_Undo_Safe()
+    {
+        Clip clip = MakeClip();
+        var e0 = new EffectInstance(EffectTypeIds.Brightness);
+        var e1 = new EffectInstance(EffectTypeIds.Fade);
+        clip.Effects.AddRange([e0, e1]);
+        var history = new EditHistory();
+
+        history.Execute(new MoveChainEffectCommand(clip.Effects, e1, 1));
+        Assert.Equal([e0, e1], clip.Effects);
+        history.Undo(); // reverting the no-op must not disturb the list
+        Assert.Equal([e0, e1], clip.Effects);
+    }
+
+    [Fact]
+    public void MoveEffect_On_An_Effect_Not_In_The_Chain_Is_Ignored()
+    {
+        Clip clip = MakeClip();
+        var e0 = new EffectInstance(EffectTypeIds.Brightness);
+        clip.Effects.Add(e0);
+
+        var command = new MoveChainEffectCommand(clip.Effects, new EffectInstance(EffectTypeIds.Fade), 0);
+        command.Apply();
+        Assert.Equal([e0], clip.Effects);
+        command.Revert();
+        Assert.Equal([e0], clip.Effects);
+    }
+
+    [Fact]
     public void SetEffectParameter_Adds_Then_Reverts_To_Absent()
     {
         var effect = new EffectInstance(EffectTypeIds.Brightness); // no params yet

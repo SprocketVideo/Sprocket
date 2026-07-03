@@ -54,6 +54,14 @@ public sealed class InspectorPanel : UserControl
     private bool _editing;           // true during a drag/commit so history.Changed refreshes values, not rebuild
     private IDisposable? _dragScope; // open coalescing scope for the active slider drag
 
+    // Pending effect-section reorder drag (PLAN.md step 51): a press on a section header arms it; the drag only
+    // begins once the pointer moves past a small threshold so a plain header click still toggles the section.
+    // The move handler lives on the panel (handledEventsToo) because the Expander's header ToggleButton captures
+    // the pointer on press, which routes subsequent moves around the header's own children.
+    private PointerPressedEventArgs? _reorderPressed;
+    private Avalonia.Point _reorderStart;
+    private int _reorderSourceIndex = -1;
+
     public InspectorPanel()
     {
         _body = new StackPanel { Margin = new Avalonia.Thickness(0, 0, 0, 8) };
@@ -63,7 +71,32 @@ public sealed class InspectorPanel : UserControl
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
         };
+        AddHandler(PointerMovedEvent, OnReorderPointerMoved, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, (_, _) => _reorderPressed = null, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
         Rebuild();
+    }
+
+    /// <summary>Expands or collapses every section at once (the pane-header Expand All / Collapse All
+    /// buttons). Effect sections' tracked collapse state follows via their Expanded/Collapsed handlers.</summary>
+    public void SetAllSectionsExpanded(bool expanded)
+    {
+        foreach (Expander section in _body.Children.OfType<Expander>())
+            section.IsExpanded = expanded;
+    }
+
+    private void OnReorderPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_reorderPressed is not { } pressed || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            return;
+        Avalonia.Point p = e.GetPosition(this);
+        if (Math.Abs(p.X - _reorderStart.X) < 4 && Math.Abs(p.Y - _reorderStart.Y) < 4)
+            return;
+
+        _reorderPressed = null;
+        var data = new DataTransfer();
+        data.Add(DataTransferItem.Create(DragFormats.EffectReorderIndex,
+            _reorderSourceIndex.ToString(CultureInfo.InvariantCulture)));
+        _ = DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Move); // fire-and-forget; the drop applies the edit
     }
 
     /// <summary>Binds the inspector to the project, shared edit history, and a playhead accessor. Call once.</summary>
@@ -693,8 +726,8 @@ public sealed class InspectorPanel : UserControl
         rows.Opacity = effect.Enabled ? 1.0 : 0.5;
 
         // Header with an enable/disable toggle (eye icon, matching the track-header convention in
-        // TimelineControl) and a remove (x) button.
-        var header = new DockPanel();
+        // TimelineControl) and a remove (x) button. Dense icon tier: these sit inside a 12px-text strip.
+        var header = new DockPanel { Background = Brushes.Transparent }; // hit-testable for the reorder drag
         var toggleIcon = new ShapesPath
         {
             Data = Icons.Eye,
@@ -702,14 +735,14 @@ public sealed class InspectorPanel : UserControl
             StrokeThickness = 1.5,
             StrokeLineCap = PenLineCap.Round,
             StrokeJoin = PenLineJoin.Round,
-            Width = IconSizes.Default,
-            Height = IconSizes.Default,
+            Width = IconSizes.Dense,
+            Height = IconSizes.Dense,
             Stretch = Stretch.Uniform,
         };
         var toggle = new ToggleButton
         {
             Content = toggleIcon,
-            Padding = new Avalonia.Thickness(6, 1),
+            Padding = new Avalonia.Thickness(5, 1),
             Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center,
             IsChecked = effect.Enabled,
@@ -725,9 +758,9 @@ public sealed class InspectorPanel : UserControl
             Content = new ShapesPath
             {
                 Data = Icons.Close, Stroke = FaintText, StrokeThickness = 1.5, StrokeLineCap = PenLineCap.Round,
-                Width = IconSizes.Compact, Height = IconSizes.Compact, Stretch = Stretch.Uniform,
+                Width = IconSizes.Dense, Height = IconSizes.Dense, Stretch = Stretch.Uniform,
             },
-            Padding = new Avalonia.Thickness(6, 1),
+            Padding = new Avalonia.Thickness(5, 1),
             Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -751,6 +784,22 @@ public sealed class InspectorPanel : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         });
 
+        // Reorder within the stack (PLAN.md step 51) — stack order is processing order. Primary gesture:
+        // drag the section header onto another effect section (top half = before it, bottom half = after).
+        // Fallback: Move Up / Move Down on the header's context menu, clamped at the ends.
+        int index = clip.Effects.IndexOf(effect);
+        int count = clip.Effects.Count;
+        header.PointerPressed += (_, e) =>
+        {
+            if (e.GetCurrentPoint(header).Properties.IsLeftButtonPressed)
+            {
+                _reorderPressed = e;
+                _reorderStart = e.GetPosition(this);
+                _reorderSourceIndex = index;
+            }
+        };
+        header.ContextMenu = BuildMoveMenu(clip, effect, index, count);
+
         bool expanded = !_effectExpanded.TryGetValue(effect, out bool stored) || stored;
         Control section = Section(header, rows, expanded);
         if (section is Expander expander)
@@ -758,7 +807,46 @@ public sealed class InspectorPanel : UserControl
             expander.Expanded += (_, _) => _effectExpanded[effect] = true;
             expander.Collapsed += (_, _) => _effectExpanded[effect] = false;
         }
+
+        DragDrop.SetAllowDrop(section, true);
+        section.AddHandler(DragDrop.DragOverEvent, (_, e) =>
+        {
+            e.DragEffects = e.DataTransfer.Contains(DragFormats.EffectReorderIndex)
+                ? DragDropEffects.Move
+                : DragDropEffects.None;
+        });
+        section.AddHandler(DragDrop.DropEvent, (_, e) =>
+        {
+            if (!e.DataTransfer.Contains(DragFormats.EffectReorderIndex) || _history is null)
+                return;
+            if (!int.TryParse(e.DataTransfer.TryGetValue(DragFormats.EffectReorderIndex),
+                    NumberStyles.Integer, CultureInfo.InvariantCulture, out int source))
+                return;
+            bool bottomHalf = e.GetPosition(section).Y > section.Bounds.Height / 2;
+            MoveEffect(clip, source, EffectReorder.DropIndex(source, index, bottomHalf, count));
+        });
         return section;
+    }
+
+    /// <summary>The effect header's Move Up / Move Down context menu — the discoverable, non-drag reorder
+    /// affordance (PLAN.md step 51). Boundary items are disabled rather than wrapping.</summary>
+    private ContextMenu BuildMoveMenu(Clip clip, EffectInstance effect, int index, int count)
+    {
+        var up = new MenuItem { Header = "Move Up", FontSize = 12, IsEnabled = index > 0 };
+        up.Click += (_, _) => MoveEffect(clip, index, EffectReorder.StepIndex(index, count, -1));
+        var down = new MenuItem { Header = "Move Down", FontSize = 12, IsEnabled = index < count - 1 };
+        down.Click += (_, _) => MoveEffect(clip, index, EffectReorder.StepIndex(index, count, +1));
+        return new ContextMenu { ItemsSource = new[] { up, down } };
+    }
+
+    /// <summary>Executes a stack reorder as one undoable <see cref="MoveChainEffectCommand"/>; a same-index
+    /// gesture is skipped so no-ops don't pollute the undo history.</summary>
+    private void MoveEffect(Clip clip, int fromIndex, int toIndex)
+    {
+        if (_history is null || fromIndex == toIndex ||
+            fromIndex < 0 || fromIndex >= clip.Effects.Count)
+            return;
+        _history.Execute(new MoveChainEffectCommand(clip.Effects, clip.Effects[fromIndex], toIndex));
     }
 
     /// <summary>The input-transform profile dropdown (PLAN.md step 37): selects which log encoding the source
@@ -1007,7 +1095,8 @@ public sealed class InspectorPanel : UserControl
         var items = new List<MenuItem>();
         foreach (EffectDescriptor descriptor in RelevantEffects(clip))
         {
-            var item = new MenuItem { Header = descriptor.DisplayName };
+            // One point below the menu default, matching the panel's dense 12–13px type scale.
+            var item = new MenuItem { Header = descriptor.DisplayName, FontSize = 13 };
             // The input color transform must run before the creative grade (PLAN.md step 37), so the
             // manual-tag path inserts it at the front of the stack; everything else appends as usual.
             bool prepend = descriptor.Id == EffectTypeIds.ColorTransform;
@@ -1102,7 +1191,19 @@ public sealed class InspectorPanel : UserControl
 
     private static Control Section(object header, Control content, bool expanded) => new Expander
     {
-        Header = header,
+        // A plain-string title (Clip, Multicam, the TEXT sections) would render at the Expander's default
+        // header font — visibly larger than the effect sections' hand-built 12px semibold headers. Wrap it
+        // so every section header reads at the same size.
+        Header = header is string title
+            ? new TextBlock
+            {
+                Text = title,
+                FontSize = 12,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = TextBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+            }
+            : header,
         Content = content,
         IsExpanded = expanded,
         Margin = new Avalonia.Thickness(8, 6, 8, 0),

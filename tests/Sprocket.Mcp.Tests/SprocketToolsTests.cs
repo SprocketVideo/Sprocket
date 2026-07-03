@@ -35,7 +35,7 @@ public class SprocketToolsTests
             "get_project_state", "list_media", "list_clips", "get_playhead", "list_effect_types",
             "seek", "play", "pause", "undo", "redo", "save_project",
             "import_media", "add_clip_to_timeline", "trim_clip", "move_clip", "split_clip", "delete_clip",
-            "add_effect", "set_effect_parameter", "remove_effect", "add_marker", "remove_marker",
+            "add_effect", "set_effect_parameter", "remove_effect", "move_effect", "add_marker", "remove_marker",
             // Clip tools (step 38 follow-on)
             "get_clip", "duplicate_clip", "unlink_clip", "link_clips", "set_clip_fade",
             "set_effect_parameter_keyframes", "copy_effects", "set_effect_enabled",
@@ -176,6 +176,34 @@ public class SprocketToolsTests
         await Assert.ThrowsAsync<McpException>(() => tools.AddEffect(clipId, "no.such.effect"));
         await Assert.ThrowsAsync<McpException>(() => tools.RemoveEffect(clipId, 99));
         Assert.True(session.History.CanUndo);
+    }
+
+    [Fact]
+    public async Task MoveEffect_Reorders_The_Stack_As_One_Undoable_Step()
+    {
+        (FakeEditorSession session, SprocketTools tools, int clipId, Clip clip) = await PlacedClip();
+        await tools.AddEffect(clipId, EffectTypeIds.Brightness);
+        await tools.AddEffect(clipId, EffectTypeIds.Fade);
+        int entries = session.History.UndoCount;
+
+        JsonNode moved = JsonNode.Parse(await tools.MoveEffect(clipId, 0, 1))!;
+        Assert.Equal(1, (int)moved["effect_index"]!);
+        Assert.Equal(EffectTypeIds.Fade, clip.Effects[0].EffectTypeId);
+        Assert.Equal(EffectTypeIds.Brightness, clip.Effects[1].EffectTypeId);
+        Assert.Equal(entries + 1, session.History.UndoCount); // one atomic entry, not remove+re-add
+
+        session.History.Undo();
+        Assert.Equal(EffectTypeIds.Brightness, clip.Effects[0].EffectTypeId);
+
+        // Out-of-range targets clamp; a same-index move is a no-op that adds no history entry.
+        await tools.MoveEffect(clipId, 0, 99);
+        Assert.Equal(EffectTypeIds.Brightness, clip.Effects[^1].EffectTypeId);
+        session.History.Undo();
+        int before = session.History.UndoCount;
+        await tools.MoveEffect(clipId, 1, 1);
+        Assert.Equal(before, session.History.UndoCount);
+
+        await Assert.ThrowsAsync<McpException>(() => tools.MoveEffect(clipId, 99, 0));
     }
 
     [Fact]

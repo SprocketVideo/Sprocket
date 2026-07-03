@@ -3199,6 +3199,27 @@ Tags reference the [UI.md §4 checklist](UI.md).
       covered indirectly by existing chain-order tests, but add an explicit reorder-then-save case).
       App — Inspector drag-to-reorder headless interaction test, move up/down affordance at the
       first/last position (clamped, not wrapping).
+    - **✅ DONE (`Sprocket.Core/Commands/ModelCommands.cs` `MoveChainEffectCommand` + `Sprocket.App/
+      Inspector/{EffectReorder,InspectorPanel}` + `Sprocket.Mcp/SprocketTools` `move_effect`; 16 new
+      tests — Core +6, App +8 `EffectReorderTests`, Mcp +1 & tool-surface, Persistence +1).** One
+      uniform `MoveChainEffectCommand(IList<EffectInstance>, effect, newIndex)` covers all four chain
+      scopes (the option the step left open — no separate clip-scope command needed, since `Clip.Effects`
+      is the same list shape): captures the original index, clamps the target, applies atomically, and
+      reverts to the exact original position; a same-index move applies as a no-op and callers skip
+      executing one so history stays clean. Inspector (clip scope, the only chain scope with a live UI):
+      **drag a section header** onto another effect section — top half inserts before it, bottom half
+      after (the slot math is the pure, headlessly-tested `EffectReorder.DropIndex`; the drag arms on the
+      header and starts past a 4px threshold so a plain click still toggles the section, with the move
+      handler on the panel because the Expander header's ToggleButton captures the pointer) — plus
+      **Move Up / Move Down** on the header's context menu as the non-drag fallback, boundary items
+      disabled (clamped, not wrapping). MCP `move_effect(clip_id, effect_index, new_index)` rides the
+      same command through `EditHistory`, clamping and reporting the resulting index. Alongside, a batch
+      of Inspector polish from user feedback: effect-header eye/× glyphs dropped to a new
+      `IconSizes.Dense` tier + the Expander chevron resource 16→13; plain-string section headers (Clip /
+      Multicam / TEXT) normalized to the effect headers' 12px semibold; the `+ Effect` menu at 13px;
+      pane-header **Expand All / Collapse All** buttons (Feather chevrons-down/up, tooltipped) acting on
+      every section; and a 192px `MinWidth` floor on the Inspector column (lifted to 0 while the pane is
+      hidden so View ▸ Inspector Panel can still collapse it).
 
 **Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
 program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a

@@ -202,4 +202,21 @@ public class AudioEffectChainTests
         Assert.Equal(2, track.Effects.Count);
         Assert.Same(effect, track.Effects[0]);
     }
+
+    [Fact]
+    public void Move_Command_Reorders_A_Track_Chain_And_Undoes()
+    {
+        // The same MoveChainEffectCommand serves every chain scope (PLAN.md step 51) — exercise the
+        // track insert chain here; the clip stack is covered in CommandTests.
+        Project project = ProjectWithAudio(out AudioTrack track, out _);
+        var history = new EditHistory();
+        var eq = new EffectInstance(EffectTypeIds.AudioEq);
+        var reverb = new EffectInstance(EffectTypeIds.AudioReverb);
+        track.Effects.AddRange([eq, reverb]);
+
+        history.Execute(new MoveChainEffectCommand(track.Effects, reverb, 0));
+        Assert.Equal([reverb, eq], track.Effects);
+        history.Undo();
+        Assert.Equal([eq, reverb], track.Effects);
+    }
 }

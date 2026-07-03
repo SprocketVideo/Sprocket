@@ -41,7 +41,7 @@
          chevron button, 20px left margin ahead of it, 48px header min-height, 16px content padding) are sized
          for a full-width settings page, not a ~280px side panel with 12px headers — against that the chevron
          rendered comically oversized. Shrunk to match the panel's other 11–13px controls. -->
-    <x:Double x:Key="ExpanderChevronButtonSize">16</x:Double>
+    <x:Double x:Key="ExpanderChevronButtonSize">13</x:Double>
     <Thickness x:Key="ExpanderChevronMargin">0,0,4,0</Thickness>
     <x:Double x:Key="ExpanderMinHeight">28</x:Double>
     <Thickness x:Key="ExpanderHeaderPadding">4,0,0,0</Thickness>

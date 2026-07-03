@@ -448,6 +448,36 @@ public sealed partial class SprocketTools(IEditorSession session)
             return StateFormatter.HistoryState(api.History, $"removed {effect.EffectTypeId}");
         });
 
+    [McpServerTool(Name = "move_effect")]
+    [Description("Moves an effect to a new position in a clip's effect stack (stack order is the processing " +
+                 "order, so this changes the result; undoable as one step). The new index is clamped to the " +
+                 "stack.")]
+    public Task<string> MoveEffect(
+        [Description("clip_id of the clip carrying the effect.")] int clipId,
+        [Description("Current index of the effect in the clip's effect stack.")] int effectIndex,
+        [Description("Index the effect should end up at (clamped to the stack).")] int newIndex) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            (Clip clip, Track _) = ResolveClip(api, clipId);
+            EffectInstance effect = EffectAt(clip, effectIndex);
+            int target = Math.Clamp(newIndex, 0, clip.Effects.Count - 1);
+            if (target != effectIndex) // skip a no-op so it doesn't pollute the undo history
+            {
+                api.History.Execute(new MoveChainEffectCommand(clip.Effects, effect, target));
+                api.RefreshPreview();
+            }
+            return new JsonObject
+            {
+                ["clip_id"] = clipId,
+                ["effect_index"] = clip.Effects.IndexOf(effect),
+                ["type_id"] = effect.EffectTypeId,
+                ["history"] = StateFormatter.HistoryObject(api.History,
+                    target == effectIndex
+                        ? $"{effect.EffectTypeId} already at index {target} (no-op)"
+                        : $"moved {effect.EffectTypeId} to index {target}"),
+            }.ToJsonString();
+        });
+
     [McpServerTool(Name = "add_marker")]
     [Description("Adds a timeline marker at the given position.")]
     public Task<string> AddMarker(

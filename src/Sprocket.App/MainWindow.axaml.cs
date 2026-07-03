@@ -370,6 +370,16 @@ public partial class MainWindow : Window
         _inspectorPane = this.FindControl<Border>("InspectorPane");
         _inspectorSplitter = this.FindControl<GridSplitter>("InspectorSplitter");
 
+        // Inspector pane-header expand/collapse-all — sections are per-clip, so this acts on whatever the
+        // panel currently shows.
+        if (this.FindControl<InspectorPanel>("Inspector") is { } inspectorPanel)
+        {
+            this.FindControl<Button>("InspectorExpandAllButton")!.Click +=
+                (_, _) => inspectorPanel.SetAllSectionsExpanded(true);
+            this.FindControl<Button>("InspectorCollapseAllButton")!.Click +=
+                (_, _) => inspectorPanel.SetAllSectionsExpanded(false);
+        }
+
         // ── Edit ──
         _cutMenuItem = this.FindControl<MenuItem>("CutMenuItem")!;
         _copyMenuItem = this.FindControl<MenuItem>("CopyMenuItem")!;
@@ -1648,6 +1658,8 @@ public partial class MainWindow : Window
             if (_inspectorPane is not null) _inspectorPane.IsVisible = visible;
             if (_inspectorSplitter is not null) _inspectorSplitter.IsVisible = visible;
             _workspaceGrid.ColumnDefinitions[4].Width = visible ? new GridLength(300) : new GridLength(0);
+            // The column's 192px floor (declared in XAML) would block collapsing to 0 — lift it while hidden.
+            _workspaceGrid.ColumnDefinitions[4].MinWidth = visible ? 192 : 0;
             _workspaceGrid.ColumnDefinitions[3].Width = visible ? new GridLength(6) : new GridLength(0);
         }
     }

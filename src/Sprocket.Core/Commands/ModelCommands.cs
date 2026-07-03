@@ -703,6 +703,48 @@ public sealed class RemoveChainEffectCommand(IList<EffectInstance> chain, Effect
     }
 }
 
+/// <summary>
+/// Moves an effect to a new position within its chain in one atomic, reversible step (PLAN.md step 51) —
+/// chain/stack order is the processing order (§5d), so reordering is a real edit. Remove-then-re-add would be
+/// two undo entries and would drop identity-keyed UI state (e.g. the Inspector's per-effect collapse state)
+/// across the swap. Works uniformly over all four chain scopes — a clip's stack (<see cref="Clip.Effects"/>),
+/// a track insert chain (<see cref="AudioTrack.Effects"/>), a sequence bus (<see cref="Timeline.AudioEffects"/>),
+/// and the project master chain (<see cref="ProjectSettings.MasterAudioEffects"/>) — since each is a plain
+/// <see cref="EffectInstance"/> list. The target index is clamped to the chain; a move to the effect's current
+/// position applies as a no-op (callers should avoid executing one so history stays clean).
+/// </summary>
+public sealed class MoveChainEffectCommand(IList<EffectInstance> chain, EffectInstance effect, int newIndex)
+    : EditCommand("Move effect")
+{
+    private int _from = -1;
+    private int _to = -1;
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _from = chain.IndexOf(effect);
+        if (_from < 0)
+            return;
+        _to = Math.Clamp(newIndex, 0, chain.Count - 1);
+        if (_to == _from)
+        {
+            _from = -1; // nothing moved → nothing to revert (redo recomputes from scratch)
+            return;
+        }
+        chain.RemoveAt(_from);
+        chain.Insert(_to, effect);
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        if (_from < 0)
+            return;
+        chain.RemoveAt(_to);
+        chain.Insert(_from, effect);
+    }
+}
+
 /// <summary>Toggles an effect's <see cref="EffectInstance.Enabled"/> flag; undo restores the prior state. Disabling
 /// (rather than removing) keeps parameters/keyframes intact for later re-enabling, and — since <c>Enabled</c> is
 /// part of the persisted/hashed effect state — invalidates any render-cache segment covering the clip.</summary>
