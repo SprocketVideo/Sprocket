@@ -447,15 +447,25 @@ throwaway cache, it has **no bearing on export determinism** (§1.6).
 for any RID** (there never was one for Linux/macOS, and the migration off Sdcb dropped the Windows one
 too), **Sprocket bundles its own FFmpeg 8 shared libraries on every platform** — chosen deliberately so
 the version that ships is the version we test against, immune to OS package drift (Ubuntu 24.04 ships
-FFmpeg 6.1; Homebrew tracks the latest major; Apple ships none). `scripts/release.ps1` pulls a
-FFmpeg 8 *shared* build per RID and bundles it next to the executable:
+FFmpeg 6.1; Homebrew tracks the latest major; Apple ships none). `scripts/release.ps1` publishes each
+RID as a self-contained **folder** (not single-file — Velopack's delta updates diff the folder and the
+macOS `.app` needs real structure), pulls an FFmpeg 8 *shared* build per RID and bundles it next to the
+executable:
 - **Windows** (`win-x64`, `win-arm64`): `avcodec-62.dll` etc. from a BtbN `*-gpl-shared` build.
 - **Linux** (`linux-x64`, `linux-arm64`): `libav*.so.62` etc. resolved from the app dir by `FFmpegLoader`
   (no `LD_LIBRARY_PATH` needed at runtime).
-- **macOS** (`osx-x64` and `osx-arm64`): `libav*.60/62.dylib` etc. next to the executable; `release.ps1`
-  rewrites each dylib's Mach-O install name + its sibling references to `@loader_path` (via
-  `install_name_tool`, on a macOS build host) so the bundle is self-contained with **no Homebrew and no
+- **macOS** (`osx-x64` and `osx-arm64`): sourced from **Homebrew's FFmpeg 8 keg** on a macOS build host
+  (BtbN publishes no macOS builds): `scripts/macos-bundle-ffmpeg.sh` copies the **full transitive dylib
+  closure** (libav* plus x264/x265/opus/… keg deps), rewrites every Mach-O install name/reference to
+  `@loader_path` (via `install_name_tool`), re-signs each dylib ad-hoc (mandatory on arm64), and
+  hard-asserts libavcodec major 62 — so the bundle is self-contained with **no Homebrew and no
   `DYLD_*`**. Ship a build per architecture (Apple Silicon `arm64` is the default; `x64` for Intel Macs).
+- **OpenAL Soft** ships on every RID from the `Silk.NET.OpenAL.Soft.Native` NuGet, landed loose by the
+  folder publish; on Linux the file is renamed to the `libopenal.so.1` name Silk.NET actually probes.
+
+Packaging on top of the bundles is **Velopack** (`vpk`, version-locked to the Velopack NuGet):
+Windows Setup.exe, Linux AppImage, macOS `.app`, each RID its own update channel, with full/delta
+update packages served from GitHub releases and applied in-app by `UpdateService` (Sprocket.App).
 
 `FFmpegLoader` registers a `NativeLibrary.SetDllImportResolver` that maps each library stem to its
 versioned file (`avcodec` → `avcodec-62.dll` / `libavcodec.so.62` / `libavcodec.62.dylib`), preloads
@@ -465,9 +475,11 @@ macOS "found Homebrew v8 under v7 bindings" failure the migration fixed). In dev
 `%SPROCKET_FFMPEG8_DIR%`. The Linux path is confirmed end-to-end in a .NET 10 container
 (`scripts/linux-check.sh`): decode + SkSL + Skia render produces a **byte-identical PNG to the Windows
 build**. **Skia natives** come from `SkiaSharp.NativeAssets.{Win32,Linux,macOS}` per RID; the managed
-`SkiaSharp` stays pinned to 3.119.4 (§14). **Licensing:** an x264-enabled build is GPL (the bundled
-builds are BtbN `gpl-shared`); choose the build and the product's license deliberately before any
-distribution.
+`SkiaSharp` stays pinned to 3.119.4 (§14). **Licensing (decided 2026-07-03):** the bundled builds are
+GPL-configured (BtbN `gpl-shared`; Homebrew's macOS build) — kept deliberately, since Sprocket is MIT
+(GPL-compatible) and the GPL build provides the libx264/libx265 export encoders; the GPL §3 source
+obligation is met by the "FFmpeg source availability" section in THIRD-PARTY-NOTICES.md. Revisit only
+if proprietary distribution is ever considered.
 
 ---
 

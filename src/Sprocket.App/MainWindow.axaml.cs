@@ -98,7 +98,7 @@ public partial class MainWindow : Window
     private StackPanel? _mcpStatusPanel;
     private StackPanel? _updateBadge;
     private TextBlock? _updateBadgeLabel;
-    private UpdateCheckService? _updateService;
+    private UpdateService? _updateService;
     private Ellipse? _mcpDot;
     private TextBlock? _mcpLabel;
     private McpServerService? _mcpService;
@@ -343,6 +343,7 @@ public partial class MainWindow : Window
 
         // Help
         this.FindControl<MenuItem>("CheckUpdatesMenuItem")!.Click += (_, _) => _ = CheckForUpdatesAsync();
+        this.FindControl<MenuItem>("WebsiteMenuItem")!.Click += (_, _) => _ = OpenWebsiteAsync();
         this.FindControl<MenuItem>("ThirdPartyNoticesMenuItem")!.Click += (_, _) => _ = ThirdPartyNoticesDialog.Show(this);
         this.FindControl<MenuItem>("AboutMenuItem")!.Click += (_, _) => _ = AboutDialog.Show(this);
 
@@ -545,13 +546,12 @@ public partial class MainWindow : Window
             return;
 
         bool autosaveChanged = updated.AutosaveIntervalSeconds != _userSettings.AutosaveIntervalSeconds;
-        bool updatePolicyChanged = updated.UpdateCheckEnabled != _userSettings.UpdateCheckEnabled ||
-            updated.UpdateChannelPolicy != _userSettings.UpdateChannelPolicy;
+        bool updatePolicyChanged = updated.UpdateCheckEnabled != _userSettings.UpdateCheckEnabled;
         _userSettings = updated;
         UserSettingsFile.Save(updated);
 
-        // A changed update policy takes effect now, not next launch: re-check under the new rules
-        // (force bypasses the throttle), or clear the badge when checks were just switched off.
+        // A changed update setting takes effect now, not next launch: re-check when just enabled,
+        // or clear the badge when checks were just switched off.
         if (updatePolicyChanged && _updateService is { } updateService)
             _ = updateService.CheckAsync(updated, force: updated.UpdateCheckEnabled);
 
@@ -752,53 +752,71 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>The status-bar update badge (PLAN.md step 45): visible only while the checker found a
-    /// newer release the user hasn't dismissed. Deliberately non-modal — nothing interrupts editing.</summary>
+    /// <summary>Help ▸ Sprocket Website: opens the public site in the default browser (best-effort,
+    /// like About's Open Logs Folder — no launcher must not crash).</summary>
+    private async Task OpenWebsiteAsync()
+    {
+        try
+        {
+            if (GetTopLevel(this)?.Launcher is { } launcher)
+                await launcher.LaunchUriAsync(new Uri(AboutDialog.WebsiteUrl));
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>The status-bar update badge (PLAN.md steps 36 + 45): visible only while the checker found
+    /// a newer release the user hasn't dismissed. Deliberately non-modal — nothing interrupts editing.</summary>
     private void RefreshUpdateBadge()
     {
         if (_updateBadge is null)
             return;
-        UpdateInfo? info = _updateService?.Available;
-        bool show = UpdateCheck.ShouldNotify(info, _userSettings.UpdateDismissedTag);
+        string? version = _updateService?.AvailableVersion;
+        // The no-nagging rule: hide the badge for exactly the version the user chose to skip.
+        bool show = version is not null && !string.Equals(version, _userSettings.UpdateDismissedTag, StringComparison.Ordinal);
         _updateBadge.IsVisible = show;
         if (show && _updateBadgeLabel is not null)
-            _updateBadgeLabel.Text = $"Update {info!.DisplayVersion}";
+            _updateBadgeLabel.Text = $"Update {version}";
     }
 
-    /// <summary>Help ▸ Check for Updates: an explicit user request, so it bypasses the enable switch and
-    /// the cross-launch throttle and always answers with a dialog (update, up-to-date, or the failure).</summary>
+    /// <summary>Help ▸ Check for Updates: an explicit user request, so it bypasses the enable switch
+    /// and always answers with a dialog (update, up-to-date, not-installable, or the failure).</summary>
     private async Task CheckForUpdatesAsync()
     {
         if (_updateService is not { } service)
             return;
-        UpdateCheckService.Outcome outcome = await service.CheckAsync(_userSettings, force: true);
+        UpdateService.Outcome outcome = await service.CheckAsync(_userSettings, force: true);
         RefreshUpdateBadge();
         switch (outcome)
         {
-            case UpdateCheckService.Outcome.UpdateAvailable:
+            case UpdateService.Outcome.UpdateAvailable:
                 await ShowUpdateDialogAsync();
                 break;
-            case UpdateCheckService.Outcome.UpToDate:
+            case UpdateService.Outcome.UpToDate:
                 await MessageDialog.Show(this, "Check for Updates",
                     $"You are running the latest version ({Program.AppVersion}).");
                 break;
-            case UpdateCheckService.Outcome.Failed:
+            case UpdateService.Outcome.NotInstalled:
+                await UpdateNotInstalledDialog.Show(this);
+                break;
+            case UpdateService.Outcome.Failed:
                 await MessageDialog.Show(this, "Check for Updates",
                     service.LastError ?? "The update check failed.");
                 break;
         }
     }
 
-    /// <summary>Shows the update-available details; "Skip This Version" persists the dismissal so the
-    /// badge stays hidden for exactly that release (the no-nagging rule).</summary>
+    /// <summary>Shows the update-available dialog (download + apply live inside it); "Skip This Version"
+    /// persists the dismissal so the badge stays hidden for exactly that release (the no-nagging rule).</summary>
     private async Task ShowUpdateDialogAsync()
     {
-        if (_updateService?.Available is not { } info)
+        if (_updateService is not { AvailableVersion: { } version } service)
             return;
-        UpdateDialogResult result = await UpdateAvailableDialog.Show(this, info);
+        UpdateDialogResult result = await UpdateAvailableDialog.Show(this, service);
         if (result == UpdateDialogResult.Skip)
         {
-            _userSettings = _userSettings with { UpdateDismissedTag = info.TagName };
+            _userSettings = _userSettings with { UpdateDismissedTag = version };
             UserSettingsFile.Save(_userSettings);
             RefreshUpdateBadge();
         }

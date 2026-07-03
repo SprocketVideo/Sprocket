@@ -59,6 +59,11 @@
     <PackageReference Include="Avalonia.Desktop" Version="12.0.5" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.5" />
 
+    <!-- Installer + auto-update runtime (PLAN.md step 36). Keep in lock-step with the `vpk` CLI version
+         pinned in scripts/release.ps1 ($VpkVersion) and installed by .github/workflows/release.yml —
+         mismatched pack/runtime versions are the documented Velopack failure mode. -->
+    <PackageReference Include="Velopack" Version="1.2.0" />
+
     <!-- Pinned to Avalonia 12.0.5's transitive SkiaSharp so the lease's Skia types match
          Sprocket.Render's (ARCHITECTURE.md §14). Skia natives ship per-RID; Windows comes via
          the main package, Linux + macOS via the native-asset packages. -->

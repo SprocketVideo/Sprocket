@@ -16,6 +16,7 @@ respective owner and licensed under the terms noted.
 | [Silk.NET.OpenAL](https://github.com/dotnet/Silk.NET) 2.23.0 | MIT | Managed OpenAL bindings for audio output. |
 | [Silk.NET.OpenAL.Soft.Native](https://github.com/dotnet/Silk.NET) 1.23.1 | MIT (wrapper) — bundles **OpenAL Soft**, LGPL-2.1 | See "Native libraries" below for the OpenAL Soft license itself. |
 | [ModelContextProtocol.Core](https://github.com/modelcontextprotocol/csharp-sdk) 1.4.0 | MIT | The MCP server SDK used by `Sprocket.Mcp` (PLAN.md step 38). |
+| [Velopack](https://github.com/velopack/velopack) 1.2.0 | MIT | Installer + auto-update runtime (PLAN.md step 36). The matching `vpk` CLI packs the release artifacts (Windows Setup, Linux AppImage, macOS .app). |
 
 `Sprocket.Spike` also references `Sdcb.FFmpeg` (an earlier binding evaluated in the Phase-0 spike,
 MIT-licensed) — that project is a de-risk artifact only and is **not part of the shipped app** (see
@@ -28,8 +29,22 @@ distributed with the app and are omitted.
 
 | Component | License | Notes |
 |---|---|---|
-| **FFmpeg 8** (`avcodec-62`, `avutil-60`, `avformat-62`, `swscale-9`, `swresample-6`) | LGPL-2.1+ / **GPL-2+** depending on configuration | Sourced from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)'s `*-gpl-shared` release, which is configured with `--enable-gpl`. Bundling a GPL-configured FFmpeg build makes the combined distributed binary subject to **GPL v2+** terms (source-offer obligation included) rather than plain LGPL — see [FFmpeg's license page](https://ffmpeg.org/legal.html) for exactly which compile-time options require GPL vs. LGPL. **This is the item flagged in PLAN.md step 36a/ARCHITECTURE.md as needing a legal decision before a GPL-licensed release ships**: either switch to an `*-lgpl-shared` BtbN build (drops any GPL-only codecs) or honor the GPL source-offer for the `gpl-shared` build actually shipped. |
-| **OpenAL Soft** | LGPL-2.1 | Bundled via `Silk.NET.OpenAL.Soft.Native` on Windows; Linux relies on the system `libopenal` (ARCHITECTURE §11 — the app degrades to the software clock if absent), so nothing extra ships there. |
+| **FFmpeg 8** (`avcodec-62`, `avutil-60`, `avformat-62`, `swscale-9`, `swresample-6`) | **GPL-2+** (GPL-configured build of the LGPL-2.1+ codebase) | Windows/Linux builds are sourced from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)'s `*-gpl-shared` releases; macOS builds are sourced from [Homebrew's `ffmpeg` formula](https://formulae.brew.sh/formula/ffmpeg) (also a GPL-configured build). Both are compiled with `--enable-gpl` — this is what provides the libx264/libx265 export encoders — so the bundled FFmpeg binaries are governed by **GPL v2+**. See "FFmpeg source availability" below for the corresponding source. |
+| **OpenAL Soft** | LGPL-2.1 | Bundled via `Silk.NET.OpenAL.Soft.Native` on **all RIDs** (PLAN.md step 35): `soft_oal.dll` on Windows, `libopenal.so.1` on Linux, `libopenal.dylib` on macOS. Source: [kcat/openal-soft](https://github.com/kcat/openal-soft). |
+
+### FFmpeg source availability (GPL §3)
+
+Sprocket itself is MIT-licensed (GPL-compatible), and the bundled FFmpeg is dynamically loaded — the
+distribution obligation the GPL adds is making FFmpeg's **corresponding source** available:
+
+- **Windows / Linux** — every [BtbN/FFmpeg-Builds release](https://github.com/BtbN/FFmpeg-Builds/releases)
+  publishes the exact source tarball (`ffmpeg-*-sources.tar.xz` plus the build scripts) alongside the
+  binaries Sprocket bundles (currently the `n8.1` line).
+- **macOS** — Homebrew's [`ffmpeg` formula](https://github.com/Homebrew/homebrew-core/blob/master/Formula/f/ffmpeg.rb)
+  declares the exact upstream release tarball ([ffmpeg.org/download](https://ffmpeg.org/download.html))
+  and its build options.
+
+The FFmpeg version a given Sprocket build bundles is shown in Help ▸ About ("Media engine").
 
 ## Fonts
 

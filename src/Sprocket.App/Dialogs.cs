@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -36,6 +37,9 @@ internal static class AppIcon
 /// product name, the app's own version, and a one-line description.</summary>
 internal static class AboutDialog
 {
+    /// <summary>The public project site, shown in the About box and opened by Help ▸ Sprocket Website.</summary>
+    public const string WebsiteUrl = "https://sprocketvideo.org";
+
     public static Task Show(Window owner)
     {
         // The bundled media engine version — a user-facing credit for the core dependency (not framework
@@ -72,6 +76,17 @@ internal static class AboutDialog
             CornerRadius = new CornerRadius(5),
         };
 
+        // The public site, as a link-styled line (opened via the TopLevel launcher, like Open Logs Folder).
+        var website = new TextBlock
+        {
+            Text = "sprocketvideo.org",
+            FontSize = 12,
+            Foreground = Palette.AccentBrush,
+            TextDecorations = TextDecorations.Underline,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+
         var dialog = new Window
         {
             Title = "About Sprocket",
@@ -93,6 +108,7 @@ internal static class AboutDialog
                     Centered($"Version {Program.AppVersion}", 12, FontWeight.Normal, Palette.MutedTextBrush),
                     Centered($"Media engine: {ffmpeg}", 12, FontWeight.Normal, Palette.MutedTextBrush),
                     Centered("A cross-platform, non-destructive video editor. Free and open source.", 12, FontWeight.Normal, Palette.MutedTextBrush),
+                    website,
                     // Where crash / exception logs are written (CrashLog), so a user hitting a problem can find the
                     // log without knowing the per-OS convention. The path is selectable; the button opens the folder.
                     Centered("Logs are written to:", 11, FontWeight.Normal, Palette.MutedTextBrush),
@@ -103,6 +119,18 @@ internal static class AboutDialog
             },
         };
 
+        website.PointerPressed += async (_, _) =>
+        {
+            try
+            {
+                if (TopLevel.GetTopLevel(dialog)?.Launcher is { } launcher)
+                    await launcher.LaunchUriAsync(new Uri(WebsiteUrl));
+            }
+            catch
+            {
+                // Best-effort, like Open Logs Folder below.
+            }
+        };
         openLogs.Click += async (_, _) =>
         {
             try

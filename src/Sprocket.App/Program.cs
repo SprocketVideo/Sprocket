@@ -18,7 +18,12 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        // Install the global crash logger first, before anything that can fault, so even an early failure
+        // Velopack must be the very first thing to run (its documented contract): on install/update/uninstall
+        // the OS launches the exe with hook arguments, and this call performs the hook work and exits the
+        // process before any app code touches files that are about to be swapped. A plain launch falls through.
+        Velopack.VelopackApp.Build().Run();
+
+        // Install the global crash logger next, before anything that can fault, so even an early failure
         // (e.g. FFmpeg natives missing) is written to a discoverable log file rather than vanishing with the
         // window. The log directory is surfaced in Help ▸ About (see CrashLog).
         CrashLog.Install();
@@ -48,6 +53,12 @@ internal static class Program
         // exit, without starting the UI. Proves the per-RID native bundling actually resolves.
         if (args.Contains("--ffmpeg-check"))
             return RunFFmpegCheck();
+
+        // Headless audio smoke check (PLAN.md step 35): open the bundled OpenAL Soft device and exit.
+        // CI runners have no soundcard — they set ALSOFT_DRIVERS=null so the native still loads and a
+        // (silent) device opens, proving per-RID OpenAL bundling resolves without the UI.
+        if (args.Contains("--audio-check"))
+            return RunAudioCheck();
 
         // Diagnostic: open a media file through the real MediaSource path and report what happened
         // (or the full failure), without starting the UI.  --probe "C:\path\to\file.mp4"
@@ -98,6 +109,22 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[ffmpeg-check] FAIL: {ex.GetType().Name}: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static int RunAudioCheck()
+    {
+        try
+        {
+            using var output = new Sprocket.Audio.OpenAlAudioOutput();
+            output.Configure(48000, 2);
+            Console.WriteLine("[audio-check] OK: OpenAL device opened (48 kHz stereo)");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[audio-check] FAIL: {ex.GetType().Name}: {ex.Message}");
             return 1;
         }
     }

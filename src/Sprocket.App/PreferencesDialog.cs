@@ -48,37 +48,21 @@ internal static class PreferencesDialog
         autosave.Width = 80;
         autosave.HorizontalAlignment = HorizontalAlignment.Left;
 
-        // ── Updates (PLAN.md step 45) ───────────────────────────────────────────────────────────
+        // ── Updates (PLAN.md steps 36 + 45) ─────────────────────────────────────────────────────
         var updatesEnabled = new CheckBox
         {
             Content = "Check for updates at startup",
             IsChecked = current.UpdateCheckEnabled,
             Foreground = Palette.TextBrush,
         };
-        // Order must mirror the UpdateChannelPolicy enum — the selected index maps straight to it.
-        var channelBox = new ComboBox
-        {
-            ItemsSource = new[]
-            {
-                "Stable releases only",
-                "Match current channel (recommended)",
-                "All releases, including prereleases",
-            },
-            SelectedIndex = (int)UpdateCheck.ParsePolicy(current.UpdateChannelPolicy),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Foreground = Palette.TextBrush,
-            Background = Palette.PanelBgBrush,
-        };
         var updatesNote = new TextBlock
         {
-            Text = "Notification only — Sprocket tells you when a newer build is published and links to " +
-                   "the download; it never downloads or installs anything itself.",
+            Text = "Sprocket tells you when a newer build is published; nothing downloads or installs " +
+                   "without your say-so. Portable builds are pointed at the releases page instead.",
             Foreground = Palette.MutedTextBrush,
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
         };
-        updatesEnabled.IsCheckedChanged += (_, _) => channelBox.IsEnabled = updatesEnabled.IsChecked == true;
-        channelBox.IsEnabled = current.UpdateCheckEnabled;
 
         // ── AI control (MCP) ────────────────────────────────────────────────────────────────────
         string token = current.McpToken;
@@ -197,7 +181,6 @@ internal static class PreferencesDialog
 
                                 Section("Updates"),
                                 updatesEnabled,
-                                Labeled("Notify about", channelBox),
                                 updatesNote,
 
                                 Section("AI control (MCP)"),
@@ -261,7 +244,6 @@ internal static class PreferencesDialog
             McpRequireToken = requireToken.IsChecked == true,
             McpToken = token,
             UpdateCheckEnabled = updatesEnabled.IsChecked == true,
-            UpdateChannelPolicy = ((UpdateChannelPolicy)Math.Max(0, channelBox.SelectedIndex)).ToString(),
         }));
         cancel.Click += (_, _) => dialog.Close((UserSettings?)null);
 

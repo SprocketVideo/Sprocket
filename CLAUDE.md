@@ -33,10 +33,13 @@ editor feels familiar to users also using professional tools. Note any deliberat
 The project is mid-build: the **vertical slice (PLAN steps 1–9) is complete** — import, trim, GPU
 effects (brightness/fade), audio master clock + mixer, hardware-accel decode, MP4 export, and JSON
 save/load, all on one cross-platform managed codebase. The post-slice feature build-out is done
-through **step 30**; **cross-platform native-lib bundling and packaging/distribution (PLAN steps
-35–36) are NOT complete** — `scripts/release.ps1` produces per-RID self-contained zips with the
-FFmpeg natives bundled, but installers/AppImage/`.app` bundles, code-signing, and full desktop
-integration remain outstanding (see the status notes on steps 35–36 in [PLAN.md](PLAN.md)).
+through **step 30**, and **native-lib bundling + packaging/distribution (PLAN steps 35–36) ship
+today**: `scripts/release.ps1` publishes self-contained per-RID folders (FFmpeg 8 + OpenAL Soft
+bundled) and packs them with **Velopack** (Windows Setup.exe, Linux AppImage, macOS `.app`, in-app
+auto-update via `UpdateService`); releases are cut by the `scripts/gh-release.ps1` tag-cutter and
+built + smoke-tested by the CI matrix in `.github/workflows/release.yml`. **Code-signing and macOS
+notarization are deliberately deferred** — the alpha ships unsigned (see the status notes on steps
+35–36 in [PLAN.md](PLAN.md)).
 
 Do not commit `.NET` build artifacts: never add any `/bin` or `/obj` directory, or anything under
 them, to version control.

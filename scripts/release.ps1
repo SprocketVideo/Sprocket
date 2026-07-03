@@ -1,20 +1,29 @@
 #!/usr/bin/env pwsh
 #
-# Sprocket release builder.
+# Sprocket release builder — the single build/package engine, run locally and by the CI release
+# workflow (.github/workflows/release.yml).
 #
-# Publishes the Sprocket.App editor as a self-contained, single-file executable for each target
-# runtime (Windows / Linux / macOS), bundles the matching FFmpeg 8 native libraries next to it, then
-# zips each bundle into dist/. One managed build serves all three OSes; only the bundled native libs
-# differ per RID (ARCHITECTURE.md §11, §14).
+# Publishes the Sprocket.App editor as a self-contained folder per target runtime (Windows / Linux /
+# macOS — a FOLDER, not single-file: Velopack diffs the folder for delta updates and the macOS .app
+# needs real structure), bundles the matching FFmpeg 8 + OpenAL Soft natives next to the exe, then
+# produces the requested artifact kinds (-Package): a portable .zip and/or Velopack packages —
+# Windows Setup.exe, Linux AppImage, macOS .app — with full/delta update feeds (PLAN.md steps 35–36;
+# ARCHITECTURE.md §11, §14).
 #
-#   pwsh scripts/release.ps1                       # bump patch, build + bundle every RID into ./dist
-#   pwsh scripts/release.ps1 -Rids win-x64         # one RID only
-#   pwsh scripts/release.ps1 -NoBump               # release the current version without bumping
-#   pwsh scripts/release.ps1 -Version 0.3.0        # publish an exact version (no bump / rewrite)
-#   pwsh scripts/release.ps1 -NoZip                # leave the publish folders, skip archiving
-#   pwsh scripts/release.ps1 -NoFFmpeg             # publish only, skip FFmpeg native bundling
-#   pwsh scripts/release.ps1 -NoReadyToRun         # skip ReadyToRun AOT precompile (faster/smaller build)
-#   pwsh scripts/release.ps1 -FFmpegCacheDir <dir> # override the FFmpeg download cache (default ./.ffmpeg-cache)
+#   pwsh scripts/release.ps1                            # bump patch, build + zip every RID into ./dist
+#   pwsh scripts/release.ps1 -Rids win-x64              # one RID only
+#   pwsh scripts/release.ps1 -Package velopack,zip      # also produce Velopack packages (needs `vpk`)
+#   pwsh scripts/release.ps1 -NoBump                    # release the current version without bumping
+#   pwsh scripts/release.ps1 -Version 0.3.0             # publish an exact version (no bump / rewrite)
+#   pwsh scripts/release.ps1 -NoZip                     # leave the publish folders, skip archiving
+#   pwsh scripts/release.ps1 -NoFFmpeg                  # publish only, skip FFmpeg native bundling
+#   pwsh scripts/release.ps1 -NoReadyToRun              # skip ReadyToRun AOT precompile (faster/smaller build)
+#   pwsh scripts/release.ps1 -FFmpegCacheDir <dir>      # override the FFmpeg download cache (default ./.ffmpeg-cache)
+#
+# Velopack packaging (-Package velopack) needs the `vpk` CLI on PATH, at the SAME version as the
+# Velopack NuGet in Sprocket.App.csproj ($VpkVersion below): dotnet tool install -g vpk --version <v>.
+# A RID can only be packed on its own OS (the vpk CLI's option set is host-OS specific, and the macOS
+# .app additionally needs codesign) — the CI release workflow provides the per-OS runners.
 #
 # Versioning: the X.Y.Z version lives in Directory.Build.props (<VersionPrefix>) as the single source
 # of truth. Each release bumps the patch (third) number there and writes it back; the version is
@@ -26,15 +35,20 @@
 # FFmpegLoader in the app directory. There is NO FFmpeg-8 runtime NuGet for any RID, so EVERY platform's
 # natives are fetched and bundled here:
 #   * win-x64 / win-arm64      — downloaded from BtbN FFmpeg-Builds (n8 *-gpl-shared), .dll set copied
-#                                next to the executable. (win-x64 is no longer embedded — the dormant
-#                                Sdcb.FFmpeg runtime NuGet was dropped in the FFmpeg-8 migration.)
+#                                next to the executable.
 #   * linux-x64 / linux-arm64  — downloaded from BtbN FFmpeg-Builds (same source as
 #                                scripts/linux-check.sh) and copied next to the executable.
-#   * osx-x64 / osx-arm64      — no canonical automated shared-dylib build exists. Pass a URL to an
-#                                archive of FFmpeg 8 .dylib files via -OsxX64FFmpegUrl /
-#                                -OsxArm64FFmpegUrl to have them bundled; the script then rewrites their
-#                                install names to @loader_path (when run on macOS) so the bundle is
-#                                self-contained. Otherwise the macOS bundle ships without FFmpeg and warns.
+#   * osx-x64 / osx-arm64      — BtbN publishes no macOS builds. When running ON macOS, Homebrew's
+#                                FFmpeg 8 keg is bundled via scripts/macos-bundle-ffmpeg.sh (full
+#                                transitive dylib closure, install names rewritten to @loader_path,
+#                                re-signed ad-hoc). A caller-supplied -OsxX64FFmpegUrl /
+#                                -OsxArm64FFmpegUrl archive overrides that; otherwise (not macOS, no
+#                                URL) the bundle ships without FFmpeg and warns.
+#
+# OpenAL Soft natives (PLAN.md step 35) — bundled on every RID via the Silk.NET.OpenAL.Soft.Native
+# NuGet, which lands in the publish folder automatically now that publishing is folder-based. One
+# fix-up is required: the NuGet ships Linux's lib as `libopenal.so`, but Silk.NET probes
+# `libopenal.so.1` — the copy is renamed so the app never falls back to a system OpenAL.
 #
 # FFmpeg download cache — the fetched archives are cached in -FFmpegCacheDir (default ./.ffmpeg-cache,
 # git-ignored, kept OUTSIDE the wiped dist/) and persist across runs, so a release re-downloads FFmpeg only
@@ -71,6 +85,15 @@ param(
     # Skip zipping; leave the raw publish folders in place.
     [switch] $NoZip,
 
+    # Do not wipe the output directory first. Lets CI accumulate artifacts across invocations with
+    # different RID/package combinations (e.g. linux-x64 velopack+zip, then linux-arm64 zip-only).
+    [switch] $NoClean,
+
+    # Artifact kinds to produce per RID: 'zip' (portable folder zip) and/or 'velopack' (installer +
+    # auto-update packages via the `vpk` CLI: Windows Setup.exe, Linux AppImage, macOS .app).
+    [ValidateSet('zip', 'velopack')]
+    [string[]] $Package = @('zip'),
+
     # Skip bundling FFmpeg native libraries entirely.
     [switch] $NoFFmpeg,
 
@@ -92,6 +115,16 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $appProject = Join-Path $repoRoot 'src/Sprocket.App/Sprocket.App.csproj'
 $distRoot = Join-Path $repoRoot $OutDir
+
+# ── Velopack constants (PLAN.md step 36) ─────────────────────────────────────────────────────────
+# The `vpk` CLI version must match the Velopack NuGet in Sprocket.App.csproj — pack/runtime version
+# skew is the documented Velopack failure mode. Bump both together.
+$VpkVersion = '1.2.0'
+# packId + bundleId are PERMANENT once testers install (they key the install dir / update identity);
+# the repo URL is baked into installed apps as the update feed (UpdateService.RepoUrl).
+$VpkPackId = 'Sprocket'
+$VpkBundleId = 'org.sprocketvideo.sprocket'
+$VpkRepoUrl = 'https://github.com/SprocketVideo/Sprocket'
 # The FFmpeg download cache must live OUTSIDE $distRoot, which is wiped on every run; keeping it here is
 # what makes it persist between releases.
 $ffCache = if ($FFmpegCacheDir) { $FFmpegCacheDir } else { Join-Path $repoRoot '.ffmpeg-cache' }
@@ -270,8 +303,9 @@ function Repair-MacosInstallNames([string] $publishDir, [string[]] $libNames) {
 
 # Bundle FFmpeg natives into a freshly published RID folder. Returns $true if libs were placed.
 function Add-FFmpegNatives([string] $rid, [string] $publishDir) {
-    # Resolve the download source: BtbN for every Windows/Linux RID, caller-supplied for macOS. The BtbN
-    # path also yields the release asset, whose metadata drives the cache version signature.
+    # Resolve the download source: BtbN for every Windows/Linux RID, caller-supplied URL or (on a
+    # macOS host) Homebrew for macOS. The BtbN path also yields the release asset, whose metadata
+    # drives the cache version signature.
     $url = $null
     $asset = $null
     if ($btbnPlatform.ContainsKey($rid)) {
@@ -280,9 +314,18 @@ function Add-FFmpegNatives([string] $rid, [string] $publishDir) {
     }
     elseif ($rid -eq 'osx-x64' -and $OsxX64FFmpegUrl) { $url = $OsxX64FFmpegUrl }
     elseif ($rid -eq 'osx-arm64' -and $OsxArm64FFmpegUrl) { $url = $OsxArm64FFmpegUrl }
+    elseif ($rid -like 'osx-*' -and $IsMacOS) {
+        # BtbN has no macOS builds: bundle Homebrew's FFmpeg 8 keg — the full transitive dylib
+        # closure, install names rewritten to @loader_path, re-signed (scripts/macos-bundle-ffmpeg.sh
+        # asserts libavcodec major 62 and fails loudly on formula drift). Only sane when the host
+        # arch matches the RID (brew installs native-arch bottles), which the CI matrix guarantees.
+        & bash (Join-Path $PSScriptRoot 'macos-bundle-ffmpeg.sh') $publishDir
+        if ($LASTEXITCODE -ne 0) { throw "macos-bundle-ffmpeg.sh failed for $rid (exit $LASTEXITCODE)" }
+        return $true
+    }
 
     if (-not $url) {
-        return $false  # no source available (macOS without a URL)
+        return $false  # no source available (macOS off-Mac without a URL)
     }
 
     $extract = Expand-RemoteArchive $url $rid $asset
@@ -316,6 +359,118 @@ function Add-LinuxDesktopIntegration([string] $publishDir) {
     Write-Host "    bundled Linux desktop integration (install.sh + icon)"
 }
 
+# OpenAL Soft fix-up (PLAN.md step 35): the Silk.NET.OpenAL.Soft.Native NuGet lands its per-RID
+# native in the folder publish automatically, but ships Linux's lib as `libopenal.so` while
+# Silk.NET's loader probes `libopenal.so.1` — without the rename Linux silently falls back to a
+# system OpenAL (or the software clock). Also asserts the native actually exists per RID, so a NuGet
+# layout change fails the release loudly instead of shipping a silent audio regression.
+function Add-OpenAlNatives([string] $rid, [string] $publishDir) {
+    $expected = switch -Wildcard ($rid) {
+        'win-*'   { 'soft_oal.dll' }
+        'linux-*' { 'libopenal.so' }
+        'osx-*'   { 'libopenal.dylib' }
+    }
+    $path = Join-Path $publishDir $expected
+    if (-not (Test-Path $path)) {
+        throw "OpenAL native '$expected' missing from the $rid publish output — did the Silk.NET.OpenAL.Soft.Native layout change?"
+    }
+    if ($rid -like 'linux-*') {
+        Copy-Item $path -Destination (Join-Path $publishDir 'libopenal.so.1') -Force
+        Write-Host "    OpenAL: libopenal.so -> libopenal.so.1 (Silk.NET probe name)"
+    }
+    else {
+        Write-Host "    OpenAL: $expected present"
+    }
+}
+
+# Generate the macOS .icns app icon from the repo's 1024x1024 PNG using Apple's sips + iconutil
+# (macOS-only tools) — no binary .icns is committed to the repo. Returns the generated file's path.
+function New-MacIcns {
+    $png = Join-Path $repoRoot 'src/Sprocket.App/Assets/sprocket.png'
+    $iconset = Join-Path $distRoot 'sprocket.iconset'
+    $icns = Join-Path $distRoot 'sprocket.icns'
+    if (Test-Path $icns) { return $icns }
+    if (Test-Path $iconset) { Remove-Item $iconset -Recurse -Force }
+    New-Item -ItemType Directory -Path $iconset -Force | Out-Null
+    foreach ($size in 16, 32, 64, 128, 256, 512) {
+        & sips -z $size $size $png --out (Join-Path $iconset "icon_${size}x${size}.png") | Out-Null
+        $2x = $size * 2
+        & sips -z $2x $2x $png --out (Join-Path $iconset "icon_${size}x${size}@2x.png") | Out-Null
+    }
+    & iconutil -c icns $iconset -o $icns
+    if ($LASTEXITCODE -ne 0) { throw "iconutil failed to build sprocket.icns" }
+    Remove-Item $iconset -Recurse -Force
+    Write-Host "    generated sprocket.icns from Assets/sprocket.png"
+    return $icns
+}
+
+# Pack a published RID folder with Velopack (PLAN.md step 36): Windows -> Setup.exe (+ portable zip),
+# Linux -> self-updating AppImage, macOS -> .app (in a portable zip, + .pkg). Every RID is its own
+# update channel (multi-arch requires it; UpdateManager follows the channel baked in at pack time).
+# Previously published packages for the channel are fetched first (best-effort) so `vpk` can emit a
+# delta package alongside the full one.
+function Add-VelopackPackage([string] $rid, [string] $publishDir) {
+    if (-not (Get-Command vpk -ErrorAction SilentlyContinue)) {
+        throw "Velopack packaging requested but the 'vpk' CLI is not on PATH. Install it with: dotnet tool install -g vpk --version $VpkVersion"
+    }
+
+    # The vpk CLI's option set is host-OS specific (--categories exists only on Linux, --bundleId
+    # only on macOS, the Setup/MSI options only on Windows), so packing a RID requires a matching
+    # host OS — which the CI matrix provides (win-arm64 from the win-x64 runner is same-OS and fine).
+    $hostOsMatches = switch -Wildcard ($rid) {
+        'win-*'   { $IsWindows }
+        'linux-*' { $IsLinux }
+        'osx-*'   { $IsMacOS }
+    }
+    if (-not $hostOsMatches) {
+        throw "Velopack packages for $rid can only be packed on that OS (the vpk CLI is host-OS specific) — use the CI release workflow, or -Package zip."
+    }
+
+    $vpkOut = Join-Path $distRoot "velopack/$rid"
+    New-Item -ItemType Directory -Path $vpkOut -Force | Out-Null
+
+    # Fetch the channel's previously published packages so this pack can produce a delta. Best-effort:
+    # the very first release (or an offline run) has nothing to diff against — full packages still work.
+    # A token avoids anonymous GitHub API rate limits on shared CI runner IPs.
+    $dlArgs = @('download', 'github', '--repoUrl', $VpkRepoUrl, '--channel', $rid, '--outputDir', $vpkOut, '--pre')
+    if ($env:GITHUB_TOKEN) { $dlArgs += @('--token', $env:GITHUB_TOKEN) }
+    & vpk @dlArgs 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "    [warn] vpk download github failed — no delta baseline; packing full only." -ForegroundColor Yellow
+    }
+
+    $mainExe = if ($rid -like 'win-*') { 'Sprocket.exe' } else { 'Sprocket' }
+    $vpkArgs = @(
+        'pack',
+        '--runtime', $rid,
+        '--packId', $VpkPackId,
+        '--packVersion', $fullVersion,
+        '--packDir', $publishDir,
+        '--mainExe', $mainExe,
+        '--packTitle', 'Sprocket',
+        '--packAuthors', 'SprocketVideo',
+        '--channel', $rid,
+        '--outputDir', $vpkOut
+    )
+    if ($rid -like 'win-*') {
+        $vpkArgs += @('--icon', (Join-Path $repoRoot 'src/Sprocket.App/Assets/sprocket.ico'))
+    }
+    elseif ($rid -like 'linux-*') {
+        # Mirrors packaging/linux/sprocket.desktop; the AppImage embeds its own .desktop + icon.
+        $vpkArgs += @(
+            '--icon', (Join-Path $repoRoot 'src/Sprocket.App/Assets/sprocket.png'),
+            '--categories', 'AudioVideo;AudioVideoEditing;Video;'
+        )
+    }
+    else {
+        $vpkArgs += @('--icon', (New-MacIcns), '--bundleId', $VpkBundleId)
+    }
+
+    & vpk @vpkArgs
+    if ($LASTEXITCODE -ne 0) { throw "vpk pack failed for $rid (exit $LASTEXITCODE)" }
+    Write-Host "    velopack package -> $vpkOut"
+}
+
 if (-not (Test-Path $appProject)) {
     throw "Cannot find app project at $appProject"
 }
@@ -324,13 +479,14 @@ Write-Host "Sprocket release build" -ForegroundColor Cyan
 Write-Host "  version:       $fullVersion"
 Write-Host "  configuration: $Configuration"
 Write-Host "  runtimes:      $($Rids -join ', ')"
+Write-Host "  packages:      $($Package -join ', ')$(if ($NoZip) { ' (zip suppressed by -NoZip)' })"
 Write-Host "  ffmpeg:        $(if ($NoFFmpeg) { 'skipped (-NoFFmpeg)' } else { 'bundled' })"
 Write-Host "  readytorun:    $(if ($NoReadyToRun) { 'skipped (-NoReadyToRun)' } else { 'enabled' })"
 Write-Host "  output:        $distRoot"
 Write-Host ""
 
-# Start from a clean dist so stale artifacts never ship.
-if (Test-Path $distRoot) {
+# Start from a clean dist so stale artifacts never ship (unless CI is accumulating runs, -NoClean).
+if ((Test-Path $distRoot) -and -not $NoClean) {
     Remove-Item $distRoot -Recurse -Force
 }
 New-Item -ItemType Directory -Path $distRoot -Force | Out-Null
@@ -341,6 +497,9 @@ foreach ($rid in $Rids) {
     Write-Host "==> publishing $rid" -ForegroundColor Green
     $publishDir = Join-Path $distRoot "Sprocket-$fullVersion-$rid"
 
+    # Folder publish, NOT single-file: Velopack's delta updates diff the publish folder file-by-file,
+    # and the macOS .app needs its real structure. This is also what lands the per-RID NuGet natives
+    # (SkiaSharp, OpenAL Soft) loose next to the exe where the loaders expect them.
     $publishArgs = @(
         'publish', $appProject,
         '-c', $Configuration,
@@ -348,10 +507,8 @@ foreach ($rid in $Rids) {
         '--self-contained', 'true',
         '-o', $publishDir,
         "-p:Version=$fullVersion",
-        '-p:PublishSingleFile=true',
-        '-p:IncludeNativeLibrariesForSelfExtract=true',
-        # Managed symbols are embedded into the assemblies (which are bundled into the single-file
-        # exe) — see Directory.Build.props. No loose .pdb files ship.
+        # Managed symbols are embedded into the assemblies — see Directory.Build.props. No loose
+        # .pdb files ship.
         '-p:DebugType=embedded',
         '--nologo'
     )
@@ -381,11 +538,18 @@ foreach ($rid in $Rids) {
         Write-Host "           -OsxX64FFmpegUrl / -OsxArm64FFmpegUrl to bundle them (ARCHITECTURE.md §11)." -ForegroundColor Yellow
     }
 
+    Add-OpenAlNatives $rid $publishDir
+
     if ($rid -like 'linux-*') {
         Add-LinuxDesktopIntegration $publishDir
     }
 
-    if ($NoZip) {
+    if ($Package -contains 'velopack') {
+        Add-VelopackPackage $rid $publishDir
+    }
+
+    if ($NoZip -or $Package -notcontains 'zip') {
+        # Keep the publish folder — it is the artifact (and what CI smoke-launches directly).
         $results += [pscustomobject]@{ Rid = $rid; Artifact = $publishDir; FFmpeg = $hasFFmpeg }
         continue
     }
@@ -403,6 +567,9 @@ foreach ($rid in $Rids) {
 Write-Host ""
 Write-Host "Done. Artifacts in $distRoot" -ForegroundColor Cyan
 Write-Host "  ffmpeg cache:  $ffCache (persisted; re-downloaded only when upstream changes)"
+if ($Package -contains 'velopack') {
+    Write-Host "  velopack:      $(Join-Path $distRoot 'velopack')/<rid> (installer + full/delta packages + releases.<rid>.json)"
+}
 $results | ForEach-Object {
     $size = if (Test-Path $_.Artifact) { '{0:N1} MB' -f ((Get-Item $_.Artifact).Length / 1MB) } else { 'dir' }
     $ff = if ($_.FFmpeg) { 'ffmpeg ok' } else { 'NO ffmpeg' }

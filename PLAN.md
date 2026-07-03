@@ -2282,23 +2282,38 @@ Tags reference the [UI.md §4 checklist](UI.md).
     into the publish output for `win-x64`, `linux-x64`, `osx-x64`, `osx-arm64` so the app runs with no
     system FFmpeg ([ARCHITECTURE §11](ARCHITECTURE.md)). Needed for the slice to *run* on Linux/macOS
     at all; promoted to its own step because it gates every on-device verification.
-    - **🟡 PARTIAL — NOT COMPLETE (`scripts/release.ps1`).** Self-contained single-file publish per RID
-      with the FFmpeg 8 natives bundled next to the exe, and SkiaSharp natives resolved transitively via
-      the NuGet native-asset packages. **Still outstanding:** OpenAL Soft is **not** bundled (the app
-      relies on a system `libopenal` on Linux, and degrades to the software clock if it is missing), and
-      there is no CI matrix build.
+    - **✅ DONE (`scripts/release.ps1` + `.github/workflows/release.yml`).** Self-contained **folder**
+      publish per RID (single-file was dropped for step 36's Velopack packaging, which diffs the folder
+      for delta updates), FFmpeg 8 natives bundled next to the exe (BtbN for win/linux; **Homebrew via
+      `scripts/macos-bundle-ffmpeg.sh` on macOS** — full transitive dylib closure, `@loader_path`
+      rewrite, ad-hoc re-sign, hard libavcodec-62 assert), SkiaSharp natives via the NuGet native-asset
+      packages, and **OpenAL Soft now bundled on every RID** via `Silk.NET.OpenAL.Soft.Native` (the
+      folder publish lands them loose; the one fix-up is renaming Linux's `libopenal.so` to the
+      `libopenal.so.1` name Silk.NET probes — before this, Linux silently fell back to system OpenAL /
+      the software clock). A headless `--audio-check` flag (Program.cs) proves the OpenAL native
+      resolves, mirroring `--ffmpeg-check`. **CI matrix builds exist:** the tag-triggered release
+      workflow builds every RID on its native OS runner and smoke-checks each artifact.
 36. **Packaging & distribution (incl. macOS executable).** Produce a runnable artifact per OS: a
     Windows folder/installer, a Linux AppImage/tarball, and a **macOS `.app` bundle** with the FFmpeg
     dylibs under `Contents/Frameworks` (resolved via `@loader_path`), **code-signed and notarized**,
     shipped for Apple Silicon (`osx-arm64`) and Intel (`osx-x64`). CI builds on win/linux/macOS runners;
     a smoke launch + sample export validates each artifact.
-    - **⏳ NOT DONE.** `scripts/release.ps1` currently emits only a per-RID self-contained **`.zip`** (no
-      installer / AppImage / `.app`). A **Linux desktop-integration** slice has been added — the app icon
-      plus a `.desktop` entry and `install.sh`/`uninstall.sh` (`packaging/linux/`) that register a launcher
-      and hicolor icon for the current user, so Sprocket gets a proper icon in the applications menu / dock.
-      **Still outstanding:** a real Linux AppImage/tarball with the desktop entry integrated; the macOS
-      `.app` bundle with `@loader_path` dylibs; **code-signing + notarization**; a Windows installer; and
-      the CI smoke-launch / sample-export validation of each artifact.
+    - **✅ DONE except code-signing/notarization (deliberately deferred).** Packaging is **Velopack**
+      across all three OSes (`vpk` pinned to the Velopack NuGet version; packId `Sprocket`, bundleId
+      `org.sprocketvideo.sprocket`, one update channel per RID): `scripts/release.ps1 -Package velopack`
+      produces the Windows **Setup.exe**, the Linux **AppImage** (desktop entry + icon embedded;
+      `packaging/linux/` scripts still ship in the portable zip), and the macOS **`.app`** (icns
+      generated on the fly from the 1024px PNG; FFmpeg dylibs `@loader_path`-resolved beside the
+      binary) — plus full/delta update packages and `releases.<rid>.json` feeds. **Auto-update** is in
+      the app (`UpdateService.cs` on Velopack `UpdateManager` + GitHub releases; Install & Restart from
+      the update dialog). The tag-triggered CI matrix (`.github/workflows/release.yml`, cut locally by
+      the `scripts/gh-release.ps1` tag-cutter) builds win/linux/macos (arm64 + `macos-15-intel`) on
+      native runners, **smoke-launches every artifact headlessly** (`--version` / `--ffmpeg-check` /
+      `--audio-check`; Windows additionally does a real silent install), and a single final job
+      publishes the GitHub release with all assets. **Deferred, still outstanding:** Windows
+      code-signing and macOS notarization (alpha ships unsigned with documented SmartScreen/Gatekeeper
+      steps in RELEASE_NOTES.md); a `linux-arm64` AppImage (zip-only until an arm runner smokes it);
+      the sample-export CI validation (smoke is launch + native checks today).
 36a. **Third-party notices / license acknowledgements.** Before distribution, inventory every third-party
     library, bundled native binary, codec build, font, icon, sample-media asset, and other redistributable
     resource Sprocket ships; record license, copyright/notice text, source URL, and any source-offer or
@@ -2313,10 +2328,13 @@ Tags reference the [UI.md §4 checklist](UI.md).
       clip) with license + source URL. It is copied next to the exe by `Sprocket.App.csproj` (so it rides
       along in every `scripts/release.ps1` bundle automatically — no separate packaging step needed) and
       surfaced via **Help ▸ Third-Party Notices** (`Dialogs.cs` `ThirdPartyNoticesDialog`), reading the
-      shipped copy by path the same way the bundled sample clip is resolved. **Still outstanding:** the
-      FFmpeg GPL-vs-LGPL build decision the notices doc flags (BtbN's `gpl-shared` build currently ships,
-      which carries GPL source-offer obligations) needs an explicit legal call before a licensed release —
-      either swap to an `*-lgpl-shared` BtbN build or honor the GPL source offer.
+      shipped copy by path the same way the bundled sample clip is resolved. **GPL-vs-LGPL decided
+      (2026-07-03): keep the GPL builds.** Sprocket is MIT (GPL-compatible), so bundling GPL-configured
+      FFmpeg (BtbN `gpl-shared` on win/linux, Homebrew's build on macOS) is fine and keeps the
+      libx264/libx265 export encoders; the GPL §3 obligation is met by the **FFmpeg source availability**
+      section in THIRD-PARTY-NOTICES.md (links the corresponding BtbN source tarballs / Homebrew formula
+      upstream). Revisit only if proprietary distribution is ever considered — that is also the moment
+      to take legal advice on H.264/HEVC patent-pool licensing.
 37. **Log media & color management (D-Log).** Support DJI **D-Log / D-Log M / D-Log 2** as a
     per-clip **input color transform**, landing on the existing effect seam
     ([ARCHITECTURE §18](ARCHITECTURE.md), §7, §17) — **not** via FFmpeg's `lut3d`/`WriteableBitmap`,
@@ -2972,6 +2990,16 @@ Tags reference the [UI.md §4 checklist](UI.md).
       Sequencing note: shipped ahead of finished installers (step 36) deliberately — the per-RID zips
       the checker targets are already the published install artifacts, and a missing asset falls back
       to the release page.
+    - **♻️ SUPERSEDED by step 36's Velopack auto-update.** When packaging landed, the notify-only stack
+      (`UpdateVersion.cs`, `UpdateCheck.cs`, `UpdateCheckService.cs`, its channel-policy setting and
+      tests) was replaced by `UpdateService.cs` on Velopack's `UpdateManager`: installed builds
+      (Setup/AppImage/.app) check the per-RID channel feed on GitHub releases and **download + apply
+      updates in-app** (Install & Restart, delta when possible); portable/dev builds get a
+      releases-page pointer instead. Kept from this step: the startup check + enable setting, the
+      non-modal status-bar badge, Help ▸ Check for Updates…, and per-version "Skip This Version"
+      dismissal. Velopack's own version/channel logic replaced the hand-rolled SemVer parser, GitHub
+      list parsing, per-RID asset targeting, and the channel-policy preference (the channel is baked
+      into each install at pack time).
 
 46. **Delay effects (tape / digital / multi-tap / stereo).** Four new built-in `IAudioEffect`
     implementations in `Sprocket.Audio/Effects` alongside the existing `ReverbEffect` /
