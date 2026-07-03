@@ -115,6 +115,19 @@ public static class EffectTypeIds
     public const string AudioReverb = "builtin.audio.reverb";
 
     /// <summary>
+    /// Studio Reverb (PLAN.md step 41): the realtime high-quality algorithmic tier — a Dattorro-style
+    /// plate/hall with predelay, early reflections, modulated tank delay lines, independent low/high tail
+    /// damping, and stereo width, next to the cheap Freeverb-style <see cref="AudioReverb"/> ("Reverb (Lite)").
+    /// Parameters: <see cref="EffectParamNames.PreDelayMs"/>, <see cref="EffectParamNames.Decay"/>,
+    /// <see cref="EffectParamNames.Size"/>, <see cref="EffectParamNames.Diffusion"/>,
+    /// <see cref="EffectParamNames.ModDepth"/>/<see cref="EffectParamNames.ModRateHz"/>,
+    /// <see cref="EffectParamNames.EarlyLate"/>, <see cref="EffectParamNames.Width"/>,
+    /// <see cref="EffectParamNames.LowDamp"/>/<see cref="EffectParamNames.HighDamp"/>,
+    /// <see cref="EffectParamNames.Mix"/>.
+    /// </summary>
+    public const string AudioStudioReverb = "builtin.audio.reverb.studio";
+
+    /// <summary>
     /// Whether an effect type id names an <b>audio</b> chain stage (PLAN.md step 31). The render graph uses
     /// this to split a clip's single effect stack: audio ids feed the mixer's DSP chain, everything else feeds
     /// the video shader chain (where unknown ids pass through). Built-in audio effects share the
@@ -320,8 +333,46 @@ public static class EffectParamNames
     /// <summary>Reverb high-frequency damping in [0, 1] — <see cref="EffectTypeIds.AudioReverb"/>.</summary>
     public const string Damping = "damping";
 
-    /// <summary>Reverb wet/dry mix in [0, 1] (0 = dry only) — <see cref="EffectTypeIds.AudioReverb"/>.</summary>
+    /// <summary>Reverb wet/dry mix in [0, 1] (0 = dry only) — <see cref="EffectTypeIds.AudioReverb"/> and
+    /// <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
     public const string Mix = "mix";
+
+    // ── Studio Reverb (PLAN.md step 41). ──
+    /// <summary>Pre-delay before the reverb onset, in milliseconds — <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string PreDelayMs = "preDelayMs";
+
+    /// <summary>Reverb decay (RT60-style tail length) in seconds — <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string Decay = "decay";
+
+    /// <summary>Room size in [0, 1] (scales the tank delay lengths) — <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string Size = "size";
+
+    /// <summary>Diffusion in [0, 1] (input/tank allpass density — low = discrete echoes, high = smooth wash) —
+    /// <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string Diffusion = "diffusion";
+
+    /// <summary>Tank delay-line modulation depth in [0, 1] (chorusing that breaks up metallic ringing) —
+    /// <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string ModDepth = "modDepth";
+
+    /// <summary>Tank delay-line modulation rate in Hz — <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string ModRateHz = "modRateHz";
+
+    /// <summary>Early-reflections vs late-tail balance in [0, 1] (0 = early only, 1 = tail only) —
+    /// <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string EarlyLate = "earlyLate";
+
+    /// <summary>Stereo width of the wet signal in [0, 1] (0 = mono, 1 = full decorrelated stereo) —
+    /// <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string Width = "width";
+
+    /// <summary>Low-frequency tail damping in [0, 1] (0 = lows ring as long as everything else) —
+    /// <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string LowDamp = "lowDamp";
+
+    /// <summary>High-frequency tail damping in [0, 1] (0 = bright tail, 1 = dark) —
+    /// <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
+    public const string HighDamp = "highDamp";
 }
 
 /// <summary>

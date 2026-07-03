@@ -118,6 +118,11 @@
             <MenuItem x:Name="RenderInOutMenuItem" Header="_Render In to Out" />
             <MenuItem x:Name="RenderSelectionMenuItem" Header="Render Se_lection" IsEnabled="False" />
             <MenuItem x:Name="RenderAudioMenuItem" Header="Render _Audio" />
+            <!-- Audio freeze (PLAN.md step 41): pre-render the selected clip's range through the audio render
+                 cache so heavy effect chains (Studio Reverb tails) replay instead of recomputing every pass;
+                 Unfreeze forgets the cached range so it mixes live again. Enablement on submenu-open. -->
+            <MenuItem x:Name="FreezeClipAudioMenuItem" Header="Free_ze Clip Audio" IsEnabled="False" />
+            <MenuItem x:Name="UnfreezeClipAudioMenuItem" Header="Un_freeze Clip Audio" IsEnabled="False" />
             <MenuItem x:Name="DeleteRenderFilesMenuItem" Header="_Delete Render Files…" />
             <Separator />
             <MenuItem x:Name="SequenceSettingsMenuItem" Header="Sequence _Settings…" />

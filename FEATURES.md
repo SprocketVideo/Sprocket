@@ -159,7 +159,9 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Mixer (Audio tab): per-track gain/pan/mute/solo, master strip | Sprocket.App/Mixer/MixerView.cs | — | ❌ |
 | Loudness meters (LUFS + true peak, EBU R128) | Sprocket.Audio/Loudness/*.cs | — | ❌ |
 | Loudness normalization (clip / track / master to LUFS target) | MixerView.cs; `NormalizeSelectedClip` | — | ❌ |
-| Audio effects: Gain/Pan, Parametric EQ, Compressor, Reverb | Sprocket.Audio/Effects/*.cs; EffectCatalog.cs | — | ❌ |
+| Audio effects: Gain/Pan, Parametric EQ, Compressor, Reverb (Lite) | Sprocket.Audio/Effects/*.cs; EffectCatalog.cs | — | ❌ |
+| Studio Reverb (Dattorro plate/hall; presets Room–Cathedral–Ambient Bloom via Inspector preset picker) | Sprocket.Audio/Effects/StudioReverbEffect.cs; EffectCatalog.cs | — | ❌ |
+| Freeze / Unfreeze Clip Audio (pre-render heavy audio chains; Sequence menu) | MainWindow.axaml.cs `UnfreezeClipAudio`; RenderCacheService.cs | — | ❌ |
 
 ## 9. Export & delivery
 
@@ -233,7 +235,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 | Variable / ramped speed retime (also reverse & freeze-frame) | PLAN.md step 21 (constant-speed only is done); SpeedDialog notes deferral |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial) |
-| Studio / Convolution / Creative reverbs + audio freeze | PLAN.md step 41 (deferred) |
+| Convolution / Creative (shimmer) reverbs | PLAN.md steps 49–50 (Studio Reverb + audio freeze shipped in step 41) |
 | Installers / packaging (Windows installer, AppImage, notarized macOS app) | PLAN.md step 36 (⏳ not done) |
 | Disabled menu items: Edit ▸ Select All, Clip ▸ Enable, Clip ▸ Link | greyed out in MainWindow.axaml |
 

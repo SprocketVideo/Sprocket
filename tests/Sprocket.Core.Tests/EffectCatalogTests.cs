@@ -122,4 +122,88 @@ public class EffectCatalogTests
                 Assert.InRange(p.Default, p.Min, p.Max);
             }
     }
+
+    // ── Step 41: Studio Reverb descriptor + factory presets ────────────────────────────────────────────
+
+    [Fact]
+    public void StudioReverb_Is_Registered_As_An_Audio_Effect_With_The_Step41_Parameters()
+    {
+        EffectDescriptor reverb = EffectCatalog.Find(EffectTypeIds.AudioStudioReverb)!;
+        Assert.Equal("Studio Reverb", reverb.DisplayName);
+        Assert.Equal(EffectCategory.Audio, reverb.Category);
+        Assert.True(EffectTypeIds.IsAudio(EffectTypeIds.AudioStudioReverb)); // routes to the mixer, not the shaders
+
+        string[] names = reverb.Parameters.Select(p => p.Name).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                EffectParamNames.PreDelayMs, EffectParamNames.Decay, EffectParamNames.Size,
+                EffectParamNames.Diffusion, EffectParamNames.ModDepth, EffectParamNames.ModRateHz,
+                EffectParamNames.EarlyLate, EffectParamNames.Width, EffectParamNames.LowDamp,
+                EffectParamNames.HighDamp, EffectParamNames.Mix,
+            },
+            names);
+    }
+
+    [Fact]
+    public void Freeverb_Reverb_Is_Now_Labelled_As_The_Lite_Tier()
+    {
+        Assert.Equal("Reverb (Lite)", EffectCatalog.Find(EffectTypeIds.AudioReverb)!.DisplayName);
+    }
+
+    [Fact]
+    public void StudioReverb_Ships_The_Step41_Preset_Families()
+    {
+        EffectDescriptor reverb = EffectCatalog.Find(EffectTypeIds.AudioStudioReverb)!;
+        string[] presets = reverb.Presets.Select(p => p.Name).ToArray();
+        Assert.Equal(new[] { "Room", "Chamber", "Plate", "Hall", "Cathedral", "Ambient Bloom" }, presets);
+    }
+
+    [Fact]
+    public void Every_Preset_Value_Names_A_Declared_Parameter_And_Stays_In_Its_Range()
+    {
+        foreach (EffectDescriptor d in EffectCatalog.BuiltIns)
+            foreach (EffectPreset preset in d.Presets)
+                foreach ((string name, double value) in preset.Values)
+                {
+                    EffectParameterDescriptor? p = d.Parameters.FirstOrDefault(x => x.Name == name);
+                    Assert.True(p is not null, $"{d.Id} preset '{preset.Name}' sets unknown parameter '{name}'");
+                    Assert.InRange(value, p!.Min, p.Max);
+                }
+    }
+
+    [Fact]
+    public void Presets_Leave_Mix_Untouched_So_A_Preset_Keeps_The_Users_Blend()
+    {
+        EffectDescriptor reverb = EffectCatalog.Find(EffectTypeIds.AudioStudioReverb)!;
+        Assert.All(reverb.Presets, p => Assert.False(p.Values.ContainsKey(EffectParamNames.Mix)));
+    }
+
+    [Fact]
+    public void Effects_Without_Presets_Report_An_Empty_List()
+    {
+        Assert.Empty(EffectCatalog.Find(EffectTypeIds.Brightness)!.Presets);
+    }
+
+    // ── Step 41: heavy-chain traits (freeze hints) ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void AudioEffectTraits_Flags_The_Studio_Reverb_As_Heavy()
+    {
+        Assert.True(Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(EffectTypeIds.AudioStudioReverb));
+        Assert.False(Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(EffectTypeIds.AudioReverb));
+        Assert.False(Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(EffectTypeIds.AudioGain));
+    }
+
+    [Fact]
+    public void HasHeavyEffect_Sees_Only_Enabled_Heavy_Stages()
+    {
+        var heavy = new EffectInstance(EffectTypeIds.AudioStudioReverb);
+        var light = new EffectInstance(EffectTypeIds.AudioGain);
+        Assert.True(Sprocket.Core.Audio.AudioEffectTraits.HasHeavyEffect([light, heavy]));
+        Assert.False(Sprocket.Core.Audio.AudioEffectTraits.HasHeavyEffect([light]));
+
+        heavy.Enabled = false; // a disabled stage doesn't run, so it isn't a freeze candidate
+        Assert.False(Sprocket.Core.Audio.AudioEffectTraits.HasHeavyEffect([light, heavy]));
+    }
 }

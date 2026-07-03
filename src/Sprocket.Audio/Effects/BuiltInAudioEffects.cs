@@ -22,6 +22,7 @@ public static class BuiltInAudioEffects
         EffectTypeIds.AudioEq => new ParametricEqEffect(),
         EffectTypeIds.AudioCompressor => new CompressorEffect(),
         EffectTypeIds.AudioReverb => new ReverbEffect(),
+        EffectTypeIds.AudioStudioReverb => new StudioReverbEffect(),
         _ => null,
     };
 }

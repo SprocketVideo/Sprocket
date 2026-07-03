@@ -72,6 +72,30 @@ public class PreviewRendererTests
     }
 
     [Fact]
+    public void RenderAudio_With_A_Studio_Reverb_Chain_Is_Deterministic_So_A_Freeze_Matches_Live()
+    {
+        // Freeze-equivalence (PLAN.md step 41): freezing replays a WAV written by this exact mixer path, so
+        // for deterministic built-ins "frozen == live" reduces to the render being reproducible bit-for-bit —
+        // including the Studio Reverb's modulated tank (sine LFOs of the sample counter, no RNG).
+        Project project = ExportFixture.BuildProject(withAudio: true);
+        Clip audioClip = project.Timeline.Tracks.OfType<AudioTrack>().First().Clips[0];
+        audioClip.Effects.Add(EffectCatalog.Find(EffectTypeIds.AudioStudioReverb)!.CreateInstance());
+
+        var range = new ExportRange(Timecode.Zero, Timecode.FromSeconds(1));
+        using var first = new TempFile(PreviewRenderer.AudioExtension);
+        using var second = new TempFile(PreviewRenderer.AudioExtension);
+        PreviewRenderer.RenderAudio(project, null, range, first.Path, Sprocket.Audio.Effects.BuiltInAudioEffects.Create);
+        PreviewRenderer.RenderAudio(project, null, range, second.Path, Sprocket.Audio.Effects.BuiltInAudioEffects.Create);
+        Assert.Equal(File.ReadAllBytes(first.Path), File.ReadAllBytes(second.Path));
+
+        // And the chain audibly ran through the cache path: the wet render differs from a dry one.
+        audioClip.Effects.Clear();
+        using var dry = new TempFile(PreviewRenderer.AudioExtension);
+        PreviewRenderer.RenderAudio(project, null, range, dry.Path, Sprocket.Audio.Effects.BuiltInAudioEffects.Create);
+        Assert.NotEqual(File.ReadAllBytes(first.Path), File.ReadAllBytes(dry.Path));
+    }
+
+    [Fact]
     public void A_Cancelled_Render_Leaves_No_File_Behind()
     {
         Project project = ExportFixture.BuildProject(withAudio: true);

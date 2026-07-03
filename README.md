@@ -74,8 +74,8 @@ The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step bui
 
 Code-signing & notarization (alpha artifacts are unsigned) · native plugin hosting — VST3/AU audio
 and OpenColorIO/OFX (the managed plugin host and built-in effects ship today) · variable/ramped
-speed, reverse & freeze-frame retime · additional reverbs & audio freeze. See the
-[Roadmap](#roadmap).
+speed, reverse & freeze-frame retime · convolution & shimmer reverbs (Studio Reverb and audio
+freeze ship today). See the [Roadmap](#roadmap).
 
 ---
 
@@ -299,7 +299,8 @@ today. Remaining work (full detail and per-step status in [PLAN.md](PLAN.md)):
   plugin host (collectible `AssemblyLoadContext`) and the built-in managed effects ship today.
 - **Advanced retime** — variable/ramped speed, reverse, and freeze-frame (constant-speed retime
   ships today).
-- **Audio extras** — additional reverbs and audio freeze.
+- **Audio extras** — convolution and shimmer reverbs, delays, gate and shelving EQ (the Studio
+  Reverb, factory presets, and clip-audio freeze ship today).
 
 ---
 

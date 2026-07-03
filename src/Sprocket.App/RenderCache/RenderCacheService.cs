@@ -215,6 +215,43 @@ public sealed class RenderCacheService : IVideoRenderCache, IAudioRenderCache, I
         Refresh();
     }
 
+    /// <summary>
+    /// Unfreeze (PLAN.md step 41): forgets every <b>audio</b> segment of <paramref name="sequenceId"/> that
+    /// intersects [<paramref name="rangeIn"/>, <paramref name="rangeOut"/>) and sweeps their files, so the range
+    /// mixes live again. Returns how many segments were removed. UI thread.
+    /// </summary>
+    public int RemoveAudioSegments(SequenceId sequenceId, Timecode rangeIn, Timecode rangeOut)
+    {
+        int removed = _entries.RemoveAll(e =>
+            e.Record.Kind == "audio"
+            && e.Record.SequenceId == sequenceId.Value
+            && e.Record.InTicks < rangeOut.Ticks
+            && e.Record.OutTicks > rangeIn.Ticks);
+        if (removed > 0)
+        {
+            RebuildSnapshots(); // the feeder stops replaying (and releases readers) before the files go away
+            SaveAndSweep();
+            Refresh();
+        }
+        return removed;
+    }
+
+    /// <summary>Whether a valid cached <b>audio</b> segment fully covers [<paramref name="rangeIn"/>,
+    /// <paramref name="rangeOut"/>) of <paramref name="sequenceId"/> — i.e. the range is frozen. UI thread.</summary>
+    public bool IsAudioRangeFrozen(SequenceId sequenceId, Timecode rangeIn, Timecode rangeOut)
+    {
+        foreach (Entry entry in _entries)
+        {
+            if (entry.Valid
+                && entry.Record.Kind == "audio"
+                && entry.Record.SequenceId == sequenceId.Value
+                && entry.Record.InTicks <= rangeIn.Ticks
+                && entry.Record.OutTicks >= rangeOut.Ticks)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>Delete Render Files: forgets every segment and deletes the cache directory's files (best-effort —
     /// a file still held by a winding-down decoder is swept next time). Returns the bytes reclaimed.</summary>
     public long DeleteAll()

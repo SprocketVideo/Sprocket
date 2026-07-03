@@ -84,6 +84,7 @@ public partial class MainWindow : Window
     private RenderCache.RenderCacheService? _renderCache; // the session's preview render cache (PLAN.md step 32)
     private DispatcherTimer? _renderCacheRefresh;          // debounces the post-edit re-hash (drags fire Changed per mutation)
     private MenuItem? _renderSelectionMenuItem, _deleteRenderFilesMenuItem; // Sequence ▸ render commands (step 32)
+    private MenuItem? _freezeClipAudioMenuItem, _unfreezeClipAudioMenuItem; // Sequence ▸ audio freeze (step 41)
     private Export.ExportQueue? _exportQueue;         // lazily built on first Export Queue use (PLAN.md step 29)
     private ExportQueueWindow? _exportQueueWindow;    // the (reused) queue window, or null when closed
     private int _savedUndoCount;       // history depth at the last save; document is clean while it matches
@@ -462,6 +463,13 @@ public partial class MainWindow : Window
         _renderSelectionMenuItem.Click += (_, _) => _ = RenderRangeAsync(RenderCacheScope.Video, useSelection: true);
         this.FindControl<MenuItem>("RenderAudioMenuItem")!.Click += (_, _) =>
             _ = RenderRangeAsync(RenderCacheScope.Audio, useSelection: false);
+        // Audio freeze (PLAN.md step 41): freezing is an audio render of the selected clip's range; unfreezing
+        // forgets the cached range. Both are cache operations on a derived artifact, not model edits, so they
+        // sit outside EditHistory like the other render commands (§20).
+        _freezeClipAudioMenuItem = this.FindControl<MenuItem>("FreezeClipAudioMenuItem")!;
+        _freezeClipAudioMenuItem.Click += (_, _) => _ = RenderRangeAsync(RenderCacheScope.Audio, useSelection: true);
+        _unfreezeClipAudioMenuItem = this.FindControl<MenuItem>("UnfreezeClipAudioMenuItem")!;
+        _unfreezeClipAudioMenuItem.Click += (_, _) => UnfreezeClipAudio();
         _deleteRenderFilesMenuItem = this.FindControl<MenuItem>("DeleteRenderFilesMenuItem")!;
         _deleteRenderFilesMenuItem.Click += (_, _) => _ = DeleteRenderFilesAsync();
 
@@ -1842,6 +1850,17 @@ public partial class MainWindow : Window
         // Files shows the cache's current disk footprint so the user sees what deleting reclaims.
         if (_renderSelectionMenuItem is not null)
             _renderSelectionMenuItem.IsEnabled = _selectedClip is not null && _renderCache is not null;
+
+        // Audio freeze (PLAN.md step 41): Freeze needs a selected clip; Unfreeze additionally needs a valid
+        // cached audio segment covering that clip's range (i.e. the clip is actually frozen right now).
+        if (_freezeClipAudioMenuItem is not null)
+            _freezeClipAudioMenuItem.IsEnabled = _selectedClip is not null && _renderCache is not null;
+        if (_unfreezeClipAudioMenuItem is not null)
+        {
+            _unfreezeClipAudioMenuItem.IsEnabled =
+                _selectedClip is { } frozen && _renderCache is not null && _project is not null
+                && _renderCache.IsAudioRangeFrozen(_project.ActiveSequence.Id, frozen.TimelineStart, frozen.TimelineEnd);
+        }
         if (_deleteRenderFilesMenuItem is not null)
         {
             long size = _renderCache?.SizeBytes() ?? 0;
@@ -2058,6 +2077,20 @@ public partial class MainWindow : Window
             SetStatus($"Render failed: {error}");
             await MessageDialog.Show(this, "Render Failed", $"The preview render could not be completed:\n{error}");
         }
+    }
+
+    /// <summary>Sequence ▸ Unfreeze Clip Audio (PLAN.md step 41): forgets the cached audio segments intersecting
+    /// the selected clip's range so it mixes live again — the inverse of Freeze Clip Audio. The cache is a local
+    /// derived artifact, so this only ever costs a re-render, never project data (§20).</summary>
+    private void UnfreezeClipAudio()
+    {
+        if (_project is null || _renderCache is null || _selectedClip is not { } clip)
+            return;
+        int removed = _renderCache.RemoveAudioSegments(_project.ActiveSequence.Id, clip.TimelineStart, clip.TimelineEnd);
+        UpdateRenderBar();
+        SetStatus(removed > 0
+            ? $"Unfroze clip audio {FormatTime(clip.TimelineStart)}–{FormatTime(clip.TimelineEnd)} — mixing live again"
+            : "No frozen audio covers the selected clip.");
     }
 
     /// <summary>Sequence ▸ Delete Render Files… (PLAN.md step 32): confirms with the cache's location and current

@@ -2788,6 +2788,50 @@ Tags reference the [UI.md §4 checklist](UI.md).
     - **Further considerations:** IR licensing (bundled impulse responses need clear redistribution
       rights, or user IR import only); once VST3/AU hosting lands (steps 31/33), the same freeze system
       should cover third-party and non-deterministic plugin chains.
+    - **✅ DONE — Studio Reverb + audio freeze surface (`Sprocket.Core/{Model/EffectInstance,Model/EffectCatalog,
+      Audio/AudioEffectTraits}` + `Sprocket.Audio/Effects/{StudioReverbEffect,BuiltInAudioEffects}` +
+      `Sprocket.App/{RenderCache/RenderCacheService,MainWindow,Inspector/InspectorPanel}`; 24 new tests — Core +8,
+      Audio +11, Export +1, App +4; full suite **1168 green** (Core 325, Media 39, Render 123, Audio 81,
+      Playback 56, Export 91, Persistence 109, Plugins 10, Mcp 64, App 270); clean build (0 warnings), smoke
+      launch OK.)** Scoped per the superseding note above: Convolution/Creative tiers belong to steps 49/50.
+      - **Studio Reverb (`builtin.audio.reverb.studio`).** A Dattorro-plate tank (JAES 1997): predelay →
+        four input-diffusion allpasses → two cross-coupled branches, each a *modulated* decay allpass →
+        delay → high/low tail damping → decay gain → second allpass → delay, wet L/R from Dattorro's
+        decorrelated output-tap table, plus a small tapped early-reflection line. Full step-41 parameter
+        surface (predelay, RT60-style decay seconds, size, diffusion, mod depth/rate, early/late balance,
+        width as wet mid/side, low/high damping, mix); the existing Freeverb effect is relabelled
+        **Reverb (Lite)**. Size scales every length inside max-size buffers allocated once, so parameter
+        changes never allocate (steady-state allocation-free, asserted by test); decay maps to
+        `0.001^(loop/t60)` — always < 1, so the tank can't run away (bounded-at-max-settings test); the tank
+        LFOs are sine functions of a sample counter (no RNG), so output is deterministic run-to-run —
+        the property freeze-equivalence rests on (bit-identical repeated `PreviewRenderer.RenderAudio`
+        proven in Export tests). Realtime-safe by construction, so the step's "reliable realtime mode"
+        holds without a quality-mode ladder.
+      - **Presets (Core + Inspector).** `EffectDescriptor.Presets` (`EffectPreset` name → parameter values) —
+        the step's "descriptors & presets" surface, usable by any effect. Studio Reverb ships Room / Chamber /
+        Plate / Hall / Cathedral / Ambient Bloom (shimmer/cloud/nonlinear are steps 49–50's). The Inspector
+        shows a **Preset** picker for any descriptor carrying presets; applying one is a single undoable
+        `CompositeCommand` of parameter edits, and presets deliberately omit Mix so switching character keeps
+        the user's wet/dry blend.
+      - **Audio freeze (App, on the step-32 seam).** New Sequence-menu commands: **Freeze Clip Audio**
+        (pre-renders the selected clip's range through the existing audio render cache — master-mix float32
+        WAV via `PreviewRenderer.RenderAudio`, replayed by the `IAudioRenderCache` feeder splice) and
+        **Unfreeze Clip Audio** (`RenderCacheService.RemoveAudioSegments` forgets intersecting audio segments
+        + sweeps their files; enabled only when a valid segment covers the clip,
+        `IsAudioRangeFrozen`). Invalidation/dirty-marking, render-bar state, hashing, and
+        export-ignores-the-cache all inherit from step 32 unchanged. **Deliberate departure from the step
+        text:** freeze/unfreeze are *not* `EditHistory` commands — the cache is a derived local artifact, not
+        model state, and step 32's shipped render commands set that convention (undoing an *edit* already
+        re-validates the cache for free).
+      - **CPU-cost surface.** `AudioEffectTraits` (Core): `IsHeavy`/`HasHeavyEffect` flag long-tailed DSP
+        (Studio Reverb today; steps 49/50 join it), and the Inspector shows a "CPU-heavy tail — Sequence ▸
+        Freeze Clip Audio pre-renders it" hint on heavy effect sections — the step's warning affordance.
+      - **Deferred (documented):** per-effect quality modes (Draft/Realtime/High/Offline), preview tail-length
+        caps, and oversampling — they matter for convolution/shimmer (steps 49/50) where realtime genuinely
+        strains, not for the realtime-safe Studio Reverb; a numeric chain CPU-cost meter (the boolean
+        heavy-hint shipped); track-scope freeze (clip-scope shipped — track chains have no chain UI yet, see
+        step 31's outstanding list); Inspector frozen-state badges (the render bar already shows frozen
+        ranges); and the opt-in export reuse of a full-quality cache (unchanged from step 32).
 
 42. **Image-sequence & still import (stop-motion tier 1).** Import a folder of numbered stills as one
     video clip at a user-chosen frame rate, plus single-still import with a configurable default

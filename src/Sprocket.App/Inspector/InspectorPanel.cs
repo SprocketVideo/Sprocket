@@ -709,6 +709,22 @@ public sealed class InspectorPanel : UserControl
 
         var rows = new StackPanel { Spacing = 4, Margin = new Avalonia.Thickness(4, 4, 4, 2) };
 
+        // Factory presets (PLAN.md step 41): descriptors that carry presets get a picker above the parameter
+        // rows; applying one is a single undoable composite parameter edit.
+        if (descriptor is { Presets.Count: > 0 })
+            rows.Children.Add(BuildPresetRow(effect, descriptor));
+
+        // Heavy-chain hint (PLAN.md step 41): long-tailed DSP is worth pre-rendering rather than recomputing
+        // every playback pass — point at the freeze command instead of silently burning CPU.
+        if (Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(effect.EffectTypeId))
+            rows.Children.Add(new TextBlock
+            {
+                Text = "CPU-heavy tail — Sequence ▸ Freeze Clip Audio pre-renders it.",
+                FontSize = 11,
+                Foreground = FaintText,
+                TextWrapping = TextWrapping.Wrap,
+            });
+
         IReadOnlyList<EffectParameterDescriptor> parameters =
             descriptor?.Parameters ?? FallbackDescriptors(effect);
         if (parameters.Count == 0)
@@ -853,6 +869,32 @@ public sealed class InspectorPanel : UserControl
     /// was shot in (<see cref="ColorProfiles"/>), committing the effect's numeric
     /// <see cref="EffectParamNames.SourceProfile"/> index through the command stack. Auto-detected clips arrive
     /// pre-set; this row is the manual per-clip tag / override.</summary>
+    /// <summary>The preset picker row (PLAN.md step 41): selecting a preset applies its parameter values as one
+    /// <see cref="CompositeCommand"/> — a single undo entry. Parameters a preset omits (e.g. Mix) keep their
+    /// current value, so switching character preserves the user's wet/dry blend.</summary>
+    private Control BuildPresetRow(EffectInstance effect, EffectDescriptor descriptor)
+    {
+        var combo = new ComboBox
+        {
+            ItemsSource = descriptor.Presets.Select(p => p.Name).ToList(),
+            PlaceholderText = "Choose…",
+            FontSize = 11,
+            MinHeight = 24,
+            Width = 170,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (_suppress || combo.SelectedIndex < 0 || combo.SelectedIndex >= descriptor.Presets.Count)
+                return;
+            EffectPreset preset = descriptor.Presets[combo.SelectedIndex];
+            List<IEditCommand> commands = [.. preset.Values.Select(kv =>
+                (IEditCommand)new SetEffectParameterCommand(effect, kv.Key, AnimatableValue.Constant(kv.Value)))];
+            ExecuteEdit(new CompositeCommand($"Apply preset {preset.Name}", commands), coalescing: false);
+        };
+        return LabeledRow("Preset", combo);
+    }
+
     private Control BuildColorProfileRow(EffectInstance effect)
     {
         var combo = new ComboBox

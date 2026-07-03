@@ -175,6 +175,83 @@ public class RenderCacheServiceTests : IDisposable
         Assert.False(service.TryRead(Timecode.Zero, buffer));
     }
 
+    // ── Audio freeze (PLAN.md step 41): Freeze Clip Audio / Unfreeze Clip Audio ────────────────────────
+
+    private PendingRender CommitAudioSegment(RenderCacheService service, Project project, double inSec, double outSec)
+    {
+        PendingRender pending = service.Prepare(
+            RenderCacheScope.Audio, project.ActiveSequence.Id,
+            Timecode.FromSeconds(inSec), Timecode.FromSeconds(outSec), sampleRate: 48000, channels: 2);
+        string path = service.FilePathFor(pending);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using (var writer = new WavePcmWriter(path, 48000, 2))
+        {
+            writer.Write(new float[4800 * 2]);
+            writer.Finish();
+        }
+        service.Commit(pending);
+        return pending;
+    }
+
+    [Fact]
+    public void IsAudioRangeFrozen_Needs_A_Valid_Covering_Audio_Segment()
+    {
+        Project project = BuildProject();
+        using var service = new RenderCacheService(project, _projectPath);
+        SequenceId id = project.ActiveSequence.Id;
+        Assert.False(service.IsAudioRangeFrozen(id, Timecode.FromSeconds(1), Timecode.FromSeconds(2)));
+
+        CommitAudioSegment(service, project, 0, 3);
+        Assert.True(service.IsAudioRangeFrozen(id, Timecode.FromSeconds(1), Timecode.FromSeconds(2)));
+        // A range poking past the segment isn't fully covered — not frozen.
+        Assert.False(service.IsAudioRangeFrozen(id, Timecode.FromSeconds(2), Timecode.FromSeconds(4)));
+    }
+
+    [Fact]
+    public void Video_Segments_Do_Not_Count_As_Frozen_Audio()
+    {
+        Project project = BuildProject();
+        using var service = new RenderCacheService(project, _projectPath);
+        CommitVideoSegment(service, project, 0, 4);
+        Assert.False(service.IsAudioRangeFrozen(project.ActiveSequence.Id, Timecode.FromSeconds(1), Timecode.FromSeconds(2)));
+    }
+
+    [Fact]
+    public void RemoveAudioSegments_Unfreezes_The_Intersecting_Range_And_Sweeps_The_File()
+    {
+        Project project = BuildProject();
+        using var service = new RenderCacheService(project, _projectPath);
+        SequenceId id = project.ActiveSequence.Id;
+        PendingRender pending = CommitAudioSegment(service, project, 0, 3);
+        string file = service.FilePathFor(pending);
+        Assert.True(File.Exists(file));
+
+        // A clip range that merely intersects the segment removes it (partial unfreeze = re-render later).
+        Assert.Equal(1, service.RemoveAudioSegments(id, Timecode.FromSeconds(2), Timecode.FromSeconds(4)));
+        Assert.False(service.IsAudioRangeFrozen(id, Timecode.FromSeconds(1), Timecode.FromSeconds(2)));
+        Assert.False(service.TryRead(Timecode.FromSeconds(1), new float[512 * 2]));
+        Assert.False(File.Exists(file)); // orphan swept
+
+        // Nothing left to remove.
+        Assert.Equal(0, service.RemoveAudioSegments(id, Timecode.Zero, Timecode.FromSeconds(4)));
+    }
+
+    [Fact]
+    public void RemoveAudioSegments_Leaves_Video_And_Disjoint_Audio_Alone()
+    {
+        Project project = BuildProject();
+        using var service = new RenderCacheService(project, _projectPath);
+        SequenceId id = project.ActiveSequence.Id;
+        CommitVideoSegment(service, project, 0, 4);
+        CommitAudioSegment(service, project, 0, 1);
+        CommitAudioSegment(service, project, 3, 4);
+
+        Assert.Equal(0, service.RemoveAudioSegments(id, Timecode.FromSeconds(1), Timecode.FromSeconds(3)));
+        Assert.Equal(1, service.RemoveAudioSegments(id, Timecode.FromSeconds(0.5), Timecode.FromSeconds(1.5)));
+        Assert.True(service.IsAudioRangeFrozen(id, Timecode.FromSeconds(3), Timecode.FromSeconds(4)));
+        Assert.NotNull(service.ResolveAt(Timecode.FromSeconds(1))); // the video segment is untouched
+    }
+
     [Fact]
     public void Video_Segments_Do_Not_Serve_Other_Sequences()
     {

@@ -37,6 +37,17 @@ public sealed record EffectParameterDescriptor(
     string? Unit = null);
 
 /// <summary>
+/// A named factory preset for an effect (PLAN.md step 41): the parameter values that give a recognisable
+/// starting point (Room / Plate / Hall / Cathedral …). Values are constants applied over the descriptor's
+/// defaults — parameters a preset omits keep their current value, so a preset can share the tweaks that
+/// define it without flattening unrelated edits. The Inspector offers a preset picker for any descriptor
+/// that carries presets; applying one is an ordinary undoable parameter edit.
+/// </summary>
+/// <param name="Name">Human-readable preset name shown in the picker.</param>
+/// <param name="Values">Parameter values by name (keys match <see cref="EffectParamNames"/>).</param>
+public sealed record EffectPreset(string Name, IReadOnlyDictionary<string, double> Values);
+
+/// <summary>
 /// A browsable description of one effect type: its stable id (<see cref="EffectTypeIds"/>), a display name,
 /// a category, a one-line description, and the ordered list of its editable <see cref="EffectParameterDescriptor"/>s.
 /// This is the "effect registry" the Effects browser lists over (PLAN.md step 15); the Inspector (step 16)
@@ -55,6 +66,9 @@ public sealed record EffectDescriptor(
     string Description,
     IReadOnlyList<EffectParameterDescriptor> Parameters)
 {
+    /// <summary>Named factory presets (PLAN.md step 41), empty for effects without any.</summary>
+    public IReadOnlyList<EffectPreset> Presets { get; init; } = [];
+
     /// <summary>
     /// Builds a fresh <see cref="EffectInstance"/> of this type with every parameter set to its
     /// <see cref="EffectParameterDescriptor.Default"/>. Each call yields an independent instance.
@@ -263,14 +277,89 @@ public static class EffectCatalog
 
         new EffectDescriptor(
             EffectTypeIds.AudioReverb,
-            "Reverb",
+            "Reverb (Lite)",
             EffectCategory.Audio,
-            "Adds room ambience (Freeverb-style).",
+            "Adds room ambience (Freeverb-style) — the low-CPU editorial reverb.",
             [
                 new EffectParameterDescriptor(EffectParamNames.RoomSize, "Room Size", 0.5, 0.0, 1.0, 0.05),
                 new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.5, 0.0, 1.0, 0.05),
                 new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
             ]),
+
+        new EffectDescriptor(
+            EffectTypeIds.AudioStudioReverb,
+            "Studio Reverb",
+            EffectCategory.Audio,
+            "High-quality algorithmic reverb: rooms, plates, halls (Dattorro-style tank).",
+            [
+                new EffectParameterDescriptor(EffectParamNames.PreDelayMs, "Pre-Delay", 10.0, 0.0, 200.0, 1.0, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 2.0, 0.1, 20.0, 0.1, "s"),
+                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Diffusion, "Diffusion", 0.7, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.ModDepth, "Mod Depth", 0.3, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.ModRateHz, "Mod Rate", 0.5, 0.05, 5.0, 0.05, "Hz"),
+                new EffectParameterDescriptor(EffectParamNames.EarlyLate, "Early / Late", 0.7, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Width, "Width", 1.0, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.LowDamp, "Low Damp", 0.1, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.HighDamp, "High Damp", 0.4, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+            ])
+        {
+            // The step-41 preset families (room / chamber / plate / hall / cathedral / ambient bloom); the
+            // shimmer/cloud/nonlinear creative tiers ship as their own effects (steps 49–50). Every preset
+            // leaves Mix untouched so switching character keeps the user's wet/dry blend.
+            Presets =
+            [
+                new EffectPreset("Room", new Dictionary<string, double>
+                {
+                    [EffectParamNames.PreDelayMs] = 5, [EffectParamNames.Decay] = 0.6,
+                    [EffectParamNames.Size] = 0.35, [EffectParamNames.Diffusion] = 0.65,
+                    [EffectParamNames.ModDepth] = 0.15, [EffectParamNames.ModRateHz] = 0.8,
+                    [EffectParamNames.EarlyLate] = 0.45, [EffectParamNames.Width] = 0.8,
+                    [EffectParamNames.LowDamp] = 0.25, [EffectParamNames.HighDamp] = 0.55,
+                }),
+                new EffectPreset("Chamber", new Dictionary<string, double>
+                {
+                    [EffectParamNames.PreDelayMs] = 10, [EffectParamNames.Decay] = 1.1,
+                    [EffectParamNames.Size] = 0.45, [EffectParamNames.Diffusion] = 0.75,
+                    [EffectParamNames.ModDepth] = 0.2, [EffectParamNames.ModRateHz] = 0.6,
+                    [EffectParamNames.EarlyLate] = 0.55, [EffectParamNames.Width] = 0.9,
+                    [EffectParamNames.LowDamp] = 0.2, [EffectParamNames.HighDamp] = 0.45,
+                }),
+                new EffectPreset("Plate", new Dictionary<string, double>
+                {
+                    [EffectParamNames.PreDelayMs] = 0, [EffectParamNames.Decay] = 1.8,
+                    [EffectParamNames.Size] = 0.5, [EffectParamNames.Diffusion] = 0.9,
+                    [EffectParamNames.ModDepth] = 0.35, [EffectParamNames.ModRateHz] = 1.0,
+                    [EffectParamNames.EarlyLate] = 0.85, [EffectParamNames.Width] = 1.0,
+                    [EffectParamNames.LowDamp] = 0.1, [EffectParamNames.HighDamp] = 0.35,
+                }),
+                new EffectPreset("Hall", new Dictionary<string, double>
+                {
+                    [EffectParamNames.PreDelayMs] = 20, [EffectParamNames.Decay] = 2.8,
+                    [EffectParamNames.Size] = 0.75, [EffectParamNames.Diffusion] = 0.7,
+                    [EffectParamNames.ModDepth] = 0.25, [EffectParamNames.ModRateHz] = 0.4,
+                    [EffectParamNames.EarlyLate] = 0.7, [EffectParamNames.Width] = 1.0,
+                    [EffectParamNames.LowDamp] = 0.15, [EffectParamNames.HighDamp] = 0.4,
+                }),
+                new EffectPreset("Cathedral", new Dictionary<string, double>
+                {
+                    [EffectParamNames.PreDelayMs] = 40, [EffectParamNames.Decay] = 6.0,
+                    [EffectParamNames.Size] = 1.0, [EffectParamNames.Diffusion] = 0.8,
+                    [EffectParamNames.ModDepth] = 0.2, [EffectParamNames.ModRateHz] = 0.3,
+                    [EffectParamNames.EarlyLate] = 0.85, [EffectParamNames.Width] = 1.0,
+                    [EffectParamNames.LowDamp] = 0.05, [EffectParamNames.HighDamp] = 0.5,
+                }),
+                new EffectPreset("Ambient Bloom", new Dictionary<string, double>
+                {
+                    [EffectParamNames.PreDelayMs] = 60, [EffectParamNames.Decay] = 10.0,
+                    [EffectParamNames.Size] = 0.9, [EffectParamNames.Diffusion] = 1.0,
+                    [EffectParamNames.ModDepth] = 0.5, [EffectParamNames.ModRateHz] = 0.7,
+                    [EffectParamNames.EarlyLate] = 1.0, [EffectParamNames.Width] = 1.0,
+                    [EffectParamNames.LowDamp] = 0.3, [EffectParamNames.HighDamp] = 0.25,
+                }),
+            ],
+        },
     ];
 
     // Plugin-registered descriptors (PLAN.md step 33). Swapped atomically as a whole array so readers
