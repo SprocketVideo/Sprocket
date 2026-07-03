@@ -2709,8 +2709,14 @@ Tags reference the [UI.md §4 checklist](UI.md).
         post-hoc editing today); captions/subtitles (SRT/VTT) stay their own step as noted; opt-in system
         fonts; per-word/character styling spans (a title has one style per field).
 
-41. **Reverb quality upgrade (studio / convolution / creative reverbs + audio freeze).** The current
-    `ReverbEffect` (`src/Sprocket.Audio/Effects/ReverbEffect.cs`) is a Freeverb-style Schroeder/Moorer
+41. **Reverb quality upgrade (studio / convolution / creative reverbs + audio freeze).** **Note:**
+    the Convolution Reverb and Creative-Reverb-shimmer tiers sketched below have since been promoted
+    to their own dedicated built-in effects — see step 49 (Acoustic Space / Convolution Reverb) and
+    step 50 (Shimmer Reverb) — following the step-46 convention of separate purpose-built effects
+    over mode switches. This step now covers **Studio Reverb** (the realtime high-quality
+    algorithmic tier) and the shared **audio freeze/pre-render cache** infrastructure both new
+    reverbs depend on; treat the Convolution/Creative bullets below as superseded by steps 49/50.
+    The current `ReverbEffect` (`src/Sprocket.Audio/Effects/ReverbEffect.cs`) is a Freeverb-style Schroeder/Moorer
     network — 8 damped combs into 4 allpasses per channel with fixed tunings. It's a good **low-CPU
     editorial ambience** effect (allocation-free steady state, linear per-sample work, honours the
     `IAudioEffect` contract), but its parameter surface (Room Size / Damping / Mix only, see
@@ -2966,6 +2972,233 @@ Tags reference the [UI.md §4 checklist](UI.md).
       Sequencing note: shipped ahead of finished installers (step 36) deliberately — the per-RID zips
       the checker targets are already the published install artifacts, and a missing asset falls back
       to the release page.
+
+46. **Delay effects (tape / digital / multi-tap / stereo).** Four new built-in `IAudioEffect`
+    implementations in `Sprocket.Audio/Effects` alongside the existing `ReverbEffect` /
+    `CompressorEffect` / `ParametricEqEffect` / `GainPanEffect`, registered through the same
+    step-31 audio effect-chain scopes (clip / track / timeline bus / master) — no render-graph or
+    persistence redesign, following the DAW convention of shipping delay as **separate, purpose-built
+    effects** (Ableton Simple/Ping Pong/Echo, Logic Tape/Delay Designer, Pro Tools Mod/Long/Slap
+    Delay) rather than one mega-delay with mode switches:
+    - **Digital Delay.** The clean baseline: a single feedback delay line (sample-accurate delay
+      time in ms or, when a project/track tempo/time-signature surface exists, note-synced
+      divisions — otherwise ms only, since Sprocket has no tempo model yet), feedback amount,
+      wet/dry mix, and a high-cut in the feedback path (the standard "analog-ish" damping tone
+      control even on a digital delay). Implemented as a fixed-size ring buffer per channel —
+      allocation-free steady state, matching the `IAudioEffect` contract's no-per-sample-alloc rule
+      already honoured by `ReverbEffect`.
+    - **Tape Delay.** Same feedback-delay core plus the tape-emulation coloration users expect from
+      this name: soft saturation/tone-shaping in the feedback path, subtle **wow & flutter**
+      (low-frequency + higher-frequency delay-time modulation, deterministic LFOs — no per-instance
+      RNG so renders stay reproducible), and a gentle low-pass in the repeats so the tail darkens
+      like successive tape generations. Parameters: delay time, feedback, wow/flutter depth+rate,
+      saturation amount, mix.
+    - **Multi-Tap Delay.** N independent taps (a small fixed cap, e.g. 8, matching typical DAW
+      multi-tap plugins) each with its own delay time, level, and pan, summed into the output —
+      lets a single instance build rhythmic/echo patterns without stacking multiple effect
+      instances. Parameters: per-tap enable/time/level/pan arrays (typed descriptors following the
+      step-16/31 pattern so the Inspector's generated property editor renders them; a tap count
+      beyond a couple of entries may need a small custom Inspector section rather than the generic
+      one-row-per-parameter layout — flag this as a UI follow-up, not a blocker).
+    - **Stereo Delay.** Independent left/right delay times and feedback (the classic dual-mono
+      "ping-pong-capable" stereo delay) plus a **Ping Pong** mode toggle that cross-feeds each
+      channel's repeats into the opposite channel, matching the Ableton/Logic ping-pong convention.
+      Parameters: left time, right time, feedback, ping-pong on/off, cross-feed amount, mix.
+    - **Core & catalog.** New `EffectTypeIds.Delay.{Digital,Tape,MultiTap,Stereo}` (or a `builtin.audio.delay.*`
+      family) with typed `EffectParamNames`/descriptors registered in `EffectCatalog` under
+      `EffectCategory.Audio`, so they appear in the Effects browser/menu and the audio chain
+      add-effect flow exactly like the step-31/41 audio effects, and serialize via the existing
+      `EffectInstance` JSON (additive, no schema bump). Stateful per-effect ring buffers are cached
+      per `StateKey` and rebuilt only when the chain's ids/params change, mirroring `AudioMixer`'s
+      existing state-caching for `ReverbEffect`.
+    - **Tests.** Deterministic DSP tests per effect (impulse response shows taps/echoes at the
+      expected sample offsets and levels; feedback decay converges and never blows up at feedback
+      values near 1.0; wow/flutter modulation is bounded and reproducible run-to-run; ping-pong
+      cross-feed lands in the correct channel). Persistence round-trip for each new effect id.
+      Extend `AudioEffectsTests`/`AudioMixerChainTests` (steady-state allocation-free assertion,
+      pass-through/bypass, chain ordering with existing effects) the same way step-31's four
+      built-ins were covered.
+
+47. **Noise Gate audio effect.** A new built-in `IAudioEffect` in `Sprocket.Audio/Effects` alongside
+    `CompressorEffect`/`ReverbEffect`/the step-46 delays, registered through the same step-31 audio
+    effect-chain scopes (clip / track / timeline bus / master) — no render-graph or persistence
+    redesign. Follows the standard DAW gate design (Ableton Gate, Logic Noise Gate, Pro Tools
+    Dyn3 Expander/Gate): an envelope follower on the input drives a gain that opens above a
+    **threshold** and closes below it, shaped by **attack**, **hold**, and **release** times so it
+    doesn't chatter on transients or clip off decaying tails, plus a **range** parameter (how far
+    the gain closes — full mute vs. a partial attenuation floor, matching Pro Tools/Logic's "Range"
+    rather than a hard on/off) and a **look-ahead**-free, causal design consistent with the other
+    built-ins (real-time-safe, no future-sample buffering). A **ratio/hysteresis** control
+    (separate open/close thresholds) avoids rapid re-triggering right at the threshold, the same
+    problem `CompressorEffect` already solves for gain reduction on the other side of the transfer
+    curve — reuse its envelope-follower/detector code where practical instead of re-deriving it.
+    - **Core & catalog.** New `EffectTypeIds.Audio.NoiseGate` (`builtin.audio.noisegate`) with typed
+      `EffectParamNames`/descriptors (threshold, attack, hold, release, range, hysteresis) registered
+      in `EffectCatalog` under `EffectCategory.Audio`, so it appears in the Effects browser/menu and
+      the audio chain add-effect flow like the other built-ins, and serializes via the existing
+      `EffectInstance` JSON (additive, no schema bump). Per-instance envelope/gain state cached per
+      `StateKey` and rebuilt only when the chain's ids/params change, mirroring the existing
+      `AudioMixer` state-caching.
+    - **Tests.** Deterministic DSP tests (steady tone above threshold passes at unity, steady signal
+      below threshold attenuates to the configured range, attack/release timing matches expected
+      sample counts, hold prevents premature closing on a brief dip, hysteresis prevents chatter at
+      threshold-straddling input). Persistence round-trip. Extend
+      `AudioEffectsTests`/`AudioMixerChainTests` (steady-state allocation-free assertion,
+      pass-through/bypass, chain ordering) the same way the step-31 built-ins and step-46 delays
+      were covered.
+
+48. **Shelving EQ audio effect.** A new built-in `IAudioEffect` in `Sprocket.Audio/Effects`
+    alongside `ParametricEqEffect`/`CompressorEffect`/the step-46/47 effects, registered through
+    the same step-31 audio effect-chain scopes — no render-graph or persistence redesign. **Note:**
+    `ParametricEqEffect` (step 31) already contains low- and high-shelf RBJ biquads as two of its
+    three bands (`ConfigureShelf` in `ParametricEqEffect.cs`), so the DSP math for a shelf already
+    exists and ships today for anyone adding the 3-band parametric. This step packages **standalone
+    low-shelf and high-shelf controls as their own dedicated effect** — the DAW convention
+    (Ableton EQ Three/Channel EQ, Logic Channel EQ's shelf-only mode, most console-strip plugins
+    also expose bare shelves) for the common quick-tone-shaping case (a tilt/warmth/air pass) where
+    dragging in a full 3-band parametric is heavier than needed and the mid peaking band is unused
+    dead weight in the chain. Two shelves (low + high), each with **frequency**, **gain**, and a
+    **slope/Q**-style shape control (RBJ shelf slope `S`, generalizing the step-31 fixed `S = 1`),
+    and independent enable so either shelf can run alone (e.g. a low-cut-style low shelf with a
+    single instance) — reuse `ConfigureShelf`'s biquad derivation (extended to accept `S` instead
+    of assuming 1) rather than re-deriving the coefficients.
+    - **Core & catalog.** New `EffectTypeIds.Audio.ShelvingEq` (`builtin.audio.shelvingeq`) with
+      typed `EffectParamNames`/descriptors (low shelf freq/gain/slope/enable, high shelf
+      freq/gain/slope/enable) registered in `EffectCatalog` under `EffectCategory.Audio`, appearing
+      in the Effects browser/menu and audio chain add-effect flow like the other built-ins, and
+      serializing via the existing `EffectInstance` JSON (additive, no schema bump). A default
+      instance (both shelves at 0 dB) is an exact pass-through, matching `ParametricEqEffect`'s
+      bypass-at-0dB behavior. Per-band biquad state cached per `StateKey`, rebuilt only on
+      parameter/format change, same pattern as `ParametricEqEffect`.
+    - **Tests.** Deterministic DSP tests (0 dB is bit-exact pass-through; boost/cut at a known
+      frequency matches the expected shelf magnitude response at DC/Nyquist and at the corner
+      frequency; slope/`S` changes the transition steepness monotonically; independent
+      enable/disable per shelf). Persistence round-trip. Extend
+      `AudioEffectsTests`/`AudioMixerChainTests` the same way the step-31 built-ins and steps 46/47
+      were covered.
+
+49. **Acoustic Space (Convolution) Reverb.** A new built-in `IAudioEffect`,
+    `src/Sprocket.Audio/Effects/ConvolutionReverbEffect.cs`, split out as its **own dedicated
+    effect** rather than a mode of the current `ReverbEffect` — consistent with the step-46
+    decision to ship delay as separate purpose-built effects instead of one mode-switching unit,
+    and matching how every DAW treats convolution reverb as a distinct plugin from its algorithmic
+    reverb (Ableton Convolution Reverb vs. Reverb, Logic Space Designer vs. ChromaVerb/PlatinumVerb,
+    Pro Tools IR-1/Revibe vs. D-Verb). **This is the "Convolution Reverb" tier already sketched
+    under step 41** — that step bundled Studio/Convolution/Creative reverb as tiers of one
+    sequencing note; this step promotes the acoustic-emulation tier to its own numbered item so it
+    can ship (and be tested/reviewed) independently of the others. Emulates real captured spaces —
+    rooms, halls, chambers, plates — by convolving the dry signal with an impulse response (IR)
+    rather than an algorithmic network.
+    - **DSP.** **Partitioned convolution** (uniform-partition overlap-save/overlap-add, e.g.
+      block sizes tuned to keep per-block cost bounded) so long IRs (multi-second halls) stay
+      real-time-safe with bounded per-buffer work — a naive direct convolution is O(IR length) per
+      sample and unusable for anything but very short IRs. Managed deterministic implementation
+      first (consistent with the no-C++/CLI rule); only reach for a small C-ABI FFT helper if
+      profiling shows the managed FFT/partition path can't hold real-time at typical IR lengths.
+      IR loading/preprocessing (FFT of each partition) happens off the audio thread; only the
+      per-buffer multiply-accumulate runs live.
+    - **Parameters.** IR selection (bundled preset IRs + user IR import — WAV, mono/stereo),
+      predelay, IR length/decay trim (a "damp" control that shortens the effective tail without a
+      new IR), high/low damping (filters shaping the tail independent of the raw IR), width/stereo
+      spread, wet/dry mix. Exposes latency/tail metadata the way step-41 called for (a small
+      optional metadata surface beside `IAudioEffect` for cost/latency/tail, shared with other
+      heavy effects).
+    - **IR asset & licensing.** Bundled IRs need clear redistribution rights (the same open risk
+      step 41 flagged) — ship only IRs with clear licensing (CC0/public-domain captures or
+      Sprocket-recorded ones), or ship with **no bundled IRs at day one** and lead with user IR
+      import so licensing isn't a blocker to shipping the engine.
+    - **Freeze dependency.** Long IRs are CPU-heavy; **depends on the step-32 audio render
+      cache/freeze** the same way step 41 does — convolution should default to steering users
+      toward Freeze for anything beyond a short/plate-length IR, not to a "hope realtime holds"
+      default.
+    - **Core & catalog.** `EffectTypeIds.Audio.ConvolutionReverb` (`builtin.audio.reverb.convolution`)
+      registered in `EffectCatalog` under `EffectCategory.Audio` with typed descriptors (IR
+      reference is a new descriptor kind — an asset/file reference, not a bare number/enum — so the
+      Inspector needs a file-picker row alongside the existing slider/keyframe rows). Persists via
+      the existing `EffectInstance` JSON plus an IR-reference field (additive; the step-28
+      media-link/relink machinery is the template for keeping IR paths valid after a project moves).
+    - **Tests.** Deterministic tests against a synthetic IR (impulse-in produces exactly the IR
+      back out at unity mix; partitioned output matches a reference direct-convolution result
+      within floating-point tolerance for a short test IR); latency/tail metadata correctness;
+      freeze-equivalence (live convolution vs. frozen cache matches within tolerance, mirroring
+      step 41's freeze-equivalence tests); IR relink/missing-IR graceful degradation (pass-through,
+      not a crash, consistent with unknown/unregistered effect behavior elsewhere).
+
+50. **Shimmer Reverb.** A new built-in `IAudioEffect`, `src/Sprocket.Audio/Effects/ShimmerReverbEffect.cs`,
+    split out as its **own dedicated effect** rather than a mode of `ReverbEffect` — same rationale
+    as step 49, and matching how shimmer ships as a distinct plugin/mode selection in every DAW that
+    offers it (Ableton Shimmer *device* wraps a delay+reverb+pitch chain, Valhalla Shimmer, Logic's
+    ChromaVerb Shimmer *mode* is at least a dedicated preset family, not a parameter on the plate/hall
+    algorithm). **This is the "Creative Reverb ▸ shimmer" tier sketched under step 41**, promoted to
+    its own item so it ships and tests independently. An octave-shifted (typically +12 semitones,
+    the canonical shimmer interval; an interval control covers +5th/+octave variants) feedback path
+    layered under a conventional reverb tail, producing the ethereal, pitched-up wash the effect is
+    known for (an ambient/post/scoring tool, not a dialogue/room tool).
+    - **DSP.** A reverb tail (reuse the existing `ReverbEffect` Freeverb-style network, or the
+      step-41 Studio Reverb once it exists, as the base wet signal) feeding a **pitch-shifted
+      feedback loop**: pitch shift via a granular/overlap-add pitch shifter (allocation-free steady
+      state — small fixed-size grain buffers allocated once, not per block) shifting the tail by the
+      configured interval before feeding it back into the reverb input, so the shimmer builds and
+      sustains under continued feedback. Parameters: shimmer amount/feedback level, pitch interval
+      (+octave default, selectable), base reverb size/decay/damping (the underlying tail controls),
+      wet/dry mix. Feedback gain must be clamped below unity-with-margin so the shimmer path can't
+      runaway/blow up regardless of parameter combination — a correctness requirement, not just a
+      quality one, since this sits in a real-time audio chain.
+    - **CPU.** Pitch-shifting adds real DSP cost on top of the reverb network; follows step 41's
+      per-effect quality-mode convention (Draft/Realtime/High/Offline) so a heavy shimmer setting
+      can still be auditioned at reduced quality in realtime and rendered clean via Freeze
+      (step 32) or export.
+    - **Core & catalog.** `EffectTypeIds.Audio.ShimmerReverb` (`builtin.audio.reverb.shimmer`)
+      registered in `EffectCatalog` under `EffectCategory.Audio` with typed descriptors (shimmer
+      amount, pitch interval, base reverb size/decay/damping, mix), serializing via the existing
+      `EffectInstance` JSON (additive, no schema bump). Presets: classic shimmer, dark shimmer
+      (damped/low interval), fifth shimmer, drone/infinite (near-unity feedback, deliberately
+      sustained wash).
+    - **Tests.** Deterministic tests (pitch-shifted feedback lands at the expected interval on a
+      pure test tone within pitch-detection tolerance; feedback never diverges — RMS output stays
+      bounded over an extended run at max feedback setting; 0 shimmer-amount collapses to the base
+      reverb's existing behavior/tests); persistence round-trip; extend
+      `AudioEffectsTests`/`AudioMixerChainTests` for allocation-free steady state and chain
+      ordering, the same way prior audio-effect steps were covered.
+
+51. **Reorder effects within an audio chain.** No command exists today to move an `EffectInstance`
+    within a chain **in place** — `Sprocket.Core/Commands/ModelCommands.cs` has `AddEffectCommand`/
+    `InsertEffectAtCommand`/`RemoveEffectCommand` (clip scope) and `AddChainEffectCommand`/
+    `RemoveChainEffectCommand` (step-31 track/bus/master scopes), but reordering an existing stack
+    means remove-then-reinsert, which is not undoable as one step and (worse) drops any per-effect
+    UI/selection state keyed by identity across the two commands. Since **stack order is processing
+    order** (§5d/step 31 doc comments), and the new delay/gate/EQ/reverb effects from steps 46–50
+    make multi-effect audio chains routine (e.g. gate → EQ → compressor → delay → reverb), users need
+    to fix ordering mistakes and experiment with signal-flow order without rebuilding the chain.
+    - **Core.** A new `MoveEffectCommand(IList<EffectInstance> chain, EffectInstance effect, int newIndex)`
+      (or a dedicated `MoveChainEffectCommand` mirroring the existing Add/Remove split between clip
+      scope and the step-31 chain scopes, if the two need different edge-case handling) that captures
+      the original index, moves the instance in one atomic step, and reverts by moving it back — one
+      undo entry, matching the coalescing conventions already used for slider-drag edits
+      (`SetEffectParameter`) and the position-preserving undo `AddChainEffectCommand`/
+      `RemoveChainEffectCommand` established. Works uniformly across all four chain scopes (clip via
+      `Clip.Effects`, track via `AudioTrack.Effects`, sequence bus via `Timeline.AudioEffects`, master
+      via `ProjectSettings.MasterAudioEffects`) since they're all plain `EffectInstance` lists.
+    - **UI (`Sprocket.App/Inspector/InspectorPanel.cs`).** Today each effect renders as its own
+      collapsible section per step 16's Inspector; add **drag-to-reorder** on the section headers
+      (matching the existing drag-effect-from-browser gesture the Inspector already hosts, step 16b)
+      plus a keyboard/menu-accessible **move up / move down** affordance as a discoverable fallback
+      for users who don't drag. Clip-scope chains are the first UI target since clip-scope editing is
+      the only chain scope with a live Inspector surface today (step 31's track/bus/master chains are
+      still model+command+persistence-complete but UI-less); extend to the future mixer-panel insert
+      UI (noted as outstanding in step 31) when that ships.
+    - **MCP.** `Sprocket.Mcp/SprocketTools.Clips.cs` already exposes `add_effect`/`remove_effect`/
+      `set_effect_parameter`; add a `move_effect` (or `reorder_effect`) tool alongside them so
+      AI-driven edits can reorder a chain the same way a user can, staying on the existing
+      `EditHistory`-routed marshal point so it's undoable by construction (per the Mcp architecture
+      note).
+    - **Tests.** Core — move-to-various-indices (start/end/no-op/out-of-range clamp) preserves list
+      identity and content, undo restores the exact original index (not just "somewhere"), redo
+      reapplies; a move interacting with a concurrent add/remove elsewhere in the same undo
+      transaction if the two are ever composed. Persistence — order round-trips unchanged (already
+      covered indirectly by existing chain-order tests, but add an explicit reorder-then-save case).
+      App — Inspector drag-to-reorder headless interaction test, move up/down affordance at the
+      first/last position (clamped, not wrapping).
 
 **Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
 program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a
