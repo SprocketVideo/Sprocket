@@ -759,6 +759,7 @@ internal static class ExportSettingsDialog
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
+            FontSize = 12,
             Content = new DockPanel
             {
                 Margin = new Thickness(22),
@@ -864,6 +865,7 @@ internal static class ExportSettingsDialog
         HorizontalAlignment = HorizontalAlignment.Stretch,
         Foreground = Palette.TextBrush,
         Background = Palette.PanelBgBrush,
+        FontSize = 12,
     };
 
     /// <summary>The preset-dropdown labels: "Custom" followed by each preset's name.</summary>
@@ -916,6 +918,7 @@ internal static class ExportSettingsDialog
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
+            FontSize = 12,
             Content = new DockPanel
             {
                 Margin = new Thickness(22),
@@ -1054,6 +1057,7 @@ internal sealed class ExportProgressDialog : Window
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Palette.WindowBgBrush;
+        FontSize = 12;
 
         _bar = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, Height = 16 };
         _percent = new TextBlock
@@ -1088,7 +1092,7 @@ internal sealed class ExportProgressDialog : Window
                 {
                     Text = $"Exporting {fileName}…",
                     Foreground = Palette.TextBrush,
-                    FontSize = 13,
+                    FontSize = 12,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                 },
                 _bar,

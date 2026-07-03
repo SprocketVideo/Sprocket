@@ -38,7 +38,7 @@
              (PLAN.md step 16c). Items whose feature lands in a later step (Sequence, Clip ▸ Enable/Speed,
              Select All) stay visibly disabled rather than silently dead. Accelerators are also handled in
              OnKeyDown (the InputGesture text here is the display label). -->
-        <Menu Grid.Column="1" VerticalAlignment="Center" Background="Transparent" Margin="6,0,0,0">
+        <Menu Grid.Column="1" VerticalAlignment="Center" Background="Transparent" Margin="6,0,0,0" FontSize="12">
           <MenuItem Header="_File">
             <MenuItem x:Name="NewMenuItem" Header="_New Project" InputGesture="Ctrl+N" />
             <MenuItem x:Name="OpenMenuItem" Header="_Open Project…" InputGesture="Ctrl+O" />
@@ -209,9 +209,9 @@
           <RadioButton x:Name="ZoomTool" Classes="tool" GroupName="Tools" Content="Zoom"
                        ToolTip.Tip="Zoom the timeline view (click to zoom in, Alt-click to zoom out)" />
           <Border Width="1" Height="18" Background="{DynamicResource Edge}" Margin="8,0" />
-          <ToggleButton x:Name="SnappingToggle" Content="Snapping" IsChecked="True" FontSize="12" Padding="8,3"
+          <ToggleButton x:Name="SnappingToggle" Content="Snapping" IsChecked="True" FontSize="12" Padding="7,2"
                         ToolTip.Tip="Snap clip edges and the playhead to nearby edits, markers, and the playhead while dragging" />
-          <ToggleButton x:Name="LinkedToggle" Content="Linked" IsChecked="True" FontSize="12" Padding="8,3" Margin="2,0,0,0"
+          <ToggleButton x:Name="LinkedToggle" Content="Linked" IsChecked="True" FontSize="12" Padding="7,2" Margin="2,0,0,0"
                         ToolTip.Tip="Move linked audio and video clips together as a group when editing" />
         </StackPanel>
 
@@ -300,15 +300,15 @@
                 <!-- Grading scopes selector (PLAN.md step 34) + safe-area / framing-grid overlay toggle +
                      the Fit ▾ zoom level. -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <ComboBox x:Name="ScopeBox" MinWidth="112" FontSize="12" SelectedIndex="0">
+                  <ComboBox x:Name="ScopeBox" MinWidth="112" MinHeight="0" FontSize="12" Padding="7,2" Margin="0,1,0,0" SelectedIndex="0">
                     <ComboBoxItem>No Scopes</ComboBoxItem>
                     <ComboBoxItem>Waveform</ComboBoxItem>
                     <ComboBoxItem>RGB Parade</ComboBoxItem>
                     <ComboBoxItem>Vectorscope</ComboBoxItem>
                     <ComboBoxItem>Histogram</ComboBoxItem>
                   </ComboBox>
-                  <ToggleButton x:Name="GuidesToggle" Content="Guides" FontSize="12" Padding="8,3" />
-                  <ComboBox x:Name="ZoomBox" MinWidth="76" FontSize="12" SelectedIndex="0">
+                  <ToggleButton x:Name="GuidesToggle" Content="Guides" FontSize="12" Padding="7,2" />
+                  <ComboBox x:Name="ZoomBox" MinWidth="76" MinHeight="0" FontSize="12" Padding="7,2" Margin="0,1,0,0" SelectedIndex="0">
                     <ComboBoxItem>Fit</ComboBoxItem>
                     <ComboBoxItem>50%</ComboBoxItem>
                     <ComboBoxItem>100%</ComboBoxItem>
@@ -319,7 +319,7 @@
             </Border>
 
             <!-- Transport (under the monitor, UI.md §3.4). -->
-            <Border DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Padding="10,5"
+            <Border DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Padding="10,4"
                     BorderBrush="{DynamicResource Edge}" BorderThickness="0,1,0,0">
               <!-- Full transport (UI.md §3.4): jump-to-start, frame-step back, play/pause, frame-step forward,
                    jump-to-end — plus jump-to-previous/next-keyframe (chevron + diamond composite, PLAN.md
@@ -329,33 +329,34 @@
                 <Button x:Name="JumpStartButton" Grid.Column="0" Classes="transport"
                         AutomationProperties.Name="Jump to start" ToolTip.Tip="Jump to start">
                   <Path Data="{x:Static local:Icons.SkipBack}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="11.4" Height="{x:Static local:IconSizes.Default}" Stretch="Uniform" />
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="10.5" Height="12" Stretch="Uniform" />
                 </Button>
                 <!-- Width/Height below are each icon's own bounding-box aspect ratio (not a shared square box):
                      Stretch="Uniform" only centers within *empty* space in the box, and Rewind/FastForward's
                      bounding box tested as top-anchored rather than centered when given vertical slack it didn't
                      need — giving them a visible upward offset next to the full-height Skip/Play icons. Sizing
                      each box to its exact aspect ratio leaves no slack to mis-center. One axis is always the
-                     IconSizes.Default reference dimension; the other is that icon's own aspect-derived literal. -->
+                     transport row's 12px (14px for the composite chevron+diamond icons) reference dimension;
+                     the other is that icon's own aspect-derived literal. -->
                 <Button x:Name="StepBackButton" Grid.Column="1" Classes="transport" Margin="4,0,0,0"
                         AutomationProperties.Name="Step back one frame" ToolTip.Tip="Step back one frame">
                   <Path Data="{x:Static local:Icons.Rewind}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="{x:Static local:IconSizes.Default}" Height="9.1" Stretch="Uniform" />
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="12" Height="8.4" Stretch="Uniform" />
                 </Button>
                 <!-- PlayPauseIcon's Data + the button's accessible name toggle Play/Pause as playback state changes. -->
                 <Button x:Name="PlayPauseButton" Grid.Column="2" Classes="transport play" Margin="4,0,0,0"
                         AutomationProperties.Name="Play" ToolTip.Tip="Play / Pause (Space)">
-                  <Path x:Name="PlayPauseIcon" Data="{x:Static local:Icons.Play}" Fill="White" Width="10.1" Height="{x:Static local:IconSizes.Default}" Stretch="Uniform" />
+                  <Path x:Name="PlayPauseIcon" Data="{x:Static local:Icons.Play}" Fill="White" Width="9.3" Height="12" Stretch="Uniform" />
                 </Button>
                 <Button x:Name="StepForwardButton" Grid.Column="3" Classes="transport" Margin="4,0,0,0"
                         AutomationProperties.Name="Step forward one frame" ToolTip.Tip="Step forward one frame">
                   <Path Data="{x:Static local:Icons.FastForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="{x:Static local:IconSizes.Default}" Height="9.1" Stretch="Uniform" />
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="12" Height="8.4" Stretch="Uniform" />
                 </Button>
                 <Button x:Name="JumpEndButton" Grid.Column="4" Classes="transport" Margin="4,0,0,0"
                         AutomationProperties.Name="Jump to end" ToolTip.Tip="Jump to end">
                   <Path Data="{x:Static local:Icons.SkipForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="11.4" Height="{x:Static local:IconSizes.Default}" Stretch="Uniform" />
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="10.5" Height="12" Stretch="Uniform" />
                 </Button>
                 <!-- Chevron+diamond baked into one Icons.PrevKeyframe/NextKeyframe geometry (Icons.cs) instead of
                      composing two separately-stretched Paths: that composition rendered a visibly uneven gap
@@ -364,16 +365,16 @@
                         AutomationProperties.Name="Previous keyframe"
                         ToolTip.Tip="Jump to previous keyframe of the selected clip — press [">
                   <Path Data="{x:Static local:Icons.PrevKeyframe}" Stroke="{DynamicResource Text}" StrokeThickness="1.9"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="{x:Static local:IconSizes.Composite}" Height="10.6" Stretch="Uniform" />
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="14" Height="9.9" Stretch="Uniform" />
                 </Button>
                 <Button x:Name="NextKeyframeButton" Grid.Column="6" Classes="transport" Margin="4,0,0,0"
                         AutomationProperties.Name="Next keyframe"
                         ToolTip.Tip="Jump to next keyframe of the selected clip — press ]">
                   <Path Data="{x:Static local:Icons.NextKeyframe}" Stroke="{DynamicResource Text}" StrokeThickness="1.9"
-                        StrokeLineCap="Round" StrokeJoin="Round" Width="{x:Static local:IconSizes.Composite}" Height="10.6" Stretch="Uniform" />
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="14" Height="9.9" Stretch="Uniform" />
                 </Button>
                 <TextBlock x:Name="PositionText" Grid.Column="7" Margin="14,0,10,0" VerticalAlignment="Center"
-                           FontFamily="Cascadia Code,Consolas,monospace" Foreground="{DynamicResource Text}"
+                           FontFamily="Cascadia Code,Consolas,monospace" FontSize="12" Foreground="{DynamicResource Text}"
                            Text="0:00.00" />
                 <Slider x:Name="Scrubber" Grid.Column="8" Minimum="0" Maximum="1" Value="0" VerticalAlignment="Center">
                   <!-- Match the themed transport: accent-tint the played (value) portion, and let the thumb read
@@ -389,7 +390,7 @@
                   </Slider.Resources>
                 </Slider>
                 <TextBlock x:Name="DurationText" Grid.Column="9" Margin="10,0,0,0" VerticalAlignment="Center"
-                           FontFamily="Cascadia Code,Consolas,monospace" Foreground="{DynamicResource MutedText}"
+                           FontFamily="Cascadia Code,Consolas,monospace" FontSize="12" Foreground="{DynamicResource MutedText}"
                            Text="0:00.00" />
               </Grid>
             </Border>
@@ -432,23 +433,23 @@
               <TextBlock x:Name="TimelineHeader" Classes="title" Text="Timeline" />
               <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
                           Margin="0,0,10,0">
-                <Button x:Name="ZoomOutButton" Padding="6,3" VerticalAlignment="Center"
+                <Button x:Name="ZoomOutButton" Padding="5,2" VerticalAlignment="Center"
                         AutomationProperties.Name="Zoom out" ToolTip.Tip="Zoom Out (Ctrl+-)">
                   <Path Data="M12,7 A5,5 0 1,1 2,7 A5,5 0 1,1 12,7 M10.9,10.9 L15,15 M4,7 L10,7"
                         Stroke="{DynamicResource MutedText}" StrokeThickness="1.4"
                         StrokeLineCap="Round" Width="16" Height="16" Stretch="None" />
                 </Button>
-                <Button x:Name="ZoomInButton" Padding="6,3" VerticalAlignment="Center"
+                <Button x:Name="ZoomInButton" Padding="5,2" VerticalAlignment="Center"
                         AutomationProperties.Name="Zoom in" ToolTip.Tip="Zoom In (Ctrl+=)">
                   <Path Data="M12,7 A5,5 0 1,1 2,7 A5,5 0 1,1 12,7 M10.9,10.9 L15,15 M4,7 L10,7 M7,4 L7,10"
                         Stroke="{DynamicResource MutedText}" StrokeThickness="1.4"
                         StrokeLineCap="Round" Width="16" Height="16" Stretch="None" />
                 </Button>
               </StackPanel>
-              <Button x:Name="MarkersButton" Grid.Column="3" Content="Markers" FontSize="12" Padding="10,3"
+              <Button x:Name="MarkersButton" Grid.Column="3" Content="Markers" FontSize="12" Padding="9,2"
                       Margin="0,0,6,0" VerticalAlignment="Center"
                       ToolTip.Tip="Markers panel (M adds at the playhead; Shift+M / Ctrl+Shift+M navigate)" />
-              <Button x:Name="AddTrackButton" Grid.Column="4" Content="+ Track" FontSize="12" Padding="10,3"
+              <Button x:Name="AddTrackButton" Grid.Column="4" Content="+ Track" FontSize="12" Padding="9,2"
                       VerticalAlignment="Center" />
             </Grid>
           </Border>
