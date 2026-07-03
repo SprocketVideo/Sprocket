@@ -20,6 +20,24 @@
         "pixelFormatName": "yuv420p"
       },
       "relativePath": "sample.mp4"
+    },
+    {
+      "id": "665b0e6b-64dd-4e87-9674-d958558f58e3",
+      "info": {
+        "durationTicks": 8219172,
+        "hasVideo": false,
+        "frameRate": {
+          "num": 0,
+          "den": 1
+        },
+        "width": 0,
+        "height": 0,
+        "hasAudio": true,
+        "sampleRate": 44100,
+        "channels": 2,
+        "audioCodec": "mp3"
+      },
+      "relativePath": "runner.mp3"
     }
   ],
   "timeline": {
@@ -64,7 +82,9 @@
                 }
               }
             ],
-            "linkGroupId": "37b6553c-e833-4c74-959f-b357c41520c0"
+            "linkGroupId": "37b6553c-e833-4c74-959f-b357c41520c0",
+            "speedNum": 1,
+            "speedDen": 2
           }
         ]
       },
@@ -79,12 +99,48 @@
         "solo": false,
         "clips": [
           {
-            "mediaRefId": "2d907d63-d899-442b-b805-e12fa998d89c",
-            "sourceInTicks": 0,
-            "sourceOutTicks": 1259282,
+            "mediaRefId": "665b0e6b-64dd-4e87-9674-d958558f58e3",
+            "sourceInTicks": 4995745,
+            "sourceOutTicks": 7514309,
             "timelineStartTicks": 0,
-            "effects": [],
-            "linkGroupId": "37b6553c-e833-4c74-959f-b357c41520c0"
+            "effects": [
+              {
+                "effectTypeId": "builtin.audio.reverb",
+                "parameters": {
+                  "roomSize": {
+                    "constant": 1
+                  },
+                  "damping": {
+                    "constant": 0.6235521235521235
+                  },
+                  "mix": {
+                    "constant": 0.3416988416988417
+                  }
+                }
+              },
+              {
+                "effectTypeId": "builtin.audio.gain",
+                "parameters": {
+                  "gainDb": {
+                    "constant": -12.50965250965251
+                  },
+                  "pan": {
+                    "keyframes": [
+                      {
+                        "timeTicks": 0,
+                        "value": -0.5366795366795367,
+                        "interpolation": "Linear"
+                      },
+                      {
+                        "timeTicks": 2518564,
+                        "value": 0.8069498069498069,
+                        "interpolation": "Linear"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
           }
         ]
       }
@@ -92,7 +148,7 @@
   },
   "settings": {
     "masterGainDb": 0,
-    "useProxies": true,
+    "useProxies": false,
     "proxyTier": "Half"
   }
 }

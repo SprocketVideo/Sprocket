@@ -34,13 +34,15 @@
     <AvaloniaResource Include="Assets/**" />
   </ItemGroup>
 
-  <!-- Bundled demo clip + its curated project for File ▸ Open Sample Project. Loose files copied next to the
-       exe (NOT avares:// resources) so MediaSource / FFmpeg can open the clip by filesystem path and the project
-       JSON resolves its project-relative "sample.mp4" against the same Samples folder. Resolved at runtime from
-       <AppContext.BaseDirectory>/Samples/ by MediaBootstrap.SampleMediaPath() / SampleProjectPath().
-       Regenerate sample.sprocket.json if the clip is swapped (its media info + relative name are baked in). -->
+  <!-- Bundled demo clip + music bed + their curated project for File ▸ Open Sample Project. Loose files copied
+       next to the exe (NOT avares:// resources) so MediaSource / FFmpeg can open the media by filesystem path
+       and the project JSON resolves its project-relative "sample.mp4" / "runner.mp3" against the same Samples
+       folder. Resolved at runtime from <AppContext.BaseDirectory>/Samples/ by MediaBootstrap.SampleMediaPath()
+       / SampleProjectPath(). Regenerate sample.sprocket.json if either asset is swapped (their media info +
+       relative names are baked in). -->
   <ItemGroup>
     <Content Include="Samples\sample.mp4" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Samples\runner.mp3" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Samples\sample.sprocket.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
