@@ -24,8 +24,10 @@ namespace Sprocket.Audio;
 /// over the layer/bus scratch, in the standard signal order: clip effects → clip gain/fade → track inserts →
 /// track fader + pan → sum → bus/master chains → master gain → hard limit. Stateful <see cref="IAudioEffect"/>
 /// instances are kept per <see cref="ResolvedAudioChain.StateKey"/> so filter memory and tails carry across
-/// buffers; DSP state is deliberately <em>not</em> reset on seeks (tails/envelopes settle within milliseconds,
-/// matching how NLEs behave). Unknown effect ids pass through, mirroring the video pipeline (§15).</para>
+/// sequential buffers; when the requested buffer is <em>not</em> contiguous with the previous one (a seek,
+/// loop, or scrub) every chain's state is <see cref="IAudioEffect.Reset"/> first — a reverb tail can ring for
+/// seconds, and NLEs relocate the transport with clean effect state rather than bleed the old position's tail
+/// into the new one. Unknown effect ids pass through, mirroring the video pipeline (§15).</para>
 /// </remarks>
 public sealed class AudioMixer : IDisposable
 {
@@ -70,6 +72,11 @@ public sealed class AudioMixer : IDisposable
     // each depth needs its own scratch so the sub-mix doesn't clobber the parent's. Index 0 is the (common,
     // non-nested) top level — kept allocation-free in steady state exactly as before.
     private readonly List<float[]> _scratchByDepth = new();
+    // Transport continuity (see the class remarks): the sequence and timeline position the next MixInto is
+    // expected to start at when playback is sequential; a mismatch is a seek/loop/scrub and resets chain DSP.
+    private Sequence? _lastSequence;
+    private Timecode _nextTimelineStart;
+    private bool _mixContinuous;
     private bool _disposed;
 
     /// <summary>Creates a mixer for the given output format. <paramref name="resolveReader"/> maps a media id to
@@ -131,6 +138,16 @@ public sealed class AudioMixer : IDisposable
             return;
 
         Timecode duration = Timecode.FromSamples(frames, SampleRate);
+
+        // A buffer that doesn't pick up where the previous one left off is a transport jump: start the chain
+        // DSP clean so e.g. a reverb tail from the old position doesn't ring into the new one.
+        if (!_mixContinuous || !ReferenceEquals(sequence, _lastSequence)
+            || Math.Abs(timelineStart.Ticks - _nextTimelineStart.Ticks) > SeekToleranceTicks)
+            ResetChainStates();
+        _lastSequence = sequence;
+        _nextTimelineStart = timelineStart + duration;
+        _mixContinuous = true;
+
         AudioBufferPlan plan = RenderGraph.PlanAudioBuffer(project, sequence, timelineStart, duration, scope);
 
         // Sum the plan (recursing into nested sub-mixes), applying each plan's master gain; then hard-limit once
@@ -222,6 +239,14 @@ public sealed class AudioMixer : IDisposable
         ChainState state = GetChainState(chain);
         for (int i = 0; i < chain.Effects.Count; i++)
             state.Effects[i]?.Process(buffer[..(frames * Channels)], frames, SampleRate, Channels, chain.Effects[i]);
+    }
+
+    /// <summary>Clears every cached chain's DSP state (filter memory, envelopes, tails) after a transport jump.</summary>
+    private void ResetChainStates()
+    {
+        foreach (ChainState state in _chainStates.Values)
+            foreach (IAudioEffect? effect in state.Effects)
+                effect?.Reset();
     }
 
     private ChainState GetChainState(ResolvedAudioChain chain)

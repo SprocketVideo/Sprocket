@@ -138,21 +138,42 @@ public class AudioMixerChainTests
     }
 
     [Fact]
-    public void Chain_State_Carries_Across_Buffers()
+    public void Chain_State_Carries_Across_Contiguous_Buffers()
     {
-        // A reverb on the sequence bus keeps ringing into the next buffer even when the source has gone
-        // silent (the clip ends at 10 s) — the chain's DSP state persists across MixInto calls.
-        Project project = ProjectWith(TrackOver(A));
+        // A reverb on the sequence bus keeps ringing into the NEXT sequential buffer even when the source has
+        // gone silent (the clip ends mid-way through the first buffer) — the chain's DSP state persists across
+        // contiguous MixInto calls.
+        var track = new AudioTrack { Name = "A" };
+        track.Clips.Add(new Clip(A, Timecode.Zero, Timecode.FromSamples(2400, Rate), Timecode.Zero));
+        Project project = ProjectWith(track);
         project.Timeline.AudioEffects.Add(new EffectInstance(EffectTypeIds.AudioReverb)
             .Set(EffectParamNames.RoomSize, 0.8)
             .Set(EffectParamNames.Damping, 0.2)
             .Set(EffectParamNames.Mix, 1.0));
         using AudioMixer mixer = MixerFor((A, 0.9f));
 
-        Mix(mixer, project, 4800, Timecode.Zero); // excite the reverb with clip content
-        // Jump past the clip: no layers mix, but the bus chain still runs and its tail rings on.
-        float[] tail = Mix(mixer, project, 4800, Timecode.FromSeconds(20));
+        Mix(mixer, project, 4800, Timecode.Zero); // excite the reverb with the 0–0.05 s clip content
+        // The clip has ended, but the next buffer is contiguous: the bus chain's tail rings on.
+        float[] tail = Mix(mixer, project, 4800, Timecode.FromSamples(4800, Rate));
         Assert.Contains(tail, s => Math.Abs(s) > 0.001f);
+    }
+
+    [Fact]
+    public void Transport_Jump_Resets_Chain_State()
+    {
+        // Seeking must NOT bleed the old position's reverb tail into the new one: after a non-contiguous
+        // MixInto (a jump from 0.1 s to 20 s) the chain starts clean, so a fully-wet reverb over silence is
+        // exactly silent.
+        Project project = ProjectWith(TrackOver(A)); // clip 0–10 s
+        project.Timeline.AudioEffects.Add(new EffectInstance(EffectTypeIds.AudioReverb)
+            .Set(EffectParamNames.RoomSize, 1.0)
+            .Set(EffectParamNames.Damping, 0.2)
+            .Set(EffectParamNames.Mix, 1.0));
+        using AudioMixer mixer = MixerFor((A, 0.9f));
+
+        Mix(mixer, project, 4800, Timecode.Zero); // excite the reverb with clip content
+        float[] after = Mix(mixer, project, 4800, Timecode.FromSeconds(20)); // jump past the clip
+        Assert.All(after, s => Assert.Equal(0f, s));
     }
 
     [Fact]
