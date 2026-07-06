@@ -699,18 +699,21 @@ public sealed class InspectorPanel : UserControl
     }
 
     /// <summary>A label on the left with an arbitrary editor docked right.</summary>
-    private static Control LabeledRow(string label, Control editor)
+    private static Control LabeledRow(string label, Control editor, string? tip = null)
     {
         var row = new DockPanel();
         DockPanel.SetDock(editor, Dock.Right);
-        row.Children.Add(editor);
-        row.Children.Add(new TextBlock
+        var text = new TextBlock
         {
             Text = label,
             FontSize = 11,
             Foreground = FaintText,
             VerticalAlignment = VerticalAlignment.Center,
-        });
+        };
+        if (tip is { Length: > 0 })
+            ToolTip.SetTip(text, tip);
+        row.Children.Add(editor);
+        row.Children.Add(text);
         return row;
     }
 
@@ -1034,7 +1037,9 @@ public sealed class InspectorPanel : UserControl
             combo.SelectedIndex = Math.Clamp((int)Math.Round(current), 0, ColorProfiles.All.Count - 1);
             _suppress = false;
         });
-        return LabeledRow("Source Profile", combo);
+        string? tip = EffectCatalog.Find(effect.EffectTypeId)?.Parameters
+            .FirstOrDefault(x => x.Name == EffectParamNames.SourceProfile)?.Description;
+        return LabeledRow("Source Profile", combo, tip);
     }
 
     private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p) =>
@@ -1135,6 +1140,8 @@ public sealed class InspectorPanel : UserControl
             Foreground = MutedText,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        if (p.Description is { Length: > 0 } description)
+            ToolTip.SetTip(label, description);
 
         // Slider drag → coalesced edits (one undo entry); numeric box → a single discrete edit.
         void Commit(double value, bool coalescing) =>

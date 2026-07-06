@@ -16,9 +16,10 @@ public enum EffectCategory
 /// <summary>
 /// A type-driven description of one editable effect parameter (PLAN.md step 16): its stable name (matches
 /// the key in <see cref="EffectInstance.Parameters"/>), a display label, the default value a fresh instance
-/// gets, the slider range, an editing step for numeric nudge, and an optional unit suffix. The Inspector
-/// builds a slider + numeric editor per descriptor, so a new effect's UI falls out of its registration with
-/// no bespoke control code (and a plugin gets the same treatment, ARCHITECTURE.md §4).
+/// gets, the slider range, an editing step for numeric nudge, an optional unit suffix, and an optional
+/// one-line description shown as the label's tooltip. The Inspector builds a slider + numeric editor per
+/// descriptor, so a new effect's UI falls out of its registration with no bespoke control code (and a
+/// plugin gets the same treatment, ARCHITECTURE.md §4).
 /// </summary>
 /// <param name="Name">The parameter key (matches <see cref="EffectParamNames"/>).</param>
 /// <param name="DisplayName">Human-readable label shown in the Inspector.</param>
@@ -27,6 +28,8 @@ public enum EffectCategory
 /// <param name="Max">Maximum of the slider range.</param>
 /// <param name="Step">Suggested increment for numeric nudge / arrow keys.</param>
 /// <param name="Unit">Optional unit suffix for display (e.g. <c>"°"</c>, <c>"EV"</c>).</param>
+/// <param name="Description">One-line plain-language explanation of what the parameter does, shown as the
+/// Inspector label's tooltip (and surfaced to MCP clients). <see langword="null"/> = no tooltip.</param>
 public sealed record EffectParameterDescriptor(
     string Name,
     string DisplayName,
@@ -34,7 +37,8 @@ public sealed record EffectParameterDescriptor(
     double Min,
     double Max,
     double Step = 0.01,
-    string? Unit = null);
+    string? Unit = null,
+    string? Description = null);
 
 /// <summary>
 /// A named factory preset for an effect (PLAN.md step 41): the parameter values that give a recognisable
@@ -99,13 +103,20 @@ public static class EffectCatalog
             EffectCategory.Video,
             "Scale, position, and rotate the layer around an anchor, with layer opacity.",
             [
-                new EffectParameterDescriptor(EffectParamNames.Scale, "Scale", 1.0, 0.0, 4.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.PositionX, "Position X", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.PositionY, "Position Y", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.Rotation, "Rotation", 0.0, -180.0, 180.0, 1.0, "°"),
-                new EffectParameterDescriptor(EffectParamNames.AnchorX, "Anchor X", 0.5, 0.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.AnchorY, "Anchor Y", 0.5, 0.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Scale, "Scale", 1.0, 0.0, 4.0, 0.05,
+                    Description: "Uniform size of the layer (1.0 = original size)."),
+                new EffectParameterDescriptor(EffectParamNames.PositionX, "Position X", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Horizontal offset as a fraction of frame width (0 = centered)."),
+                new EffectParameterDescriptor(EffectParamNames.PositionY, "Position Y", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Vertical offset as a fraction of frame height (0 = centered)."),
+                new EffectParameterDescriptor(EffectParamNames.Rotation, "Rotation", 0.0, -180.0, 180.0, 1.0, "°",
+                    "Rotation angle around the anchor point, in degrees."),
+                new EffectParameterDescriptor(EffectParamNames.AnchorX, "Anchor X", 0.5, 0.0, 1.0, 0.01,
+                    Description: "Horizontal pivot for scale and rotation (0 = left edge, 1 = right edge)."),
+                new EffectParameterDescriptor(EffectParamNames.AnchorY, "Anchor Y", 0.5, 0.0, 1.0, 0.01,
+                    Description: "Vertical pivot for scale and rotation (0 = top edge, 1 = bottom edge)."),
+                new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05,
+                    Description: "Layer transparency (1.0 = fully opaque, 0 = invisible)."),
             ]),
 
         new EffectDescriptor(
@@ -114,10 +125,14 @@ public static class EffectCatalog
             EffectCategory.Color,
             "Exposure, contrast, saturation, and vibrance adjustment.",
             [
-                new EffectParameterDescriptor(EffectParamNames.Exposure, "Exposure", 0.0, -3.0, 3.0, 0.1, "EV"),
-                new EffectParameterDescriptor(EffectParamNames.Contrast, "Contrast", 1.0, 0.0, 2.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Saturation, "Saturation", 1.0, 0.0, 2.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Vibrance, "Vibrance", 0.0, -1.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Exposure, "Exposure", 0.0, -3.0, 3.0, 0.1, "EV",
+                    "Brightens or darkens in photographic stops (+1 EV doubles the light)."),
+                new EffectParameterDescriptor(EffectParamNames.Contrast, "Contrast", 1.0, 0.0, 2.0, 0.05,
+                    Description: "Steepens or flattens the tones around mid-grey (1.0 = unchanged)."),
+                new EffectParameterDescriptor(EffectParamNames.Saturation, "Saturation", 1.0, 0.0, 2.0, 0.05,
+                    Description: "Overall colour intensity (0 = greyscale, 1.0 = unchanged)."),
+                new EffectParameterDescriptor(EffectParamNames.Vibrance, "Vibrance", 0.0, -1.0, 1.0, 0.05,
+                    Description: "Boosts muted colours more than already-vivid ones, protecting skin tones."),
             ]),
 
         // ── Colour grading toolset (PLAN.md step 34) — SkSL registry effects, like ACES Filmic. ──
@@ -127,8 +142,10 @@ public static class EffectCatalog
             EffectCategory.Color,
             "Temperature and tint correction, applied in linear light.",
             [
-                new EffectParameterDescriptor(EffectParamNames.Temperature, "Temperature", 0.0, -100.0, 100.0, 1.0),
-                new EffectParameterDescriptor(EffectParamNames.Tint, "Tint", 0.0, -100.0, 100.0, 1.0),
+                new EffectParameterDescriptor(EffectParamNames.Temperature, "Temperature", 0.0, -100.0, 100.0, 1.0,
+                    Description: "Shifts colours warmer (orange, +) or cooler (blue, −)."),
+                new EffectParameterDescriptor(EffectParamNames.Tint, "Tint", 0.0, -100.0, 100.0, 1.0,
+                    Description: "Shifts colours toward magenta (+) or green (−)."),
             ]),
 
         new EffectDescriptor(
@@ -137,18 +154,30 @@ public static class EffectCatalog
             EffectCategory.Color,
             "Three-way grade: lift (shadows), gamma (mids), gain (highlights), master + RGB.",
             [
-                new EffectParameterDescriptor(EffectParamNames.LiftMaster, "Lift", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.LiftR, "Lift R", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.LiftG, "Lift G", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.LiftB, "Lift B", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.GammaMaster, "Gamma", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.GammaR, "Gamma R", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.GammaG, "Gamma G", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.GammaB, "Gamma B", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.GainMaster, "Gain", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.GainR, "Gain R", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.GainG, "Gain G", 0.0, -1.0, 1.0, 0.005),
-                new EffectParameterDescriptor(EffectParamNames.GainB, "Gain B", 0.0, -1.0, 1.0, 0.005),
+                new EffectParameterDescriptor(EffectParamNames.LiftMaster, "Lift", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Raises or lowers the shadows (darkest tones)."),
+                new EffectParameterDescriptor(EffectParamNames.LiftR, "Lift R", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Red balance of the shadows."),
+                new EffectParameterDescriptor(EffectParamNames.LiftG, "Lift G", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Green balance of the shadows."),
+                new EffectParameterDescriptor(EffectParamNames.LiftB, "Lift B", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Blue balance of the shadows."),
+                new EffectParameterDescriptor(EffectParamNames.GammaMaster, "Gamma", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Raises or lowers the midtones."),
+                new EffectParameterDescriptor(EffectParamNames.GammaR, "Gamma R", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Red balance of the midtones."),
+                new EffectParameterDescriptor(EffectParamNames.GammaG, "Gamma G", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Green balance of the midtones."),
+                new EffectParameterDescriptor(EffectParamNames.GammaB, "Gamma B", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Blue balance of the midtones."),
+                new EffectParameterDescriptor(EffectParamNames.GainMaster, "Gain", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Raises or lowers the highlights (brightest tones)."),
+                new EffectParameterDescriptor(EffectParamNames.GainR, "Gain R", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Red balance of the highlights."),
+                new EffectParameterDescriptor(EffectParamNames.GainG, "Gain G", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Green balance of the highlights."),
+                new EffectParameterDescriptor(EffectParamNames.GainB, "Gain B", 0.0, -1.0, 1.0, 0.005,
+                    Description: "Blue balance of the highlights."),
             ]),
 
         new EffectDescriptor(
@@ -157,26 +186,46 @@ public static class EffectCatalog
             EffectCategory.Color,
             "Parametric RGB + per-channel curves: five points offset the identity per channel.",
             [
-                new EffectParameterDescriptor(EffectParamNames.CurveMasterBlacks, "RGB Blacks", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveMasterShadows, "RGB Shadows", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveMasterMids, "RGB Mids", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveMasterHighlights, "RGB Highlights", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveMasterWhites, "RGB Whites", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveRedBlacks, "Red Blacks", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveRedShadows, "Red Shadows", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveRedMids, "Red Mids", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveRedHighlights, "Red Highlights", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveRedWhites, "Red Whites", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveGreenBlacks, "Green Blacks", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveGreenShadows, "Green Shadows", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveGreenMids, "Green Mids", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveGreenHighlights, "Green Highlights", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveGreenWhites, "Green Whites", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveBlueBlacks, "Blue Blacks", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveBlueShadows, "Blue Shadows", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveBlueMids, "Blue Mids", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveBlueHighlights, "Blue Highlights", 0.0, -1.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.CurveBlueWhites, "Blue Whites", 0.0, -1.0, 1.0, 0.01),
+                new EffectParameterDescriptor(EffectParamNames.CurveMasterBlacks, "RGB Blacks", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Offsets the black point on all channels."),
+                new EffectParameterDescriptor(EffectParamNames.CurveMasterShadows, "RGB Shadows", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the shadows on all channels."),
+                new EffectParameterDescriptor(EffectParamNames.CurveMasterMids, "RGB Mids", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the midtones on all channels."),
+                new EffectParameterDescriptor(EffectParamNames.CurveMasterHighlights, "RGB Highlights", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the highlights on all channels."),
+                new EffectParameterDescriptor(EffectParamNames.CurveMasterWhites, "RGB Whites", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Offsets the white point on all channels."),
+                new EffectParameterDescriptor(EffectParamNames.CurveRedBlacks, "Red Blacks", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Offsets the black point on the red channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveRedShadows, "Red Shadows", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the shadows on the red channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveRedMids, "Red Mids", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the midtones on the red channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveRedHighlights, "Red Highlights", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the highlights on the red channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveRedWhites, "Red Whites", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Offsets the white point on the red channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveGreenBlacks, "Green Blacks", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Offsets the black point on the green channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveGreenShadows, "Green Shadows", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the shadows on the green channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveGreenMids, "Green Mids", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the midtones on the green channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveGreenHighlights, "Green Highlights", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the highlights on the green channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveGreenWhites, "Green Whites", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Offsets the white point on the green channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveBlueBlacks, "Blue Blacks", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Offsets the black point on the blue channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveBlueShadows, "Blue Shadows", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the shadows on the blue channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveBlueMids, "Blue Mids", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the midtones on the blue channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveBlueHighlights, "Blue Highlights", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Lifts or lowers the highlights on the blue channel."),
+                new EffectParameterDescriptor(EffectParamNames.CurveBlueWhites, "Blue Whites", 0.0, -1.0, 1.0, 0.01,
+                    Description: "Offsets the white point on the blue channel."),
             ]),
 
         new EffectDescriptor(
@@ -185,18 +234,30 @@ public static class EffectCatalog
             EffectCategory.Color,
             "Keys a hue/saturation/luma range and grades only the keyed pixels.",
             [
-                new EffectParameterDescriptor(EffectParamNames.HueCenter, "Hue Center", 0.0, 0.0, 360.0, 1.0, "°"),
-                new EffectParameterDescriptor(EffectParamNames.HueWidth, "Hue Width", 60.0, 0.0, 180.0, 1.0, "°"),
-                new EffectParameterDescriptor(EffectParamNames.HueSoftness, "Hue Softness", 20.0, 0.0, 90.0, 1.0, "°"),
-                new EffectParameterDescriptor(EffectParamNames.SatLow, "Sat Low", 0.0, 0.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.SatHigh, "Sat High", 1.0, 0.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.LumaLow, "Luma Low", 0.0, 0.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.LumaHigh, "Luma High", 1.0, 0.0, 1.0, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.RangeSoftness, "Softness", 0.1, 0.0, 0.5, 0.01),
-                new EffectParameterDescriptor(EffectParamNames.HueShift, "Hue Shift", 0.0, -180.0, 180.0, 1.0, "°"),
-                new EffectParameterDescriptor(EffectParamNames.Saturation, "Saturation", 1.0, 0.0, 2.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Exposure, "Exposure", 0.0, -3.0, 3.0, 0.1, "EV"),
-                new EffectParameterDescriptor(EffectParamNames.ShowMask, "Show Mask", 0.0, 0.0, 1.0, 1.0),
+                new EffectParameterDescriptor(EffectParamNames.HueCenter, "Hue Center", 0.0, 0.0, 360.0, 1.0, "°",
+                    "The hue the key selects, in degrees on the colour wheel (0° = red)."),
+                new EffectParameterDescriptor(EffectParamNames.HueWidth, "Hue Width", 60.0, 0.0, 180.0, 1.0, "°",
+                    "How far either side of the centre hue the key reaches."),
+                new EffectParameterDescriptor(EffectParamNames.HueSoftness, "Hue Softness", 20.0, 0.0, 90.0, 1.0, "°",
+                    "Feathered falloff beyond the hue width."),
+                new EffectParameterDescriptor(EffectParamNames.SatLow, "Sat Low", 0.0, 0.0, 1.0, 0.01,
+                    Description: "Lower bound of the saturation range the key selects."),
+                new EffectParameterDescriptor(EffectParamNames.SatHigh, "Sat High", 1.0, 0.0, 1.0, 0.01,
+                    Description: "Upper bound of the saturation range the key selects."),
+                new EffectParameterDescriptor(EffectParamNames.LumaLow, "Luma Low", 0.0, 0.0, 1.0, 0.01,
+                    Description: "Lower bound of the brightness range the key selects."),
+                new EffectParameterDescriptor(EffectParamNames.LumaHigh, "Luma High", 1.0, 0.0, 1.0, 0.01,
+                    Description: "Upper bound of the brightness range the key selects."),
+                new EffectParameterDescriptor(EffectParamNames.RangeSoftness, "Softness", 0.1, 0.0, 0.5, 0.01,
+                    Description: "Feathered falloff at the edges of the saturation and luma ranges."),
+                new EffectParameterDescriptor(EffectParamNames.HueShift, "Hue Shift", 0.0, -180.0, 180.0, 1.0, "°",
+                    "Rotates the hue of the keyed pixels."),
+                new EffectParameterDescriptor(EffectParamNames.Saturation, "Saturation", 1.0, 0.0, 2.0, 0.05,
+                    Description: "Colour intensity of the keyed pixels (1.0 = unchanged)."),
+                new EffectParameterDescriptor(EffectParamNames.Exposure, "Exposure", 0.0, -3.0, 3.0, 0.1, "EV",
+                    "Brightens or darkens the keyed pixels, in photographic stops."),
+                new EffectParameterDescriptor(EffectParamNames.ShowMask, "Show Mask", 0.0, 0.0, 1.0, 1.0,
+                    Description: "Shows the key as a black-and-white matte instead of the graded image."),
             ]),
 
         new EffectDescriptor(
@@ -206,7 +267,8 @@ public static class EffectCatalog
             "Converts a log source (DJI D-Log / D-Log M) to Rec.709 via the vendor 3D LUT.",
             [
                 new EffectParameterDescriptor(EffectParamNames.SourceProfile, "Source Profile",
-                    0.0, 0.0, 1.0, 1.0),
+                    0.0, 0.0, 1.0, 1.0,
+                    Description: "The camera log profile the footage was recorded in."),
             ]),
 
         new EffectDescriptor(
@@ -215,7 +277,8 @@ public static class EffectCatalog
             EffectCategory.Color,
             "Scene-linear ACES filmic tone mapping (RRT + ODT fit) with exposure.",
             [
-                new EffectParameterDescriptor(EffectParamNames.Exposure, "Exposure", 0.0, -8.0, 8.0, 0.1, "EV"),
+                new EffectParameterDescriptor(EffectParamNames.Exposure, "Exposure", 0.0, -8.0, 8.0, 0.1, "EV",
+                    "Scene exposure applied before tone mapping, in photographic stops."),
             ]),
 
         new EffectDescriptor(
@@ -224,7 +287,8 @@ public static class EffectCatalog
             EffectCategory.Color,
             "Multiplies the image brightness (1.0 = unchanged).",
             [
-                new EffectParameterDescriptor(EffectParamNames.Amount, "Amount", 1.0, 0.0, 4.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Amount, "Amount", 1.0, 0.0, 4.0, 0.05,
+                    Description: "Multiplies image brightness (1.0 = unchanged, 2.0 = twice as bright)."),
             ]),
 
         new EffectDescriptor(
@@ -233,7 +297,8 @@ public static class EffectCatalog
             EffectCategory.Video,
             "Ramps opacity — drives video alpha and audio gain together.",
             [
-                new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05,
+                    Description: "Clip opacity — also scales the clip's audio gain in step."),
             ]),
 
         // ── Audio chain stages (PLAN.md step 31) — executed by the mixer, not the shader pipeline. ──
@@ -243,8 +308,10 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Adjusts level and stereo balance.",
             [
-                new EffectParameterDescriptor(EffectParamNames.GainDb, "Gain", 0.0, -24.0, 24.0, 0.5, "dB"),
-                new EffectParameterDescriptor(EffectParamNames.Pan, "Pan", 0.0, -1.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.GainDb, "Gain", 0.0, -24.0, 24.0, 0.5, "dB",
+                    "Volume adjustment in decibels (0 = unchanged)."),
+                new EffectParameterDescriptor(EffectParamNames.Pan, "Pan", 0.0, -1.0, 1.0, 0.05,
+                    Description: "Stereo balance (−1 = full left, +1 = full right)."),
             ]),
 
         new EffectDescriptor(
@@ -253,13 +320,20 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Three-band EQ: low shelf, mid peak, high shelf.",
             [
-                new EffectParameterDescriptor(EffectParamNames.LowGainDb, "Low Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
-                new EffectParameterDescriptor(EffectParamNames.LowFreq, "Low Freq", 100.0, 20.0, 500.0, 5.0, "Hz"),
-                new EffectParameterDescriptor(EffectParamNames.MidGainDb, "Mid Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
-                new EffectParameterDescriptor(EffectParamNames.MidFreq, "Mid Freq", 1000.0, 200.0, 8000.0, 50.0, "Hz"),
-                new EffectParameterDescriptor(EffectParamNames.MidQ, "Mid Q", 1.0, 0.3, 8.0, 0.1),
-                new EffectParameterDescriptor(EffectParamNames.HighGainDb, "High Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
-                new EffectParameterDescriptor(EffectParamNames.HighFreq, "High Freq", 8000.0, 2000.0, 16000.0, 100.0, "Hz"),
+                new EffectParameterDescriptor(EffectParamNames.LowGainDb, "Low Gain", 0.0, -15.0, 15.0, 0.5, "dB",
+                    "Boost or cut below the low shelf frequency."),
+                new EffectParameterDescriptor(EffectParamNames.LowFreq, "Low Freq", 100.0, 20.0, 500.0, 5.0, "Hz",
+                    "Corner frequency of the low shelf."),
+                new EffectParameterDescriptor(EffectParamNames.MidGainDb, "Mid Gain", 0.0, -15.0, 15.0, 0.5, "dB",
+                    "Boost or cut around the mid band's centre frequency."),
+                new EffectParameterDescriptor(EffectParamNames.MidFreq, "Mid Freq", 1000.0, 200.0, 8000.0, 50.0, "Hz",
+                    "Centre frequency of the mid peak band."),
+                new EffectParameterDescriptor(EffectParamNames.MidQ, "Mid Q", 1.0, 0.3, 8.0, 0.1,
+                    Description: "Width of the mid band (higher = narrower)."),
+                new EffectParameterDescriptor(EffectParamNames.HighGainDb, "High Gain", 0.0, -15.0, 15.0, 0.5, "dB",
+                    "Boost or cut above the high shelf frequency."),
+                new EffectParameterDescriptor(EffectParamNames.HighFreq, "High Freq", 8000.0, 2000.0, 16000.0, 100.0, "Hz",
+                    "Corner frequency of the high shelf."),
             ]),
 
         new EffectDescriptor(
@@ -268,11 +342,16 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Evens out dynamics: attenuates peaks above the threshold.",
             [
-                new EffectParameterDescriptor(EffectParamNames.ThresholdDb, "Threshold", -18.0, -60.0, 0.0, 0.5, "dB"),
-                new EffectParameterDescriptor(EffectParamNames.Ratio, "Ratio", 4.0, 1.0, 20.0, 0.5),
-                new EffectParameterDescriptor(EffectParamNames.AttackMs, "Attack", 10.0, 0.1, 200.0, 1.0, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.ReleaseMs, "Release", 100.0, 10.0, 1000.0, 10.0, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.MakeupDb, "Make-up", 0.0, 0.0, 24.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.ThresholdDb, "Threshold", -18.0, -60.0, 0.0, 0.5, "dB",
+                    "Level above which compression starts."),
+                new EffectParameterDescriptor(EffectParamNames.Ratio, "Ratio", 4.0, 1.0, 20.0, 0.5,
+                    Description: "How strongly peaks above the threshold are reduced (4 = 4 dB in → 1 dB out)."),
+                new EffectParameterDescriptor(EffectParamNames.AttackMs, "Attack", 10.0, 0.1, 200.0, 1.0, "ms",
+                    "How quickly compression clamps down once the signal exceeds the threshold."),
+                new EffectParameterDescriptor(EffectParamNames.ReleaseMs, "Release", 100.0, 10.0, 1000.0, 10.0, "ms",
+                    "How quickly compression lets go after the signal falls below the threshold."),
+                new EffectParameterDescriptor(EffectParamNames.MakeupDb, "Make-up", 0.0, 0.0, 24.0, 0.5, "dB",
+                    "Output gain to restore loudness lost to compression."),
             ]),
 
         new EffectDescriptor(
@@ -281,9 +360,12 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Adds room ambience (Freeverb-style) — the low-CPU editorial reverb.",
             [
-                new EffectParameterDescriptor(EffectParamNames.RoomSize, "Room Size", 0.5, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.5, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.RoomSize, "Room Size", 0.5, 0.0, 1.0, 0.05,
+                    Description: "Apparent size of the simulated room — larger = longer tail."),
+                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.5, 0.0, 1.0, 0.05,
+                    Description: "How quickly high frequencies die away in the tail."),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
+                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
             ]),
 
         new EffectDescriptor(
@@ -292,17 +374,28 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "High-quality algorithmic reverb: rooms, plates, halls (Dattorro-style tank).",
             [
-                new EffectParameterDescriptor(EffectParamNames.PreDelayMs, "Pre-Delay", 10.0, 0.0, 200.0, 1.0, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 2.0, 0.1, 20.0, 0.1, "s"),
-                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Diffusion, "Diffusion", 0.7, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.ModDepth, "Mod Depth", 0.3, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.ModRateHz, "Mod Rate", 0.5, 0.05, 5.0, 0.05, "Hz"),
-                new EffectParameterDescriptor(EffectParamNames.EarlyLate, "Early / Late", 0.7, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Width, "Width", 1.0, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.LowDamp, "Low Damp", 0.1, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.HighDamp, "High Damp", 0.4, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.PreDelayMs, "Pre-Delay", 10.0, 0.0, 200.0, 1.0, "ms",
+                    "Gap between the dry sound and the start of the reverb."),
+                new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 2.0, 0.1, 20.0, 0.1, "s",
+                    "How long the reverb tail takes to die away."),
+                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05,
+                    Description: "Apparent size of the simulated space."),
+                new EffectParameterDescriptor(EffectParamNames.Diffusion, "Diffusion", 0.7, 0.0, 1.0, 0.05,
+                    Description: "Echo density — low = discrete repeats, high = smooth wash."),
+                new EffectParameterDescriptor(EffectParamNames.ModDepth, "Mod Depth", 0.3, 0.0, 1.0, 0.05,
+                    Description: "Amount of pitch modulation in the tail (adds chorus-like movement)."),
+                new EffectParameterDescriptor(EffectParamNames.ModRateHz, "Mod Rate", 0.5, 0.05, 5.0, 0.05, "Hz",
+                    "Speed of the tail's pitch modulation."),
+                new EffectParameterDescriptor(EffectParamNames.EarlyLate, "Early / Late", 0.7, 0.0, 1.0, 0.05,
+                    Description: "Balance of early reflections (0) versus the late tail (1)."),
+                new EffectParameterDescriptor(EffectParamNames.Width, "Width", 1.0, 0.0, 1.0, 0.05,
+                    Description: "Stereo spread of the reverb (0 = mono, 1 = full stereo)."),
+                new EffectParameterDescriptor(EffectParamNames.LowDamp, "Low Damp", 0.1, 0.0, 1.0, 0.05,
+                    Description: "How quickly low frequencies die away in the tail."),
+                new EffectParameterDescriptor(EffectParamNames.HighDamp, "High Damp", 0.4, 0.0, 1.0, 0.05,
+                    Description: "How quickly high frequencies die away in the tail."),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
+                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
             ])
         {
             // The step-41 preset families (room / chamber / plate / hall / cathedral / ambient bloom); the
@@ -368,10 +461,14 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Clean feedback delay with a high-cut in the feedback path.",
             [
-                new EffectParameterDescriptor(EffectParamNames.DelayMs, "Time", 500.0, 1.0, 2000.0, 1.0, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.HighCutHz, "High Cut", 8000.0, 200.0, 20000.0, 100.0, "Hz"),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.DelayMs, "Time", 500.0, 1.0, 2000.0, 1.0, "ms",
+                    "Gap between the dry sound and each repeat."),
+                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05,
+                    Description: "How much of each repeat feeds back — higher = more repeats."),
+                new EffectParameterDescriptor(EffectParamNames.HighCutHz, "High Cut", 8000.0, 200.0, 20000.0, 100.0, "Hz",
+                    "Filters highs out of the repeats — lower = darker echoes."),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
+                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
             ]),
 
         new EffectDescriptor(
@@ -380,12 +477,18 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Feedback delay with tape coloration: saturation, darkening repeats, wow & flutter.",
             [
-                new EffectParameterDescriptor(EffectParamNames.DelayMs, "Time", 500.0, 1.0, 2000.0, 1.0, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.4, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.WowFlutterDepth, "Wow / Flutter", 0.25, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.WowFlutterRateHz, "Wow Rate", 1.0, 0.1, 10.0, 0.1, "Hz"),
-                new EffectParameterDescriptor(EffectParamNames.Drive, "Saturation", 0.3, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.DelayMs, "Time", 500.0, 1.0, 2000.0, 1.0, "ms",
+                    "Gap between the dry sound and each repeat."),
+                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.4, 0.0, 1.0, 0.05,
+                    Description: "How much of each repeat feeds back — higher = more repeats."),
+                new EffectParameterDescriptor(EffectParamNames.WowFlutterDepth, "Wow / Flutter", 0.25, 0.0, 1.0, 0.05,
+                    Description: "Amount of tape-style pitch wobble on the repeats."),
+                new EffectParameterDescriptor(EffectParamNames.WowFlutterRateHz, "Wow Rate", 1.0, 0.1, 10.0, 0.1, "Hz",
+                    "Speed of the pitch wobble."),
+                new EffectParameterDescriptor(EffectParamNames.Drive, "Saturation", 0.3, 0.0, 1.0, 0.05,
+                    Description: "Tape drive — adds warmth and grit to the repeats."),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
+                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
             ]),
 
         new EffectDescriptor(
@@ -401,12 +504,18 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Independent left/right delay times with a Ping Pong cross-feed mode.",
             [
-                new EffectParameterDescriptor(EffectParamNames.LeftTimeMs, "Left Time", 375.0, 1.0, 2000.0, 1.0, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.RightTimeMs, "Right Time", 500.0, 1.0, 2000.0, 1.0, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.PingPong, "Ping Pong", 0.0, 0.0, 1.0, 1.0),
-                new EffectParameterDescriptor(EffectParamNames.CrossFeed, "Cross-Feed", 1.0, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.LeftTimeMs, "Left Time", 375.0, 1.0, 2000.0, 1.0, "ms",
+                    "Delay time of the left channel's repeats."),
+                new EffectParameterDescriptor(EffectParamNames.RightTimeMs, "Right Time", 500.0, 1.0, 2000.0, 1.0, "ms",
+                    "Delay time of the right channel's repeats."),
+                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05,
+                    Description: "How much of each repeat feeds back — higher = more repeats."),
+                new EffectParameterDescriptor(EffectParamNames.PingPong, "Ping Pong", 0.0, 0.0, 1.0, 1.0,
+                    Description: "Bounces the repeats alternately between left and right."),
+                new EffectParameterDescriptor(EffectParamNames.CrossFeed, "Cross-Feed", 1.0, 0.0, 1.0, 0.05,
+                    Description: "How much each channel's repeats bleed into the other side."),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
+                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
             ]),
 
         // ── Noise Gate (PLAN.md step 47) — the standard DAW gate/expander design. ──
@@ -416,12 +525,18 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Attenuates signal below a threshold: attack / hold / release, range floor, hysteresis.",
             [
-                new EffectParameterDescriptor(EffectParamNames.ThresholdDb, "Threshold", -40.0, -80.0, 0.0, 0.5, "dB"),
-                new EffectParameterDescriptor(EffectParamNames.AttackMs, "Attack", 1.0, 0.01, 100.0, 0.1, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.HoldMs, "Hold", 50.0, 0.0, 1000.0, 5.0, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.ReleaseMs, "Release", 100.0, 1.0, 2000.0, 10.0, "ms"),
-                new EffectParameterDescriptor(EffectParamNames.RangeDb, "Range", -80.0, -80.0, 0.0, 1.0, "dB"),
-                new EffectParameterDescriptor(EffectParamNames.HysteresisDb, "Hysteresis", 3.0, 0.0, 24.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.ThresholdDb, "Threshold", -40.0, -80.0, 0.0, 0.5, "dB",
+                    "Level below which the gate closes and attenuates the signal."),
+                new EffectParameterDescriptor(EffectParamNames.AttackMs, "Attack", 1.0, 0.01, 100.0, 0.1, "ms",
+                    "How quickly the gate opens when the signal rises above the threshold."),
+                new EffectParameterDescriptor(EffectParamNames.HoldMs, "Hold", 50.0, 0.0, 1000.0, 5.0, "ms",
+                    "Minimum time the gate stays open after the signal drops."),
+                new EffectParameterDescriptor(EffectParamNames.ReleaseMs, "Release", 100.0, 1.0, 2000.0, 10.0, "ms",
+                    "How quickly the gate closes after the hold time expires."),
+                new EffectParameterDescriptor(EffectParamNames.RangeDb, "Range", -80.0, -80.0, 0.0, 1.0, "dB",
+                    "How far the closed gate turns the signal down (−80 dB ≈ silence)."),
+                new EffectParameterDescriptor(EffectParamNames.HysteresisDb, "Hysteresis", 3.0, 0.0, 24.0, 0.5, "dB",
+                    "Gap between the open and close thresholds, preventing rapid chatter."),
             ]),
 
         // ── Shelving EQ (PLAN.md step 48) — standalone low/high shelves for quick tone shaping. ──
@@ -431,14 +546,22 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Standalone low + high shelves (frequency, gain, slope, per-shelf enable) for quick tilt / warmth / air.",
             [
-                new EffectParameterDescriptor(EffectParamNames.LowFreq, "Low Freq", 100.0, 20.0, 500.0, 5.0, "Hz"),
-                new EffectParameterDescriptor(EffectParamNames.LowGainDb, "Low Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
-                new EffectParameterDescriptor(EffectParamNames.LowSlope, "Low Slope", 1.0, 0.1, 2.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.LowEnable, "Low Shelf", 1.0, 0.0, 1.0, 1.0),
-                new EffectParameterDescriptor(EffectParamNames.HighFreq, "High Freq", 8000.0, 2000.0, 16000.0, 100.0, "Hz"),
-                new EffectParameterDescriptor(EffectParamNames.HighGainDb, "High Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
-                new EffectParameterDescriptor(EffectParamNames.HighSlope, "High Slope", 1.0, 0.1, 2.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.HighEnable, "High Shelf", 1.0, 0.0, 1.0, 1.0),
+                new EffectParameterDescriptor(EffectParamNames.LowFreq, "Low Freq", 100.0, 20.0, 500.0, 5.0, "Hz",
+                    "Corner frequency of the low shelf."),
+                new EffectParameterDescriptor(EffectParamNames.LowGainDb, "Low Gain", 0.0, -15.0, 15.0, 0.5, "dB",
+                    "Boost or cut below the low shelf frequency."),
+                new EffectParameterDescriptor(EffectParamNames.LowSlope, "Low Slope", 1.0, 0.1, 2.0, 0.05,
+                    Description: "Steepness of the low shelf's transition."),
+                new EffectParameterDescriptor(EffectParamNames.LowEnable, "Low Shelf", 1.0, 0.0, 1.0, 1.0,
+                    Description: "Enables the low shelf."),
+                new EffectParameterDescriptor(EffectParamNames.HighFreq, "High Freq", 8000.0, 2000.0, 16000.0, 100.0, "Hz",
+                    "Corner frequency of the high shelf."),
+                new EffectParameterDescriptor(EffectParamNames.HighGainDb, "High Gain", 0.0, -15.0, 15.0, 0.5, "dB",
+                    "Boost or cut above the high shelf frequency."),
+                new EffectParameterDescriptor(EffectParamNames.HighSlope, "High Slope", 1.0, 0.1, 2.0, 0.05,
+                    Description: "Steepness of the high shelf's transition."),
+                new EffectParameterDescriptor(EffectParamNames.HighEnable, "High Shelf", 1.0, 0.0, 1.0, 1.0,
+                    Description: "Enables the high shelf."),
             ]),
 
         // ── Shimmer Reverb (PLAN.md step 50) — the "Creative Reverb ▸ shimmer" tier as its own effect. ──
@@ -448,12 +571,18 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Ethereal pitched-up reverb wash: an octave-shifted feedback path under a conventional tail.",
             [
-                new EffectParameterDescriptor(EffectParamNames.ShimmerAmount, "Shimmer", 0.5, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.ShimmerInterval, "Interval", 12.0, 1.0, 12.0, 1.0, "st"),
-                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 4.0, 0.1, 20.0, 0.1, "s"),
-                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.3, 0.0, 1.0, 0.05),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.ShimmerAmount, "Shimmer", 0.5, 0.0, 1.0, 0.05,
+                    Description: "How much pitched-up signal feeds the tail — higher = more ethereal."),
+                new EffectParameterDescriptor(EffectParamNames.ShimmerInterval, "Interval", 12.0, 1.0, 12.0, 1.0, "st",
+                    "Pitch shift of the shimmer path, in semitones (12 = one octave up)."),
+                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05,
+                    Description: "Apparent size of the simulated space."),
+                new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 4.0, 0.1, 20.0, 0.1, "s",
+                    "How long the reverb tail takes to die away."),
+                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.3, 0.0, 1.0, 0.05,
+                    Description: "How quickly high frequencies die away in the tail."),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
+                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
             ])
         {
             // The step-50 preset family. Like the Studio Reverb presets, every preset leaves Mix untouched
@@ -502,15 +631,20 @@ public static class EffectCatalog
         {
             int tap = i + 1;
             parameters[i * 4 + 0] = new EffectParameterDescriptor(
-                EffectParamNames.TapEnable[i], $"Tap {tap}", i < 2 ? 1.0 : 0.0, 0.0, 1.0, 1.0);
+                EffectParamNames.TapEnable[i], $"Tap {tap}", i < 2 ? 1.0 : 0.0, 0.0, 1.0, 1.0,
+                Description: $"Enables tap {tap}.");
             parameters[i * 4 + 1] = new EffectParameterDescriptor(
-                EffectParamNames.TapTimeMs[i], $"Tap {tap} Time", 150.0 * tap, 1.0, 2000.0, 1.0, "ms");
+                EffectParamNames.TapTimeMs[i], $"Tap {tap} Time", 150.0 * tap, 1.0, 2000.0, 1.0, "ms",
+                $"Delay time of tap {tap}.");
             parameters[i * 4 + 2] = new EffectParameterDescriptor(
-                EffectParamNames.TapLevel[i], $"Tap {tap} Level", Math.Round(1.0 - i * 0.1, 2), 0.0, 1.0, 0.05);
+                EffectParamNames.TapLevel[i], $"Tap {tap} Level", Math.Round(1.0 - i * 0.1, 2), 0.0, 1.0, 0.05,
+                Description: $"Volume of tap {tap}.");
             parameters[i * 4 + 3] = new EffectParameterDescriptor(
-                EffectParamNames.TapPan[i], $"Tap {tap} Pan", 0.0, -1.0, 1.0, 0.05);
+                EffectParamNames.TapPan[i], $"Tap {tap} Pan", 0.0, -1.0, 1.0, 0.05,
+                Description: $"Stereo position of tap {tap} (−1 = left, +1 = right).");
         }
-        parameters[^1] = new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05);
+        parameters[^1] = new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
+            Description: "Wet/dry balance (0 = dry only, 1 = effect only).");
         return parameters;
     }
 

@@ -123,6 +123,15 @@ public class EffectCatalogTests
             }
     }
 
+    [Fact]
+    public void Every_BuiltIn_Parameter_Has_A_Tooltip_Description()
+    {
+        // The Inspector shows Description as the parameter label's tooltip; every built-in must carry one.
+        foreach (EffectDescriptor d in EffectCatalog.BuiltIns)
+            foreach (EffectParameterDescriptor p in d.Parameters)
+                Assert.False(string.IsNullOrWhiteSpace(p.Description), $"{d.Id}.{p.Name} has no Description");
+    }
+
     // ── Step 41: Studio Reverb descriptor + factory presets ────────────────────────────────────────────
 
     [Fact]

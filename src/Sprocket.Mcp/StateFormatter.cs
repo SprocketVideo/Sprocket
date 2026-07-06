@@ -195,6 +195,8 @@ public static class StateFormatter
         };
         if (p.Unit is { } unit)
             obj["unit"] = unit;
+        if (p.Description is { } description)
+            obj["description"] = description;
         return obj;
     }
 

@@ -150,6 +150,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; PLAN.md step 34 | — | ❌ |
 | Log footage: Input Color Transform (DJI D-Log family), ACES Filmic | EffectCatalog.cs; PLAN.md step 37 | — | ❌ |
 | Inspector: sections, sliders/numeric entry, remove effect | Sprocket.App/Inspector/InspectorPanel.cs | getting-started.md#3-select-a-clip | ✅ |
+| Effect parameter tooltips (hover a parameter label for a plain-language description) | EffectCatalog.cs `EffectParameterDescriptor.Description`; InspectorPanel.cs | — | ❌ |
 | Reorder effects in the stack (drag a section header; Move Up/Down context menu) | InspectorPanel.cs; ModelCommands.cs `MoveChainEffectCommand`; PLAN.md step 51 | — | ❌ |
 | Inspector: Expand All / Collapse All section buttons (pane header) | MainWindow.axaml `InspectorExpandAllButton`; InspectorPanel.cs `SetAllSectionsExpanded` | — | ❌ |
 | Keyframing: animate parameters, keyframe lanes, velocity graph, `[`/`]` navigation | InspectorPanel.cs; Inspector/KeyframeLane.cs | — | ❌ (teased twice in guides; never taught) |
