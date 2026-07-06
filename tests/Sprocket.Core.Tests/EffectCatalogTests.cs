@@ -288,6 +288,32 @@ public class EffectCatalogTests
             names);
     }
 
+    // ── Step 48: the Shelving EQ ────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Shelving_Eq_Is_Registered_As_An_Audio_Effect()
+    {
+        EffectDescriptor? eq = EffectCatalog.Find(EffectTypeIds.AudioShelvingEq);
+        Assert.NotNull(eq);
+        Assert.Equal(EffectCategory.Audio, eq!.Category);
+        Assert.True(EffectTypeIds.IsAudio(EffectTypeIds.AudioShelvingEq)); // routes to the mixer, not the shaders
+        Assert.Equal("Shelving EQ", EffectCatalog.DisplayName(EffectTypeIds.AudioShelvingEq));
+    }
+
+    [Fact]
+    public void Shelving_Eq_Exposes_The_Step48_Parameters()
+    {
+        string[] names = EffectCatalog.Find(EffectTypeIds.AudioShelvingEq)!.Parameters.Select(p => p.Name).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                EffectParamNames.LowFreq, EffectParamNames.LowGainDb, EffectParamNames.LowSlope,
+                EffectParamNames.LowEnable, EffectParamNames.HighFreq, EffectParamNames.HighGainDb,
+                EffectParamNames.HighSlope, EffectParamNames.HighEnable,
+            },
+            names);
+    }
+
     // ── Step 41: heavy-chain traits (freeze hints) ─────────────────────────────────────────────────────
 
     [Fact]

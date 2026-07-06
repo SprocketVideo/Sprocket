@@ -28,6 +28,7 @@ public static class BuiltInAudioEffects
         EffectTypeIds.AudioDelayMultiTap => new MultiTapDelayEffect(),
         EffectTypeIds.AudioDelayStereo => new StereoDelayEffect(),
         EffectTypeIds.AudioNoiseGate => new NoiseGateEffect(),
+        EffectTypeIds.AudioShelvingEq => new ShelvingEqEffect(),
         _ => null,
     };
 }

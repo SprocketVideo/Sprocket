@@ -139,6 +139,37 @@ public class AudioEffectChainPersistenceTests
     }
 
     [Fact]
+    public void Step48_Shelving_Eq_Round_Trips()
+    {
+        // The shelving EQ id serializes via the existing EffectInstance JSON — additive, no schema bump.
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var project = new Project(timeline);
+        var track = new AudioTrack { Name = "A1" };
+        track.Effects.Add(new EffectInstance(EffectTypeIds.AudioShelvingEq)
+            .Set(EffectParamNames.LowFreq, 120.0)
+            .Set(EffectParamNames.LowGainDb, 4.5)
+            .Set(EffectParamNames.LowSlope, 0.7)
+            .Set(EffectParamNames.LowEnable, 1.0)
+            .Set(EffectParamNames.HighFreq, 9000.0)
+            .Set(EffectParamNames.HighGainDb, -3.0)
+            .Set(EffectParamNames.HighSlope, 1.4)
+            .Set(EffectParamNames.HighEnable, 0.0));
+        timeline.Tracks.Add(track);
+
+        AudioTrack loaded = Assert.IsType<AudioTrack>(RoundTrip(project).Timeline.Tracks[0]);
+        EffectInstance eq = Assert.Single(loaded.Effects);
+        Assert.Equal(EffectTypeIds.AudioShelvingEq, eq.EffectTypeId);
+        Assert.Equal(120.0, eq.Parameters[EffectParamNames.LowFreq].Evaluate(Timecode.Zero));
+        Assert.Equal(4.5, eq.Parameters[EffectParamNames.LowGainDb].Evaluate(Timecode.Zero));
+        Assert.Equal(0.7, eq.Parameters[EffectParamNames.LowSlope].Evaluate(Timecode.Zero));
+        Assert.Equal(1.0, eq.Parameters[EffectParamNames.LowEnable].Evaluate(Timecode.Zero));
+        Assert.Equal(9000.0, eq.Parameters[EffectParamNames.HighFreq].Evaluate(Timecode.Zero));
+        Assert.Equal(-3.0, eq.Parameters[EffectParamNames.HighGainDb].Evaluate(Timecode.Zero));
+        Assert.Equal(1.4, eq.Parameters[EffectParamNames.HighSlope].Evaluate(Timecode.Zero));
+        Assert.Equal(0.0, eq.Parameters[EffectParamNames.HighEnable].Evaluate(Timecode.Zero));
+    }
+
+    [Fact]
     public void Chainless_Project_Omits_The_Chain_Fields_In_Json()
     {
         var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));

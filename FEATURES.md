@@ -168,6 +168,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Studio Reverb (Dattorro plate/hall; presets Room–Cathedral–Ambient Bloom via Inspector preset picker) | Sprocket.Audio/Effects/StudioReverbEffect.cs; EffectCatalog.cs | — | ❌ |
 | Delay effects: Digital, Tape (wow/flutter + saturation), Multi-Tap (8 taps), Stereo (Ping Pong) | Sprocket.Audio/Effects/{DigitalDelay,TapeDelay,MultiTapDelay,StereoDelay}Effect.cs; EffectCatalog.cs | — | ❌ |
 | Noise Gate (threshold/attack/hold/release, range floor, hysteresis) | Sprocket.Audio/Effects/NoiseGateEffect.cs; EffectCatalog.cs | — | ❌ |
+| Shelving EQ (standalone low + high shelves: freq/gain/slope, per-shelf enable) | Sprocket.Audio/Effects/ShelvingEqEffect.cs; EffectCatalog.cs | — | ❌ |
 | Freeze / Unfreeze Clip Audio (pre-render heavy audio chains; Sequence menu) | MainWindow.axaml.cs `UnfreezeClipAudio`; RenderCacheService.cs | — | ❌ |
 
 ## 9. Export & delivery

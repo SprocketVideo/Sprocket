@@ -3286,6 +3286,26 @@ Tags reference the [UI.md §4 checklist](UI.md).
       enable/disable per shelf). Persistence round-trip. Extend
       `AudioEffectsTests`/`AudioMixerChainTests` the same way the step-31 built-ins and steps 46/47
       were covered.
+    - **✅ DONE (`Sprocket.Core/Model/{EffectInstance,EffectCatalog}` + `Sprocket.Audio/Effects/{BiquadBand,
+      ShelvingEqEffect,ParametricEqEffect,BuiltInAudioEffects}`; 15 new tests — Audio +12
+      (`ShelvingEqEffectTests` + 1 `AudioMixerChainTests`), Core +2 (`EffectCatalogTests`), Persistence +1;
+      full suite **1292 green** (Core 359, Media 43, Render 123, Audio 130, Playback 56, Export 101,
+      Persistence 118, Plugins 10, Mcp 65, App 287); clean build (0 warnings).)** One id,
+      `builtin.audio.shelvingeq`, registered in `EffectCatalog` under `EffectCategory.Audio` — it appears in
+      the Effects browser / audio add-effect flow and serializes through the existing `EffectInstance` JSON
+      (additive, no schema bump) with **zero App/mixer changes**. Typed descriptors in shelf order: low
+      freq (100 Hz) / gain (0 dB) / slope (1.0) / enable (on), high freq (8 kHz) / gain (0 dB) / slope (1.0) /
+      enable (on). As planned, the DSP was **not re-derived**: `ParametricEqEffect`'s private per-band biquad
+      machinery (RBJ coefficient derivation + transposed-direct-form-II runner) was extracted into a shared
+      internal `BiquadBand` struct whose `ConfigureShelf` now takes the RBJ shelf slope `S` as a parameter
+      (`alpha = sin/2·√((A+1/A)(1/S−1)+2)`, the step-31 `√2` being the exact `S = 1` case, so the parametric
+      EQ is bit-identical through the refactor); `ShelvingEqEffect` is two such bands with per-shelf
+      enable-and-0dB bypass. Coefficients rebuild only on parameter/format change (the `ParametricEqEffect`
+      caching pattern); a default instance is an exact bit-identical pass-through; steady-state processing is
+      allocation-free. Reuses the existing `lowFreq`/`lowGainDb`/`highFreq`/`highGainDb` param names; adds
+      `lowSlope`/`lowEnable`/`highSlope`/`highEnable`. Tests cover the shelf magnitude response at DC /
+      Nyquist / the corner (the RBJ dB midpoint, 10^(g/40)), monotonic slope steepening, independent
+      enables, cut and boost, cross-block state, and the mixer-chain + persistence round-trips.
 
 49. **Acoustic Space (Convolution) Reverb.** A new built-in `IAudioEffect`,
     `src/Sprocket.Audio/Effects/ConvolutionReverbEffect.cs`, split out as its **own dedicated

@@ -423,6 +423,23 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.RangeDb, "Range", -80.0, -80.0, 0.0, 1.0, "dB"),
                 new EffectParameterDescriptor(EffectParamNames.HysteresisDb, "Hysteresis", 3.0, 0.0, 24.0, 0.5, "dB"),
             ]),
+
+        // ── Shelving EQ (PLAN.md step 48) — standalone low/high shelves for quick tone shaping. ──
+        new EffectDescriptor(
+            EffectTypeIds.AudioShelvingEq,
+            "Shelving EQ",
+            EffectCategory.Audio,
+            "Standalone low + high shelves (frequency, gain, slope, per-shelf enable) for quick tilt / warmth / air.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.LowFreq, "Low Freq", 100.0, 20.0, 500.0, 5.0, "Hz"),
+                new EffectParameterDescriptor(EffectParamNames.LowGainDb, "Low Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.LowSlope, "Low Slope", 1.0, 0.1, 2.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.LowEnable, "Low Shelf", 1.0, 0.0, 1.0, 1.0),
+                new EffectParameterDescriptor(EffectParamNames.HighFreq, "High Freq", 8000.0, 2000.0, 16000.0, 100.0, "Hz"),
+                new EffectParameterDescriptor(EffectParamNames.HighGainDb, "High Gain", 0.0, -15.0, 15.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.HighSlope, "High Slope", 1.0, 0.1, 2.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.HighEnable, "High Shelf", 1.0, 0.0, 1.0, 1.0),
+            ]),
     ];
 
     /// <summary>

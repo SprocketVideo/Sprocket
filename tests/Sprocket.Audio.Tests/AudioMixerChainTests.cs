@@ -250,6 +250,21 @@ public class AudioMixerChainTests
     }
 
     [Fact]
+    public void ShelvingEq_On_The_Track_Chain_Boosts_The_Low_End()
+    {
+        // A +6 dB low shelf on the track chain (PLAN.md step 48) against a DC source: the settled output
+        // carries the shelf's DC gain (×10^(6/20) ≈ 1.995) — the effect composes like any other stage.
+        var track = TrackOver(A);
+        track.Effects.Add(new EffectInstance(EffectTypeIds.AudioShelvingEq)
+            .Set(EffectParamNames.LowGainDb, 6.0)
+            .Set(EffectParamNames.LowFreq, 200.0));
+        using AudioMixer mixer = MixerFor((A, 0.25f));
+
+        float[] buffer = Mix(mixer, ProjectWith(track), Rate, Timecode.Zero); // 1 s so the filter settles
+        Assert.Equal(0.25f * (float)Math.Pow(10, 6 / 20.0), buffer[^1], 0.005);
+    }
+
+    [Fact]
     public void Fast_Path_Without_Chains_Is_Unchanged()
     {
         // No chains anywhere → the combined clip × track gain ramp sums exactly as before step 31.

@@ -303,9 +303,9 @@ today. Remaining work (full detail and per-step status in [PLAN.md](PLAN.md)):
   plugin host (collectible `AssemblyLoadContext`) and the built-in managed effects ship today.
 - **Advanced retime** — variable/ramped speed and reverse (constant-speed retime, freeze frames,
   and stop-motion frame edits ship today).
-- **Audio extras** — convolution and shimmer reverbs, shelving EQ (the Studio Reverb, factory
-  presets, the delay family — digital / tape / multi-tap / stereo ping-pong — the noise gate, and
-  clip-audio freeze ship today).
+- **Audio extras** — convolution and shimmer reverbs (the Studio Reverb, factory presets, the
+  delay family — digital / tape / multi-tap / stereo ping-pong — the noise gate, the shelving EQ,
+  and clip-audio freeze ship today).
 
 ---
 

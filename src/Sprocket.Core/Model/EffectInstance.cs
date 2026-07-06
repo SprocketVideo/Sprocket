@@ -171,6 +171,20 @@ public static class EffectTypeIds
     public const string AudioNoiseGate = "builtin.audio.noisegate";
 
     /// <summary>
+    /// Shelving EQ (PLAN.md step 48): standalone low-shelf + high-shelf tone shaping — the DAW convention
+    /// (Ableton EQ Three / Logic Channel EQ's shelf-only use) for the quick tilt/warmth/air pass where a full
+    /// 3-band parametric is heavier than needed. Each shelf is an RBJ biquad (the same derivation as
+    /// <see cref="AudioEq"/>'s shelf bands, generalized from the fixed slope S = 1 to a variable
+    /// <see cref="EffectParamNames.LowSlope"/>/<see cref="EffectParamNames.HighSlope"/>) with its own
+    /// <see cref="EffectParamNames.LowEnable"/>/<see cref="EffectParamNames.HighEnable"/> so either shelf can
+    /// run alone. Parameters: <see cref="EffectParamNames.LowFreq"/>/<see cref="EffectParamNames.LowGainDb"/>/
+    /// <see cref="EffectParamNames.LowSlope"/>/<see cref="EffectParamNames.LowEnable"/>,
+    /// <see cref="EffectParamNames.HighFreq"/>/<see cref="EffectParamNames.HighGainDb"/>/
+    /// <see cref="EffectParamNames.HighSlope"/>/<see cref="EffectParamNames.HighEnable"/>.
+    /// </summary>
+    public const string AudioShelvingEq = "builtin.audio.shelvingeq";
+
+    /// <summary>
     /// Whether an effect type id names an <b>audio</b> chain stage (PLAN.md step 31). The render graph uses
     /// this to split a clip's single effect stack: audio ids feed the mixer's DSP chain, everything else feeds
     /// the video shader chain (where unknown ids pass through). Built-in audio effects share the
@@ -334,10 +348,12 @@ public static class EffectParamNames
     /// <summary>Stereo balance in [-1, 1] (0 = centre) — <see cref="EffectTypeIds.AudioGain"/>.</summary>
     public const string Pan = "pan";
 
-    /// <summary>Low-shelf gain in dB — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    /// <summary>Low-shelf gain in dB — <see cref="EffectTypeIds.AudioEq"/> and
+    /// <see cref="EffectTypeIds.AudioShelvingEq"/>.</summary>
     public const string LowGainDb = "lowGainDb";
 
-    /// <summary>Low-shelf corner frequency in Hz — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    /// <summary>Low-shelf corner frequency in Hz — <see cref="EffectTypeIds.AudioEq"/> and
+    /// <see cref="EffectTypeIds.AudioShelvingEq"/>.</summary>
     public const string LowFreq = "lowFreq";
 
     /// <summary>Mid-peak gain in dB — <see cref="EffectTypeIds.AudioEq"/>.</summary>
@@ -349,10 +365,12 @@ public static class EffectParamNames
     /// <summary>Mid-peak Q (bandwidth) — <see cref="EffectTypeIds.AudioEq"/>.</summary>
     public const string MidQ = "midQ";
 
-    /// <summary>High-shelf gain in dB — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    /// <summary>High-shelf gain in dB — <see cref="EffectTypeIds.AudioEq"/> and
+    /// <see cref="EffectTypeIds.AudioShelvingEq"/>.</summary>
     public const string HighGainDb = "highGainDb";
 
-    /// <summary>High-shelf corner frequency in Hz — <see cref="EffectTypeIds.AudioEq"/>.</summary>
+    /// <summary>High-shelf corner frequency in Hz — <see cref="EffectTypeIds.AudioEq"/> and
+    /// <see cref="EffectTypeIds.AudioShelvingEq"/>.</summary>
     public const string HighFreq = "highFreq";
 
     /// <summary>Threshold in dBFS — the compressor's knee (<see cref="EffectTypeIds.AudioCompressor"/>) and
@@ -474,6 +492,21 @@ public static class EffectParamNames
     /// straddling the threshold cannot rapidly re-trigger the gate (chatter) —
     /// <see cref="EffectTypeIds.AudioNoiseGate"/>.</summary>
     public const string HysteresisDb = "hysteresisDb";
+
+    // ── Shelving EQ (PLAN.md step 48). ──
+    /// <summary>Low-shelf RBJ shelf slope S (1 = the classic maximally steep monotonic shelf; smaller =
+    /// gentler transition) — <see cref="EffectTypeIds.AudioShelvingEq"/>.</summary>
+    public const string LowSlope = "lowSlope";
+
+    /// <summary>Low-shelf enable toggle (≥ 0.5 = on) so either shelf can run alone —
+    /// <see cref="EffectTypeIds.AudioShelvingEq"/>.</summary>
+    public const string LowEnable = "lowEnable";
+
+    /// <summary>High-shelf RBJ shelf slope S — <see cref="EffectTypeIds.AudioShelvingEq"/>.</summary>
+    public const string HighSlope = "highSlope";
+
+    /// <summary>High-shelf enable toggle (≥ 0.5 = on) — <see cref="EffectTypeIds.AudioShelvingEq"/>.</summary>
+    public const string HighEnable = "highEnable";
 
     /// <summary>The fixed tap cap of the Multi-Tap Delay (PLAN.md step 46) — matches typical DAW
     /// multi-tap plugins.</summary>
