@@ -306,15 +306,19 @@ jobs:
       # Attach: portable zips, Windows Setup.exe, Linux AppImage, macOS .app zips, and the Velopack
       # update feed (full+delta .nupkg + releases.<channel>.json — what installed apps poll). The
       # unsigned macOS .pkg is deliberately NOT attached (the zip'd .app + Gatekeeper instructions
-      # in RELEASE_NOTES.md are the supported alpha path).
+      # in RELEASE_NOTES.md are the supported alpha path). The .nupkg glob is pinned to THIS tag's
+      # version: release.ps1 runs `vpk download github` for the delta baseline, which drops the
+      # previous release's full .nupkg into the same output dir — attaching those stale packages
+      # here made every release list two versions under Assets.
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag='${{ github.ref_name }}'
+          version="${tag#v}"
           mapfile -t assets < <(find artifacts -type f \
             \( -name '*.zip' -o -name '*-Setup.exe' -o -name '*.AppImage' \
-               -o -name '*.nupkg' -o -name 'releases.*.json' \) | sort)
+               -o -name "Sprocket-${version}-*.nupkg" -o -name 'releases.*.json' \) | sort)
           printf 'attaching %s\n' "${assets[@]}"
           flags=(--title "$tag" --verify-tag --notes-file body.md)
           if [ '${{ needs.version.outputs.prerelease }}' = 'true' ]; then flags+=(--prerelease); fi
