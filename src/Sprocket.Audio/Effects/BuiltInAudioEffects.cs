@@ -23,6 +23,10 @@ public static class BuiltInAudioEffects
         EffectTypeIds.AudioCompressor => new CompressorEffect(),
         EffectTypeIds.AudioReverb => new ReverbEffect(),
         EffectTypeIds.AudioStudioReverb => new StudioReverbEffect(),
+        EffectTypeIds.AudioDelayDigital => new DigitalDelayEffect(),
+        EffectTypeIds.AudioDelayTape => new TapeDelayEffect(),
+        EffectTypeIds.AudioDelayMultiTap => new MultiTapDelayEffect(),
+        EffectTypeIds.AudioDelayStereo => new StereoDelayEffect(),
         _ => null,
     };
 }

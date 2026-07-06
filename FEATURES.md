@@ -166,6 +166,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Loudness normalization (clip / track / master to LUFS target) | MixerView.cs; `NormalizeSelectedClip` | — | ❌ |
 | Audio effects: Gain/Pan, Parametric EQ, Compressor, Reverb (Lite) | Sprocket.Audio/Effects/*.cs; EffectCatalog.cs | — | ❌ |
 | Studio Reverb (Dattorro plate/hall; presets Room–Cathedral–Ambient Bloom via Inspector preset picker) | Sprocket.Audio/Effects/StudioReverbEffect.cs; EffectCatalog.cs | — | ❌ |
+| Delay effects: Digital, Tape (wow/flutter + saturation), Multi-Tap (8 taps), Stereo (Ping Pong) | Sprocket.Audio/Effects/{DigitalDelay,TapeDelay,MultiTapDelay,StereoDelay}Effect.cs; EffectCatalog.cs | — | ❌ |
 | Freeze / Unfreeze Clip Audio (pre-render heavy audio chains; Sequence menu) | MainWindow.axaml.cs `UnfreezeClipAudio`; RenderCacheService.cs | — | ❌ |
 
 ## 9. Export & delivery

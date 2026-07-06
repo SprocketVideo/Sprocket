@@ -3191,6 +3191,26 @@ Tags reference the [UI.md §4 checklist](UI.md).
       Extend `AudioEffectsTests`/`AudioMixerChainTests` (steady-state allocation-free assertion,
       pass-through/bypass, chain ordering with existing effects) the same way step-31's four
       built-ins were covered.
+    - **✅ DONE (`Sprocket.Core/Model/{EffectInstance,EffectCatalog}` + `Sprocket.Audio/Effects/{DelayLine,
+      DigitalDelayEffect,TapeDelayEffect,MultiTapDelayEffect,StereoDelayEffect,BuiltInAudioEffects}`;
+      30 new tests — Audio +24 (`DelayEffectsTests` + 2 `AudioMixerChainTests`), Core +5
+      (`EffectCatalogTests`), Persistence +1; full suite **1261 green** (Core 355, Media 43, Render 123,
+      Audio 105, Playback 56, Export 101, Persistence 116, Plugins 10, Mcp 65, App 287); clean build
+      (0 warnings).)** Four ids under `builtin.audio.delay.{digital,tape,multitap,stereo}`, registered in
+      `EffectCatalog` under `EffectCategory.Audio` — they appear in the Effects browser / audio add-effect
+      flow and serialize through the existing `EffectInstance` JSON (additive, no schema bump) with **zero
+      App/mixer changes** (the chain executor and catalog-driven UI are generic over ids). All four share a
+      once-allocated `DelayLine` ring buffer (2 s ceiling) and the `Mix = 0` exact-pass-through convention;
+      feedback clamps to 0.98 so the loop always decays. Delay time is **ms only** per the step's note
+      (no tempo model yet). Digital: high-cut one-pole in the feedback path, bypassed at the 20 kHz
+      ceiling for bit-clean repeats. Tape: fixed 5 kHz repeat low-pass + `tanh(kx)/k` soft saturation
+      (unity small-signal gain) in the feedback path; wow (≤4 ms) + flutter (×6.3 rate, ⅛ depth) as
+      deterministic sine LFOs of a sample counter — no RNG, bit-reproducible run-to-run. Multi-Tap:
+      8 taps (enable/time/level/pan × 8 + mix = 33 typed descriptors; the generic Inspector renders all
+      rows — the compact custom tap-grid section is the **flagged UI follow-up** the step anticipated),
+      mono-summed line, constant-power per-tap pan, no feedback. Stereo: independent L/R lines, shared
+      feedback, Ping Pong toggle cross-feeding repeats into the opposite channel by Cross-Feed (1 = the
+      classic full bounce; off = fully independent dual mono).
 
 47. **Noise Gate audio effect.** A new built-in `IAudioEffect` in `Sprocket.Audio/Effects` alongside
     `CompressorEffect`/`ReverbEffect`/the step-46 delays, registered through the same step-31 audio

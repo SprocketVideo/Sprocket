@@ -177,6 +177,49 @@ public class AudioMixerChainTests
     }
 
     [Fact]
+    public void Delay_Echo_Rings_Into_The_Next_Contiguous_Buffer()
+    {
+        // A digital delay on the sequence bus (PLAN.md step 46): a 0.05 s clip's content echoes back 75 ms
+        // later — inside the NEXT sequential buffer, after the source has gone silent — because the chain's
+        // delay-line state persists across contiguous MixInto calls, like the reverb tail above.
+        var track = new AudioTrack { Name = "A" };
+        track.Clips.Add(new Clip(A, Timecode.Zero, Timecode.FromSamples(2400, Rate), Timecode.Zero));
+        Project project = ProjectWith(track);
+        project.Timeline.AudioEffects.Add(new EffectInstance(EffectTypeIds.AudioDelayDigital)
+            .Set(EffectParamNames.DelayMs, 75.0)
+            .Set(EffectParamNames.Feedback, 0.5)
+            .Set(EffectParamNames.Mix, 1.0));
+        using AudioMixer mixer = MixerFor((A, 0.9f));
+
+        float[] first = Mix(mixer, project, 2400, Timecode.Zero); // fully wet: the echo hasn't arrived yet
+        Assert.All(first, s => Assert.Equal(0f, s, 0.0001));
+        float[] second = Mix(mixer, project, 2400, Timecode.FromSamples(2400, Rate));
+        // The echo of the clip's 0–0.05 s content lands at 0.075–0.125 s: the second half of this buffer.
+        Assert.All(second.AsSpan(0, 1200 * Channels).ToArray(), s => Assert.Equal(0f, s, 0.0001));
+        Assert.Contains(second.AsSpan(1200 * Channels).ToArray(), s => Math.Abs(s) > 0.5f);
+    }
+
+    [Fact]
+    public void Delay_Orders_With_Existing_Chain_Stages()
+    {
+        // Gain (-6 dB) BEFORE the delay: the echo carries the attenuated level — chain order is the list
+        // order, delays composing with the step-31 built-ins like any other stage.
+        var track = new AudioTrack { Name = "A" };
+        track.Clips.Add(new Clip(A, Timecode.Zero, Timecode.FromSamples(2400, Rate), Timecode.Zero));
+        Project project = ProjectWith(track);
+        project.Timeline.AudioEffects.Add(Gain(-6.0206));
+        project.Timeline.AudioEffects.Add(new EffectInstance(EffectTypeIds.AudioDelayDigital)
+            .Set(EffectParamNames.DelayMs, 25.0)
+            .Set(EffectParamNames.Feedback, 0.0)
+            .Set(EffectParamNames.Mix, 1.0));
+        using AudioMixer mixer = MixerFor((A, 0.8f));
+
+        float[] buffer = Mix(mixer, project, 4800, Timecode.Zero);
+        // Echo at 25 ms (sample 1200) of the halved 0.8 source: 0.4.
+        Assert.Equal(0.4f, buffer[1200 * Channels], 0.005);
+    }
+
+    [Fact]
     public void Fast_Path_Without_Chains_Is_Unchanged()
     {
         // No chains anywhere → the combined clip × track gain ramp sums exactly as before step 31.

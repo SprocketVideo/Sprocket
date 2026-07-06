@@ -128,6 +128,39 @@ public static class EffectTypeIds
     public const string AudioStudioReverb = "builtin.audio.reverb.studio";
 
     /// <summary>
+    /// Digital Delay (PLAN.md step 46): the clean baseline feedback delay — a single sample-accurate delay
+    /// line with feedback and a high-cut in the feedback path so repeats can darken. Parameters:
+    /// <see cref="EffectParamNames.DelayMs"/>, <see cref="EffectParamNames.Feedback"/>,
+    /// <see cref="EffectParamNames.HighCutHz"/>, <see cref="EffectParamNames.Mix"/>.
+    /// </summary>
+    public const string AudioDelayDigital = "builtin.audio.delay.digital";
+
+    /// <summary>
+    /// Tape Delay (PLAN.md step 46): the feedback-delay core plus tape coloration — soft saturation and a
+    /// fixed gentle low-pass in the feedback path, and deterministic wow &amp; flutter delay-time modulation.
+    /// Parameters: <see cref="EffectParamNames.DelayMs"/>, <see cref="EffectParamNames.Feedback"/>,
+    /// <see cref="EffectParamNames.WowFlutterDepth"/>/<see cref="EffectParamNames.WowFlutterRateHz"/>,
+    /// <see cref="EffectParamNames.Drive"/>, <see cref="EffectParamNames.Mix"/>.
+    /// </summary>
+    public const string AudioDelayTape = "builtin.audio.delay.tape";
+
+    /// <summary>
+    /// Multi-Tap Delay (PLAN.md step 46): up to <see cref="EffectParamNames.MultiTapCount"/> independent taps,
+    /// each with its own enable / delay time / level / pan (<see cref="EffectParamNames.TapEnable"/> …),
+    /// summed into the output — rhythmic echo patterns from one instance. Plus <see cref="EffectParamNames.Mix"/>.
+    /// </summary>
+    public const string AudioDelayMultiTap = "builtin.audio.delay.multitap";
+
+    /// <summary>
+    /// Stereo Delay (PLAN.md step 46): independent left/right delay times with shared feedback and a
+    /// Ping Pong mode that cross-feeds each channel's repeats into the opposite channel. Parameters:
+    /// <see cref="EffectParamNames.LeftTimeMs"/>/<see cref="EffectParamNames.RightTimeMs"/>,
+    /// <see cref="EffectParamNames.Feedback"/>, <see cref="EffectParamNames.PingPong"/>,
+    /// <see cref="EffectParamNames.CrossFeed"/>, <see cref="EffectParamNames.Mix"/>.
+    /// </summary>
+    public const string AudioDelayStereo = "builtin.audio.delay.stereo";
+
+    /// <summary>
     /// Whether an effect type id names an <b>audio</b> chain stage (PLAN.md step 31). The render graph uses
     /// this to split a clip's single effect stack: audio ids feed the mixer's DSP chain, everything else feeds
     /// the video shader chain (where unknown ids pass through). Built-in audio effects share the
@@ -373,6 +406,71 @@ public static class EffectParamNames
     /// <summary>High-frequency tail damping in [0, 1] (0 = bright tail, 1 = dark) —
     /// <see cref="EffectTypeIds.AudioStudioReverb"/>.</summary>
     public const string HighDamp = "highDamp";
+
+    // ── Delay family (PLAN.md step 46). ──
+    /// <summary>Delay time in milliseconds — <see cref="EffectTypeIds.AudioDelayDigital"/> and
+    /// <see cref="EffectTypeIds.AudioDelayTape"/>. (Note-synced divisions await a project tempo model.)</summary>
+    public const string DelayMs = "delayMs";
+
+    /// <summary>Feedback amount in [0, 1] (repeat-to-repeat level; the DSP clamps below unity so the loop
+    /// always decays) — the step-46 delays.</summary>
+    public const string Feedback = "feedback";
+
+    /// <summary>Feedback-path high-cut corner in Hz (repeats darken with each pass; at the 20 kHz ceiling the
+    /// filter is bypassed for a bit-clean repeat) — <see cref="EffectTypeIds.AudioDelayDigital"/>.</summary>
+    public const string HighCutHz = "highCutHz";
+
+    /// <summary>Wow &amp; flutter depth in [0, 1] (delay-time modulation; deterministic LFOs, no RNG) —
+    /// <see cref="EffectTypeIds.AudioDelayTape"/>.</summary>
+    public const string WowFlutterDepth = "wowFlutterDepth";
+
+    /// <summary>Wow rate in Hz (flutter runs at a fixed multiple above it) —
+    /// <see cref="EffectTypeIds.AudioDelayTape"/>.</summary>
+    public const string WowFlutterRateHz = "wowFlutterRateHz";
+
+    /// <summary>Tape saturation amount in [0, 1] (soft-clip drive in the feedback path) —
+    /// <see cref="EffectTypeIds.AudioDelayTape"/>.</summary>
+    public const string Drive = "drive";
+
+    /// <summary>Left-channel delay time in milliseconds — <see cref="EffectTypeIds.AudioDelayStereo"/>.</summary>
+    public const string LeftTimeMs = "leftTimeMs";
+
+    /// <summary>Right-channel delay time in milliseconds — <see cref="EffectTypeIds.AudioDelayStereo"/>.</summary>
+    public const string RightTimeMs = "rightTimeMs";
+
+    /// <summary>Ping Pong mode toggle (≥ 0.5 = on): each channel's repeats cross-feed into the opposite
+    /// channel — <see cref="EffectTypeIds.AudioDelayStereo"/>.</summary>
+    public const string PingPong = "pingPong";
+
+    /// <summary>Cross-feed amount in [0, 1] (how much of each repeat crosses channels when Ping Pong is on;
+    /// 1 = the classic full bounce) — <see cref="EffectTypeIds.AudioDelayStereo"/>.</summary>
+    public const string CrossFeed = "crossFeed";
+
+    /// <summary>The fixed tap cap of the Multi-Tap Delay (PLAN.md step 46) — matches typical DAW
+    /// multi-tap plugins.</summary>
+    public const int MultiTapCount = 8;
+
+    /// <summary>Per-tap enable toggles (≥ 0.5 = on), <c>tap1Enable</c> … <c>tap8Enable</c> —
+    /// <see cref="EffectTypeIds.AudioDelayMultiTap"/>. Indexed 0-based; precomputed so per-block DSP
+    /// parameter lookups allocate nothing.</summary>
+    public static readonly IReadOnlyList<string> TapEnable = BuildTapNames("Enable");
+
+    /// <summary>Per-tap delay times in milliseconds, <c>tap1TimeMs</c> … — <see cref="EffectTypeIds.AudioDelayMultiTap"/>.</summary>
+    public static readonly IReadOnlyList<string> TapTimeMs = BuildTapNames("TimeMs");
+
+    /// <summary>Per-tap levels in [0, 1], <c>tap1Level</c> … — <see cref="EffectTypeIds.AudioDelayMultiTap"/>.</summary>
+    public static readonly IReadOnlyList<string> TapLevel = BuildTapNames("Level");
+
+    /// <summary>Per-tap pans in [-1, 1], <c>tap1Pan</c> … — <see cref="EffectTypeIds.AudioDelayMultiTap"/>.</summary>
+    public static readonly IReadOnlyList<string> TapPan = BuildTapNames("Pan");
+
+    private static string[] BuildTapNames(string suffix)
+    {
+        var names = new string[MultiTapCount];
+        for (int i = 0; i < MultiTapCount; i++)
+            names[i] = $"tap{i + 1}{suffix}";
+        return names;
+    }
 }
 
 /// <summary>

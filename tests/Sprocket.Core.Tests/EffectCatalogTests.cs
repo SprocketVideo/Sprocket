@@ -185,6 +185,84 @@ public class EffectCatalogTests
         Assert.Empty(EffectCatalog.Find(EffectTypeIds.Brightness)!.Presets);
     }
 
+    // ── Step 46: the delay family (Digital / Tape / Multi-Tap / Stereo) ────────────────────────────────
+
+    [Fact]
+    public void Delay_Family_Is_Registered_As_Audio_Effects()
+    {
+        foreach (string id in new[]
+        {
+            EffectTypeIds.AudioDelayDigital, EffectTypeIds.AudioDelayTape,
+            EffectTypeIds.AudioDelayMultiTap, EffectTypeIds.AudioDelayStereo,
+        })
+        {
+            EffectDescriptor? d = EffectCatalog.Find(id);
+            Assert.NotNull(d);
+            Assert.Equal(EffectCategory.Audio, d!.Category);
+            Assert.True(EffectTypeIds.IsAudio(id)); // routes to the mixer, not the shaders
+        }
+        Assert.Equal("Digital Delay", EffectCatalog.DisplayName(EffectTypeIds.AudioDelayDigital));
+        Assert.Equal("Tape Delay", EffectCatalog.DisplayName(EffectTypeIds.AudioDelayTape));
+        Assert.Equal("Multi-Tap Delay", EffectCatalog.DisplayName(EffectTypeIds.AudioDelayMultiTap));
+        Assert.Equal("Stereo Delay", EffectCatalog.DisplayName(EffectTypeIds.AudioDelayStereo));
+    }
+
+    [Fact]
+    public void Digital_Delay_Exposes_Time_Feedback_HighCut_Mix()
+    {
+        string[] names = EffectCatalog.Find(EffectTypeIds.AudioDelayDigital)!.Parameters.Select(p => p.Name).ToArray();
+        Assert.Equal(
+            new[] { EffectParamNames.DelayMs, EffectParamNames.Feedback, EffectParamNames.HighCutHz, EffectParamNames.Mix },
+            names);
+    }
+
+    [Fact]
+    public void Tape_Delay_Exposes_The_Step46_Parameters()
+    {
+        string[] names = EffectCatalog.Find(EffectTypeIds.AudioDelayTape)!.Parameters.Select(p => p.Name).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                EffectParamNames.DelayMs, EffectParamNames.Feedback, EffectParamNames.WowFlutterDepth,
+                EffectParamNames.WowFlutterRateHz, EffectParamNames.Drive, EffectParamNames.Mix,
+            },
+            names);
+    }
+
+    [Fact]
+    public void MultiTap_Delay_Exposes_Eight_Taps_Of_Enable_Time_Level_Pan_Plus_Mix()
+    {
+        EffectDescriptor multiTap = EffectCatalog.Find(EffectTypeIds.AudioDelayMultiTap)!;
+        Assert.Equal(EffectParamNames.MultiTapCount * 4 + 1, multiTap.Parameters.Count);
+        for (int i = 0; i < EffectParamNames.MultiTapCount; i++)
+        {
+            Assert.Equal(EffectParamNames.TapEnable[i], multiTap.Parameters[i * 4 + 0].Name);
+            Assert.Equal(EffectParamNames.TapTimeMs[i], multiTap.Parameters[i * 4 + 1].Name);
+            Assert.Equal(EffectParamNames.TapLevel[i], multiTap.Parameters[i * 4 + 2].Name);
+            Assert.Equal(EffectParamNames.TapPan[i], multiTap.Parameters[i * 4 + 3].Name);
+        }
+        Assert.Equal(EffectParamNames.Mix, multiTap.Parameters[^1].Name);
+
+        // Default pattern: the first two taps audible, the rest staged but disabled.
+        EffectInstance instance = multiTap.CreateInstance();
+        Assert.Equal(1.0, instance.Parameters[EffectParamNames.TapEnable[0]].Evaluate(Sprocket.Core.Timing.Timecode.Zero));
+        Assert.Equal(1.0, instance.Parameters[EffectParamNames.TapEnable[1]].Evaluate(Sprocket.Core.Timing.Timecode.Zero));
+        Assert.Equal(0.0, instance.Parameters[EffectParamNames.TapEnable[2]].Evaluate(Sprocket.Core.Timing.Timecode.Zero));
+    }
+
+    [Fact]
+    public void Stereo_Delay_Exposes_The_Step46_Parameters()
+    {
+        string[] names = EffectCatalog.Find(EffectTypeIds.AudioDelayStereo)!.Parameters.Select(p => p.Name).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                EffectParamNames.LeftTimeMs, EffectParamNames.RightTimeMs, EffectParamNames.Feedback,
+                EffectParamNames.PingPong, EffectParamNames.CrossFeed, EffectParamNames.Mix,
+            },
+            names);
+    }
+
     // ── Step 41: heavy-chain traits (freeze hints) ─────────────────────────────────────────────────────
 
     [Fact]

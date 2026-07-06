@@ -360,7 +360,81 @@ public static class EffectCatalog
                 }),
             ],
         },
+
+        // ── Delay family (PLAN.md step 46) — separate purpose-built effects, the DAW convention. ──
+        new EffectDescriptor(
+            EffectTypeIds.AudioDelayDigital,
+            "Digital Delay",
+            EffectCategory.Audio,
+            "Clean feedback delay with a high-cut in the feedback path.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.DelayMs, "Time", 500.0, 1.0, 2000.0, 1.0, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.HighCutHz, "High Cut", 8000.0, 200.0, 20000.0, 100.0, "Hz"),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+            ]),
+
+        new EffectDescriptor(
+            EffectTypeIds.AudioDelayTape,
+            "Tape Delay",
+            EffectCategory.Audio,
+            "Feedback delay with tape coloration: saturation, darkening repeats, wow & flutter.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.DelayMs, "Time", 500.0, 1.0, 2000.0, 1.0, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.4, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.WowFlutterDepth, "Wow / Flutter", 0.25, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.WowFlutterRateHz, "Wow Rate", 1.0, 0.1, 10.0, 0.1, "Hz"),
+                new EffectParameterDescriptor(EffectParamNames.Drive, "Saturation", 0.3, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+            ]),
+
+        new EffectDescriptor(
+            EffectTypeIds.AudioDelayMultiTap,
+            "Multi-Tap Delay",
+            EffectCategory.Audio,
+            "Up to eight independent taps, each with its own time, level, and pan.",
+            MultiTapParameters()),
+
+        new EffectDescriptor(
+            EffectTypeIds.AudioDelayStereo,
+            "Stereo Delay",
+            EffectCategory.Audio,
+            "Independent left/right delay times with a Ping Pong cross-feed mode.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.LeftTimeMs, "Left Time", 375.0, 1.0, 2000.0, 1.0, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.RightTimeMs, "Right Time", 500.0, 1.0, 2000.0, 1.0, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.PingPong, "Ping Pong", 0.0, 0.0, 1.0, 1.0),
+                new EffectParameterDescriptor(EffectParamNames.CrossFeed, "Cross-Feed", 1.0, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+            ]),
     ];
+
+    /// <summary>
+    /// The Multi-Tap Delay's per-tap parameter grid (PLAN.md step 46): enable / time / level / pan ×
+    /// <see cref="EffectParamNames.MultiTapCount"/> taps, then Mix. Defaults give two audible taps (an
+    /// eighth-note-ish 150/300 ms pattern) with the rest staged at later times, disabled. The Inspector's
+    /// generic one-row-per-parameter layout renders all 33 rows — a compact custom tap-grid section is a
+    /// flagged UI follow-up, not a blocker (per the step-46 note).
+    /// </summary>
+    private static EffectParameterDescriptor[] MultiTapParameters()
+    {
+        var parameters = new EffectParameterDescriptor[EffectParamNames.MultiTapCount * 4 + 1];
+        for (int i = 0; i < EffectParamNames.MultiTapCount; i++)
+        {
+            int tap = i + 1;
+            parameters[i * 4 + 0] = new EffectParameterDescriptor(
+                EffectParamNames.TapEnable[i], $"Tap {tap}", i < 2 ? 1.0 : 0.0, 0.0, 1.0, 1.0);
+            parameters[i * 4 + 1] = new EffectParameterDescriptor(
+                EffectParamNames.TapTimeMs[i], $"Tap {tap} Time", 150.0 * tap, 1.0, 2000.0, 1.0, "ms");
+            parameters[i * 4 + 2] = new EffectParameterDescriptor(
+                EffectParamNames.TapLevel[i], $"Tap {tap} Level", Math.Round(1.0 - i * 0.1, 2), 0.0, 1.0, 0.05);
+            parameters[i * 4 + 3] = new EffectParameterDescriptor(
+                EffectParamNames.TapPan[i], $"Tap {tap} Pan", 0.0, -1.0, 1.0, 0.05);
+        }
+        parameters[^1] = new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05);
+        return parameters;
+    }
 
     // Plugin-registered descriptors (PLAN.md step 33). Swapped atomically as a whole array so readers
     // (including the render graph's per-frame IsAudio routing) never see a partially-mutated list.
