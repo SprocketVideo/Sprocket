@@ -742,6 +742,32 @@ detection is absent or wrong, the profile is a **manual per-clip override** in t
 for free (§12); the new `ProbedMediaInfo` color fields are additive (nullable/defaulted, no schema
 bump).
 
+**Preset taxonomy — technical transforms vs. creative looks.** Any preset/look feature built on
+this pipeline must respect a **two-tier taxonomy**, mirroring how the leading NLEs separate the
+same concepts (Premiere's Lumetri *Input LUT* under Basic Correction vs. *Look* under Creative;
+Final Cut's auto-applied *Camera LUT* vs. the Custom LUT effect; Resolve's input color space /
+input LUT vs. node LUTs and PowerGrades):
+
+1. **Technical presets (input transforms / normalization).** Camera-log → working-space
+   conversions — the `builtin.colortransform` effect described above. Properties: **corrective,
+   not creative**; **auto-applied on import** when the probe detects a profile (manual per-clip
+   override in the Inspector otherwise); **prepended** (index 0) so they always run before any
+   grade; **one per clip**; parameterised only by source profile (`ColorProfiles.All`,
+   append-only — new camera vendors extend this list, nothing else). These are *the existing
+   D-Log support* and its future siblings (S-Log, C-Log, V-Log, …).
+2. **Creative presets (looks / grading presets).** Stylistic choices applied **after**
+   normalization, when the clip is already in the working space (Rec.709 today): saved parameter
+   bundles over the grading effects (the `EffectDescriptor.Presets` surface, and — for
+   multi-effect looks — saved effect *stacks*), and later creative `.cube` LUTs sampled through
+   the **same packed-LUT mechanism** above (no new machinery). These are optional, freely
+   stacked/reordered within the grade, and never auto-applied.
+
+The boundary rule, in both directions: **camera-conversion LUTs are never offered as "looks"**
+(a future looks browser lists tier 2 only — re-shipping D-Log→Rec.709 as a look would duplicate
+step 37 and invite double application), and **looks never assume log input** (they are authored
+and applied against normalized working-space footage; normalization is tier 1's job). A future
+grading-presets feature therefore extends tier 2 exclusively and leaves tier 1 untouched.
+
 **Export & scopes.** Export **bakes** the transform in by default (it is an ordinary effect-chain
 stage in the same graph) or, as a per-export toggle, **passes through** the original log encoding
 for downstream grading. Waveform/monitor scopes (PLAN step 17) gain a **log ↔ transformed** toggle

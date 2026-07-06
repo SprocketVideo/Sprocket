@@ -3431,6 +3431,20 @@ packaging stabilizes; the prerequisite work is: bundle `avdevice`, bind device e
 (~6 imports, listed in `Native/FUTURE_BINDINGS.md`), a `CaptureService` behind `IVideoFrameFeed`, and
 the capture workspace.
 
+**Future step (unscheduled): grading presets / creative looks.** A looks browser (one-click
+creative grades) must follow the **two-tier preset taxonomy** now recorded in
+[ARCHITECTURE §18](ARCHITECTURE.md): **tier 1 — technical presets** are the camera-log →
+working-space input transforms that already ship as step 37's `builtin.colortransform`
+(auto-applied on import, index 0, `ColorProfiles.All` append-only) and are *not* part of this
+feature; **tier 2 — creative looks** are what the feature adds — saved parameter bundles over the
+step-16/34 grading effects via the existing `EffectDescriptor.Presets` surface (step 41), saved
+multi-effect *stacks* for compound looks, and creative `.cube` LUTs sampled through step 37's
+packed-LUT stage (no new render machinery). The scope guard: the looks browser lists tier 2 only —
+camera-conversion LUTs (D-Log→Rec.709 et al.) never appear as looks (that would duplicate step 37
+and invite double application), and looks are authored/applied against normalized Rec.709 footage,
+never raw log. This mirrors Premiere (Input LUT vs. Creative Look), Final Cut (Camera LUT vs.
+Custom LUT effect), and Resolve (input color space vs. node LUTs / PowerGrades).
+
 Open product questions (e.g. the mockup's user-avatar / account affordance, full panel docking)
 are tracked in [UI.md §5](UI.md).
 
