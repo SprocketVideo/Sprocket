@@ -39,6 +39,7 @@ internal sealed class FakeEditorSession : IEditorSession, IEditorApi
     public int NewProjectCount { get; private set; }
     public string? ExportedPath { get; private set; }
     public bool ExportVideoOnly { get; private set; }
+    public string? ExportAudioFormat { get; private set; }
     public (long? In, long? Out) ExportRange { get; private set; }
     public bool ExportCancelRequested { get; private set; }
 
@@ -143,8 +144,23 @@ internal sealed class FakeEditorSession : IEditorSession, IEditorApi
             return McpResult<bool>.Fail("the timeline is empty — nothing to export.");
         ExportedPath = outputPath;
         ExportVideoOnly = videoOnly;
+        ExportAudioFormat = null;
         ExportRange = (rangeInTicks, rangeOutTicks);
         // The fake completes instantly — the real App runs VideoExporter on a background thread.
+        ExportStatus = new McpExportStatus(false, 1.0, outputPath, true, false, null);
+        return McpResult<bool>.Success(true);
+    }
+
+    public McpResult<bool> StartAudioExport(string outputPath, string audioFormat, long? rangeInTicks, long? rangeOutTicks)
+    {
+        if (DurationTicks <= 0)
+            return McpResult<bool>.Fail("the timeline is empty — nothing to export.");
+        string fmt = (audioFormat ?? "").Trim().ToLowerInvariant();
+        if (fmt is not ("wav" or "pcm" or "wavpcm" or "flac" or "mp3" or "aac" or "m4a" or "opus"))
+            return McpResult<bool>.Fail($"unknown audio format '{audioFormat}'.");
+        ExportedPath = outputPath;
+        ExportAudioFormat = fmt;
+        ExportRange = (rangeInTicks, rangeOutTicks);
         ExportStatus = new McpExportStatus(false, 1.0, outputPath, true, false, null);
         return McpResult<bool>.Success(true);
     }

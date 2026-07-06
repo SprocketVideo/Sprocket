@@ -48,7 +48,7 @@ public class SprocketToolsTests
             "begin_edit_group", "end_edit_group", "cancel_edit_group",
             // Session tools
             "open_project", "close_project", "new_project", "save_project_as",
-            "export_video", "get_export_status", "cancel_export",
+            "export_video", "export_audio", "get_export_status", "cancel_export",
             "stop", "go_to_start", "go_to_end", "step_frames",
         ];
         Assert.Equal(expected.Length, names.Count);

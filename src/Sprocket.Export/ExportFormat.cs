@@ -13,6 +13,12 @@ public enum ExportVideoCodec { H264, Hevc, Av1, Vp9, Mpeg2, ProRes }
 /// <summary>The audio codec used in the exported stream.</summary>
 public enum ExportAudioCodec { Aac, Mp3, Pcm, Flac, Ac3, Opus }
 
+/// <summary>An <b>audio-only</b> delivery target (PLAN.md step 44) — a self-contained (muxer × codec × extension)
+/// choice for exporting the sequence's master mix as sound rather than muxing audio inside a movie container. Each
+/// value fixes its own container and codec (the common NLE audio-render targets: WAV/PCM, FLAC, MP3, AAC/M4A, Opus),
+/// so — unlike the video <see cref="ExportFormat"/> matrix — there are no invalid combinations to guard.</summary>
+public enum ExportAudioFormat { WavPcm, Flac, Mp3, Aac, Opus }
+
 /// <summary>A coarse quality tier for constant-quality (CRF) encoding, mapped to a per-codec CRF value. Explicit
 /// bit rates on <see cref="ExportOptions"/> override this.</summary>
 public enum ExportQuality { High, Medium, Low }
@@ -59,6 +65,19 @@ public readonly record struct VideoCodecInfo(
 public readonly record struct AudioCodecInfo(
     ExportAudioCodec Codec, string EncoderName, bool Lossless, string DisplayName);
 
+/// <summary>Static metadata for one audio-only delivery target (PLAN.md step 44): its FFmpeg muxer, file extension,
+/// MIME type, the encoder it writes, whether that encoder is lossless (a target bit rate is meaningless), and a label.</summary>
+/// <param name="Format">The enum value this describes.</param>
+/// <param name="MuxerName">The FFmpeg muxer name passed to <c>avformat_alloc_output_context2</c>.</param>
+/// <param name="Extension">The file extension including the dot (e.g. <c>".wav"</c>).</param>
+/// <param name="MimeType">The file's MIME type (for the save dialog's file-type filter).</param>
+/// <param name="EncoderName">The FFmpeg audio encoder name (<c>avcodec_find_encoder_by_name</c>).</param>
+/// <param name="Lossless">Whether the encoder is lossless (a target bit rate is meaningless).</param>
+/// <param name="DisplayName">A human label for the UI.</param>
+public readonly record struct AudioFormatInfo(
+    ExportAudioFormat Format, string MuxerName, string Extension, string MimeType,
+    string EncoderName, bool Lossless, string DisplayName);
+
 /// <summary>
 /// The container × video-codec × audio-codec chosen for an export (PLAN.md step 27). <c>default</c> is the most
 /// compatible MP4 / H.264 / AAC, so <c>default(ExportOptions)</c> reproduces the step-8 behaviour exactly.
@@ -93,17 +112,26 @@ public readonly record struct ExportFormat(
 /// <param name="Resolution">An explicit output resolution, or <see langword="null"/> to keep the sequence's own
 /// (still capped at 4K on export).</param>
 /// <param name="FrameRate">An explicit output frame rate, or <see langword="null"/> to keep the sequence's own.</param>
+/// <param name="AudioFormat">When set, the preset is an <b>audio-only</b> delivery (PLAN.md step 44): the master mix
+/// is written in this format and the video-side fields above are ignored. <see langword="null"/> = a normal
+/// video/AV preset.</param>
 public readonly record struct ExportPreset(
     string Name,
     ExportFormat Format,
     ExportQuality Quality,
     Resolution? Resolution = null,
-    Rational? FrameRate = null)
+    Rational? FrameRate = null,
+    ExportAudioFormat? AudioFormat = null)
 {
-    /// <summary>The <see cref="ExportOptions"/> this preset applies: its format, quality, and any resolution /
-    /// frame-rate override. Burn-ins and handles are per-export review options, not part of a delivery preset.</summary>
-    public ExportOptions ToOptions() => new(
-        Format: Format, Quality: Quality, Resolution: Resolution, FrameRate: FrameRate);
+    /// <summary>Whether this is an audio-only delivery preset (PLAN.md step 44).</summary>
+    public bool IsAudioOnly => AudioFormat is not null;
+
+    /// <summary>The <see cref="ExportOptions"/> this preset applies: for a normal preset, its format, quality, and any
+    /// resolution / frame-rate override; for an audio-only preset (PLAN.md step 44), just the audio format. Burn-ins
+    /// and handles are per-export review options, not part of a delivery preset.</summary>
+    public ExportOptions ToOptions() => AudioFormat is { } af
+        ? new ExportOptions(AudioFormat: af)
+        : new ExportOptions(Format: Format, Quality: Quality, Resolution: Resolution, FrameRate: FrameRate);
 }
 
 /// <summary>
@@ -141,6 +169,18 @@ public static class ExportCodecs
         new(ExportAudioCodec.Flac, "flac",        Lossless: true,  "FLAC"),
         new(ExportAudioCodec.Ac3,  "ac3",         Lossless: false, "Dolby Digital (AC-3)"),
         new(ExportAudioCodec.Opus, "libopus",     Lossless: false, "Opus"),
+    ];
+
+    // Audio-only delivery targets (PLAN.md step 44), most-common first. Each fixes its own muxer + encoder:
+    //   WAV → pcm_s16le (the universal 16-bit interchange), FLAC / MP3 / AAC-in-M4A (the "ipod" muxer is FFmpeg's
+    //   canonical audio-only MP4/M4A writer) / Opus (native .opus). All are in the bundled BtbN gpl build.
+    private static readonly AudioFormatInfo[] AudioFormats =
+    [
+        new(ExportAudioFormat.WavPcm, "wav",   ".wav",  "audio/wav",  "pcm_s16le",  Lossless: true,  "Waveform Audio (WAV / PCM)"),
+        new(ExportAudioFormat.Flac,   "flac",  ".flac", "audio/flac", "flac",       Lossless: true,  "FLAC (lossless)"),
+        new(ExportAudioFormat.Mp3,    "mp3",   ".mp3",  "audio/mpeg", "libmp3lame", Lossless: false, "MP3"),
+        new(ExportAudioFormat.Aac,    "ipod",  ".m4a",  "audio/mp4",  "aac",        Lossless: false, "AAC (M4A)"),
+        new(ExportAudioFormat.Opus,   "opus",  ".opus", "audio/opus", "libopus",    Lossless: false, "Opus"),
     ];
 
     // Which video/audio codecs are valid in each container (the standard pairings NLEs offer).
@@ -188,6 +228,13 @@ public static class ExportCodecs
 
     /// <summary>Audio-codec metadata for <paramref name="c"/>.</summary>
     public static AudioCodecInfo Audio(ExportAudioCodec c) => AudioCodecs[(int)c];
+
+    /// <summary>Audio-only delivery targets (PLAN.md step 44), for populating the export dialog's Format list and the
+    /// MCP tool description.</summary>
+    public static IReadOnlyList<AudioFormatInfo> AudioOnlyFormats => AudioFormats;
+
+    /// <summary>Metadata for one audio-only delivery target <paramref name="f"/> (PLAN.md step 44).</summary>
+    public static AudioFormatInfo AudioFormat(ExportAudioFormat f) => AudioFormats[(int)f];
 
     /// <summary>Whether <paramref name="codec"/> is a valid video codec inside <paramref name="container"/>.</summary>
     public static bool Supports(ExportContainer container, ExportVideoCodec codec) =>

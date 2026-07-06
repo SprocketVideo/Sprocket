@@ -32,7 +32,8 @@ public static class ExportPresetStore
         int? Width,
         int? Height,
         int? FrameRateNum,
-        int? FrameRateDen);
+        int? FrameRateDen,
+        ExportAudioFormat? AudioFormat = null); // set → audio-only preset (PLAN.md step 44); additive, older files omit it
 
     /// <summary>Serialises the presets to the persisted JSON form (exposed for testing).</summary>
     public static string Serialize(IReadOnlyList<ExportPreset> presets) =>
@@ -95,12 +96,13 @@ public static class ExportPresetStore
 
     private static PresetDto ToDto(ExportPreset p) => new(
         p.Name, p.Format.Container, p.Format.VideoCodec, p.Format.AudioCodec, p.Quality,
-        p.Resolution?.Width, p.Resolution?.Height, p.FrameRate?.Num, p.FrameRate?.Den);
+        p.Resolution?.Width, p.Resolution?.Height, p.FrameRate?.Num, p.FrameRate?.Den, p.AudioFormat);
 
     private static ExportPreset FromDto(PresetDto d) => new(
         d.Name,
         new ExportFormat(d.Container, d.VideoCodec, d.AudioCodec),
         d.Quality,
         d.Width is { } w && d.Height is { } h ? new Resolution(w, h) : null,
-        d.FrameRateNum is { } n && d.FrameRateDen is { } den && den != 0 ? new Rational(n, den) : null);
+        d.FrameRateNum is { } n && d.FrameRateDen is { } den && den != 0 ? new Rational(n, den) : null,
+        d.AudioFormat);
 }

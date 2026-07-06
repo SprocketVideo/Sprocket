@@ -3008,6 +3008,32 @@ Tags reference the [UI.md §4 checklist](UI.md).
       video stream, audio duration/rate/channels match the selected range, muted/soloed tracks and
       master/track/clip effects are reflected, cancellation removes partial files, and the default
       MP4/H.264/AAC behaviour remains byte-for-byte compatible where already asserted.
+    - **✅ DONE** (`Sprocket.Media/MediaEncoder` (audio-only path) + `Sprocket.Export/{ExportFormat,VideoExporter,
+      ExportPresetStore}` + `Sprocket.App/{Dialogs,MainWindow}` + `Sprocket.Mcp/{IEditorSession,SprocketTools.Session}`
+      + `Sprocket.App/{McpEditorSession,MainWindow}`; 12 new tests — Export +10 (`AudioOnlyExportTests`), Mcp +1
+      (`ExportAudio_Starts…`) & the tool-surface + `export_audio` count). Delivered:
+      - **Model / matrix:** new `ExportAudioFormat` (`WavPcm`/`Flac`/`Mp3`/`Aac`/`Opus`) + `AudioFormatInfo`
+        table in `ExportCodecs` (muxer/extension/MIME/encoder/lossless per target — WAV→`wav`/`pcm_s16le`,
+        FLAC→`flac`, MP3→`mp3`/`libmp3lame`, AAC→`ipod`/`.m4a`/`aac`, Opus→`opus`/`libopus`). `ExportOptions`
+        gained an additive nullable `AudioFormat` (set → audio-only); `default(ExportOptions)` is unchanged
+        (MP4/H.264/AAC). Each audio format is self-consistent, so there is no invalid-combination matrix to guard.
+      - **Encoder:** `MediaEncoder` video stream made optional (nullable video fields + `HasVideo`) with a new
+        `CreateAudioOnly(path, AudioEncoderSettings, muxer, metadata)` factory — no video stream is opened.
+      - **Render path:** `VideoExporter.ExportAudioOnly` reuses the same `AudioMixer` (→ `RenderGraph.PlanAudioBuffer`)
+        the preview / A/V export use, so the file is the exact master mix (muted/disabled tracks + clip/track/master
+        effects reflected). Honours the range + handles, reports progress, observes cancellation, and deletes the
+        partial file on failure — the existing job plumbing. A lossless target ignores the target bit rate.
+      - **UI:** `ExportSettingsDialog`'s Format list now lists the audio-only targets after the video containers;
+        selecting one hides every video-side row (codecs, quality/encoding, resolution/frame-rate, burn-ins, color)
+        and keeps metadata. `ExportPreset` gained a nullable `AudioFormat` so built-in/user presets capture audio-only
+        (additive `PresetDto` field — older files omit it). The save-dialog extension/type filter follows the audio
+        format (`.wav`/`.flac`/`.mp3`/`.m4a`/`.opus`); Export Queue jobs carry it too.
+      - **MCP/API:** new `export_audio(outputPath, format, rangeIn?, rangeOut?)` tool alongside `export_video`, on the
+        same `IEditorSession` marshal + background status/cancel model (`StartAudioExport`); `format` is
+        `wav`/`flac`/`mp3`/`aac`/`opus` (case-insensitive), unknown → error.
+      - **Also (user request):** a **media-created project now always starts at 48 kHz** (`MediaBootstrap.
+        BuildProjectFromMedia`) instead of inheriting the source rate — imported audio at any rate is resampled to
+        the project rate transparently by `AudioSource`, keeping the mix sample-accurate to the master clock.
 
 45. **Channel-aware update checks (notify + direct download link, not self-update).** Tell the user when a
     newer Sprocket build is available without changing the current GitHub release semantics. **Keep alpha /

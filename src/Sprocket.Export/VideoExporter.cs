@@ -50,6 +50,11 @@ namespace Sprocket.Export;
 /// <param name="MetaCopyright">Container <c>copyright</c> metadata tag, or <see langword="null"/>.</param>
 /// <param name="MetaComment">Container <c>comment</c> metadata tag, or <see langword="null"/> to keep the
 /// default "Created with Sprocket" provenance note.</param>
+/// <param name="AudioFormat">When set, the export is <b>audio-only</b> (PLAN.md step 44): the sequence's master mix
+/// is written as sound in this format, with no video stream rendered or muxed. The video-side options
+/// (<see cref="Format"/>'s codecs, <see cref="Resolution"/>, <see cref="FrameRate"/>, <see cref="BurnIns"/>,
+/// <see cref="Acceleration"/>, <see cref="VideoOnly"/>) are ignored; <see langword="null"/> keeps the normal
+/// A/V (or <see cref="VideoOnly"/>) export. Additive — <c>default(ExportOptions)</c> is unchanged (MP4/H.264/AAC).</param>
 public readonly record struct ExportOptions(
     ExportFormat Format = default,
     ExportQuality Quality = ExportQuality.High,
@@ -69,7 +74,8 @@ public readonly record struct ExportOptions(
     string? MetaTitle = null,
     string? MetaAuthor = null,
     string? MetaCopyright = null,
-    string? MetaComment = null);
+    string? MetaComment = null,
+    ExportAudioFormat? AudioFormat = null);
 
 /// <summary>
 /// Renders a <see cref="Project"/> offline to a full-resolution movie in the chosen container/codec matrix
@@ -127,6 +133,15 @@ public static class VideoExporter
         Sequence sequence = sequenceId is { } id
             ? project.GetSequence(id) ?? throw new ArgumentException($"No sequence with id {id} in the project.", nameof(sequenceId))
             : project.ActiveSequence;
+
+        // Audio-only delivery (PLAN.md step 44): render the master mix as sound, no video stream. Takes over the whole
+        // export — the video-side options are ignored — while reusing the range / handles / progress / cancellation
+        // and partial-file cleanup below.
+        if (options.AudioFormat is { } audioFormat)
+        {
+            ExportAudioOnly(project, sequence, outputPath, audioFormat, options, range, progress, cancellationToken);
+            return;
+        }
 
         // `default(ExportOptions)` leaves Channels = 0; treat that as the documented stereo default.
         int channels = options.Channels > 0 ? options.Channels : 2;
@@ -286,6 +301,87 @@ public static class VideoExporter
             // A failed or cancelled export never wrote the MP4 trailer (the moov atom): `MediaEncoder.Finish`
             // writes it, `Dispose` does not. Leaving the file behind hands the caller a full-size but
             // unplayable .mp4, so delete the partial output once the encoder has released its file handle.
+            if (!completed)
+                TryDelete(outputPath);
+        }
+    }
+
+    /// <summary>
+    /// Exports the sequence's master mix as an <b>audio-only</b> file (PLAN.md step 44): reuses
+    /// <see cref="RenderGraph.PlanAudioBuffer"/> via the same <see cref="AudioMixer"/> the preview and A/V export use,
+    /// so the output is bit-for-bit the mix heard in playback and measured by the loudness tools — but never opens a
+    /// video encoder or renders a frame. Honours the export range / handles, reports progress, observes cancellation,
+    /// and deletes a partial file on failure, matching the video export job plumbing.
+    /// </summary>
+    private static void ExportAudioOnly(
+        Project project, Sequence sequence, string outputPath, ExportAudioFormat audioFormat,
+        ExportOptions options, ExportRange? range,
+        IProgress<double>? progress, CancellationToken cancellationToken)
+    {
+        Timeline timeline = sequence.Timeline;
+        Timecode fullDuration = timeline.Duration;
+        if (fullDuration <= Timecode.Zero)
+            throw new ArgumentException("The timeline is empty — nothing to export.", nameof(project));
+
+        Rational timelineFps = timeline.FrameRate;
+        if (timelineFps.Num <= 0 || timelineFps.Den <= 0)
+            throw new ArgumentException("The timeline has no valid frame rate.", nameof(project));
+
+        // Same range + handles resolution as the video path — handles count in the timeline's own frames and are
+        // re-clamped, so a whole-timeline export is unaffected and a slice extends only as far as media allows.
+        ExportRange effectiveRange = (range ?? ExportRange.Whole(fullDuration)).ClampTo(fullDuration);
+        if (options.HandleFrames > 0)
+        {
+            Timecode handle = Timecode.FromFrames(options.HandleFrames, timelineFps);
+            effectiveRange = effectiveRange.WithHandles(handle, handle).ClampTo(fullDuration);
+        }
+
+        Timecode rangeIn = effectiveRange.In;
+        Timecode duration = effectiveRange.Duration;
+        if (duration <= Timecode.Zero)
+            throw new ArgumentException("The export range is empty — nothing to export.", nameof(range));
+
+        int channels = options.Channels > 0 ? options.Channels : 2;
+        int sampleRate = timeline.SampleRate > 0 ? timeline.SampleRate : 48000;
+
+        AudioFormatInfo info = ExportCodecs.AudioFormat(audioFormat);
+        // A lossless target ignores any target bit rate; a lossy one honours an explicit rate (0 → encoder default).
+        long bitRate = info.Lossless ? 0 : options.AudioBitRate;
+        var audio = new AudioEncoderSettings(sampleRate, channels, info.EncoderName, bitRate);
+
+        MediaEncoder? encoder = null;
+        AudioMixer? mixer = null;
+        float[] mixBuffer = [];
+        bool completed = false;
+        try
+        {
+            encoder = MediaEncoder.CreateAudioOnly(outputPath, audio, info.MuxerName, BuildMetadata(options));
+            mixer = new AudioMixer(sampleRate, channels, id => OpenPcmReader(project, id, sampleRate, channels));
+            mixBuffer = new float[encoder.AudioFrameSize * channels];
+
+            long totalSamples = duration.ToSampleIndex(sampleRate);
+            long nextSample = 0;
+            while (nextSample < totalSamples)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                int chunk = (int)Math.Min(encoder.AudioFrameSize, totalSamples - nextSample);
+                Span<float> buffer = mixBuffer.AsSpan(0, chunk * channels);
+                mixer.MixInto(buffer, rangeIn + Timecode.FromSamples(nextSample, sampleRate), project, sequence);
+                encoder.WriteAudioFrame(buffer, nextSample);
+                nextSample += chunk;
+
+                progress?.Report(totalSamples <= 0 ? 1.0 : Math.Clamp((double)nextSample / totalSamples, 0.0, 1.0));
+            }
+
+            encoder.Finish();
+            progress?.Report(1.0);
+            completed = true;
+        }
+        finally
+        {
+            mixer?.Dispose(); // disposes the audio readers it owns
+            encoder?.Dispose();
             if (!completed)
                 TryDelete(outputPath);
         }

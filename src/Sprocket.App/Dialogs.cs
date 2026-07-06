@@ -599,8 +599,18 @@ internal static class ExportSettingsDialog
 
     public static Task<ExportOptions?> Show(Window owner, int sequenceWidth, int sequenceHeight)
     {
+        // The Format list holds the video containers first, then the audio-only delivery targets (PLAN.md step 44):
+        // selecting one of the latter switches the dialog into audio-only mode (the video-side controls hide).
         ExportContainer[] containers = Enum.GetValues<ExportContainer>();
-        ComboBox containerBox = MakeCombo(containers.Select(c => ExportCodecs.Container(c).DisplayName));
+        ExportAudioFormat[] audioFormats = Enum.GetValues<ExportAudioFormat>();
+        int videoFormatCount = containers.Length;
+        ComboBox containerBox = MakeCombo(
+        [
+            .. containers.Select(c => ExportCodecs.Container(c).DisplayName),
+            .. audioFormats.Select(a => "Audio only · " + ExportCodecs.AudioFormat(a).DisplayName),
+        ]);
+        bool IsAudioOnly() => containerBox.SelectedIndex >= videoFormatCount;
+        ExportAudioFormat SelectedAudioFormat() => audioFormats[containerBox.SelectedIndex - videoFormatCount];
         ComboBox videoBox = MakeCombo([]);
         ComboBox audioBox = MakeCombo([]);
         ComboBox qualityBox = MakeCombo(["High (larger file)", "Medium", "Low (smaller file)"]);
@@ -637,8 +647,32 @@ internal static class ExportSettingsDialog
         var videoCodecs = new List<ExportVideoCodec>();
         var audioCodecs = new List<ExportAudioCodec>();
 
+        // The video-side rows (assigned once the controls below are built); audio-only mode (PLAN.md step 44) hides
+        // them. Declared here so the preset / selection handlers defined below can call UpdateAudioOnlyMode.
+        Control[]? videoOnlyControls = null;
+        void UpdateAudioOnlyMode()
+        {
+            if (videoOnlyControls is null)
+                return;
+            bool audio = IsAudioOnly();
+            foreach (Control c in videoOnlyControls)
+                c.IsVisible = !audio;
+        }
+
         void RepopulateCodecs()
         {
+            if (IsAudioOnly())
+            {
+                // Audio-only: the codec is fixed by the chosen audio format, so the video/audio codec pickers are
+                // cleared (and hidden by UpdateAudioOnlyMode).
+                videoCodecs = [];
+                audioCodecs = [];
+                videoBox.ItemsSource = new List<string>();
+                audioBox.ItemsSource = new List<string>();
+                videoBox.SelectedIndex = -1;
+                audioBox.SelectedIndex = -1;
+                return;
+            }
             ExportContainer container = containers[Math.Max(0, containerBox.SelectedIndex)];
             videoCodecs = [.. ExportCodecs.VideoCodecsFor(container)];
             audioCodecs = [.. ExportCodecs.AudioCodecsFor(container)];
@@ -659,16 +693,26 @@ internal static class ExportSettingsDialog
         void ApplyPreset(ExportPreset p)
         {
             applyingPreset = true;
-            containerBox.SelectedIndex = Math.Max(0, Array.IndexOf(containers, p.Format.Container));
-            RepopulateCodecs(); // container may not have changed (no event), so refresh the codec lists explicitly
-            int vi = videoCodecs.IndexOf(p.Format.VideoCodec);
-            if (vi >= 0) videoBox.SelectedIndex = vi;
-            int ai = audioCodecs.IndexOf(p.Format.AudioCodec);
-            if (ai >= 0) audioBox.SelectedIndex = ai;
-            qualityBox.SelectedIndex = (int)p.Quality;
-            resolutionBox.SelectedIndex = Math.Max(0, IndexOfResolution(p.Resolution));
-            fpsBox.SelectedIndex = Math.Max(0, IndexOfFrameRate(p.FrameRate));
+            if (p.AudioFormat is { } af)
+            {
+                // Audio-only preset (PLAN.md step 44): select its Format-list entry; the video controls hide.
+                containerBox.SelectedIndex = videoFormatCount + (int)af;
+                RepopulateCodecs();
+            }
+            else
+            {
+                containerBox.SelectedIndex = Math.Max(0, Array.IndexOf(containers, p.Format.Container));
+                RepopulateCodecs(); // container may not have changed (no event), so refresh the codec lists explicitly
+                int vi = videoCodecs.IndexOf(p.Format.VideoCodec);
+                if (vi >= 0) videoBox.SelectedIndex = vi;
+                int ai = audioCodecs.IndexOf(p.Format.AudioCodec);
+                if (ai >= 0) audioBox.SelectedIndex = ai;
+                qualityBox.SelectedIndex = (int)p.Quality;
+                resolutionBox.SelectedIndex = Math.Max(0, IndexOfResolution(p.Resolution));
+                fpsBox.SelectedIndex = Math.Max(0, IndexOfFrameRate(p.FrameRate));
+            }
             applyingPreset = false;
+            UpdateAudioOnlyMode();
             UpdateResText();
         }
 
@@ -754,6 +798,20 @@ internal static class ExportSettingsDialog
             CornerRadius = new CornerRadius(5),
         };
 
+        // Video-side rows, captured so audio-only mode (PLAN.md step 44) can hide them (the master mix has no video
+        // codec, resolution, frame rate, burn-ins, or color-transform choice).
+        Control codecRow = TwoColumnRow("Video codec", videoBox, "Audio codec", audioBox);
+        Control qualityRow = TwoColumnRow("Quality", qualityBox, "Encoding", encodingBox);
+        Control resFpsRow = TwoColumnRow("Resolution", resolutionBox, "Frame rate", fpsBox);
+        Control burnHeader = new TextBlock { Text = "Burn-ins", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
+        Control tcRow = BurnInRow(tcCheck, tcPos);
+        Control nameRow = BurnInRow(nameCheck, namePos);
+        Control watermarkRow = BurnInRow(watermarkBox, watermarkPos);
+        Control handlesRow = LabeledRow("Handles (frames before / after the range)", handlesBox);
+        Control colorHeader = new TextBlock { Text = "Color", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
+        videoOnlyControls =
+            [codecRow, qualityRow, resFpsRow, resText, burnHeader, tcRow, nameRow, watermarkRow, handlesRow, colorHeader, bakeColorCheck];
+
         var settings = new StackPanel
         {
             Spacing = 8,
@@ -761,22 +819,24 @@ internal static class ExportSettingsDialog
             {
                 LabeledRow("Preset", BurnInRow(presetBox, savePreset)),
                 LabeledRow("Format", containerBox),
-                TwoColumnRow("Video codec", videoBox, "Audio codec", audioBox),
-                TwoColumnRow("Quality", qualityBox, "Encoding", encodingBox),
-                TwoColumnRow("Resolution", resolutionBox, "Frame rate", fpsBox),
+                codecRow,
+                qualityRow,
+                resFpsRow,
                 resText,
-                new TextBlock { Text = "Burn-ins", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) },
-                BurnInRow(tcCheck, tcPos),
-                BurnInRow(nameCheck, namePos),
-                BurnInRow(watermarkBox, watermarkPos),
-                LabeledRow("Handles (frames before / after the range)", handlesBox),
-                new TextBlock { Text = "Color", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) },
+                burnHeader,
+                tcRow,
+                nameRow,
+                watermarkRow,
+                handlesRow,
+                colorHeader,
                 bakeColorCheck,
                 new TextBlock { Text = "Metadata", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) },
                 TwoColumnRow("Title", metaTitle, "Author", metaAuthor),
                 TwoColumnRow("Copyright", metaCopyright, "Comment", metaComment),
             },
         };
+        UpdateAudioOnlyMode(); // reflect the initial (video) selection
+        containerBox.SelectionChanged += (_, _) => UpdateAudioOnlyMode();
 
         var dialog = new Window
         {
@@ -811,9 +871,10 @@ internal static class ExportSettingsDialog
             },
         };
 
-        // Whether the container/codec selection is a valid, complete triple (guards Export and Save Preset).
+        // Whether the selection is complete enough to export / save: an audio-only format is complete on its own;
+        // a video container needs a valid video + audio codec triple.
         bool SelectionComplete() =>
-            containerBox.SelectedIndex >= 0 && videoBox.SelectedIndex >= 0 && audioBox.SelectedIndex >= 0;
+            IsAudioOnly() || (containerBox.SelectedIndex >= 0 && videoBox.SelectedIndex >= 0 && audioBox.SelectedIndex >= 0);
 
         ExportFormat BuildFormat() => new(
             containers[containerBox.SelectedIndex],
@@ -824,6 +885,18 @@ internal static class ExportSettingsDialog
         {
             if (!SelectionComplete())
                 return;
+
+            // Audio-only delivery (PLAN.md step 44): no video-side options, just the audio format + metadata.
+            if (IsAudioOnly())
+            {
+                dialog.Close(new ExportOptions(
+                    AudioFormat: SelectedAudioFormat(),
+                    MetaTitle: metaTitle.Text,
+                    MetaAuthor: metaAuthor.Text,
+                    MetaCopyright: metaCopyright.Text,
+                    MetaComment: metaComment.Text));
+                return;
+            }
 
             var burnIns = new List<BurnIn>();
             if (tcCheck.IsChecked == true)
@@ -864,12 +937,14 @@ internal static class ExportSettingsDialog
             if (await PromptForPresetName(dialog) is not { } name)
                 return;
 
-            var preset = new ExportPreset(
-                name,
-                BuildFormat(),
-                (ExportQuality)Math.Max(0, qualityBox.SelectedIndex),
-                Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
-                FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value);
+            ExportPreset preset = IsAudioOnly()
+                ? new ExportPreset(name, default, ExportQuality.High, AudioFormat: SelectedAudioFormat())
+                : new ExportPreset(
+                    name,
+                    BuildFormat(),
+                    (ExportQuality)Math.Max(0, qualityBox.SelectedIndex),
+                    Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
+                    FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value);
 
             var user = UserExportPresets.Load()
                 .Where(p => !string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))

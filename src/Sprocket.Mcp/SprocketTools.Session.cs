@@ -106,9 +106,31 @@ public sealed partial class SprocketTools
             return StateFormatter.ExportStatus(api.ExportStatus);
         });
 
+    [McpServerTool(Name = "export_audio")]
+    [Description("Starts an audio-only export of the active sequence's master mix (no video) on a background " +
+                 "thread and returns immediately. format is one of wav / flac / mp3 / aac / opus; give outputPath " +
+                 "the matching extension (.wav/.flac/.mp3/.m4a/.opus). Poll get_export_status for progress; cancel " +
+                 "with cancel_export. Playback is suspended while the export runs. Only one export can run at a time.")]
+    public Task<string> ExportAudio(
+        [Description("Absolute output path; use the extension matching the format.")] string outputPath,
+        [Description("Audio format: wav / flac / mp3 / aac / opus.")] string format = "wav",
+        [Description("Export only from this tick (inclusive); omit for the whole timeline.")] long? rangeInTicks = null,
+        [Description("Export only up to this tick (exclusive); omit for the whole timeline.")] long? rangeOutTicks = null) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            if (string.IsNullOrWhiteSpace(outputPath) || !Path.IsPathRooted(outputPath))
+                throw new McpException("pass an absolute output path.");
+            if (rangeInTicks is { } rin && rangeOutTicks is { } rout && rout <= rin)
+                throw new McpException("rangeOutTicks must be after rangeInTicks.");
+            McpResult<bool> result = api.StartAudioExport(outputPath, format, rangeInTicks, rangeOutTicks);
+            if (!result.Ok)
+                throw new McpException(result.Error ?? "export could not start.");
+            return StateFormatter.ExportStatus(api.ExportStatus);
+        });
+
     [McpServerTool(Name = "get_export_status", ReadOnly = true, Idempotent = true)]
-    [Description("The progress/outcome of the export started by export_video: running + progress in [0,1] " +
-                 "while encoding, then completed / cancelled / error.")]
+    [Description("The progress/outcome of the export started by export_video / export_audio: running + progress " +
+                 "in [0,1] while encoding, then completed / cancelled / error.")]
     public Task<string> GetExportStatus() =>
         _session.OnModelThreadAsync(api => StateFormatter.ExportStatus(api.ExportStatus));
 

@@ -112,8 +112,17 @@ public interface IEditorApi
     /// </summary>
     McpResult<bool> StartExport(string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks);
 
+    /// <summary>
+    /// Starts a background <b>audio-only</b> export of the active sequence's master mix to
+    /// <paramref name="outputPath"/> (PLAN.md step 44), returning immediately — poll <see cref="ExportStatus"/> for
+    /// progress. <paramref name="audioFormat"/> is one of <c>wav</c> / <c>flac</c> / <c>mp3</c> / <c>aac</c> /
+    /// <c>opus</c> (case-insensitive). Fails when an export is already running, the timeline is empty, or the format
+    /// is unrecognised. <paramref name="rangeInTicks"/>/<paramref name="rangeOutTicks"/> select a half-open slice.
+    /// </summary>
+    McpResult<bool> StartAudioExport(string outputPath, string audioFormat, long? rangeInTicks, long? rangeOutTicks);
+
     /// <summary>The state of the current (or most recently finished) export started via
-    /// <see cref="StartExport"/>.</summary>
+    /// <see cref="StartExport"/> or <see cref="StartAudioExport"/>.</summary>
     McpExportStatus ExportStatus { get; }
 
     /// <summary>Requests cancellation of the running export (a no-op when none is running).</summary>

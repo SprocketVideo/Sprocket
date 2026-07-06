@@ -118,6 +118,11 @@ internal sealed class McpEditorSession(
             ? McpResult<bool>.Fail(error)
             : McpResult<bool>.Success(true);
 
+    public McpResult<bool> StartAudioExport(string outputPath, string audioFormat, long? rangeInTicks, long? rangeOutTicks) =>
+        window.McpStartAudioExport(outputPath, audioFormat, rangeInTicks, rangeOutTicks) is { } error
+            ? McpResult<bool>.Fail(error)
+            : McpResult<bool>.Success(true);
+
     public McpExportStatus ExportStatus => window.McpExportStatus;
 
     public void CancelExport() => window.McpCancelExport();

@@ -79,13 +79,13 @@ public sealed unsafe class MediaEncoder : IDisposable
 
     private readonly FormatContextHandle _format;
 
-    // Video
-    private readonly CodecContextHandle _videoEncoder;
+    // Video (optional — null on an audio-only export, PLAN.md step 44)
+    private readonly CodecContextHandle? _videoEncoder;
     private readonly IntPtr _videoStream;        // AVStream* — time_base/index read LIVE (post-WriteHeader)
     private readonly AvRational _videoEncTimeBase;
     private readonly SwsScaler _converter = new();
-    private readonly AvFrameHandle _rgbaFrame;   // staging: incoming RGBA copied here, then swscaled to enc pix fmt
-    private readonly AvFrameHandle _encFrame;    // swscale destination + encoder input (chosen CPU pixel format)
+    private readonly AvFrameHandle? _rgbaFrame;  // staging: incoming RGBA copied here, then swscaled to enc pix fmt
+    private readonly AvFrameHandle? _encFrame;   // swscale destination + encoder input (chosen CPU pixel format)
     private readonly int _width;
     private readonly int _height;
 
@@ -118,13 +118,15 @@ public sealed unsafe class MediaEncoder : IDisposable
         AvFrameHandle? audioFrame, SwrResampler? swr, bool audioPlanar, int channels)
     {
         _format = format;
+        // A default(VideoSetup) (audio-only export, PLAN.md step 44) carries a null Encoder — leave the video
+        // fields empty and encode audio only.
         _videoEncoder = video.Encoder;
         _videoStream = video.Stream;
-        _videoEncTimeBase = video.Encoder.TimeBase;
+        _videoEncTimeBase = video.Encoder?.TimeBase ?? default;
         _rgbaFrame = video.RgbaFrame;
         _encFrame = video.EncFrame;
-        _width = video.Encoder.Width;
-        _height = video.Encoder.Height;
+        _width = video.Encoder?.Width ?? 0;
+        _height = video.Encoder?.Height ?? 0;
         _videoIsHardware = video.IsHardware;
         _gpuSurfaceMode = video.GpuFrame is not null;
         _hwDevice = video.HwDevice;
@@ -142,6 +144,10 @@ public sealed unsafe class MediaEncoder : IDisposable
     /// <summary>Whether the file has an audio stream (<see cref="WriteAudioFrame"/> is valid).</summary>
     public bool HasAudio => _audioEncoder is not null;
 
+    /// <summary>Whether the file has a video stream (<see cref="WriteVideoFrame"/> is valid). <see langword="false"/>
+    /// for an audio-only export (PLAN.md step 44).</summary>
+    public bool HasVideo => _videoEncoder is not null;
+
     /// <summary>Whether a hardware video encoder engaged (PLAN.md step 29). <see langword="false"/> means the
     /// deterministic software encoder is running — either because none was requested, or because every requested
     /// hardware candidate failed to open and the encoder fell back to software.</summary>
@@ -151,8 +157,9 @@ public sealed unsafe class MediaEncoder : IDisposable
     /// <see cref="WriteAudioFrame"/> except for the final, shorter frame. Zero when there is no audio.</summary>
     public int AudioFrameSize { get; private set; }
 
-    /// <summary>The encoder name actually engaged for video (e.g. <c>"libx264"</c>).</summary>
-    public string VideoEncoderName => _videoEncoder.CodecName;
+    /// <summary>The encoder name actually engaged for video (e.g. <c>"libx264"</c>), or empty when there is no
+    /// video (an audio-only export, PLAN.md step 44).</summary>
+    public string VideoEncoderName => _videoEncoder?.CodecName ?? "";
 
     /// <summary>The encoder name actually engaged for audio (e.g. <c>"aac"</c>), or empty when there is no audio.</summary>
     public string AudioEncoderName => _audioEncoder?.CodecName ?? "";
@@ -245,6 +252,60 @@ public sealed unsafe class MediaEncoder : IDisposable
         }
     }
 
+    /// <summary>
+    /// Creates an <b>audio-only</b> encoder writing to <paramref name="path"/> with a single audio stream per
+    /// <paramref name="audio"/> and no video (PLAN.md step 44). The container is <paramref name="containerFormat"/>
+    /// (an FFmpeg muxer name such as <c>"wav"</c>, <c>"flac"</c>, <c>"mp3"</c>, <c>"ipod"</c>, <c>"opus"</c>), or
+    /// guessed from the file extension when <see langword="null"/>. Opens the file and writes the header so the
+    /// encoder is ready for <see cref="WriteAudioFrame"/>; <see cref="WriteVideoFrame"/> is invalid on the result.
+    /// </summary>
+    /// <param name="path">Output file path.</param>
+    /// <param name="audio">Audio stream settings.</param>
+    /// <param name="containerFormat">FFmpeg muxer name, or <see langword="null"/> to guess from the extension.</param>
+    /// <param name="metadata">Optional container-level metadata tags (see <see cref="Create"/>).</param>
+    public static MediaEncoder CreateAudioOnly(
+        string path, AudioEncoderSettings audio, string? containerFormat = null,
+        IReadOnlyList<KeyValuePair<string, string>>? metadata = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        FFmpegLoader.EnsureBundledNativesLoaded();
+
+        FormatContextHandle format = FormatContextHandle.AllocOutput(path, containerFormat);
+        try
+        {
+            bool globalHeader = (format.OutputFlags & AvConst.FmtGlobalHeader) != 0;
+            bool noFile = (format.OutputFlags & AvConst.FmtNoFile) != 0;
+
+            (CodecContextHandle audioEncoder, IntPtr audioStream, AvFrameHandle audioFrame,
+                SwrResampler swr, bool audioPlanar, int audioFrameSize) = OpenAudio(format, audio, globalHeader);
+
+            WriteCreationMetadata(format);
+            if (metadata is not null)
+            {
+                foreach ((string key, string value) in metadata)
+                    if (!string.IsNullOrEmpty(value))
+                        format.SetMetadata(key, value);
+            }
+
+            if (!noFile)
+                format.OpenOutputFile(path);
+            format.WriteHeader();
+
+            return new MediaEncoder(
+                format, video: default,
+                audioEncoder, audioStream, audioFrame, swr, audioPlanar, audio.Channels)
+            {
+                AudioFrameSize = audioFrameSize,
+            };
+        }
+        catch
+        {
+            format.Dispose();
+            throw;
+        }
+    }
+
     /// <summary>The "encoded with" tag value, e.g. <c>"Sprocket 0.1.27"</c> — built once from the assembly version.</summary>
     private static readonly string EncoderTag = BuildEncoderTag();
 
@@ -276,10 +337,11 @@ public sealed unsafe class MediaEncoder : IDisposable
         CodecContextHandle encoder, IntPtr stream, AvFrameHandle rgbaFrame, AvFrameHandle encFrame,
         bool isHardware, IHardwareContext? hwDevice, IntPtr hwFramesRef, AvFrameHandle? gpuFrame)
     {
-        public CodecContextHandle Encoder { get; } = encoder;
+        // Nullable so a `default(VideoSetup)` (audio-only export, PLAN.md step 44) is a valid "no video" bundle.
+        public CodecContextHandle? Encoder { get; } = encoder;
         public IntPtr Stream { get; } = stream;
-        public AvFrameHandle RgbaFrame { get; } = rgbaFrame;
-        public AvFrameHandle EncFrame { get; } = encFrame;
+        public AvFrameHandle? RgbaFrame { get; } = rgbaFrame;
+        public AvFrameHandle? EncFrame { get; } = encFrame;
         public bool IsHardware { get; } = isHardware;
         public IHardwareContext? HwDevice { get; } = hwDevice;
         public IntPtr HwFramesRef { get; } = hwFramesRef;
@@ -673,6 +735,8 @@ public sealed unsafe class MediaEncoder : IDisposable
     public void WriteVideoFrame(nint rgbaPixels, int rowBytes, long frameIndex)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_videoEncoder is null || _rgbaFrame is null || _encFrame is null)
+            throw new InvalidOperationException("This encoder has no video stream.");
         if (rgbaPixels == 0)
             throw new ArgumentNullException(nameof(rgbaPixels));
 
@@ -707,7 +771,8 @@ public sealed unsafe class MediaEncoder : IDisposable
     /// frame's native buffer row by row — a native→native copy, allowed on the throughput-bound export path.</summary>
     private void CopyRgbaIntoFrame(nint rgbaPixels, int rowBytes)
     {
-        byte* dst = (byte*)_rgbaFrame.Data(0);
+        // Only reached from WriteVideoFrame, which has already null-checked the video staging frame.
+        byte* dst = (byte*)_rgbaFrame!.Data(0);
         int dstStride = _rgbaFrame.Linesize(0);
         var src = (byte*)rgbaPixels;
         int copyBytes = Math.Min(rowBytes, dstStride);
@@ -762,8 +827,11 @@ public sealed unsafe class MediaEncoder : IDisposable
             return;
         _finished = true;
 
-        _videoEncoder.SendFrame(null);
-        DrainPackets(_videoEncoder, _videoStream, _videoEncTimeBase);
+        if (_videoEncoder is not null)
+        {
+            _videoEncoder.SendFrame(null);
+            DrainPackets(_videoEncoder, _videoStream, _videoEncTimeBase);
+        }
 
         if (_audioEncoder is not null)
         {
@@ -799,9 +867,9 @@ public sealed unsafe class MediaEncoder : IDisposable
         _packet.Dispose();
         _converter.Dispose();
         _gpuFrame?.Dispose();
-        _rgbaFrame.Dispose();
-        _encFrame.Dispose();
-        _videoEncoder.Dispose();   // unrefs its own hw_device_ctx / hw_frames_ctx refs
+        _rgbaFrame?.Dispose();
+        _encFrame?.Dispose();
+        _videoEncoder?.Dispose();  // unrefs its own hw_device_ctx / hw_frames_ctx refs
         if (_hwFramesRef != IntPtr.Zero)
             LibAv.av_buffer_unref(ref _hwFramesRef);
         _hwDevice?.Dispose();       // after the encoder that referenced the device

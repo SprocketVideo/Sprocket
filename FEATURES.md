@@ -172,6 +172,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 |---|---|---|---|
 | Export Settings dialog (`Ctrl+E`): container/codec/quality/resolution/frame rate | Dialogs.cs `ExportSettingsDialog` | getting-started.md#12-export-your-finished-video | ✅ |
 | Format matrix: MP4/MOV/MKV/WebM/AVI/TS × H.264/HEVC/AV1/VP9/MPEG-2/ProRes × AAC/MP3/PCM/FLAC/AC-3/Opus | Sprocket.Export/ExportFormat.cs | — | ❌ (needs a reference table) |
+| Audio-only export (master mix, no video): WAV/PCM, FLAC, MP3, AAC/M4A, Opus | Sprocket.Export/ExportFormat.cs `ExportAudioFormat`; VideoExporter.cs `ExportAudioOnly` | — | ❌ |
 | Delivery presets (built-in + save your own) | ExportPresetStore.cs; UserExportPresets.cs | getting-started.md#12-export-your-finished-video | 🟡 (mentioned; built-in preset list undocumented) |
 | Burn-ins (timecode / clip name / watermark, 9-point position) | Dialogs.cs:593 | getting-started.md#12-export-your-finished-video | 🟡 (position options undocumented) |
 | Handles (extra frames around an in/out range) | Dialogs.cs:609 | getting-started.md#12-export-your-finished-video | 🟡 (named in screenshot; unexplained — depends on undocumented in/out marks) |

@@ -650,6 +650,22 @@ public class SprocketToolsExtendedTests
     }
 
     [Fact]
+    public async Task ExportAudio_Starts_WithFormat_AndRejectsBadInput()
+    {
+        (FakeEditorSession session, SprocketTools tools, Clip _, Clip _) = await LinkedPair();
+
+        JsonNode status = JsonNode.Parse(await tools.ExportAudio(
+            @"C:\out\mix.flac", format: "flac", rangeInTicks: 0, rangeOutTicks: 240000))!;
+        Assert.Equal(@"C:\out\mix.flac", session.ExportedPath);
+        Assert.Equal("flac", session.ExportAudioFormat);
+        Assert.Equal((0L, 240000L), (session.ExportRange.In!.Value, session.ExportRange.Out!.Value));
+        Assert.True((bool)status["completed"]!);
+
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportAudio("relative.wav"));
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportAudio(@"C:\out\x.zzz", format: "zzz"));
+    }
+
+    [Fact]
     public async Task Transport_Stop_Rewind_End_And_Frame_Step()
     {
         (FakeEditorSession session, SprocketTools tools, Clip _, Clip _) = await LinkedPair();

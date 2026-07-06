@@ -2601,7 +2601,35 @@ public partial class MainWindow : Window
     /// Starts a background export for the MCP <c>export_video</c> with the default delivery settings.
     /// Returns an error message, or <see langword="null"/> when the export was started.
     /// </summary>
-    internal string? McpStartExport(string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks)
+    internal string? McpStartExport(string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks) =>
+        McpStartExport(outputPath, new ExportOptions(VideoOnly: videoOnly), rangeInTicks, rangeOutTicks);
+
+    /// <summary>
+    /// Starts a background audio-only export for the MCP <c>export_audio</c> (PLAN.md step 44). Returns an error
+    /// message, or <see langword="null"/> when the export was started.
+    /// </summary>
+    internal string? McpStartAudioExport(string outputPath, string audioFormat, long? rangeInTicks, long? rangeOutTicks)
+    {
+        if (!TryParseAudioFormat(audioFormat, out ExportAudioFormat format))
+            return $"unknown audio format '{audioFormat}' — use wav / flac / mp3 / aac / opus.";
+        return McpStartExport(outputPath, new ExportOptions(AudioFormat: format), rangeInTicks, rangeOutTicks);
+    }
+
+    /// <summary>Parses the MCP audio-format string (case-insensitive) to an <see cref="ExportAudioFormat"/>.</summary>
+    private static bool TryParseAudioFormat(string value, out ExportAudioFormat format)
+    {
+        switch ((value ?? "").Trim().ToLowerInvariant())
+        {
+            case "wav" or "pcm" or "wavpcm": format = ExportAudioFormat.WavPcm; return true;
+            case "flac": format = ExportAudioFormat.Flac; return true;
+            case "mp3": format = ExportAudioFormat.Mp3; return true;
+            case "aac" or "m4a": format = ExportAudioFormat.Aac; return true;
+            case "opus": format = ExportAudioFormat.Opus; return true;
+            default: format = default; return false;
+        }
+    }
+
+    private string? McpStartExport(string outputPath, ExportOptions options, long? rangeInTicks, long? rangeOutTicks)
     {
         if (_project is null)
             return "no project is open.";
@@ -2629,7 +2657,7 @@ public partial class MainWindow : Window
         // status poll issued right after this call never sees a not-running/not-completed gap.
         var cts = new CancellationTokenSource();
         _mcpExportCts = cts;
-        _ = RunMcpExportAsync(outputPath, new ExportOptions(VideoOnly: videoOnly), range, cts);
+        _ = RunMcpExportAsync(outputPath, options, range, cts);
         return null;
     }
 
@@ -2723,18 +2751,12 @@ public partial class MainWindow : Window
 
         // Let the user choose where the file goes (mirrors File ▸ Save As) instead of silently dropping a fixed
         // file into the app's own (often read-only) install folder, where it would go unnoticed. The extension +
-        // file-type filter follow the chosen container.
-        ExportFormat format = options.Format;
-        string extension = format.FileExtension; // ".mp4", ".mkv", …
-        var fileType = new FilePickerFileType($"{ExportCodecs.Container(format.Container).DisplayName} video")
-        {
-            Patterns = ["*" + extension],
-            MimeTypes = [format.MimeType],
-        };
+        // file-type filter follow the chosen container (or the audio-only format, PLAN.md step 44).
+        (string extension, FilePickerFileType fileType) = ExportSaveFileType(options);
         string baseName = _currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath);
         IStorageFile? target = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Export Video",
+            Title = options.AudioFormat is null ? "Export Video" : "Export Audio",
             SuggestedFileName = baseName + extension,
             DefaultExtension = extension.TrimStart('.'),
             FileTypeChoices = [fileType],
@@ -2804,6 +2826,28 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>The save-dialog file extension + type filter for an export: the chosen video container, or the
+    /// audio-only delivery format when <see cref="ExportOptions.AudioFormat"/> is set (PLAN.md step 44).</summary>
+    private static (string Extension, FilePickerFileType FileType) ExportSaveFileType(ExportOptions options)
+    {
+        if (options.AudioFormat is { } af)
+        {
+            AudioFormatInfo info = ExportCodecs.AudioFormat(af);
+            return (info.Extension, new FilePickerFileType(info.DisplayName)
+            {
+                Patterns = ["*" + info.Extension],
+                MimeTypes = [info.MimeType],
+            });
+        }
+
+        ExportFormat format = options.Format;
+        return (format.FileExtension, new FilePickerFileType($"{ExportCodecs.Container(format.Container).DisplayName} video")
+        {
+            Patterns = ["*" + format.FileExtension],
+            MimeTypes = [format.MimeType],
+        });
+    }
+
     // ── Export queue (PLAN.md step 29) ────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -2859,13 +2903,7 @@ public partial class MainWindow : Window
         if (await ExportSettingsDialog.Show(owner, res.Width, res.Height) is not { } options)
             return;
 
-        ExportFormat format = options.Format;
-        string extension = format.FileExtension;
-        var fileType = new FilePickerFileType($"{ExportCodecs.Container(format.Container).DisplayName} video")
-        {
-            Patterns = ["*" + extension],
-            MimeTypes = [format.MimeType],
-        };
+        (string extension, FilePickerFileType fileType) = ExportSaveFileType(options);
         string baseName = _currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath);
         IStorageFile? target = await owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
@@ -2878,7 +2916,10 @@ public partial class MainWindow : Window
             return;
 
         EnsureExportQueue();
-        string name = $"{sequence.Name} · {ExportCodecs.Container(format.Container).DisplayName}";
+        string formatLabel = options.AudioFormat is { } af
+            ? ExportCodecs.AudioFormat(af).DisplayName
+            : ExportCodecs.Container(options.Format.Container).DisplayName;
+        string name = $"{sequence.Name} · {formatLabel}";
         _exportQueue!.Enqueue(outputPath, options, sequenceId: sequence.Id, range: null, name: name);
         SetStatus($"Queued export → {Path.GetFileName(outputPath)}");
     }

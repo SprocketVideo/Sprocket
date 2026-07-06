@@ -64,11 +64,14 @@ internal static class MediaBootstrap
         // ProbeInfo (not MediaSource.Open) so audio-only sources — .m4a / .mp3 / .wav — open a session too.
         ProbedMediaInfo info = MediaSource.ProbeInfo(path);
 
-        int sampleRate = info.SampleRate > 0 ? info.SampleRate : 48000;
+        // A media-created project always starts at the standard 48 kHz timeline rate rather than inheriting the
+        // source's rate — imported audio at any rate (44.1 kHz, etc.) is resampled to the project rate transparently
+        // by AudioSource, so the mix stays sample-accurate to the master clock (ARCHITECTURE.md §3/§6).
+        const int projectSampleRate = 48000;
         // An audio-only source carries no video format, so the timeline keeps the default 1080p / 30 fps.
         var timeline = info.HasVideo
-            ? new Timeline(info.FrameRate, new Resolution(info.Width, info.Height), sampleRate)
-            : new Timeline(new Rational(30, 1), new Resolution(1920, 1080), sampleRate);
+            ? new Timeline(info.FrameRate, new Resolution(info.Width, info.Height), projectSampleRate)
+            : new Timeline(new Rational(30, 1), new Resolution(1920, 1080), projectSampleRate);
         var project = new Project(timeline);
 
         var mediaId = MediaRefId.New();
