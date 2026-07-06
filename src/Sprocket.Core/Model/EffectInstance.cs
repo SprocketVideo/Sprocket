@@ -76,12 +76,15 @@ public static class EffectTypeIds
     public const string HslQualifier = "builtin.hsl.qualify";
 
     /// <summary>
-    /// Input color transform (PLAN.md step 37): converts a log-encoded source (DJI D-Log / D-Log M) to the
-    /// working/display space by sampling a bundled camera-vendor 3D LUT on the GPU — the per-clip "input
-    /// transform" every professional NLE applies before creative grading, so it belongs at the <b>front</b>
-    /// of the clip's effect stack. Parameter: <see cref="EffectParamNames.SourceProfile"/> (an index into
-    /// <see cref="ColorProfiles.All"/>). Bypass = the standard <see cref="EffectInstance.Enabled"/> toggle;
-    /// the target space is fixed at Rec.709 until the step-33 OCIO/ACES upgrade.
+    /// Input color transform (PLAN.md steps 37, 52): converts a log-encoded source to the working/display
+    /// space — DJI D-Log / D-Log M via a bundled vendor 3D LUT sampled on the GPU (step 37); every other
+    /// vendor (ARRI, Sony, Panasonic, Canon, Blackmagic, Fujifilm, Nikon) via a closed-form curve + gamut
+    /// matrix, since those vendors publish their curve's formula (step 52, <see cref="ColorProfileCurves"/>)
+    /// — the per-clip "input transform" every professional NLE applies before creative grading, so it
+    /// belongs at the <b>front</b> of the clip's effect stack. Parameter:
+    /// <see cref="EffectParamNames.SourceProfile"/> (an index into <see cref="ColorProfiles.All"/>). Bypass =
+    /// the standard <see cref="EffectInstance.Enabled"/> toggle; the target space is fixed at Rec.709 until
+    /// the step-33 OCIO/ACES upgrade.
     /// </summary>
     public const string ColorTransform = "builtin.colortransform";
 

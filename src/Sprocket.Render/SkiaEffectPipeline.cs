@@ -110,6 +110,76 @@ half4 main(float2 coord) {
     return half4(half3(outRgb * a), c.a);
 }";
 
+    // Input color transform, math profiles (PLAN.md step 52) — the non-DJI camera log profiles, converted
+    // via a closed-form curve + gamut matrix instead of a texture LUT (those vendors publish their curve's
+    // exact formula, unlike DJI). `kind` selects which decode shape runs (see ColorProfileCurves' doc
+    // comment for the full list); `c0`–`c6` are that shape's constants (Log10Toe covers three vendors that
+    // publish the same shape; the rest are single-profile shapes with no free constants, `c0`–`c6` unused).
+    // `m00`..`m22` is the native-gamut→Rec.709 (linear light) matrix, assembled column-major per SkSL's
+    // `float3x3` constructor convention (see AcesFilmicEffect's own note on this). The final encode matches
+    // every other effect's "Rec.709 working space" convention (sRGB transfer — see AcesFilmicEffect).
+    // decode1/the matrix/the encode are a float32 GPU port of Sprocket.Core.Model.ColorProfileCurves; render
+    // tests assert they agree with that reference for sample inputs.
+    private const string ColorTransformCurveSksl = @"
+uniform shader src;
+uniform float kind;
+uniform float c0, c1, c2, c3, c4, c5, c6;
+uniform float m00, m01, m02, m10, m11, m12, m20, m21, m22;
+
+float decode1(float v) {
+    if (kind < 0.5) {
+        // Linear toe below a cut, log10 body above (ARRI LogC3 / Panasonic V-Log / Fujifilm F-Log2).
+        // c0 is always the decode threshold on the encoded signal (see ColorProfileCurves.CurveUniforms).
+        return v <= c0 ? (v - c6) / c5 : (pow(10.0, (v - c4) / c3) - c2) / c1;
+    }
+    if (kind < 1.5) {
+        // ARRI LogC4: linear toe below V=0, log2 (not log10) body above.
+        return v < 0.0 ? v * c3 + c4 : (pow(2.0, 14.0 * (v - c2) / c1 + 6.0) - 64.0) / c0;
+    }
+    if (kind < 2.5) {
+        // Sony S-Log3 (10-bit code-value formula, fully literal).
+        float knee = 171.2102946929 / 1023.0;
+        return v < knee
+            ? (v * 1023.0 - 95.0) * 0.01125 / (171.2102946929 - 95.0)
+            : pow(10.0, (v * 1023.0 - 420.0) / 261.5) * 0.19 - 0.01;
+    }
+    if (kind < 3.5) {
+        // Canon C-Log3: symmetric three-piece log10 (fully literal).
+        if (v < 0.097465473)
+            return 0.9 * (1.0 - pow(10.0, (0.12783901 - v) / 0.36726845)) / 14.98325;
+        if (v <= 0.15277891)
+            return 0.9 * (v - 0.12512219) / 1.9754798;
+        return 0.9 * (pow(10.0, (v - 0.12240537) / 0.36726845) - 1.0) / 14.98325;
+    }
+    if (kind < 4.5) {
+        // Blackmagic Film Gen 5: linear toe, natural-exp (not log10) body above (fully literal).
+        float logCut = 8.283605932402494 * 0.005 + 0.09246575342465753;
+        return v < logCut
+            ? (v - 0.09246575342465753) / 8.283605932402494
+            : exp((v - 0.5300133392291939) / 0.08692876065491224) - 0.005494072432257808;
+    }
+    // Nikon N-Log: cubic toe, natural-exp body, 10-bit code-value formula (fully literal).
+    float x = v * 1023.0;
+    return x < 452.0 ? pow(x / 650.0, 3.0) - 0.0075 : exp((x - 619.0) / 150.0);
+}
+
+half4 main(float2 coord) {
+    half4 p = src.eval(coord);
+    float a = float(p.a);
+    if (a <= 0.0) return p;
+    float3 c = clamp(float3(p.rgb) / a, 0.0, 1.0);
+
+    float3 lin = float3(decode1(c.r), decode1(c.g), decode1(c.b));
+    float3x3 gamut = float3x3(float3(m00, m10, m20), float3(m01, m11, m21), float3(m02, m12, m22));
+    float3 rec709Linear = clamp(gamut * lin, 0.0, 1.0);
+
+    float3 lo = rec709Linear * 12.92;
+    float3 hi = 1.055 * pow(rec709Linear, float3(1.0 / 2.4)) - 0.055;
+    float3 outRgb = mix(lo, hi, step(0.0031308, rec709Linear));
+
+    return half4(half3(outRgb * a), p.a);
+}";
+
     // Transition shaders (PLAN.md step 25): each samples two child shaders — `from` (outgoing clip) and `to`
     // (incoming clip), already folded through their own effect chains — and blends them per `progress` (0 = full
     // from, 1 = full to). All operate on premultiplied colour, so they compose correctly over the lower layers.
@@ -233,6 +303,7 @@ half4 main(float2 coord) {
     private readonly SKRuntimeEffect _color;
     private readonly SKRuntimeEffect _transform;
     private readonly SKRuntimeEffect _colorTransform;
+    private readonly SKRuntimeEffect _colorTransformCurve;
     private readonly SKRuntimeEffect _crossDissolve;
     private readonly SKRuntimeEffect _dipToBlack;
     private readonly SKRuntimeEffect _dipToWhite;
@@ -254,6 +325,8 @@ half4 main(float2 coord) {
             ?? throw new InvalidOperationException($"Transform SkSL failed to compile: {transformErr}");
         _colorTransform = SKRuntimeEffect.CreateShader(ColorTransformSksl, out string colorTransformErr)
             ?? throw new InvalidOperationException($"Color-transform SkSL failed to compile: {colorTransformErr}");
+        _colorTransformCurve = SKRuntimeEffect.CreateShader(ColorTransformCurveSksl, out string colorTransformCurveErr)
+            ?? throw new InvalidOperationException($"Color-transform (curve) SkSL failed to compile: {colorTransformCurveErr}");
         _crossDissolve = SKRuntimeEffect.CreateShader(CrossDissolveSksl, out string crossErr)
             ?? throw new InvalidOperationException($"Cross-dissolve SkSL failed to compile: {crossErr}");
         _dipToBlack = SKRuntimeEffect.CreateShader(DipToBlackSksl, out string dipBlackErr)
@@ -703,14 +776,19 @@ half4 main(float2 coord) {
     }
 
     /// <summary>
-    /// Builds the input color transform shader (PLAN.md step 37): fetches the profile's cached packed-LUT
-    /// texture (<see cref="ColorLuts"/>) and binds it as the <c>lut</c> child beside <c>src</c> — the first
-    /// effect to feed the shader graph a texture child rather than only chained scene shaders. An unknown
-    /// profile / missing LUT asset passes through (<see langword="null"/>) rather than killing the frame.
+    /// Builds the input color transform shader (PLAN.md steps 37, 52): DJI profiles sample the vendor's
+    /// packed-LUT texture (<see cref="ColorLuts"/>, unchanged since step 37); every other profile evaluates a
+    /// closed-form curve + gamut matrix (<see cref="BuildColorTransformCurveShader"/>). An unknown profile /
+    /// missing LUT asset passes through (<see langword="null"/>) rather than killing the frame.
     /// </summary>
     private SKShader? BuildColorTransformShader(ResolvedEffect effect, SKShader src)
     {
-        if (!ColorLuts.TryGet(effect.Get(EffectParamNames.SourceProfile, 0.0), out SKImage lut, out int size))
+        double sourceProfile = effect.Get(EffectParamNames.SourceProfile, 0.0);
+        string profileId = ColorProfiles.FromIndex(sourceProfile);
+        if (ColorProfiles.KindOf(profileId) == ColorProfileKind.Curve)
+            return BuildColorTransformCurveShader(profileId, src);
+
+        if (!ColorLuts.TryGet(sourceProfile, out SKImage lut, out int size))
             return null;
 
         // The LUT child samples in the packed image's own pixel space (no local matrix); the shared SKImage
@@ -721,6 +799,34 @@ half4 main(float2 coord) {
         var uniforms = new SKRuntimeEffectUniforms(_colorTransform) { ["lutSize"] = (float)size };
         var children = new SKRuntimeEffectChildren(_colorTransform) { ["src"] = src, ["lut"] = lutShader };
         return _colorTransform.ToShader(uniforms, children);
+    }
+
+    /// <summary>
+    /// Builds the math-based input color transform shader (PLAN.md step 52) for every non-DJI log profile:
+    /// looks up the profile's curve constants and gamut matrix (<see cref="ColorProfileCurves"/> — the same
+    /// data the Core-side reference math and this shader's render tests use) and binds them as uniforms, no
+    /// texture child needed. An unknown profile id (should not happen — callers only reach here for
+    /// <see cref="ColorProfileKind.Curve"/> ids) passes through.
+    /// </summary>
+    private SKShader? BuildColorTransformCurveShader(string profileId, SKShader src)
+    {
+        LogCurveUniforms? curve = ColorProfileCurves.CurveUniforms(profileId);
+        if (curve is null)
+            return null;
+        LogCurveUniforms c = curve.Value;
+        GamutMatrix m = ColorProfileCurves.GamutOf(profileId);
+
+        var uniforms = new SKRuntimeEffectUniforms(_colorTransformCurve)
+        {
+            ["kind"] = (float)c.Kind,
+            ["c0"] = (float)c.C0, ["c1"] = (float)c.C1, ["c2"] = (float)c.C2, ["c3"] = (float)c.C3,
+            ["c4"] = (float)c.C4, ["c5"] = (float)c.C5, ["c6"] = (float)c.C6,
+            ["m00"] = (float)m.M00, ["m01"] = (float)m.M01, ["m02"] = (float)m.M02,
+            ["m10"] = (float)m.M10, ["m11"] = (float)m.M11, ["m12"] = (float)m.M12,
+            ["m20"] = (float)m.M20, ["m21"] = (float)m.M21, ["m22"] = (float)m.M22,
+        };
+        var children = new SKRuntimeEffectChildren(_colorTransformCurve) { ["src"] = src };
+        return _colorTransformCurve.ToShader(uniforms, children);
     }
 
     /// <summary>
@@ -782,6 +888,7 @@ half4 main(float2 coord) {
         _color.Dispose();
         _transform.Dispose();
         _colorTransform.Dispose();
+        _colorTransformCurve.Dispose();
         _crossDissolve.Dispose();
         _dipToBlack.Dispose();
         _dipToWhite.Dispose();

@@ -148,7 +148,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Brightness effect | EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | ✅ |
 | Fade effect (video opacity + audio gain) | EffectCatalog.cs | getting-started.md#8-adjust-the-audio | ✅ |
 | Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; PLAN.md step 34 | — | ❌ |
-| Log footage: Input Color Transform (DJI D-Log family), ACES Filmic | EffectCatalog.cs; PLAN.md step 37 | — | ❌ |
+| Log footage: Input Color Transform (DJI D-Log family via vendor LUT; ARRI LogC3/LogC4, Sony S-Log3, Panasonic V-Log, Canon C-Log3, Blackmagic Film Gen 5, Fujifilm F-Log2, Nikon N-Log via math curve), ACES Filmic | EffectCatalog.cs; PLAN.md steps 37, 52 | — | ❌ |
 | Inspector: sections, sliders/numeric entry, remove effect | Sprocket.App/Inspector/InspectorPanel.cs | getting-started.md#3-select-a-clip | ✅ |
 | Enable/bypass an effect (green status LED in the effect header; parameters kept while bypassed) | InspectorPanel.cs `BuildEffectSection`; ModelCommands.cs `SetEffectEnabledCommand` | — | ❌ |
 | Effect reference tags (unique per-instance tag chip in the effect header, e.g. RV-1 — how AI/MCP clients address an effect) | Sprocket.Core/Model/EffectTags.cs; InspectorPanel.cs | — | ❌ |

@@ -3490,6 +3490,82 @@ Tags reference the [UI.md §4 checklist](UI.md).
       pane-header **Expand All / Collapse All** buttons (Feather chevrons-down/up, tooltipped) acting on
       every section; and a 192px `MinWidth` floor on the Inspector column (lifted to 0 while the pane is
       hidden so View ▸ Inspector Panel can still collapse it).
+52. **Additional camera log profiles (non-DJI).** Extend step 37's input color transform
+    (`builtin.colortransform`) to the other camera manufacturers' log profiles, landing entirely on
+    the existing seam — `ColorProfiles.All` grows, nothing else changes about the UI, persistence,
+    export bake/pass-through, or undo/redo ([ARCHITECTURE §18](ARCHITECTURE.md)). Scope, decided with
+    the user up front: **ARRI LogC3, ARRI LogC4, Sony S-Log3 (S-Gamut3.Cine), Panasonic V-Log
+    (V-Gamut — the same curve Leica licenses for L-Log), Canon C-Log3 (Canon Cinema Gamut),
+    Blackmagic Film Generation 5 (Blackmagic Wide Gamut Gen 5), Fujifilm F-Log2, and Nikon N-Log**.
+    Unlike DJI, every one of these vendors publishes its curve's exact transfer-function formula and
+    gamut primaries in its own color-science whitepaper — so, per the user's decision, these convert
+    via **closed-form math (SkSL), not a bundled vendor LUT file**. That sidesteps the DJI path's
+    real non-technical cost (each vendor's `.cube` is still their copyrighted asset, tracked via
+    `Luts/NOTICE.md` — eight more would mean eight more redistribution-license reviews) and is more
+    precise than a LUT's discrete sampling. Deliberately excluded, mirroring how step 37 already
+    recorded D-Log 2 as excluded: **GoPro GP-Log/Protune** and **Insta360 Log** (neither vendor
+    publishes a formula or an official redistributable LUT — nothing public to implement against);
+    **legacy Sony S-Log2, Canon C-Log/C-Log2** (superseded by S-Log3/C-Log3 on current lineups; can
+    be added later as pure data, same mechanism, if requested); **RED Log3G10** (RED's IPP2 pipeline
+    is a fuller color-science system than a curve+matrix — getting it subtly wrong with no reference
+    footage to validate against is a real risk, left for a dedicated follow-up).
+    - **Core (`Sprocket.Core/Model/ColorProfiles.cs`, new `ColorProfileCurves.cs`).** Eight new
+      profile ids appended to `ColorProfiles.All`/`DisplayNames` (DJI keeps indices 0/1 — persisted
+      project indices don't shift); a new `ColorProfileKind { Lut, Curve }` + `KindOf` so Render
+      knows which path a profile takes; `ColorProfileCurves.Decode(profileId, v)` — each vendor's
+      decode transcribed directly from their own spec (cited per profile in the doc comments) — and
+      `ColorProfileCurves.GamutOf(profileId)` — matrices computed from each vendor's published CIE xy
+      primaries via the standard primaries→RGB-to-XYZ method, independently cross-checked against
+      every vendor that also publishes a pre-computed matrix (ARRI, Panasonic, Blackmagic — all
+      matched to 6+ decimal places). `EffectCatalog`'s `SourceProfile` parameter `Max` changed from a
+      literal `1.0` to `ColorProfiles.All.Count - 1` (was silently stale — a real latent bug once
+      more than 2 profiles existed, since the generic slider-clamp path would have clipped any new
+      index back down to 1).
+    - **Render (`SkiaEffectPipeline.cs`).** One new shader, `ColorTransformCurveSksl` — no texture
+      child, only uniforms (a `kind` discriminant + 7 constants + a 9-float native-gamut→Rec.709
+      matrix) — with a `decode1` function branching on `kind`: several vendors happen to publish the
+      identical "linear toe below a cut, log10 body above" shape (kind 0: LogC3/V-Log/F-Log2, sharing
+      one branch via their own constants), the rest are each a distinct shape (LogC4: log2 body;
+      S-Log3: literal 10-bit-code-value formula; C-Log3: symmetric three-piece; Blackmagic: natural-exp
+      body; N-Log: cubic toe + natural-exp body) — one branch apiece, still a single compiled program.
+      `BuildColorTransformShader` now branches on `ColorProfiles.KindOf`: LUT profiles take the
+      unchanged step-37 texture-child path; curve profiles build this uniforms-only shader instead.
+      Final encode matches every other grading effect's Rec.709-working-space convention (sRGB
+      transfer, `AcesFilmicEffect`'s own convention) rather than the legacy broadcast OETF.
+    - **Media (`ColorProfiles.DetectLogProfile`).** Generalizes `DetectDjiLog` into a dispatcher that
+      tries DJI's own heuristic first, then a conservative substring match per new vendor
+      ("logc3"/"logc4"/"slog3"/"vlog"/"clog3"/"flog2"/"nlog"/"blackmagicfilm"); `MediaSource.Probe`'s
+      one call site swapped from `DetectDjiLog` to the dispatcher.
+    - **Tests.** The critical risk isn't the plumbing (all reused) — it's transcribing each vendor's
+      published constants correctly with no camera footage to validate against in CI. Core: per
+      profile, continuity at the vendor's own published piecewise threshold (catches a
+      transcription slip at a segment boundary — this is what actually caught a real bug, see
+      below), monotonicity across the full range, and round-trip against an independently
+      transcribed encode formula written fresh in the test file from the same vendor spec; gamut
+      matrices checked for white preservation (a valid conversion matrix's rows sum to ~1). Render:
+      the compiled SkSL shader checked against the same Core reference math at representative code
+      values (mid-gray, near-black, near-white), monotonicity on the GPU path, alpha preservation
+      and grade-chaining. Media: one new tagged fixture (S-Log3) proving the dispatcher is wired
+      through the real probe (the dispatcher's own string logic is unit-tested without FFmpeg in
+      Core). Export: one new profile (LogC3) proving the bake/pass-through toggle works for a curve
+      profile too (`StripEffects` is already generic over the effect type id, not the profile, so one
+      is enough).
+    - **✅ DONE (Core +2 files, Render shader + dispatch, Media dispatcher, Export/tests; 87 new tests
+      — Core +60, Render +25, Media +1, Export +1; full suite 1427 green).** Every formula was
+      transcribed from an official vendor document (ARRI's own PDFs for LogC3/LogC4, Panasonic's
+      V-Log/V-Gamut manual, Nikon's N-Log specification, Fujifilm's F-Log2 data sheet) or
+      cross-checked against the independent, widely-used `colour-science` Python library (Sony
+      S-Log3, Blackmagic Film Gen 5) — not taken as-is from a single secondary source. That
+      cross-checking caught one real transcription error before it shipped: an AI-summarized reading
+      of Fujifilm's F-Log2 formula had the `a` constant off by 10× (`0.555556` vs. the official
+      `5.555556`), silently breaking continuity at the curve's own published threshold — caught by
+      the Core continuity test, fixed against the official Fujifilm PDF, confirmed by re-running the
+      round-trip test. ARRI LogC4 and Canon C-Log3's constants are validated by the same
+      continuity/monotonicity/round-trip suite but were not independently cross-checked against a
+      second source the way the other six were — a residual gap worth closing in a follow-up if
+      real-world footage surfaces a discrepancy. Leica L-Log is served by the same `PanasonicVLog`
+      profile entry (display name notes the alias) rather than a separate id, since Leica licenses
+      the identical curve.
 
 **Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
 program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a
@@ -3511,14 +3587,15 @@ the capture workspace.
 **Future step (unscheduled): grading presets / creative looks.** A looks browser (one-click
 creative grades) must follow the **two-tier preset taxonomy** now recorded in
 [ARCHITECTURE §18](ARCHITECTURE.md): **tier 1 — technical presets** are the camera-log →
-working-space input transforms that already ship as step 37's `builtin.colortransform`
-(auto-applied on import, index 0, `ColorProfiles.All` append-only) and are *not* part of this
-feature; **tier 2 — creative looks** are what the feature adds — saved parameter bundles over the
-step-16/34 grading effects via the existing `EffectDescriptor.Presets` surface (step 41), saved
-multi-effect *stacks* for compound looks, and creative `.cube` LUTs sampled through step 37's
-packed-LUT stage (no new render machinery). The scope guard: the looks browser lists tier 2 only —
-camera-conversion LUTs (D-Log→Rec.709 et al.) never appear as looks (that would duplicate step 37
-and invite double application), and looks are authored/applied against normalized Rec.709 footage,
+working-space input transforms that already ship as step 37's `builtin.colortransform` — DJI via
+LUT (step 37) and every other vendor via math curve (step 52), both addressed by the same
+`ColorProfiles.All` append-only index — and are *not* part of this feature; **tier 2 — creative
+looks** are what the feature adds — saved parameter bundles over the step-16/34 grading effects via
+the existing `EffectDescriptor.Presets` surface (step 41), saved multi-effect *stacks* for compound
+looks, and creative `.cube` LUTs sampled through step 37's packed-LUT stage (no new render
+machinery). The scope guard: the looks browser lists tier 2 only — camera-conversion transforms
+(D-Log→Rec.709 et al.) never appear as looks (that would duplicate steps 37/52 and invite double
+application), and looks are authored/applied against normalized Rec.709 footage,
 never raw log. This mirrors Premiere (Input LUT vs. Creative Look), Final Cut (Camera LUT vs.
 Custom LUT effect), and Resolve (input color space vs. node LUTs / PowerGrades).
 

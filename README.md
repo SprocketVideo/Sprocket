@@ -51,8 +51,9 @@ frames never touch the managed heap per frame.
 - **GPU effects & keyframing** — brightness, color, and geometric transform as SkSL shaders that
   compose identically on preview and export; animate any effect parameter with keyframe lanes and
   an editable velocity graph.
-- **Color grading** — white balance, color wheels, curves, and an HSL qualifier, plus DJI
-  D-Log / D-Log M input transforms applied as GPU LUTs.
+- **Color grading** — white balance, color wheels, curves, and an HSL qualifier, plus log-footage
+  input transforms for DJI (GPU LUT) and ARRI, Sony, Panasonic, Canon, Blackmagic, Fujifilm, and
+  Nikon (GPU math curves).
 - **Generators, titles, adjustment layers & transitions** — title/text generator clips (including
   scrolling titles), adjustment layers whose effect stacks apply to everything beneath, and a
   transition library with overlapping-clip resolution.
@@ -294,8 +295,8 @@ P/Invoke against a C ABI — there is no C++/CLI — so one managed build serves
 
 The vertical slice (steps 1–9) and the feature build-out are complete — proxy media, generators &
 adjustment layers, alpha compositing, transitions, the export pipeline (presets, queue, burn-ins,
-hardware encoders), the render cache, the color-grading suite, D-Log, and the MCP server all ship
-today. Remaining work (full detail and per-step status in [PLAN.md](PLAN.md)):
+hardware encoders), the render cache, the color-grading suite, log-footage input transforms, and
+the MCP server all ship today. Remaining work (full detail and per-step status in [PLAN.md](PLAN.md)):
 
 - **Code-signing & notarization** — packaging itself ships today (Windows installer, Linux
   AppImage, macOS `.app`, auto-update, CI matrix builds with per-artifact smoke tests); the alpha

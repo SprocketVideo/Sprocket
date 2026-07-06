@@ -271,10 +271,10 @@ public static class EffectCatalog
             EffectTypeIds.ColorTransform,
             "Input Color Transform",
             EffectCategory.Color,
-            "Converts a log source (DJI D-Log / D-Log M) to Rec.709 via the vendor 3D LUT.",
+            "Converts a log source (DJI, ARRI, Sony, Panasonic, Canon, Blackmagic, Fujifilm, or Nikon) to Rec.709.",
             [
                 new EffectParameterDescriptor(EffectParamNames.SourceProfile, "Source Profile",
-                    0.0, 0.0, 1.0, 1.0,
+                    0.0, 0.0, ColorProfiles.All.Count - 1, 1.0,
                     Description: "The camera log profile the footage was recorded in."),
             ]) { ShortCode = "CT" },
 

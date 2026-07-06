@@ -30,6 +30,16 @@ public class ColorProbeTests
     }
 
     [Fact]
+    public void Probe_Detects_A_Non_Dji_Log_Profile_From_Container_Metadata()
+    {
+        // PLAN.md step 52: the DJI-only DetectDjiLog call was replaced with the generalized
+        // DetectLogProfile dispatcher — this proves that wiring, not the string-matching logic itself
+        // (covered without FFmpeg by Sprocket.Core.Tests).
+        ProbedMediaInfo info = MediaSource.ProbeInfo(TestVideo.SLog3Path);
+        Assert.Equal(ColorProfiles.SonySLog3, info.DetectedColorProfile);
+    }
+
+    [Fact]
     public void Probe_Leaves_Color_Fields_Absent_On_An_Untagged_Source()
     {
         ProbedMediaInfo info = MediaSource.ProbeInfo(TestVideo.Path);

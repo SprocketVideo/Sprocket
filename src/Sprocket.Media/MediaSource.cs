@@ -309,9 +309,10 @@ public sealed unsafe class MediaSource : IDisposable
         bool isVfr = IsVariableFrameRate(st);
         string videoCodec = CodecName(vpar->codec_id);
 
-        // Color metadata + log-profile detection (PLAN.md step 37): record the codecpar color enums by their
-        // canonical names, then scan the container- and stream-level metadata tags for a known log profile
-        // (e.g. DJI D-Log) so the App can prepend the input color transform when the clip is placed.
+        // Color metadata + log-profile detection (PLAN.md steps 37, 52): record the codecpar color enums by
+        // their canonical names, then scan the container- and stream-level metadata tags for a known log
+        // profile (DJI, ARRI, Sony, Panasonic, Canon, Blackmagic, Fujifilm, Nikon) so the App can prepend the
+        // input color transform when the clip is placed.
         string colorRange = ColorEnumName(LibAv.av_color_range_name(vpar->color_range));
         string colorPrimaries = ColorEnumName(LibAv.av_color_primaries_name(vpar->color_primaries));
         string colorTransfer = ColorEnumName(LibAv.av_color_transfer_name(vpar->color_trc));
@@ -319,7 +320,7 @@ public sealed unsafe class MediaSource : IDisposable
         var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         CollectMetadata(format.Metadata, metadata);
         CollectMetadata(st->metadata, metadata);
-        string detectedProfile = ColorProfiles.DetectDjiLog(metadata);
+        string detectedProfile = ColorProfiles.DetectLogProfile(metadata);
 
         Timecode duration = format.Duration > 0
             ? MediaTime.FromMicroseconds(format.Duration)          // AV_TIME_BASE (µs) container duration

@@ -695,7 +695,7 @@ own section but noted here so the "additive, not a rewrite" invariant stays cano
 
 ---
 
-## 18. Log media & color management (D-Log)
+## 18. Log media & color management (D-Log, and PLAN step 52's math-curve profiles)
 
 DJI drones (and most cinema cameras) record in a **logarithmic gamma** — for DJI, **D-Log**, with
 the variants **D-Log M** (milder curve, newer drones) and **D-Log 2** (wider gamut). A log curve
@@ -740,7 +740,34 @@ reads the video stream's color transfer/primaries/space and the format/stream me
 detection is absent or wrong, the profile is a **manual per-clip override** in the Inspector
 (PLAN step 16). The chosen transform is just an `EffectInstance`, so it serializes with the project
 for free (§12); the new `ProbedMediaInfo` color fields are additive (nullable/defaulted, no schema
-bump).
+bump). `ColorProfiles.DetectLogProfile` generalizes this to every vendor below, trying DJI's own
+heuristic first, then each other vendor's conservative substring match.
+
+**Math-based profiles (PLAN step 52) — the mechanism for every non-DJI vendor.** DJI's curve is
+LUT-based specifically because DJI has never published D-Log's formula — the vendor `.cube` is "the
+only public source for the exact curve" (above). Every other vendor Sprocket supports (ARRI LogC3 /
+LogC4, Sony S-Log3, Panasonic V-Log, Canon C-Log3, Blackmagic Film Gen 5, Fujifilm F-Log2, Nikon
+N-Log) *does* publish an exact transfer-function formula and gamut primaries in its own
+color-science whitepaper, so these are implemented as **closed-form math**, not a bundled vendor
+asset: `Sprocket.Core.Model.ColorProfileCurves` holds a decode function (log-encoded signal →
+scene-linear, transcribed directly from each vendor's spec, cited per profile) and a
+native-gamut→Rec.709 matrix (derived from the vendor's published CIE xy primaries via the standard
+primaries→RGB-to-XYZ method) for each profile. Render's `ColorTransformCurveSksl` is a float32 GPU
+port of that same math — a single compiled shader with a `kind` uniform selecting the profile's
+decode shape (several vendors happen to publish the identical "linear toe below a cut, log10 body
+above" shape, so one shader branch serves ARRI LogC3, Panasonic V-Log, and Fujifilm F-Log2; the
+others are each a distinct shape — log2, natural-exp, a symmetric three-piece curve, and a cubic
+toe — one branch apiece). Unlike the DJI path, there is **no texture child**: `BuildColorTransformShader`
+branches on `ColorProfiles.KindOf` and either takes the existing LUT path or builds this uniforms-only
+shader. Choosing math over a bundled LUT here also sidesteps a real non-technical cost the DJI path
+already carries: each vendor's own LUT file is still their copyrighted asset (tracked via
+`Luts/NOTICE.md`), and bundling eight more such assets into an open-source installer would mean
+eight more redistribution-license reviews; publishing an implementation of a vendor's own public
+formula carries no such licensing question. Because the math has no ground truth to render-test
+against (no camera footage in CI), correctness is instead checked by validating the decode function
+against each vendor's own published formula (continuity at the vendor's stated piecewise threshold,
+monotonicity, and round-trip against an independently-transcribed encode) and by checking the GPU
+shader agrees with that same Core-side reference for sample inputs.
 
 **Preset taxonomy — technical transforms vs. creative looks.** Any preset/look feature built on
 this pipeline must respect a **two-tier taxonomy**, mirroring how the leading NLEs separate the
@@ -753,8 +780,9 @@ input LUT vs. node LUTs and PowerGrades):
    not creative**; **auto-applied on import** when the probe detects a profile (manual per-clip
    override in the Inspector otherwise); **prepended** (index 0) so they always run before any
    grade; **one per clip**; parameterised only by source profile (`ColorProfiles.All`,
-   append-only — new camera vendors extend this list, nothing else). These are *the existing
-   D-Log support* and its future siblings (S-Log, C-Log, V-Log, …).
+   append-only — new camera vendors extend this list, nothing else). This is the existing D-Log
+   (step 37) and math-curve (step 52: LogC3/LogC4, S-Log3, V-Log, C-Log3, Blackmagic Film Gen 5,
+   F-Log2, N-Log) support.
 2. **Creative presets (looks / grading presets).** Stylistic choices applied **after**
    normalization, when the clip is already in the working space (Rec.709 today): saved parameter
    bundles over the grading effects (the `EffectDescriptor.Presets` surface, and — for

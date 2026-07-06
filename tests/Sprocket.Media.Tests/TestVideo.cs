@@ -21,6 +21,7 @@ internal static class TestVideo
     private static readonly Lazy<string> LazyAlphaPath = new(GenerateAlpha);
     private static readonly Lazy<string> LazyAudioOnlyPath = new(GenerateAudioOnly);
     private static readonly Lazy<string> LazyDLogMPath = new(GenerateDLogM);
+    private static readonly Lazy<string> LazySLog3Path = new(GenerateSLog3);
     private static readonly Lazy<string> LazySequenceDir = new(GenerateSequence);
     private static readonly Lazy<string> LazyStillPath = new(GenerateStill);
 
@@ -51,6 +52,13 @@ internal static class TestVideo
     /// color metadata on the stream plus a container comment naming <c>D-Log M</c>, generating it on first
     /// use. Exercises the color-metadata probe + log-profile detection.</summary>
     public static string DLogMPath => LazyDLogMPath.Value;
+
+    /// <summary>Absolute path to a fixture tagged like Sony S-Log3 footage (PLAN.md step 52): a container
+    /// comment naming <c>S-Log3</c>, generating it on first use. Exercises the generalized
+    /// <c>ColorProfiles.DetectLogProfile</c> dispatcher end-to-end through the Media probe, proving the
+    /// non-DJI vendor heuristics are wired in (the dispatcher's own string-matching logic is unit-tested
+    /// directly, without FFmpeg, in <c>Sprocket.Core.Tests</c>).</summary>
+    public static string SLog3Path => LazySLog3Path.Value;
 
     /// <summary>Directory holding a numbered PNG run (<c>frame_0001.png</c>…) for the image-sequence tests
     /// (PLAN.md step 42), generating it on first use.</summary>
@@ -85,6 +93,13 @@ internal static class TestVideo
         "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv\" " +
         "-c:v libx264 -pix_fmt yuv420p " +
         "-metadata comment=\"Shot in D-Log M\" ");
+
+    private static string GenerateSLog3() => RunFfmpeg(
+        "fixture-slog3.mp4",
+        "-y " +
+        "-f lavfi -i testsrc2=size=64x64:rate=30:duration=1 " +
+        "-c:v libx264 -pix_fmt yuv420p " +
+        "-metadata comment=\"Shot in S-Log3\" ");
 
     private static string GenerateAlpha() => RunFfmpeg(
         "fixture-alpha.mov",
