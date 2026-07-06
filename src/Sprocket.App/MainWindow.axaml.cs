@@ -1001,6 +1001,7 @@ public partial class MainWindow : Window
 
         _inspector = inspector;
         inspector.Attach(_project, _history, () => _engine?.Position ?? Timecode.Zero);
+        inspector.SetLiveAudioMixer(() => _audioClock?.Mixer);
     }
 
     // ── Transport ───────────────────────────────────────────────────────────────────────────────────

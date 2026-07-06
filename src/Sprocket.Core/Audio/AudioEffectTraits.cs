@@ -14,10 +14,11 @@ public static class AudioEffectTraits
 {
     /// <summary>
     /// Whether chains containing this effect are worth pre-rendering ("freezing") rather than recomputing
-    /// every playback pass — long-tailed or CPU-expensive DSP (the Studio Reverb tier today; convolution and
-    /// shimmer reverbs, steps 49–50, will join it).
+    /// every playback pass — long-tailed or CPU-expensive DSP (the Studio Reverb tier and the step-50
+    /// Shimmer Reverb today; the convolution reverb, step 49, will join them).
     /// </summary>
-    public static bool IsHeavy(string effectTypeId) => effectTypeId == EffectTypeIds.AudioStudioReverb;
+    public static bool IsHeavy(string effectTypeId) =>
+        effectTypeId is EffectTypeIds.AudioStudioReverb or EffectTypeIds.AudioShimmerReverb;
 
     /// <summary>Whether <paramref name="chain"/> contains any enabled heavy effect (see <see cref="IsHeavy"/>).</summary>
     public static bool HasHeavyEffect(IEnumerable<EffectInstance> chain)

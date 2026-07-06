@@ -169,6 +169,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Delay effects: Digital, Tape (wow/flutter + saturation), Multi-Tap (8 taps), Stereo (Ping Pong) | Sprocket.Audio/Effects/{DigitalDelay,TapeDelay,MultiTapDelay,StereoDelay}Effect.cs; EffectCatalog.cs | — | ❌ |
 | Noise Gate (threshold/attack/hold/release, range floor, hysteresis) | Sprocket.Audio/Effects/NoiseGateEffect.cs; EffectCatalog.cs | — | ❌ |
 | Shelving EQ (standalone low + high shelves: freq/gain/slope, per-shelf enable) | Sprocket.Audio/Effects/ShelvingEqEffect.cs; EffectCatalog.cs | — | ❌ |
+| Shimmer Reverb (pitch-shifted feedback wash; interval control; presets Classic–Dark–Fifth–Drone) | Sprocket.Audio/Effects/ShimmerReverbEffect.cs; EffectCatalog.cs | — | ❌ |
 | Freeze / Unfreeze Clip Audio (pre-render heavy audio chains; Sequence menu) | MainWindow.axaml.cs `UnfreezeClipAudio`; RenderCacheService.cs | — | ❌ |
 
 ## 9. Export & delivery
@@ -244,7 +245,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 | Variable / ramped speed retime (also reverse) | PLAN.md step 21 (constant-speed only is done; freeze-frame shipped as the step-43 frame hold); SpeedDialog notes deferral |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial) |
-| Convolution / Creative (shimmer) reverbs | PLAN.md steps 49–50 (Studio Reverb + audio freeze shipped in step 41) |
+| Convolution reverb | PLAN.md step 49 (Studio Reverb + audio freeze shipped in step 41; Shimmer Reverb shipped in step 50) |
 | Installers / packaging (Windows installer, AppImage, notarized macOS app) | PLAN.md step 36 (⏳ not done) |
 | Disabled menu items: Edit ▸ Select All, Clip ▸ Enable, Clip ▸ Link | greyed out in MainWindow.axaml |
 

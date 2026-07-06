@@ -170,6 +170,33 @@ public class AudioEffectChainPersistenceTests
     }
 
     [Fact]
+    public void Step50_Shimmer_Reverb_Round_Trips()
+    {
+        // The shimmer reverb id serializes via the existing EffectInstance JSON — additive, no schema bump.
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var project = new Project(timeline);
+        var track = new AudioTrack { Name = "A1" };
+        track.Effects.Add(new EffectInstance(EffectTypeIds.AudioShimmerReverb)
+            .Set(EffectParamNames.ShimmerAmount, 0.65)
+            .Set(EffectParamNames.ShimmerInterval, 7.0)
+            .Set(EffectParamNames.Size, 0.8)
+            .Set(EffectParamNames.Decay, 6.5)
+            .Set(EffectParamNames.Damping, 0.4)
+            .Set(EffectParamNames.Mix, 0.55));
+        timeline.Tracks.Add(track);
+
+        AudioTrack loaded = Assert.IsType<AudioTrack>(RoundTrip(project).Timeline.Tracks[0]);
+        EffectInstance shimmer = Assert.Single(loaded.Effects);
+        Assert.Equal(EffectTypeIds.AudioShimmerReverb, shimmer.EffectTypeId);
+        Assert.Equal(0.65, shimmer.Parameters[EffectParamNames.ShimmerAmount].Evaluate(Timecode.Zero));
+        Assert.Equal(7.0, shimmer.Parameters[EffectParamNames.ShimmerInterval].Evaluate(Timecode.Zero));
+        Assert.Equal(0.8, shimmer.Parameters[EffectParamNames.Size].Evaluate(Timecode.Zero));
+        Assert.Equal(6.5, shimmer.Parameters[EffectParamNames.Decay].Evaluate(Timecode.Zero));
+        Assert.Equal(0.4, shimmer.Parameters[EffectParamNames.Damping].Evaluate(Timecode.Zero));
+        Assert.Equal(0.55, shimmer.Parameters[EffectParamNames.Mix].Evaluate(Timecode.Zero));
+    }
+
+    [Fact]
     public void Chainless_Project_Omits_The_Chain_Fields_In_Json()
     {
         var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));

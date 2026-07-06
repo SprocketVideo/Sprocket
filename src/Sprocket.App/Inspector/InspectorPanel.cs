@@ -40,6 +40,7 @@ public sealed class InspectorPanel : UserControl
     private Project? _project;
     private EditHistory? _history;
     private Func<Timecode> _playhead = () => Timecode.Zero;
+    private Func<Sprocket.Audio.AudioMixer?>? _liveMixer;
 
     private Clip? _clip;
     private readonly StackPanel _body;
@@ -111,6 +112,13 @@ public sealed class InspectorPanel : UserControl
         _history.Changed += OnHistoryChanged;
         Rebuild();
     }
+
+    /// <summary>
+    /// Optional accessor for the live playback mixer, so effect sections that publish a real-time readout
+    /// (currently the Compressor's gain-reduction/input/output meter) can show it. Absent (or returning null)
+    /// just omits the meter — audio hasn't initialized yet, or there's no project audio at all.
+    /// </summary>
+    public void SetLiveAudioMixer(Func<Sprocket.Audio.AudioMixer?> getMixer) => _liveMixer = getMixer;
 
     /// <summary>Shows the given clip's properties (or the empty state when <see langword="null"/>).</summary>
     public void SetSelectedClip(Clip? clip)
@@ -718,6 +726,11 @@ public sealed class InspectorPanel : UserControl
         if (descriptor is { Presets.Count: > 0 })
             rows.Children.Add(BuildPresetRow(effect, descriptor));
 
+        // Live compressor metering: gain reduction + input/output peak, read straight from the playing mixer's
+        // DSP state when one is attached (SetLiveAudioMixer) — omitted otherwise (no live playback yet).
+        if (effect.EffectTypeId == EffectTypeIds.AudioCompressor)
+            rows.Children.Add(BuildCompressorMeterRow(clip, effect));
+
         // Heavy-chain hint (PLAN.md step 41): long-tailed DSP is worth pre-rendering rather than recomputing
         // every playback pass — point at the freeze command instead of silently burning CPU.
         if (Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(effect.EffectTypeId))
@@ -746,17 +759,18 @@ public sealed class InspectorPanel : UserControl
         rows.Opacity = effect.Enabled ? 1.0 : 0.5;
 
         // Header with an enable/disable toggle (eye icon, matching the track-header convention in
-        // TimelineControl) and a remove (x) button. Dense icon tier: these sit inside a 12px-text strip.
+        // TimelineControl) and a remove (x) button. Chrome icon tier — the same reference size as the window
+        // caption glyphs (minimize/maximize/close) — since Dense still read oversized against the 12px title.
         var header = new DockPanel { Background = Brushes.Transparent }; // hit-testable for the reorder drag
         var toggleIcon = new ShapesPath
         {
             Data = Icons.Eye,
             Stroke = effect.Enabled ? TextBrush : FaintText,
-            StrokeThickness = 1.5,
+            StrokeThickness = 1.2,
             StrokeLineCap = PenLineCap.Round,
             StrokeJoin = PenLineJoin.Round,
-            Width = IconSizes.Dense,
-            Height = IconSizes.Dense,
+            Width = IconSizes.Chrome,
+            Height = IconSizes.Chrome,
             Stretch = Stretch.Uniform,
         };
         var toggle = new ToggleButton
@@ -777,8 +791,8 @@ public sealed class InspectorPanel : UserControl
         {
             Content = new ShapesPath
             {
-                Data = Icons.Close, Stroke = FaintText, StrokeThickness = 1.5, StrokeLineCap = PenLineCap.Round,
-                Width = IconSizes.Dense, Height = IconSizes.Dense, Stretch = Stretch.Uniform,
+                Data = Icons.Close, Stroke = FaintText, StrokeThickness = 1.2, StrokeLineCap = PenLineCap.Round,
+                Width = IconSizes.Chrome, Height = IconSizes.Chrome, Stretch = Stretch.Uniform,
             },
             Padding = new Avalonia.Thickness(5, 1),
             Background = Brushes.Transparent,
@@ -868,6 +882,78 @@ public sealed class InspectorPanel : UserControl
             return;
         _history.Execute(new MoveChainEffectCommand(clip.Effects, clip.Effects[fromIndex], toIndex));
     }
+
+    /// <summary>
+    /// The Compressor's live meter row: a gain-reduction bar and a combined input/output peak-level bar, read
+    /// from the playing mixer's <see cref="Sprocket.Audio.Effects.CompressorEffect"/> instance (see
+    /// <see cref="SetLiveAudioMixer"/>) via <see cref="Sprocket.Audio.AudioMixer.TryPeekEffect"/>. In/Out share
+    /// one combined two-row bar (same dB scale, stacked) since they're both plain peak levels; GR gets its own
+    /// row since it means something different (amount of reduction, not a signal level). Registered as a
+    /// refresher so it updates alongside every other value on <see cref="OnPlayheadMoved"/>/history changes;
+    /// reads as "—" when no live mixer is attached, the clip isn't currently playing, or a chain edit hasn't
+    /// been re-mixed since (all of which mean there's nothing live to show, not an error).
+    /// </summary>
+    private Control BuildCompressorMeterRow(Clip clip, EffectInstance effect)
+    {
+        var grBar = new MiniMeterBar(Accent);
+        var grLabel = new TextBlock { FontSize = 10, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center };
+        var grRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        grRow.Children.Add(grBar);
+        grRow.Children.Add(grLabel);
+
+        var inBar = new MiniMeterBar(FaintText);
+        var outBar = new MiniMeterBar(MutedText);
+        var ioBars = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+        ioBars.Children.Add(inBar);
+        ioBars.Children.Add(outBar);
+        var ioLabel = new TextBlock { FontSize = 10, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center };
+        var ioRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        ioRow.Children.Add(ioBars);
+        ioRow.Children.Add(ioLabel);
+
+        var panel = new StackPanel { Spacing = 3, Margin = new Avalonia.Thickness(0, 0, 0, 2) };
+        panel.Children.Add(LabeledRow("GR", grRow));
+        panel.Children.Add(LabeledRow("In / Out", ioRow));
+
+        _valueRefreshers.Add(() =>
+        {
+            Sprocket.Audio.Effects.CompressorMeterSnapshot? s = TryReadCompressorMeter(clip, effect);
+            if (s is { } snapshot)
+            {
+                grBar.SetLevel(Math.Clamp(snapshot.GainReductionDb / 24.0, 0, 1));
+                grLabel.Text = snapshot.GainReductionDb > 0.05 ? $"-{snapshot.GainReductionDb:0.0} dB" : "0.0 dB";
+                inBar.SetLevel(MixerFormat.MeterFillFraction(snapshot.InputPeakDb));
+                outBar.SetLevel(MixerFormat.MeterFillFraction(snapshot.OutputPeakDb));
+                ioLabel.Text = $"{PeakDbText(snapshot.InputPeakDb)} → {PeakDbText(snapshot.OutputPeakDb)} dB";
+            }
+            else
+            {
+                grBar.SetLevel(0);
+                grLabel.Text = "—";
+                inBar.SetLevel(0);
+                outBar.SetLevel(0);
+                ioLabel.Text = "—";
+            }
+        });
+        return panel;
+    }
+
+    /// <summary>Looks up the live <see cref="Sprocket.Audio.Effects.CompressorEffect"/> backing this exact model
+    /// instance, or <see langword="null"/> if there isn't one right now (see <see cref="BuildCompressorMeterRow"/>
+    /// for why that's an expected, non-error state).</summary>
+    private Sprocket.Audio.Effects.CompressorMeterSnapshot? TryReadCompressorMeter(Clip clip, EffectInstance effect)
+    {
+        if (_liveMixer?.Invoke() is not { } mixer)
+            return null;
+        int chainIndex = EffectTypeIds.AudioChainIndexOf(clip.Effects, effect);
+        if (chainIndex < 0)
+            return null;
+        return mixer.TryPeekEffect(clip, chainIndex) is Sprocket.Audio.Effects.CompressorEffect compressor
+            ? compressor.TakeSnapshot()
+            : null;
+    }
+
+    private static string PeakDbText(double db) => double.IsNegativeInfinity(db) ? "-∞" : $"{db:0.0}";
 
     /// <summary>The input-transform profile dropdown (PLAN.md step 37): selects which log encoding the source
     /// was shot in (<see cref="ColorProfiles"/>), committing the effect's numeric
@@ -1276,4 +1362,39 @@ public sealed class InspectorPanel : UserControl
 
     private static string FormatSeconds(Timecode t) =>
         $"{t.ToSeconds().ToString("0.00", CultureInfo.InvariantCulture)}s";
+
+    /// <summary>A compact horizontal fill meter for inline effect readouts (the Compressor's gain-reduction and
+    /// input/output rows) — where the Mixer panel's tall vertical channel meter doesn't fit a single text row.
+    /// Single flat accent color rather than the channel meter's green/amber/red thresholds: these are secondary,
+    /// glanceable readouts, not the main level meter clipping matters for.</summary>
+    private sealed class MiniMeterBar : Control
+    {
+        private readonly IBrush _accent;
+        private double _level;
+
+        public MiniMeterBar(IBrush accent)
+        {
+            _accent = accent;
+            Width = 52;
+            Height = 6;
+        }
+
+        public void SetLevel(double level)
+        {
+            double clamped = Math.Clamp(level, 0, 1);
+            if (Math.Abs(clamped - _level) < 0.002)
+                return;
+            _level = clamped;
+            InvalidateVisual();
+        }
+
+        public override void Render(DrawingContext ctx)
+        {
+            double w = Bounds.Width, h = Bounds.Height;
+            ctx.FillRectangle(Palette.WindowBgBrush, new Avalonia.Rect(0, 0, w, h), 2);
+            double fill = _level * w;
+            if (fill > 0.5)
+                ctx.FillRectangle(_accent, new Avalonia.Rect(0, 0, fill, h), 2);
+        }
+    }
 }

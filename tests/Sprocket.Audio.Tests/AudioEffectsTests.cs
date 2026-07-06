@@ -182,6 +182,76 @@ public class AudioEffectsTests
         Assert.Equal(0.2f, buffer[^1], 0.001);
     }
 
+    // ── Compressor metering ────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Meter_Reports_No_Reduction_Below_Threshold()
+    {
+        var effect = new CompressorEffect();
+        var buffer = new float[4800 * Channels];
+        buffer.AsSpan().Fill(0.1f); // -20 dB, below the -12 dB threshold
+        effect.Process(buffer, 4800, Rate, Channels, Params(EffectTypeIds.AudioCompressor,
+            (EffectParamNames.ThresholdDb, -12.0), (EffectParamNames.Ratio, 4.0)));
+
+        CompressorMeterSnapshot s = effect.TakeSnapshot();
+        Assert.Equal(0.0, s.GainReductionDb, 0.01);
+        Assert.Equal(20 * Math.Log10(0.1), s.InputPeakDb, 3);
+        Assert.Equal(20 * Math.Log10(0.1), s.OutputPeakDb, 3); // untouched below threshold
+    }
+
+    [Fact]
+    public void Meter_Reports_Steady_State_Reduction_Above_Threshold()
+    {
+        // Same setup as Compressor_Attenuates_Signal_Above_The_Threshold: 9 dB of steady-state reduction. A
+        // separate warm-up block reaches steady state first — metering the same giant block that contains the
+        // attack ramp would let the pre-attack transient (briefly near-unity gain) dominate the block's peak.
+        ResolvedEffect p = Params(EffectTypeIds.AudioCompressor,
+            (EffectParamNames.ThresholdDb, -12.0), (EffectParamNames.Ratio, 4.0),
+            (EffectParamNames.AttackMs, 1.0), (EffectParamNames.ReleaseMs, 50.0));
+        var effect = new CompressorEffect();
+        var warmup = new float[Rate * Channels];
+        warmup.AsSpan().Fill(1.0f);
+        effect.Process(warmup, Rate, Rate, Channels, p);
+
+        var buffer = new float[480 * Channels];
+        buffer.AsSpan().Fill(1.0f);
+        effect.Process(buffer, 480, Rate, Channels, p);
+
+        CompressorMeterSnapshot s = effect.TakeSnapshot();
+        Assert.Equal(9.0, s.GainReductionDb, 0.5);
+        Assert.Equal(0.0, s.InputPeakDb, 0.01); // full-scale input, 0 dBFS
+        Assert.True(s.OutputPeakDb < s.InputPeakDb); // the block's peak output is attenuated
+    }
+
+    [Fact]
+    public void Meter_Reports_Silence_As_Negative_Infinity_Peaks()
+    {
+        var effect = new CompressorEffect();
+        var buffer = new float[4800 * Channels]; // all zero
+        effect.Process(buffer, 4800, Rate, Channels, Params(EffectTypeIds.AudioCompressor));
+
+        CompressorMeterSnapshot s = effect.TakeSnapshot();
+        Assert.True(double.IsNegativeInfinity(s.InputPeakDb));
+        Assert.True(double.IsNegativeInfinity(s.OutputPeakDb));
+    }
+
+    [Fact]
+    public void Reset_Clears_The_Meter()
+    {
+        var effect = new CompressorEffect();
+        var buffer = new float[4800 * Channels];
+        buffer.AsSpan().Fill(1.0f);
+        effect.Process(buffer, 4800, Rate, Channels, Params(EffectTypeIds.AudioCompressor,
+            (EffectParamNames.ThresholdDb, -12.0), (EffectParamNames.Ratio, 4.0)));
+        Assert.True(effect.TakeSnapshot().GainReductionDb > 0);
+
+        effect.Reset();
+        CompressorMeterSnapshot s = effect.TakeSnapshot();
+        Assert.Equal(0.0, s.GainReductionDb);
+        Assert.True(double.IsNegativeInfinity(s.InputPeakDb));
+        Assert.True(double.IsNegativeInfinity(s.OutputPeakDb));
+    }
+
     // ── Reverb ─────────────────────────────────────────────────────────────────────────────────────────
 
     [Fact]

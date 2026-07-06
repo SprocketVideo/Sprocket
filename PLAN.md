@@ -3390,6 +3390,27 @@ Tags reference the [UI.md §4 checklist](UI.md).
       reverb's existing behavior/tests); persistence round-trip; extend
       `AudioEffectsTests`/`AudioMixerChainTests` for allocation-free steady state and chain
       ordering, the same way prior audio-effect steps were covered.
+    - **✅ DONE (`Sprocket.Core/{Model/EffectInstance,Model/EffectCatalog,Audio/AudioEffectTraits}` +
+      `Sprocket.Audio/Effects/{ShimmerReverbEffect,BuiltInAudioEffects}`; 13 new tests — Audio +10,
+      Core +3, Persistence +1; full suite green.)** `builtin.audio.reverb.shimmer` as its own
+      `IAudioEffect`, reusing the `ReverbEffect` Freeverb comb/allpass network (Size scales line
+      lengths, Decay maps to per-comb RT60 feedback `0.001^(combSeconds/decay)`, clamped below unity)
+      as the base tail, with the wet mono sum fed through a granular (dual-tap, sine-crossfaded delay
+      line) pitch shifter and re-injected into the comb inputs at `ShimmerAmount`. **Unconditionally
+      bounded regardless of parameter combination:** the re-injection gain is normalized by the comb
+      bank's frequency-averaged gain so full Shimmer targets a mean loop gain below unity, the return
+      path is high-passed (keeps DC/rumble intermodulation from accumulating), and the return
+      additionally passes through `tanh` as a hard ±1 backstop — verified by a 10 s sustained-loud-input
+      test at maximum Decay/Size/Shimmer with zero damping. `ShimmerInterval` (1–12 semitones, default
+      +12) sets the shifter ratio `2^(interval/12)`; pitch-landing tests use a Goertzel band-power scan
+      to confirm the +12 st and +7 st presets land distinctly (within the granular shifter's splice-
+      sideband tolerance) rather than a single-bin FFT. All buffers allocate once at Size = 1 lengths, so
+      steady-state `Process` is allocation-free like the other reverb tiers; Shimmer = 0 is bit-identical
+      across any `ShimmerInterval` (the pitch path contributes nothing) and Mix = 0 is an exact pass-
+      through. Catalog ships four presets (Classic/Dark/Fifth/Drone-Infinite, all leaving Mix untouched)
+      and joins `AudioEffectTraits.IsHeavy` alongside Studio Reverb as a freeze candidate. No Inspector/UI
+      or MCP work was needed — the typed-descriptor pipeline and existing `move_effect`/chain tooling
+      already cover any new `EffectTypeId`.
 
 51. **Reorder effects within an audio chain.** No command exists today to move an `EffectInstance`
     within a chain **in place** — `Sprocket.Core/Commands/ModelCommands.cs` has `AddEffectCommand`/

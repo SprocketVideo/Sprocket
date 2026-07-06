@@ -185,6 +185,17 @@ public static class EffectTypeIds
     public const string AudioShelvingEq = "builtin.audio.shelvingeq";
 
     /// <summary>
+    /// Shimmer Reverb (PLAN.md step 50): a Freeverb-style tail with an octave-shifted (granular
+    /// pitch-shifted) feedback path layered underneath — the ethereal, pitched-up ambient wash, shipped
+    /// as its own dedicated effect rather than a mode of <see cref="AudioReverb"/> (the DAW convention:
+    /// Valhalla Shimmer, Ableton's Shimmer device). Parameters: <see cref="EffectParamNames.ShimmerAmount"/>,
+    /// <see cref="EffectParamNames.ShimmerInterval"/>, <see cref="EffectParamNames.Size"/>,
+    /// <see cref="EffectParamNames.Decay"/>, <see cref="EffectParamNames.Damping"/>,
+    /// <see cref="EffectParamNames.Mix"/>.
+    /// </summary>
+    public const string AudioShimmerReverb = "builtin.audio.reverb.shimmer";
+
+    /// <summary>
     /// Whether an effect type id names an <b>audio</b> chain stage (PLAN.md step 31). The render graph uses
     /// this to split a clip's single effect stack: audio ids feed the mixer's DSP chain, everything else feeds
     /// the video shader chain (where unknown ids pass through). Built-in audio effects share the
@@ -197,6 +208,28 @@ public static class EffectTypeIds
         effectTypeId.StartsWith("builtin.audio.", StringComparison.Ordinal)
         || (!effectTypeId.StartsWith("builtin.", StringComparison.Ordinal)
             && EffectCatalog.Find(effectTypeId)?.Category == EffectCategory.Audio);
+
+    /// <summary>
+    /// The position of <paramref name="target"/> among <paramref name="effects"/>'s <em>enabled, audio</em>
+    /// entries, in order — the same filter <c>RenderGraph.ResolveAudioChain</c> applies when building the live
+    /// DSP chain (enabled + <see cref="IsAudio"/>), so a UI can map a model effect to its index in the mixer's
+    /// running <see cref="Audio.IAudioEffect"/> array (<c>AudioMixer.TryPeekEffect</c>) for effect-specific
+    /// metering (e.g. the Compressor's gain-reduction readout, PLAN.md step 31). Returns -1 if the target is
+    /// disabled, not an audio effect, or not present — any of which mean it isn't actually running in the chain.
+    /// </summary>
+    public static int AudioChainIndexOf(IReadOnlyList<EffectInstance> effects, EffectInstance target)
+    {
+        int index = 0;
+        foreach (EffectInstance effect in effects)
+        {
+            if (!effect.Enabled || !IsAudio(effect.EffectTypeId))
+                continue;
+            if (ReferenceEquals(effect, target))
+                return index;
+            index++;
+        }
+        return -1;
+    }
 }
 
 /// <summary>Well-known parameter names used by the built-in effects.</summary>
@@ -507,6 +540,17 @@ public static class EffectParamNames
 
     /// <summary>High-shelf enable toggle (≥ 0.5 = on) — <see cref="EffectTypeIds.AudioShelvingEq"/>.</summary>
     public const string HighEnable = "highEnable";
+
+    // ── Shimmer Reverb (PLAN.md step 50). ──
+    /// <summary>Shimmer amount in [0, 1] — the level of the pitch-shifted feedback path re-entering the
+    /// reverb (0 = the plain base tail; 1 = a near-sustained pitched wash). The effect maps this onto a
+    /// loop gain clamped below unity-with-margin, so no setting can run away —
+    /// <see cref="EffectTypeIds.AudioShimmerReverb"/>.</summary>
+    public const string ShimmerAmount = "shimmerAmount";
+
+    /// <summary>Shimmer pitch interval in semitones (+12 = the canonical octave; +7 = the fifth variant) —
+    /// <see cref="EffectTypeIds.AudioShimmerReverb"/>.</summary>
+    public const string ShimmerInterval = "shimmerInterval";
 
     /// <summary>The fixed tap cap of the Multi-Tap Delay (PLAN.md step 46) — matches typical DAW
     /// multi-tap plugins.</summary>

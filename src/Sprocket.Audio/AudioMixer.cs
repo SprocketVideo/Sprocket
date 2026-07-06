@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Numerics;
 using Sprocket.Audio.Effects;
 using Sprocket.Core.Audio;
@@ -67,7 +68,11 @@ public sealed class AudioMixer : IDisposable
     private readonly Func<MediaRefId, IPcmReader?> _resolve;
     private readonly Func<string, IAudioEffect?> _effectFactory;
     private readonly Dictionary<MediaRefId, SourceState> _states = new();
-    private readonly Dictionary<object, ChainState> _chainStates = new();
+    // Concurrent, not plain Dictionary: only the feeder thread ever writes, but TryPeekEffect reads from the UI
+    // thread for live effect metering (e.g. the Compressor's gain-reduction readout) — a torn/racing read of a
+    // plain Dictionary while it resizes is undefined behavior, whereas ConcurrentDictionary's reads are lock-free
+    // and safe against a concurrent single writer.
+    private readonly ConcurrentDictionary<object, ChainState> _chainStates = new();
     // One layer scratch buffer per nesting depth (PLAN.md step 23): mixing a nested-sequence layer recurses, and
     // each depth needs its own scratch so the sub-mix doesn't clobber the parent's. Index 0 is the (common,
     // non-nested) top level — kept allocation-free in steady state exactly as before.
@@ -239,6 +244,25 @@ public sealed class AudioMixer : IDisposable
         ChainState state = GetChainState(chain);
         for (int i = 0; i < chain.Effects.Count; i++)
             state.Effects[i]?.Process(buffer[..(frames * Channels)], frames, SampleRate, Channels, chain.Effects[i]);
+    }
+
+    /// <summary>
+    /// Best-effort peek at the live <see cref="IAudioEffect"/> instance sitting at <paramref name="effectIndex"/>
+    /// within the chain identified by <paramref name="chainStateKey"/> (a clip, track, timeline, or project
+    /// settings object — the same identity <see cref="ResolvedAudioChain.StateKey"/> uses), for effect-specific
+    /// UI metering (e.g. the Compressor's gain-reduction readout, PLAN.md step 31). The index counts only that
+    /// chain's <em>enabled, audio</em> effects in order — <see cref="EffectTypeIds.AudioChainIndexOf"/> computes
+    /// it from the model's full effect list. Safe to call from any thread (see the <see cref="_chainStates"/>
+    /// field remarks); returns <see langword="null"/> if the chain hasn't mixed yet, the index is stale (a
+    /// chain edit rebuilt the array since), or the position is out of range.
+    /// </summary>
+    public IAudioEffect? TryPeekEffect(object chainStateKey, int effectIndex)
+    {
+        if (effectIndex < 0)
+            return null;
+        if (_chainStates.TryGetValue(chainStateKey, out ChainState? state) && effectIndex < state.Effects.Length)
+            return state.Effects[effectIndex];
+        return null;
     }
 
     /// <summary>Clears every cached chain's DSP state (filter memory, envelopes, tails) after a transport jump.</summary>

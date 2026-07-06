@@ -29,6 +29,7 @@ public static class BuiltInAudioEffects
         EffectTypeIds.AudioDelayStereo => new StereoDelayEffect(),
         EffectTypeIds.AudioNoiseGate => new NoiseGateEffect(),
         EffectTypeIds.AudioShelvingEq => new ShelvingEqEffect(),
+        EffectTypeIds.AudioShimmerReverb => new ShimmerReverbEffect(),
         _ => null,
     };
 }

@@ -72,6 +72,14 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
     public LoudnessSnapshot CurrentLoudness => _meter.TakeSnapshot();
 
     /// <summary>
+    /// The live mixer driving playback, for effect-specific UI metering (e.g. the Compressor's gain-reduction
+    /// readout, PLAN.md step 31) via <see cref="AudioMixer.TryPeekEffect"/>. The mixer's own state is
+    /// feeder-thread-confined; <see cref="AudioMixer.TryPeekEffect"/> is the one method safe to call from the
+    /// UI thread.
+    /// </summary>
+    public AudioMixer Mixer => _mixer;
+
+    /// <summary>
     /// The preview render cache's audio side (ARCHITECTURE.md §20, PLAN.md step 32), or <see langword="null"/>
     /// (the default) to always mix live. When set, the feeder asks it for cached master-mix PCM first and only
     /// mixes when the buffer's span isn't fully covered by a valid cached range — replaying a pre-rendered

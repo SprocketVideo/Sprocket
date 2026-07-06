@@ -27,8 +27,9 @@ public static class IconSizes
     /// Window caption glyphs (minimize/maximize/close) — the title bar's own compact 34px height caps these.
     public const double Chrome = 8;
 
-    /// Ultra-dense per-row glyphs sitting inside a 12px-text strip (the Inspector's effect title bars), where
-    /// even Compact reads oversized against the label.
+    /// Ultra-dense per-row glyphs (the Inspector pane header's Expand All / Collapse All chevrons), where even
+    /// Compact reads oversized. The effect title bars' own eye/× icons went a size further, to Chrome — see
+    /// their call sites in InspectorPanel.cs.
     public const double Dense = 10;
 
     /// Dense inline controls: per-item toggles and small remove buttons (Inspector effect rows, marker list rows,

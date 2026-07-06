@@ -440,6 +440,52 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.HighSlope, "High Slope", 1.0, 0.1, 2.0, 0.05),
                 new EffectParameterDescriptor(EffectParamNames.HighEnable, "High Shelf", 1.0, 0.0, 1.0, 1.0),
             ]),
+
+        // ── Shimmer Reverb (PLAN.md step 50) — the "Creative Reverb ▸ shimmer" tier as its own effect. ──
+        new EffectDescriptor(
+            EffectTypeIds.AudioShimmerReverb,
+            "Shimmer Reverb",
+            EffectCategory.Audio,
+            "Ethereal pitched-up reverb wash: an octave-shifted feedback path under a conventional tail.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.ShimmerAmount, "Shimmer", 0.5, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.ShimmerInterval, "Interval", 12.0, 1.0, 12.0, 1.0, "st"),
+                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 4.0, 0.1, 20.0, 0.1, "s"),
+                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.3, 0.0, 1.0, 0.05),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
+            ])
+        {
+            // The step-50 preset family. Like the Studio Reverb presets, every preset leaves Mix untouched
+            // so switching character keeps the user's wet/dry blend.
+            Presets =
+            [
+                new EffectPreset("Classic Shimmer", new Dictionary<string, double>
+                {
+                    [EffectParamNames.ShimmerAmount] = 0.6, [EffectParamNames.ShimmerInterval] = 12,
+                    [EffectParamNames.Size] = 0.7, [EffectParamNames.Decay] = 5.0,
+                    [EffectParamNames.Damping] = 0.25,
+                }),
+                new EffectPreset("Dark Shimmer", new Dictionary<string, double>
+                {
+                    [EffectParamNames.ShimmerAmount] = 0.45, [EffectParamNames.ShimmerInterval] = 12,
+                    [EffectParamNames.Size] = 0.6, [EffectParamNames.Decay] = 4.0,
+                    [EffectParamNames.Damping] = 0.75,
+                }),
+                new EffectPreset("Fifth Shimmer", new Dictionary<string, double>
+                {
+                    [EffectParamNames.ShimmerAmount] = 0.55, [EffectParamNames.ShimmerInterval] = 7,
+                    [EffectParamNames.Size] = 0.65, [EffectParamNames.Decay] = 4.5,
+                    [EffectParamNames.Damping] = 0.3,
+                }),
+                new EffectPreset("Drone / Infinite", new Dictionary<string, double>
+                {
+                    [EffectParamNames.ShimmerAmount] = 1.0, [EffectParamNames.ShimmerInterval] = 12,
+                    [EffectParamNames.Size] = 0.9, [EffectParamNames.Decay] = 20.0,
+                    [EffectParamNames.Damping] = 0.1,
+                }),
+            ],
+        },
     ];
 
     /// <summary>

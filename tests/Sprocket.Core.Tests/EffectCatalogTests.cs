@@ -314,12 +314,51 @@ public class EffectCatalogTests
             names);
     }
 
+    // ── Step 50: the Shimmer Reverb ─────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Shimmer_Reverb_Is_Registered_As_An_Audio_Effect()
+    {
+        EffectDescriptor? shimmer = EffectCatalog.Find(EffectTypeIds.AudioShimmerReverb);
+        Assert.NotNull(shimmer);
+        Assert.Equal(EffectCategory.Audio, shimmer!.Category);
+        Assert.True(EffectTypeIds.IsAudio(EffectTypeIds.AudioShimmerReverb)); // routes to the mixer, not the shaders
+        Assert.Equal("Shimmer Reverb", EffectCatalog.DisplayName(EffectTypeIds.AudioShimmerReverb));
+    }
+
+    [Fact]
+    public void Shimmer_Reverb_Exposes_The_Step50_Parameters()
+    {
+        string[] names = EffectCatalog.Find(EffectTypeIds.AudioShimmerReverb)!.Parameters.Select(p => p.Name).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                EffectParamNames.ShimmerAmount, EffectParamNames.ShimmerInterval, EffectParamNames.Size,
+                EffectParamNames.Decay, EffectParamNames.Damping, EffectParamNames.Mix,
+            },
+            names);
+    }
+
+    [Fact]
+    public void Shimmer_Reverb_Ships_The_Step50_Presets_Leaving_Mix_Untouched()
+    {
+        EffectDescriptor shimmer = EffectCatalog.Find(EffectTypeIds.AudioShimmerReverb)!;
+        Assert.Equal(
+            new[] { "Classic Shimmer", "Dark Shimmer", "Fifth Shimmer", "Drone / Infinite" },
+            shimmer.Presets.Select(p => p.Name).ToArray());
+        Assert.All(shimmer.Presets, p => Assert.DoesNotContain(EffectParamNames.Mix, p.Values.Keys));
+        // The fifth preset selects the +7 st interval; the drone preset is the deliberate near-sustain wash.
+        Assert.Equal(7, shimmer.Presets.Single(p => p.Name == "Fifth Shimmer").Values[EffectParamNames.ShimmerInterval]);
+        Assert.Equal(1.0, shimmer.Presets.Single(p => p.Name == "Drone / Infinite").Values[EffectParamNames.ShimmerAmount]);
+    }
+
     // ── Step 41: heavy-chain traits (freeze hints) ─────────────────────────────────────────────────────
 
     [Fact]
     public void AudioEffectTraits_Flags_The_Studio_Reverb_As_Heavy()
     {
         Assert.True(Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(EffectTypeIds.AudioStudioReverb));
+        Assert.True(Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(EffectTypeIds.AudioShimmerReverb)); // step 50
         Assert.False(Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(EffectTypeIds.AudioReverb));
         Assert.False(Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(EffectTypeIds.AudioGain));
     }

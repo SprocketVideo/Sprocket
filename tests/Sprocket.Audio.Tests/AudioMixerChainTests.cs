@@ -1,3 +1,4 @@
+using Sprocket.Audio.Effects;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 using Xunit;
@@ -262,6 +263,58 @@ public class AudioMixerChainTests
 
         float[] buffer = Mix(mixer, ProjectWith(track), Rate, Timecode.Zero); // 1 s so the filter settles
         Assert.Equal(0.25f * (float)Math.Pow(10, 6 / 20.0), buffer[^1], 0.005);
+    }
+
+    [Fact]
+    public void ShimmerReverb_On_The_Track_Chain_Rings_Into_The_Next_Contiguous_Buffer()
+    {
+        // A shimmer reverb on the sequence bus (PLAN.md step 50) composes like any other stage: the 0.05 s
+        // clip's content keeps ringing into the NEXT sequential buffer after the source has gone silent —
+        // the shimmer's comb/grain state persists across contiguous MixInto calls, like the reverb above.
+        var track = new AudioTrack { Name = "A" };
+        track.Clips.Add(new Clip(A, Timecode.Zero, Timecode.FromSamples(2400, Rate), Timecode.Zero));
+        Project project = ProjectWith(track);
+        project.Timeline.AudioEffects.Add(new EffectInstance(EffectTypeIds.AudioShimmerReverb)
+            .Set(EffectParamNames.ShimmerAmount, 1.0)
+            .Set(EffectParamNames.Decay, 5.0)
+            .Set(EffectParamNames.Mix, 1.0));
+        using AudioMixer mixer = MixerFor((A, 0.9f));
+
+        Mix(mixer, project, 4800, Timecode.Zero); // excite the tail with the clip content
+        float[] tail = Mix(mixer, project, 4800, Timecode.FromSamples(4800, Rate));
+        Assert.Contains(tail, s => Math.Abs(s) > 0.001f);
+    }
+
+    [Fact]
+    public void TryPeekEffect_Exposes_The_Live_Compressor_For_UI_Metering()
+    {
+        // The clip-scope chain's StateKey is the Clip object itself (RenderGraph.PlanAudioBuffer) — a loud
+        // clip through a compressor should be visible via TryPeekEffect(clip, 0) with real gain reduction,
+        // exactly what the Inspector's live meter row reads.
+        var track = TrackOver(A);
+        track.Clips[0].Effects.Add(new EffectInstance(EffectTypeIds.AudioCompressor)
+            .Set(EffectParamNames.ThresholdDb, -12.0)
+            .Set(EffectParamNames.Ratio, 4.0)
+            .Set(EffectParamNames.AttackMs, 1.0)
+            .Set(EffectParamNames.ReleaseMs, 50.0));
+        using AudioMixer mixer = MixerFor((A, 1.0f));
+
+        Mix(mixer, ProjectWith(track), Rate, Timecode.Zero); // 1 s so the envelope settles
+        CompressorEffect? compressor = Assert.IsType<CompressorEffect>(mixer.TryPeekEffect(track.Clips[0], 0));
+        Assert.True(compressor.TakeSnapshot().GainReductionDb > 5);
+    }
+
+    [Fact]
+    public void TryPeekEffect_Returns_Null_For_An_Unknown_Chain_Or_Index()
+    {
+        var track = TrackOver(A);
+        track.Clips[0].Effects.Add(new EffectInstance(EffectTypeIds.AudioCompressor));
+        using AudioMixer mixer = MixerFor((A, 0.5f));
+        Mix(mixer, ProjectWith(track), 256, Timecode.Zero);
+
+        Assert.Null(mixer.TryPeekEffect(track.Clips[0], 5));  // out of range
+        Assert.Null(mixer.TryPeekEffect(track.Clips[0], -1)); // negative
+        Assert.Null(mixer.TryPeekEffect(new object(), 0));    // never-mixed chain key
     }
 
     [Fact]

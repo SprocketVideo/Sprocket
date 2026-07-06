@@ -37,6 +37,32 @@ public class AudioEffectChainTests
         Assert.False(EffectTypeIds.IsAudio(EffectTypeIds.Fade));
     }
 
+    // ── AudioChainIndexOf (compressor live-metering lookup) ────────────────────────────────────────────
+
+    [Fact]
+    public void AudioChainIndexOf_Skips_Video_And_Disabled_Effects()
+    {
+        var video = new EffectInstance(EffectTypeIds.Brightness);
+        var disabledGain = new EffectInstance(EffectTypeIds.AudioGain) { Enabled = false };
+        var eq = new EffectInstance(EffectTypeIds.AudioEq);
+        var compressor = new EffectInstance(EffectTypeIds.AudioCompressor);
+        var effects = new List<EffectInstance> { video, disabledGain, eq, compressor };
+
+        // Only eq and compressor are enabled audio effects — indices 0 and 1 in the filtered chain, matching
+        // exactly what RenderGraph.ResolveAudioChain would resolve (enabled + IsAudio, in order).
+        Assert.Equal(0, EffectTypeIds.AudioChainIndexOf(effects, eq));
+        Assert.Equal(1, EffectTypeIds.AudioChainIndexOf(effects, compressor));
+        Assert.Equal(-1, EffectTypeIds.AudioChainIndexOf(effects, video));
+        Assert.Equal(-1, EffectTypeIds.AudioChainIndexOf(effects, disabledGain));
+    }
+
+    [Fact]
+    public void AudioChainIndexOf_Returns_Minus_One_For_An_Effect_Not_In_The_List()
+    {
+        var effects = new List<EffectInstance> { new(EffectTypeIds.AudioGain) };
+        Assert.Equal(-1, EffectTypeIds.AudioChainIndexOf(effects, new EffectInstance(EffectTypeIds.AudioCompressor)));
+    }
+
     [Fact]
     public void Audio_Effects_Are_Registered_In_The_Catalog()
     {
