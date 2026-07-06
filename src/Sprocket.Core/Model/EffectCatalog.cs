@@ -74,6 +74,13 @@ public sealed record EffectDescriptor(
     public IReadOnlyList<EffectPreset> Presets { get; init; } = [];
 
     /// <summary>
+    /// The 2-letter code instance reference tags are built from (<see cref="EffectTags"/>, e.g. <c>"RV"</c>
+    /// → tag <c>"RV-1"</c>). Unique across the built-ins; a plugin descriptor that omits it gets one derived
+    /// from its display name (<see cref="EffectTags.DeriveShortCode"/>).
+    /// </summary>
+    public string? ShortCode { get; init; }
+
+    /// <summary>
     /// Builds a fresh <see cref="EffectInstance"/> of this type with every parameter set to its
     /// <see cref="EffectParameterDescriptor.Default"/>. Each call yields an independent instance.
     /// </summary>
@@ -117,7 +124,7 @@ public static class EffectCatalog
                     Description: "Vertical pivot for scale and rotation (0 = top edge, 1 = bottom edge)."),
                 new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05,
                     Description: "Layer transparency (1.0 = fully opaque, 0 = invisible)."),
-            ]),
+            ]) { ShortCode = "TR" },
 
         new EffectDescriptor(
             EffectTypeIds.Color,
@@ -133,7 +140,7 @@ public static class EffectCatalog
                     Description: "Overall colour intensity (0 = greyscale, 1.0 = unchanged)."),
                 new EffectParameterDescriptor(EffectParamNames.Vibrance, "Vibrance", 0.0, -1.0, 1.0, 0.05,
                     Description: "Boosts muted colours more than already-vivid ones, protecting skin tones."),
-            ]),
+            ]) { ShortCode = "CO" },
 
         // ── Colour grading toolset (PLAN.md step 34) — SkSL registry effects, like ACES Filmic. ──
         new EffectDescriptor(
@@ -146,7 +153,7 @@ public static class EffectCatalog
                     Description: "Shifts colours warmer (orange, +) or cooler (blue, −)."),
                 new EffectParameterDescriptor(EffectParamNames.Tint, "Tint", 0.0, -100.0, 100.0, 1.0,
                     Description: "Shifts colours toward magenta (+) or green (−)."),
-            ]),
+            ]) { ShortCode = "WB" },
 
         new EffectDescriptor(
             EffectTypeIds.ColorWheels,
@@ -178,7 +185,7 @@ public static class EffectCatalog
                     Description: "Green balance of the highlights."),
                 new EffectParameterDescriptor(EffectParamNames.GainB, "Gain B", 0.0, -1.0, 1.0, 0.005,
                     Description: "Blue balance of the highlights."),
-            ]),
+            ]) { ShortCode = "CW" },
 
         new EffectDescriptor(
             EffectTypeIds.Curves,
@@ -226,7 +233,7 @@ public static class EffectCatalog
                     Description: "Lifts or lowers the highlights on the blue channel."),
                 new EffectParameterDescriptor(EffectParamNames.CurveBlueWhites, "Blue Whites", 0.0, -1.0, 1.0, 0.01,
                     Description: "Offsets the white point on the blue channel."),
-            ]),
+            ]) { ShortCode = "CV" },
 
         new EffectDescriptor(
             EffectTypeIds.HslQualifier,
@@ -258,7 +265,7 @@ public static class EffectCatalog
                     "Brightens or darkens the keyed pixels, in photographic stops."),
                 new EffectParameterDescriptor(EffectParamNames.ShowMask, "Show Mask", 0.0, 0.0, 1.0, 1.0,
                     Description: "Shows the key as a black-and-white matte instead of the graded image."),
-            ]),
+            ]) { ShortCode = "HQ" },
 
         new EffectDescriptor(
             EffectTypeIds.ColorTransform,
@@ -269,7 +276,7 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.SourceProfile, "Source Profile",
                     0.0, 0.0, 1.0, 1.0,
                     Description: "The camera log profile the footage was recorded in."),
-            ]),
+            ]) { ShortCode = "CT" },
 
         new EffectDescriptor(
             EffectTypeIds.AcesFilmic,
@@ -279,7 +286,7 @@ public static class EffectCatalog
             [
                 new EffectParameterDescriptor(EffectParamNames.Exposure, "Exposure", 0.0, -8.0, 8.0, 0.1, "EV",
                     "Scene exposure applied before tone mapping, in photographic stops."),
-            ]),
+            ]) { ShortCode = "AF" },
 
         new EffectDescriptor(
             EffectTypeIds.Brightness,
@@ -289,7 +296,7 @@ public static class EffectCatalog
             [
                 new EffectParameterDescriptor(EffectParamNames.Amount, "Amount", 1.0, 0.0, 4.0, 0.05,
                     Description: "Multiplies image brightness (1.0 = unchanged, 2.0 = twice as bright)."),
-            ]),
+            ]) { ShortCode = "BR" },
 
         new EffectDescriptor(
             EffectTypeIds.Fade,
@@ -299,7 +306,7 @@ public static class EffectCatalog
             [
                 new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05,
                     Description: "Clip opacity — also scales the clip's audio gain in step."),
-            ]),
+            ]) { ShortCode = "FD" },
 
         // ── Audio chain stages (PLAN.md step 31) — executed by the mixer, not the shader pipeline. ──
         new EffectDescriptor(
@@ -312,7 +319,7 @@ public static class EffectCatalog
                     "Volume adjustment in decibels (0 = unchanged)."),
                 new EffectParameterDescriptor(EffectParamNames.Pan, "Pan", 0.0, -1.0, 1.0, 0.05,
                     Description: "Stereo balance (−1 = full left, +1 = full right)."),
-            ]),
+            ]) { ShortCode = "GP" },
 
         new EffectDescriptor(
             EffectTypeIds.AudioEq,
@@ -334,7 +341,7 @@ public static class EffectCatalog
                     "Boost or cut above the high shelf frequency."),
                 new EffectParameterDescriptor(EffectParamNames.HighFreq, "High Freq", 8000.0, 2000.0, 16000.0, 100.0, "Hz",
                     "Corner frequency of the high shelf."),
-            ]),
+            ]) { ShortCode = "EQ" },
 
         new EffectDescriptor(
             EffectTypeIds.AudioCompressor,
@@ -352,7 +359,7 @@ public static class EffectCatalog
                     "How quickly compression lets go after the signal falls below the threshold."),
                 new EffectParameterDescriptor(EffectParamNames.MakeupDb, "Make-up", 0.0, 0.0, 24.0, 0.5, "dB",
                     "Output gain to restore loudness lost to compression."),
-            ]),
+            ]) { ShortCode = "CP" },
 
         new EffectDescriptor(
             EffectTypeIds.AudioReverb,
@@ -366,7 +373,7 @@ public static class EffectCatalog
                     Description: "How quickly high frequencies die away in the tail."),
                 new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
                     Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
-            ]),
+            ]) { ShortCode = "RV" },
 
         new EffectDescriptor(
             EffectTypeIds.AudioStudioReverb,
@@ -398,6 +405,7 @@ public static class EffectCatalog
                     Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
             ])
         {
+            ShortCode = "SR",
             // The step-41 preset families (room / chamber / plate / hall / cathedral / ambient bloom); the
             // shimmer/cloud/nonlinear creative tiers ship as their own effects (steps 49–50). Every preset
             // leaves Mix untouched so switching character keeps the user's wet/dry blend.
@@ -469,7 +477,7 @@ public static class EffectCatalog
                     "Filters highs out of the repeats — lower = darker echoes."),
                 new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
                     Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
-            ]),
+            ]) { ShortCode = "DD" },
 
         new EffectDescriptor(
             EffectTypeIds.AudioDelayTape,
@@ -489,14 +497,14 @@ public static class EffectCatalog
                     Description: "Tape drive — adds warmth and grit to the repeats."),
                 new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
                     Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
-            ]),
+            ]) { ShortCode = "TD" },
 
         new EffectDescriptor(
             EffectTypeIds.AudioDelayMultiTap,
             "Multi-Tap Delay",
             EffectCategory.Audio,
             "Up to eight independent taps, each with its own time, level, and pan.",
-            MultiTapParameters()),
+            MultiTapParameters()) { ShortCode = "MT" },
 
         new EffectDescriptor(
             EffectTypeIds.AudioDelayStereo,
@@ -516,7 +524,7 @@ public static class EffectCatalog
                     Description: "How much each channel's repeats bleed into the other side."),
                 new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
                     Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
-            ]),
+            ]) { ShortCode = "SD" },
 
         // ── Noise Gate (PLAN.md step 47) — the standard DAW gate/expander design. ──
         new EffectDescriptor(
@@ -537,7 +545,7 @@ public static class EffectCatalog
                     "How far the closed gate turns the signal down (−80 dB ≈ silence)."),
                 new EffectParameterDescriptor(EffectParamNames.HysteresisDb, "Hysteresis", 3.0, 0.0, 24.0, 0.5, "dB",
                     "Gap between the open and close thresholds, preventing rapid chatter."),
-            ]),
+            ]) { ShortCode = "NG" },
 
         // ── Shelving EQ (PLAN.md step 48) — standalone low/high shelves for quick tone shaping. ──
         new EffectDescriptor(
@@ -562,7 +570,7 @@ public static class EffectCatalog
                     Description: "Steepness of the high shelf's transition."),
                 new EffectParameterDescriptor(EffectParamNames.HighEnable, "High Shelf", 1.0, 0.0, 1.0, 1.0,
                     Description: "Enables the high shelf."),
-            ]),
+            ]) { ShortCode = "SE" },
 
         // ── Shimmer Reverb (PLAN.md step 50) — the "Creative Reverb ▸ shimmer" tier as its own effect. ──
         new EffectDescriptor(
@@ -585,6 +593,7 @@ public static class EffectCatalog
                     Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
             ])
         {
+            ShortCode = "SH",
             // The step-50 preset family. Like the Studio Reverb presets, every preset leaves Mix untouched
             // so switching character keeps the user's wet/dry blend.
             Presets =

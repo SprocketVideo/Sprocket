@@ -150,6 +150,8 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; PLAN.md step 34 | — | ❌ |
 | Log footage: Input Color Transform (DJI D-Log family), ACES Filmic | EffectCatalog.cs; PLAN.md step 37 | — | ❌ |
 | Inspector: sections, sliders/numeric entry, remove effect | Sprocket.App/Inspector/InspectorPanel.cs | getting-started.md#3-select-a-clip | ✅ |
+| Enable/bypass an effect (green status LED in the effect header; parameters kept while bypassed) | InspectorPanel.cs `BuildEffectSection`; ModelCommands.cs `SetEffectEnabledCommand` | — | ❌ |
+| Effect reference tags (unique per-instance tag chip in the effect header, e.g. RV-1 — how AI/MCP clients address an effect) | Sprocket.Core/Model/EffectTags.cs; InspectorPanel.cs | — | ❌ |
 | Effect parameter tooltips (hover a parameter label for a plain-language description) | EffectCatalog.cs `EffectParameterDescriptor.Description`; InspectorPanel.cs | — | ❌ |
 | Reorder effects in the stack (drag a section header; Move Up/Down context menu) | InspectorPanel.cs; ModelCommands.cs `MoveChainEffectCommand`; PLAN.md step 51 | — | ❌ |
 | Inspector: Expand All / Collapse All section buttons (pane header) | MainWindow.axaml `InspectorExpandAllButton`; InspectorPanel.cs `SetAllSectionsExpanded` | — | ❌ |
@@ -230,6 +232,7 @@ Preferences or an "advanced" page.
 | Connect an AI client (Copy setup command, bearer token, loopback security model) | PreferencesDialog.cs; McpServerService.cs | — | ❌ |
 | What AI can do: the tool surface (~50 tools — edit, effects, markers, export, transport) | Sprocket.Mcp/SprocketTools*.cs; PLAN.md step 38 | — | ❌ (needs a reference list, like export formats) |
 | AI edits are undoable (route through the same undo stack) | Sprocket.Mcp/McpEditorSession.cs | — | ❌ (key trust point — state it explicitly) |
+| Address effects by reference tag (effect_tag, e.g. RV-1 — stable across reorders; shown as the Inspector tag chip) | Sprocket.Core/Model/EffectTags.cs; Sprocket.Mcp/SprocketTools*.cs `ResolveEffect` | — | ❌ |
 | MCP status in the status bar | MainWindow.axaml.cs `UpdateMcpStatus` | — | ❌ |
 | Open a media file from the command line (bare arg) | Sprocket.App/Program.cs | — | ❌ |
 | Diagnostics: `--version`, `--ffmpeg-check`, `--probe` | Program.cs | — | 🟡 (`--probe` appears in RELEASE_NOTES bug-report instructions only; docs site says nothing) |

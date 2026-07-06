@@ -25,7 +25,14 @@ internal sealed class McpEditorSession(
     MainWindow window) : IEditorSession, IEditorApi
 {
     public Task<T> OnModelThreadAsync<T>(Func<IEditorApi, T> fn) =>
-        Dispatcher.UIThread.InvokeAsync(() => fn(this)).GetTask();
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            // Effect reference tags are assigned by sweep, not per-creation hook (EffectTags): settle them
+            // before every tool runs so any effect the tool reads or reports carries its tag. Tools that
+            // create effects mid-call sweep again themselves before returning the new tag.
+            EffectTags.EnsureAssigned(project);
+            return fn(this);
+        }).GetTask();
 
     public Project Project => project;
     public EditHistory History => history;

@@ -406,11 +406,13 @@ public sealed partial class SprocketTools(IEditorSession session)
                 ? new InsertEffectAtCommand(clip, effect, 0)
                 : new AddEffectCommand(clip, effect);
             api.History.Execute(command);
+            EffectTags.EnsureAssigned(api.Project); // settle the new instance's reference tag before reporting it
             api.RefreshPreview();
             return new JsonObject
             {
                 ["clip_id"] = clipId,
                 ["effect_index"] = clip.Effects.IndexOf(effect),
+                ["effect_tag"] = effect.Tag,
                 ["type_id"] = effectTypeId,
                 ["history"] = StateFormatter.HistoryObject(api.History, $"added {descriptor.DisplayName}"),
             }.ToJsonString();
@@ -418,16 +420,18 @@ public sealed partial class SprocketTools(IEditorSession session)
 
     [McpServerTool(Name = "set_effect_parameter")]
     [Description("Sets one parameter of a clip's effect to a constant value (see the clip's effects list for " +
-                 "indexes, list_effect_types for parameter names and ranges).")]
+                 "tags/indexes, list_effect_types for parameter names and ranges). Identify the effect by " +
+                 "effect_tag (preferred — stable across reorders) or effect_index.")]
     public Task<string> SetEffectParameter(
         [Description("clip_id of the clip carrying the effect.")] int clipId,
-        [Description("Index of the effect in the clip's effect stack.")] int effectIndex,
         [Description("Parameter name, e.g. \"amount\".")] string parameter,
-        [Description("New constant value.")] double value) =>
+        [Description("New constant value.")] double value,
+        [Description("The effect's reference tag, e.g. \"RV-1\" (see the clip's effects list).")] string? effectTag = null,
+        [Description("Index of the effect in the clip's effect stack (alternative to effect_tag).")] int effectIndex = -1) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
-            EffectInstance effect = EffectAt(clip, effectIndex);
+            EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
             api.History.Execute(new SetEffectParameterCommand(effect, parameter, AnimatableValue.Constant(value)));
             api.RefreshPreview();
             return StateFormatter.HistoryState(api.History,
@@ -435,14 +439,16 @@ public sealed partial class SprocketTools(IEditorSession session)
         });
 
     [McpServerTool(Name = "remove_effect", Destructive = true)]
-    [Description("Removes an effect from a clip's stack (undoable).")]
+    [Description("Removes an effect from a clip's stack (undoable). Identify the effect by effect_tag " +
+                 "(preferred — stable across reorders) or effect_index.")]
     public Task<string> RemoveEffect(
         [Description("clip_id of the clip carrying the effect.")] int clipId,
-        [Description("Index of the effect in the clip's effect stack.")] int effectIndex) =>
+        [Description("The effect's reference tag, e.g. \"RV-1\" (see the clip's effects list).")] string? effectTag = null,
+        [Description("Index of the effect in the clip's effect stack (alternative to effect_tag).")] int effectIndex = -1) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
-            EffectInstance effect = EffectAt(clip, effectIndex);
+            EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
             api.History.Execute(new RemoveEffectCommand(clip, effect));
             api.RefreshPreview();
             return StateFormatter.HistoryState(api.History, $"removed {effect.EffectTypeId}");
@@ -454,14 +460,16 @@ public sealed partial class SprocketTools(IEditorSession session)
                  "stack.")]
     public Task<string> MoveEffect(
         [Description("clip_id of the clip carrying the effect.")] int clipId,
-        [Description("Current index of the effect in the clip's effect stack.")] int effectIndex,
-        [Description("Index the effect should end up at (clamped to the stack).")] int newIndex) =>
+        [Description("Index the effect should end up at (clamped to the stack).")] int newIndex,
+        [Description("The effect's reference tag, e.g. \"RV-1\" (see the clip's effects list).")] string? effectTag = null,
+        [Description("Current index of the effect in the clip's effect stack (alternative to effect_tag).")] int effectIndex = -1) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
-            EffectInstance effect = EffectAt(clip, effectIndex);
+            EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
+            int current = clip.Effects.IndexOf(effect);
             int target = Math.Clamp(newIndex, 0, clip.Effects.Count - 1);
-            if (target != effectIndex) // skip a no-op so it doesn't pollute the undo history
+            if (target != current) // skip a no-op so it doesn't pollute the undo history
             {
                 api.History.Execute(new MoveChainEffectCommand(clip.Effects, effect, target));
                 api.RefreshPreview();
@@ -470,9 +478,10 @@ public sealed partial class SprocketTools(IEditorSession session)
             {
                 ["clip_id"] = clipId,
                 ["effect_index"] = clip.Effects.IndexOf(effect),
+                ["effect_tag"] = effect.Tag,
                 ["type_id"] = effect.EffectTypeId,
                 ["history"] = StateFormatter.HistoryObject(api.History,
-                    target == effectIndex
+                    target == current
                         ? $"{effect.EffectTypeId} already at index {target} (no-op)"
                         : $"moved {effect.EffectTypeId} to index {target}"),
             }.ToJsonString();
@@ -514,10 +523,20 @@ public sealed partial class SprocketTools(IEditorSession session)
             ? (clip, track!)
             : throw new McpException($"clip {clipId} not found — call list_clips for current clip ids.");
 
-    private static EffectInstance EffectAt(Clip clip, int index) =>
-        index >= 0 && index < clip.Effects.Count
+    /// <summary>Resolves an effect on the clip by reference tag (preferred — stable across stack reorders)
+    /// or by stack index. Exactly the effect-addressing rule every effect tool shares.</summary>
+    internal static EffectInstance ResolveEffect(Clip clip, int index, string? tag)
+    {
+        if (tag is { Length: > 0 })
+            return clip.Effects.FirstOrDefault(e => string.Equals(e.Tag, tag, StringComparison.OrdinalIgnoreCase))
+                ?? throw new McpException($"the clip has no effect tagged '{tag}' (it has: " +
+                    $"{string.Join(", ", clip.Effects.Select(e => e.Tag ?? "untagged"))}).");
+        if (index < 0)
+            throw new McpException("identify the effect with effect_tag (see the clip's effects list) or effect_index.");
+        return index < clip.Effects.Count
             ? clip.Effects[index]
             : throw new McpException($"the clip has no effect at index {index} (it has {clip.Effects.Count}).");
+    }
 
     private static string Kind(Track track) => track is VideoTrack ? "video" : "audio";
 

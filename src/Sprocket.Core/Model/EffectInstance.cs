@@ -598,6 +598,16 @@ public sealed class EffectInstance
     public string EffectTypeId { get; }
 
     /// <summary>
+    /// The instance's project-unique reference tag (e.g. <c>"RV-1"</c>): the type's short code plus a
+    /// project-wide sequence number, shown in the Inspector header and used by MCP/AI clients to address
+    /// this exact instance (stable across stack reorders, unlike an index). Assigned by
+    /// <see cref="EffectTags.EnsureAssigned"/> — <see langword="null"/> until then. Deliberately not
+    /// copied by <see cref="Clone"/>/<see cref="CloneShifted"/>: a copy is a new instance and gets a
+    /// fresh tag, keeping tags unique by construction.
+    /// </summary>
+    public string? Tag { get; set; }
+
+    /// <summary>
     /// Whether the effect is applied when rendering. Disabling an effect (rather than removing it) keeps its
     /// parameters/keyframes intact for later re-enabling. The render graph skips disabled effects entirely
     /// (<see cref="Sprocket.Core.Rendering.RenderGraph"/>), and it is part of the persisted/hashed state

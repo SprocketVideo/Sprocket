@@ -32,6 +32,12 @@ public sealed class InspectorPanel : UserControl
     private static readonly IBrush PanelBg = Palette.PanelBgBrush;
     private static readonly IBrush RaisedBg = Palette.RaisedBgBrush;
     private static readonly IBrush Edge = Palette.EdgeBrush;
+    private static readonly IBrush InputEdge = Palette.InputEdgeBrush;
+
+    // The effect headers' enable LED (component-local per the Palette remark): unlit grey, and the
+    // lit state's soft halo — Palette.Good at ~45% alpha so the glow reads as light bleed, not a ring.
+    private static readonly IBrush LedOffBrush = new SolidColorBrush(Color.Parse("#3A4048"));
+    private static readonly Color LedGlow = Color.FromArgb(0x73, Palette.Good.R, Palette.Good.G, Palette.Good.B);
     private static readonly IBrush TextBrush = Palette.TextBrush;
     private static readonly IBrush MutedText = Palette.MutedTextBrush;
     private static readonly IBrush FaintText = Palette.FaintTextBrush;
@@ -81,8 +87,9 @@ public sealed class InspectorPanel : UserControl
     /// buttons). Effect sections' tracked collapse state follows via their Expanded/Collapsed handlers.</summary>
     public void SetAllSectionsExpanded(bool expanded)
     {
-        foreach (Expander section in _body.Children.OfType<Expander>())
-            section.IsExpanded = expanded;
+        foreach (Control child in _body.Children)
+            if (SectionExpander(child) is { } section)
+                section.IsExpanded = expanded;
     }
 
     private void OnReorderPointerMoved(object? sender, PointerEventArgs e)
@@ -146,6 +153,12 @@ public sealed class InspectorPanel : UserControl
 
     private void Rebuild()
     {
+        // Settle effect reference tags before drawing headers (EffectTags): the sweep runs at read points
+        // rather than inside every effect-creating command, and the rebuild after each history change is
+        // the UI's read point — so adds, blade-split clones, and pasted stacks all get tagged here.
+        if (_project is not null)
+            EffectTags.EnsureAssigned(_project);
+
         _valueRefreshers.Clear();
         _body.Children.Clear();
 
@@ -215,7 +228,7 @@ public sealed class InspectorPanel : UserControl
             Height = 22,
             Padding = new Avalonia.Thickness(6, 2),
             Background = PanelBg,
-            BorderBrush = Edge,
+            BorderBrush = InputEdge,
             Foreground = TextBrush,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalContentAlignment = VerticalAlignment.Center,
@@ -390,7 +403,7 @@ public sealed class InspectorPanel : UserControl
             MinHeight = multiline ? 48 : 22,
             Padding = new Avalonia.Thickness(6, 4),
             Background = PanelBg,
-            BorderBrush = Edge,
+            BorderBrush = InputEdge,
             Foreground = TextBrush,
             AcceptsReturn = multiline,
             TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
@@ -530,7 +543,7 @@ public sealed class InspectorPanel : UserControl
             Height = 22,
             Padding = new Avalonia.Thickness(6, 2),
             Background = PanelBg,
-            BorderBrush = Edge,
+            BorderBrush = InputEdge,
             Foreground = TextBrush,
             VerticalContentAlignment = VerticalAlignment.Center,
         };
@@ -761,45 +774,41 @@ public sealed class InspectorPanel : UserControl
         // visible and editable while previewing without it.
         rows.Opacity = effect.Enabled ? 1.0 : 0.5;
 
-        // Header with an enable/disable toggle (eye icon, matching the track-header convention in
-        // TimelineControl) and a remove (x) button. Chrome icon tier — the same reference size as the window
-        // caption glyphs (minimize/maximize/close) — since Dense still read oversized against the 12px title.
+        // Header: an enable/disable status LED on the left of the title (green = active, grey = bypassed —
+        // the audio-rack convention, replacing the earlier eye icon), the instance's reference tag chip
+        // (EffectTags, e.g. RV-1 — how AI/MCP clients address this exact instance), and a remove (x) button.
         bool expanded = !_effectExpanded.TryGetValue(effect, out bool stored) || stored;
         var header = new DockPanel { Background = Brushes.Transparent }; // hit-testable for the reorder drag
-        var toggleIcon = new ShapesPath
+        var led = new Border
         {
-            Data = Icons.Eye,
-            Stroke = effect.Enabled ? TextBrush : FaintText,
-            StrokeThickness = 1.2,
-            StrokeLineCap = PenLineCap.Round,
-            StrokeJoin = PenLineJoin.Round,
-            // Aspect-true box (Eye's geometry is 22x16): Uniform stretch pins the scaled geometry to the
-            // box's top-left rather than centering the slack (see the IconSizes remark in Icons.cs), so a
-            // square Chrome box left the eye riding the top of the button. Sizing the box to the glyph and
-            // letting VerticalAlignment center the box is what actually centers the drawn mark.
-            Width = IconSizes.Chrome,
-            Height = IconSizes.Chrome * 16.0 / 22.0,
-            Stretch = Stretch.Uniform,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            Width = 9,
+            Height = 9,
+            CornerRadius = new Avalonia.CornerRadius(4.5),
+            Background = effect.Enabled ? Palette.GoodBrush : LedOffBrush,
+            // A soft same-hue halo is what makes the lit state read as an LED rather than a green dot.
+            BoxShadow = effect.Enabled
+                ? new BoxShadows(new BoxShadow { Blur = 6, Color = LedGlow })
+                : default,
             VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
         };
-        var toggle = new ToggleButton
+        // A plain Button, not a ToggleButton: Fluent paints a checked ToggleButton with the accent fill,
+        // which would put a blue pill behind the LED — the LED itself is the whole state indicator.
+        var toggle = new Button
         {
-            Content = toggleIcon,
-            // Vertical padding 3 (not 1): the aspect-true eye box above is ~5.8 tall, not 8, so the pill
-            // keeps the same overall height it had with the square box.
-            Padding = new Avalonia.Thickness(5, 3),
+            Content = led,
+            Padding = new Avalonia.Thickness(4, 4),
+            Margin = new Avalonia.Thickness(0, 0, 6, 0),
             Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
-            IsChecked = effect.Enabled,
         };
         ToolTip.SetTip(toggle, effect.Enabled ? "Disable effect" : "Enable effect");
         toggle.Click += (_, e) =>
         {
             e.Handled = true;
-            _history!.Execute(new SetEffectEnabledCommand(effect, toggle.IsChecked == true));
+            _history!.Execute(new SetEffectEnabledCommand(effect, !effect.Enabled));
         };
         var remove = new Button
         {
@@ -827,12 +836,18 @@ public sealed class InspectorPanel : UserControl
         };
 
         // The expand/collapse chevron itself is added by Section() (rightmost, shared by every section);
-        // only the effect-specific eye/× pair is built here.
+        // the effect-specific LED / tag chip / × set is built here.
         DockPanel.SetDock(remove, Dock.Right);
         header.Children.Add(remove);
-        DockPanel.SetDock(toggle, Dock.Right);
+        DockPanel.SetDock(toggle, Dock.Left);
         header.Children.Add(toggle);
-        header.Children.Add(new TextBlock
+        var titleGroup = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        titleGroup.Children.Add(new TextBlock
         {
             Text = title,
             FontSize = 12,
@@ -840,6 +855,27 @@ public sealed class InspectorPanel : UserControl
             Foreground = effect.Enabled ? TextBrush : FaintText,
             VerticalAlignment = VerticalAlignment.Center,
         });
+        if (effect.Tag is { Length: > 0 } tag)
+        {
+            var chip = new Border
+            {
+                BorderBrush = Edge,
+                BorderThickness = new Avalonia.Thickness(1),
+                CornerRadius = new Avalonia.CornerRadius(3),
+                Padding = new Avalonia.Thickness(5, 1),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock
+                {
+                    Text = tag,
+                    FontSize = 9,
+                    Foreground = FaintText,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
+            ToolTip.SetTip(chip, "Reference tag — how AI assistants (MCP) identify this effect instance.");
+            titleGroup.Children.Add(chip);
+        }
+        header.Children.Add(titleGroup);
 
         // Reorder within the stack (PLAN.md step 51) — stack order is processing order. Primary gesture:
         // drag the section header onto another effect section (top half = before it, bottom half = after).
@@ -858,7 +894,7 @@ public sealed class InspectorPanel : UserControl
         header.ContextMenu = BuildMoveMenu(clip, effect, index, count);
 
         Control section = Section(header, rows, expanded);
-        if (section is Expander expander)
+        if (SectionExpander(section) is { } expander)
         {
             expander.Expanded += (_, _) => _effectExpanded[effect] = true;
             expander.Collapsed += (_, _) => _effectExpanded[effect] = false;
@@ -1101,7 +1137,7 @@ public sealed class InspectorPanel : UserControl
             Height = 22,
             Padding = new Avalonia.Thickness(6, 2),
             Background = PanelBg,
-            BorderBrush = Edge,
+            BorderBrush = InputEdge,
             VerticalAlignment = VerticalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
         };
@@ -1401,7 +1437,6 @@ public sealed class InspectorPanel : UserControl
             Header = wrap,
             Content = content,
             IsExpanded = expanded,
-            Margin = new Avalonia.Thickness(8, 6, 8, 0),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
@@ -1409,8 +1444,26 @@ public sealed class InspectorPanel : UserControl
         var rotate = (RotateTransform)chevron.RenderTransform!;
         expander.Expanded += (_, _) => rotate.Angle = 180;
         expander.Collapsed += (_, _) => rotate.Angle = 0;
-        return expander;
+
+        // Each section reads as a card a step darker than the panel (UI.md §3.5). The Border owns the
+        // whole card look — bg / edge / radius — while App.axaml's inspectorSection styles strip the
+        // Fluent Expander's own header/content fills so they don't paint over it.
+        return new Border
+        {
+            Background = Palette.SectionBgBrush,
+            BorderBrush = Edge,
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(6),
+            ClipToBounds = true,
+            Margin = new Avalonia.Thickness(8, 6, 8, 0),
+            Child = expander,
+        };
     }
+
+    /// <summary>The Expander inside a <see cref="Section"/> card, or <see langword="null"/> for controls that
+    /// aren't sections (the empty-state text, the add-effect bar).</summary>
+    private static Expander? SectionExpander(Control section) =>
+        section is Border { Child: Expander expander } ? expander : null;
 
     private static Control InfoRow(string label, string value)
     {

@@ -221,7 +221,10 @@ internal sealed record EffectDto(
     Dictionary<string, AnimatableValueDto> Parameters,
     // Nullable + WhenWritingNull (§12): omitted for the common enabled case, so pre-existing project
     // files serialize byte-identically and still load (missing means enabled).
-    bool? Enabled = null);
+    bool? Enabled = null,
+    // The instance reference tag (EffectTags, e.g. "RV-1"). Nullable + WhenWritingNull: pre-tag files
+    // load with it missing and the app's EffectTags.EnsureAssigned sweep backfills it.
+    string? Tag = null);
 
 /// <summary>An effect parameter: exactly one of <see cref="Constant"/> or <see cref="Keyframes"/> is set.</summary>
 internal sealed record AnimatableValueDto(

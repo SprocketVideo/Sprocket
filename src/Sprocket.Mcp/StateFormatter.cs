@@ -340,6 +340,7 @@ public static class StateFormatter
                 .Select((e, i) => (JsonNode)new JsonObject
                 {
                     ["index"] = i,
+                    ["tag"] = e.Tag,
                     ["type_id"] = e.EffectTypeId,
                     ["display_name"] = EffectCatalog.DisplayName(e.EffectTypeId),
                     ["enabled"] = e.Enabled,
@@ -416,6 +417,7 @@ public static class StateFormatter
         return new JsonObject
         {
             ["index"] = index,
+            ["tag"] = effect.Tag,
             ["type_id"] = effect.EffectTypeId,
             ["display_name"] = EffectCatalog.DisplayName(effect.EffectTypeId),
             ["enabled"] = effect.Enabled,

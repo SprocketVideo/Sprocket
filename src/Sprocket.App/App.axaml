@@ -193,5 +193,23 @@
       <Setter Property="Margin" Value="0" />
       <Setter Property="IsVisible" Value="False" />
     </Style>
+
+    <!-- Each Inspector section reads as its own card: a Border that Section() wraps around the Expander
+         (a step darker than the panel — Palette.SectionBg — rounded, 1px edge). The Fluent Expander's own
+         header/content fills and separator borders would paint over that card, so they're stripped here.
+         Part names: the header is ToggleButton#ExpanderHeader (see the chevron style above); the content
+         host is Border#ExpanderContent. -->
+    <Style Selector="Expander.inspectorSection">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Expander.inspectorSection /template/ ToggleButton#ExpanderHeader">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Expander.inspectorSection /template/ Border#ExpanderContent">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
   </Application.Styles>
 </Application>

@@ -224,11 +224,11 @@ public class SprocketToolsExtendedTests
         JsonNode added = JsonNode.Parse(await tools.AddEffect(clipId, EffectTypeIds.Brightness))!;
         int index = (int)added["effect_index"]!;
 
-        await tools.SetEffectParameterKeyframes(clipId, index, EffectParamNames.Amount,
+        await tools.SetEffectParameterKeyframes(clipId, EffectParamNames.Amount,
         [
             new KeyframeInput(0, 1.0),
             new KeyframeInput(120000, 2.0, "EaseInOut"),
-        ]);
+        ], effectIndex: index);
 
         AnimatableValue amount = video.Effects[index].Parameters[EffectParamNames.Amount];
         Assert.True(amount.IsAnimated);
@@ -236,9 +236,9 @@ public class SprocketToolsExtendedTests
         Assert.Equal(2.0, amount.Evaluate(video.TimelineStart + new Timecode(120000)), 6);
 
         await Assert.ThrowsAsync<McpException>(() => tools.SetEffectParameterKeyframes(
-            clipId, index, EffectParamNames.Amount, [new KeyframeInput(0, 1, "Bouncy")]));
+            clipId, EffectParamNames.Amount, [new KeyframeInput(0, 1, "Bouncy")], effectIndex: index));
         await Assert.ThrowsAsync<McpException>(() => tools.SetEffectParameterKeyframes(
-            clipId, index, EffectParamNames.Amount, []));
+            clipId, EffectParamNames.Amount, [], effectIndex: index));
 
         // get_clip reports the keyframes with clip-relative offsets.
         JsonNode detail = JsonNode.Parse(await tools.GetClip(clipId))!;
@@ -272,7 +272,7 @@ public class SprocketToolsExtendedTests
         (FakeEditorSession session, SprocketTools tools, Clip video, Clip _) = await LinkedPair();
         int videoId = RuntimeIds.IdOf(video);
         await tools.AddEffect(videoId, EffectTypeIds.Color);
-        await tools.SetEffectParameter(videoId, 0, EffectParamNames.Exposure, 1.5);
+        await tools.SetEffectParameter(videoId, EffectParamNames.Exposure, 1.5, effectIndex: 0);
 
         JsonNode dup = JsonNode.Parse(await tools.DuplicateClip(videoId, includeLinked: false))!;
         Clip copy = RuntimeIds.FindClip(session.Project, (int)dup["clip_id"]!, out _)!;
@@ -293,9 +293,9 @@ public class SprocketToolsExtendedTests
         int clipId = RuntimeIds.IdOf(video);
         await tools.AddEffect(clipId, EffectTypeIds.Brightness);
 
-        await tools.SetEffectEnabled(clipId, 0, false);
+        await tools.SetEffectEnabled(clipId, false, effectIndex: 0);
         Assert.False(video.Effects[0].Enabled);
-        await tools.SetEffectEnabled(clipId, 0, true);
+        await tools.SetEffectEnabled(clipId, true, effectIndex: 0);
         Assert.True(video.Effects[0].Enabled);
     }
 
@@ -544,7 +544,7 @@ public class SprocketToolsExtendedTests
 
         await tools.BeginEditGroup("Grade and fade");
         await tools.AddEffect(clipId, EffectTypeIds.Color);
-        await tools.SetEffectParameter(clipId, 0, EffectParamNames.Exposure, 1.0);
+        await tools.SetEffectParameter(clipId, EffectParamNames.Exposure, 1.0, effectIndex: 0);
         await tools.SetClipFade(clipId, fadeOutTicks: 120000);
         await tools.EndEditGroup();
 

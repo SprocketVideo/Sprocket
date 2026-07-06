@@ -163,18 +163,18 @@ public class SprocketToolsTests
         int index = (int)added["effect_index"]!;
         Assert.Equal(EffectTypeIds.Brightness, clip.Effects[index].EffectTypeId);
 
-        await tools.SetEffectParameter(clipId, index, EffectParamNames.Amount, 0.5);
+        await tools.SetEffectParameter(clipId, EffectParamNames.Amount, 0.5, effectIndex: index);
         Assert.Equal(0.5, clip.Effects[index].Parameters[EffectParamNames.Amount].Evaluate(default));
 
         // The input color transform inserts at the head of the stack.
         await tools.AddEffect(clipId, EffectTypeIds.ColorTransform);
         Assert.Equal(EffectTypeIds.ColorTransform, clip.Effects[0].EffectTypeId);
 
-        await tools.RemoveEffect(clipId, 0);
+        await tools.RemoveEffect(clipId, effectIndex: 0);
         Assert.DoesNotContain(clip.Effects, e => e.EffectTypeId == EffectTypeIds.ColorTransform);
 
         await Assert.ThrowsAsync<McpException>(() => tools.AddEffect(clipId, "no.such.effect"));
-        await Assert.ThrowsAsync<McpException>(() => tools.RemoveEffect(clipId, 99));
+        await Assert.ThrowsAsync<McpException>(() => tools.RemoveEffect(clipId, effectIndex: 99));
         Assert.True(session.History.CanUndo);
     }
 
@@ -186,7 +186,7 @@ public class SprocketToolsTests
         await tools.AddEffect(clipId, EffectTypeIds.Fade);
         int entries = session.History.UndoCount;
 
-        JsonNode moved = JsonNode.Parse(await tools.MoveEffect(clipId, 0, 1))!;
+        JsonNode moved = JsonNode.Parse(await tools.MoveEffect(clipId, 1, effectIndex: 0))!;
         Assert.Equal(1, (int)moved["effect_index"]!);
         Assert.Equal(EffectTypeIds.Fade, clip.Effects[0].EffectTypeId);
         Assert.Equal(EffectTypeIds.Brightness, clip.Effects[1].EffectTypeId);
@@ -196,14 +196,39 @@ public class SprocketToolsTests
         Assert.Equal(EffectTypeIds.Brightness, clip.Effects[0].EffectTypeId);
 
         // Out-of-range targets clamp; a same-index move is a no-op that adds no history entry.
-        await tools.MoveEffect(clipId, 0, 99);
+        await tools.MoveEffect(clipId, 99, effectIndex: 0);
         Assert.Equal(EffectTypeIds.Brightness, clip.Effects[^1].EffectTypeId);
         session.History.Undo();
         int before = session.History.UndoCount;
-        await tools.MoveEffect(clipId, 1, 1);
+        await tools.MoveEffect(clipId, 1, effectIndex: 1);
         Assert.Equal(before, session.History.UndoCount);
 
-        await Assert.ThrowsAsync<McpException>(() => tools.MoveEffect(clipId, 99, 0));
+        await Assert.ThrowsAsync<McpException>(() => tools.MoveEffect(clipId, 0, effectIndex: 99));
+    }
+
+    [Fact]
+    public async Task Effect_Tools_Resolve_By_Reference_Tag()
+    {
+        (FakeEditorSession _, SprocketTools tools, int clipId, Clip clip) = await PlacedClip();
+        JsonNode added = JsonNode.Parse(await tools.AddEffect(clipId, EffectTypeIds.Brightness))!;
+        string tag = (string)added["effect_tag"]!;
+        Assert.False(string.IsNullOrEmpty(tag));
+
+        await tools.SetEffectParameter(clipId, EffectParamNames.Amount, 2.0, effectTag: tag);
+        Assert.Equal(2.0, clip.Effects[0].Parameters[EffectParamNames.Amount].Evaluate(default));
+
+        await tools.SetEffectEnabled(clipId, false, effectTag: tag);
+        Assert.False(clip.Effects[0].Enabled);
+
+        // The clip listing carries the tag; a stale/unknown tag fails rather than resolving elsewhere,
+        // and passing neither tag nor index is rejected.
+        JsonNode detail = JsonNode.Parse(await tools.GetClip(clipId))!;
+        Assert.Equal(tag, (string)detail["effects"]![0]!["tag"]!);
+        await Assert.ThrowsAsync<McpException>(() => tools.RemoveEffect(clipId, effectTag: "ZZ-99"));
+        await Assert.ThrowsAsync<McpException>(() => tools.RemoveEffect(clipId));
+
+        await tools.RemoveEffect(clipId, effectTag: tag);
+        Assert.Empty(clip.Effects);
     }
 
     [Fact]

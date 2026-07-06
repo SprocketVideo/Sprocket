@@ -188,16 +188,18 @@ public sealed partial class SprocketTools
     [Description("Animates one parameter of a clip's effect with a list of keyframes (replacing the " +
                  "parameter's previous value or keyframes). Keyframe times are relative to the clip's " +
                  "timeline start; interpolation per keyframe is Hold, Linear (default), EaseIn, EaseOut, or " +
-                 "EaseInOut. Use set_effect_parameter for a constant instead.")]
+                 "EaseInOut. Use set_effect_parameter for a constant instead. Identify the effect by " +
+                 "effect_tag (preferred — stable across reorders) or effect_index.")]
     public Task<string> SetEffectParameterKeyframes(
         [Description("clip_id of the clip carrying the effect.")] int clipId,
-        [Description("Index of the effect in the clip's effect stack.")] int effectIndex,
         [Description("Parameter name, e.g. \"opacity\".")] string parameter,
-        [Description("The keyframes: {clipOffsetTicks, value, interpolation?}. At least one.")] KeyframeInput[] keyframes) =>
+        [Description("The keyframes: {clipOffsetTicks, value, interpolation?}. At least one.")] KeyframeInput[] keyframes,
+        [Description("The effect's reference tag, e.g. \"RV-1\" (see the clip's effects list).")] string? effectTag = null,
+        [Description("Index of the effect in the clip's effect stack (alternative to effect_tag).")] int effectIndex = -1) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
-            EffectInstance effect = EffectAt(clip, effectIndex);
+            EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
             if (keyframes is null || keyframes.Length == 0)
                 throw new McpException("pass at least one keyframe.");
 
@@ -254,15 +256,17 @@ public sealed partial class SprocketTools
 
     [McpServerTool(Name = "set_effect_enabled")]
     [Description("Enables or disables (bypasses) an effect without removing it — parameters and keyframes " +
-                 "are kept for re-enabling.")]
+                 "are kept for re-enabling. Identify the effect by effect_tag (preferred — stable across " +
+                 "reorders) or effect_index.")]
     public Task<string> SetEffectEnabled(
         [Description("clip_id of the clip carrying the effect.")] int clipId,
-        [Description("Index of the effect in the clip's effect stack.")] int effectIndex,
-        [Description("true to apply the effect, false to bypass it.")] bool enabled) =>
+        [Description("true to apply the effect, false to bypass it.")] bool enabled,
+        [Description("The effect's reference tag, e.g. \"RV-1\" (see the clip's effects list).")] string? effectTag = null,
+        [Description("Index of the effect in the clip's effect stack (alternative to effect_tag).")] int effectIndex = -1) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
-            EffectInstance effect = EffectAt(clip, effectIndex);
+            EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
             api.History.Execute(new SetEffectEnabledCommand(effect, enabled));
             api.RefreshPreview();
             return StateFormatter.HistoryState(api.History,

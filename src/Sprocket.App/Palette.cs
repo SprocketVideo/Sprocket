@@ -26,6 +26,12 @@ public static class Palette
 
     // Text ramp. Every step clears 4.5:1 on the surfaces above at label sizes; FaintText is the AA-safe
     // floor (5.8:1 on PanelBg) — the drawn surfaces used to define it as #6A7180 (≈3.3:1), which failed.
+    // Inspector section cards sit a step darker than the panel they float on (UI.md §3.5), and value
+    // inputs carry a visibly lighter grey border than Edge so they read as editable fields on that
+    // darker card (Edge at 1px on SectionBg is nearly invisible).
+    public static readonly Color SectionBg = Color.Parse("#101015");
+    public static readonly Color InputEdge = Color.Parse("#5A6270");
+
     public static readonly Color Text = Color.Parse("#D5DBE6");
     public static readonly Color MutedText = Color.Parse("#9AA4B2");
     public static readonly Color FaintText = Color.Parse("#8A93A3");
@@ -49,7 +55,9 @@ public static class Palette
     public static readonly IBrush WindowBgBrush = new ImmutableSolidColorBrush(WindowBg);
     public static readonly IBrush PanelBgBrush = new ImmutableSolidColorBrush(PanelBg);
     public static readonly IBrush RaisedBgBrush = new ImmutableSolidColorBrush(RaisedBg);
+    public static readonly IBrush SectionBgBrush = new ImmutableSolidColorBrush(SectionBg);
     public static readonly IBrush EdgeBrush = new ImmutableSolidColorBrush(Edge);
+    public static readonly IBrush InputEdgeBrush = new ImmutableSolidColorBrush(InputEdge);
     public static readonly IBrush TextBrush = new ImmutableSolidColorBrush(Text);
     public static readonly IBrush MutedTextBrush = new ImmutableSolidColorBrush(MutedText);
     public static readonly IBrush FaintTextBrush = new ImmutableSolidColorBrush(FaintText);
