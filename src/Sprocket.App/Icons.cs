@@ -27,9 +27,9 @@ public static class IconSizes
     /// Window caption glyphs (minimize/maximize/close) — the title bar's own compact 34px height caps these.
     public const double Chrome = 8;
 
-    /// Ultra-dense per-row glyphs (the Inspector pane header's Expand All / Collapse All chevrons), where even
-    /// Compact reads oversized. The effect title bars' own eye/× icons went a size further, to Chrome — see
-    /// their call sites in InspectorPanel.cs.
+    /// Ultra-dense per-row glyphs where even Compact reads oversized. The Inspector's own icon set (section
+    /// chevrons, the effect title bars' eye/×, the pane header's Expand/Collapse All) went a size further,
+    /// to Chrome — see the call sites in InspectorPanel.cs / MainWindow.axaml.
     public const double Dense = 10;
 
     /// Dense inline controls: per-item toggles and small remove buttons (Inspector effect rows, marker list rows,
@@ -95,4 +95,11 @@ public static class Icons
     // Inspector pane-header expand/collapse-all (Feather chevrons-down / chevrons-up).
     public static readonly Geometry ChevronsDown = Geometry.Parse("M7,13 L12,18 L17,13 M7,6 L12,11 L17,6");
     public static readonly Geometry ChevronsUp = Geometry.Parse("M17,11 L12,6 L7,11 M17,18 L12,13 L7,18");
+
+    // Inspector section expand/collapse indicator (Feather chevron-down), replacing Fluent's built-in
+    // Expander chevron in every InspectorPanel.cs section header — that one is Stretch="None" so it can't be
+    // resized to match the effect headers' eye/× glyphs. One geometry, rotated 180° when expanded (matching
+    // how Fluent's own chevron animates), rather than a second static "up" path — a chevron is symmetric
+    // under that rotation.
+    public static readonly Geometry Chevron = Geometry.Parse("M6,9 L12,15 L18,9");
 }

@@ -446,20 +446,24 @@
             <Border DockPanel.Dock="Top" Classes="paneHeader">
               <Grid ColumnDefinitions="*,Auto,Auto">
                 <TextBlock Classes="title" Text="Inspector" />
+                <!-- Matched to the section-header chevron spec (InspectorPanel.cs Section()): Chrome-tier
+                     8px width, 1.2 stroke, FaintText. Height is aspect-true (the ChevronsDown/Up geometry is
+                     10x12 → 8x9.6) because Uniform stretch pins the drawn glyph to the box's top-left rather
+                     than centering the slack. -->
                 <Button x:Name="InspectorExpandAllButton" Grid.Column="1" Padding="5,1" Background="Transparent"
                         VerticalAlignment="Center" AutomationProperties.Name="Expand all sections"
                         ToolTip.Tip="Expand all sections">
-                  <Path Data="{x:Static local:Icons.ChevronsDown}" Stroke="{DynamicResource MutedText}"
-                        StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round"
-                        Width="{x:Static local:IconSizes.Dense}" Height="{x:Static local:IconSizes.Dense}"
+                  <Path Data="{x:Static local:Icons.ChevronsDown}" Stroke="{DynamicResource FaintText}"
+                        StrokeThickness="1.2" StrokeLineCap="Round" StrokeJoin="Round"
+                        Width="8" Height="9.6"
                         Stretch="Uniform" />
                 </Button>
                 <Button x:Name="InspectorCollapseAllButton" Grid.Column="2" Padding="5,1" Background="Transparent"
                         VerticalAlignment="Center" AutomationProperties.Name="Collapse all sections"
                         ToolTip.Tip="Collapse all sections">
-                  <Path Data="{x:Static local:Icons.ChevronsUp}" Stroke="{DynamicResource MutedText}"
-                        StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round"
-                        Width="{x:Static local:IconSizes.Dense}" Height="{x:Static local:IconSizes.Dense}"
+                  <Path Data="{x:Static local:Icons.ChevronsUp}" Stroke="{DynamicResource FaintText}"
+                        StrokeThickness="1.2" StrokeLineCap="Round" StrokeJoin="Round"
+                        Width="8" Height="9.6"
                         Stretch="Uniform" />
                 </Button>
               </Grid>

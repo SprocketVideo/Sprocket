@@ -761,6 +761,7 @@ public sealed class InspectorPanel : UserControl
         // Header with an enable/disable toggle (eye icon, matching the track-header convention in
         // TimelineControl) and a remove (x) button. Chrome icon tier — the same reference size as the window
         // caption glyphs (minimize/maximize/close) — since Dense still read oversized against the 12px title.
+        bool expanded = !_effectExpanded.TryGetValue(effect, out bool stored) || stored;
         var header = new DockPanel { Background = Brushes.Transparent }; // hit-testable for the reorder drag
         var toggleIcon = new ShapesPath
         {
@@ -769,16 +770,26 @@ public sealed class InspectorPanel : UserControl
             StrokeThickness = 1.2,
             StrokeLineCap = PenLineCap.Round,
             StrokeJoin = PenLineJoin.Round,
+            // Aspect-true box (Eye's geometry is 22x16): Uniform stretch pins the scaled geometry to the
+            // box's top-left rather than centering the slack (see the IconSizes remark in Icons.cs), so a
+            // square Chrome box left the eye riding the top of the button. Sizing the box to the glyph and
+            // letting VerticalAlignment center the box is what actually centers the drawn mark.
             Width = IconSizes.Chrome,
-            Height = IconSizes.Chrome,
+            Height = IconSizes.Chrome * 16.0 / 22.0,
             Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
         };
         var toggle = new ToggleButton
         {
             Content = toggleIcon,
-            Padding = new Avalonia.Thickness(5, 1),
+            // Vertical padding 3 (not 1): the aspect-true eye box above is ~5.8 tall, not 8, so the pill
+            // keeps the same overall height it had with the square box.
+            Padding = new Avalonia.Thickness(5, 3),
             Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
             IsChecked = effect.Enabled,
         };
         ToolTip.SetTip(toggle, effect.Enabled ? "Disable effect" : "Enable effect");
@@ -792,11 +803,17 @@ public sealed class InspectorPanel : UserControl
             Content = new ShapesPath
             {
                 Data = Icons.Close, Stroke = FaintText, StrokeThickness = 1.2, StrokeLineCap = PenLineCap.Round,
-                Width = IconSizes.Chrome, Height = IconSizes.Chrome, Stretch = Stretch.Uniform,
+                // Close's path is a square 12x12 diagonal cross, so at Chrome (8x8) it fills the full box —
+                // visually taller than Eye's flatter ~8x5.8 render (see toggleIcon above) even though both
+                // nominally use the same Chrome constant. 6x6 is a hand-tuned optical match so the drawn mark
+                // reads at the same size as the eye glyph next to it, not the eye's whole (larger) button.
+                Width = 6, Height = 6, Stretch = Stretch.Uniform,
             },
             Padding = new Avalonia.Thickness(5, 1),
             Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
         };
         ToolTip.SetTip(remove, "Remove effect");
         remove.Click += (_, e) =>
@@ -805,6 +822,9 @@ public sealed class InspectorPanel : UserControl
             _effectExpanded.Remove(effect);
             _history!.Execute(new RemoveEffectCommand(clip, effect));
         };
+
+        // The expand/collapse chevron itself is added by Section() (rightmost, shared by every section);
+        // only the effect-specific eye/× pair is built here.
         DockPanel.SetDock(remove, Dock.Right);
         header.Children.Add(remove);
         DockPanel.SetDock(toggle, Dock.Right);
@@ -834,7 +854,6 @@ public sealed class InspectorPanel : UserControl
         };
         header.ContextMenu = BuildMoveMenu(clip, effect, index, count);
 
-        bool expanded = !_effectExpanded.TryGetValue(effect, out bool stored) || stored;
         Control section = Section(header, rows, expanded);
         if (section is Expander expander)
         {
@@ -884,36 +903,39 @@ public sealed class InspectorPanel : UserControl
     }
 
     /// <summary>
-    /// The Compressor's live meter row: a gain-reduction bar and a combined input/output peak-level bar, read
-    /// from the playing mixer's <see cref="Sprocket.Audio.Effects.CompressorEffect"/> instance (see
-    /// <see cref="SetLiveAudioMixer"/>) via <see cref="Sprocket.Audio.AudioMixer.TryPeekEffect"/>. In/Out share
-    /// one combined two-row bar (same dB scale, stacked) since they're both plain peak levels; GR gets its own
-    /// row since it means something different (amount of reduction, not a signal level). Registered as a
-    /// refresher so it updates alongside every other value on <see cref="OnPlayheadMoved"/>/history changes;
-    /// reads as "—" when no live mixer is attached, the clip isn't currently playing, or a chain edit hasn't
-    /// been re-mixed since (all of which mean there's nothing live to show, not an error).
+    /// The Compressor's live meter rows: gain-reduction, input peak, and output peak, each its own labeled
+    /// bar + numeric row (same <see cref="LabeledRow"/> shape every other parameter row uses, so the three
+    /// stack into aligned columns), read from the playing mixer's
+    /// <see cref="Sprocket.Audio.Effects.CompressorEffect"/> instance (see <see cref="SetLiveAudioMixer"/>) via
+    /// <see cref="Sprocket.Audio.AudioMixer.TryPeekEffect"/>. Registered as a refresher so it updates alongside
+    /// every other value on <see cref="OnPlayheadMoved"/>/history changes; reads as "—" when no live mixer is
+    /// attached, the clip isn't currently playing, or a chain edit hasn't been re-mixed since (all of which
+    /// mean there's nothing live to show, not an error).
     /// </summary>
     private Control BuildCompressorMeterRow(Clip clip, EffectInstance effect)
     {
-        var grBar = new MiniMeterBar(Accent);
-        var grLabel = new TextBlock { FontSize = 10, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center };
-        var grRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        grRow.Children.Add(grBar);
-        grRow.Children.Add(grLabel);
+        (StackPanel Row, MiniMeterBar Bar, TextBlock Label) Meter(IBrush accent)
+        {
+            var bar = new MiniMeterBar(accent);
+            var label = new TextBlock
+            {
+                FontSize = 10, Foreground = FaintText, Width = 52,
+                TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center,
+            };
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            row.Children.Add(bar);
+            row.Children.Add(label);
+            return (row, bar, label);
+        }
 
-        var inBar = new MiniMeterBar(FaintText);
-        var outBar = new MiniMeterBar(MutedText);
-        var ioBars = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
-        ioBars.Children.Add(inBar);
-        ioBars.Children.Add(outBar);
-        var ioLabel = new TextBlock { FontSize = 10, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center };
-        var ioRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        ioRow.Children.Add(ioBars);
-        ioRow.Children.Add(ioLabel);
+        (StackPanel grRow, MiniMeterBar grBar, TextBlock grLabel) = Meter(Accent);
+        (StackPanel inRow, MiniMeterBar inBar, TextBlock inLabel) = Meter(FaintText);
+        (StackPanel outRow, MiniMeterBar outBar, TextBlock outLabel) = Meter(MutedText);
 
         var panel = new StackPanel { Spacing = 3, Margin = new Avalonia.Thickness(0, 0, 0, 2) };
         panel.Children.Add(LabeledRow("GR", grRow));
-        panel.Children.Add(LabeledRow("In / Out", ioRow));
+        panel.Children.Add(LabeledRow("In", inRow));
+        panel.Children.Add(LabeledRow("Out", outRow));
 
         _valueRefreshers.Add(() =>
         {
@@ -923,16 +945,18 @@ public sealed class InspectorPanel : UserControl
                 grBar.SetLevel(Math.Clamp(snapshot.GainReductionDb / 24.0, 0, 1));
                 grLabel.Text = snapshot.GainReductionDb > 0.05 ? $"-{snapshot.GainReductionDb:0.0} dB" : "0.0 dB";
                 inBar.SetLevel(MixerFormat.MeterFillFraction(snapshot.InputPeakDb));
+                inLabel.Text = $"{PeakDbText(snapshot.InputPeakDb)} dB";
                 outBar.SetLevel(MixerFormat.MeterFillFraction(snapshot.OutputPeakDb));
-                ioLabel.Text = $"{PeakDbText(snapshot.InputPeakDb)} → {PeakDbText(snapshot.OutputPeakDb)} dB";
+                outLabel.Text = $"{PeakDbText(snapshot.OutputPeakDb)} dB";
             }
             else
             {
                 grBar.SetLevel(0);
                 grLabel.Text = "—";
                 inBar.SetLevel(0);
+                inLabel.Text = "—";
                 outBar.SetLevel(0);
-                ioLabel.Text = "—";
+                outLabel.Text = "—";
             }
         });
         return panel;
@@ -1321,12 +1345,12 @@ public sealed class InspectorPanel : UserControl
 
     // ── Section / row chrome ──────────────────────────────────────────────────────────────────────────
 
-    private static Control Section(object header, Control content, bool expanded) => new Expander
+    private static Control Section(object header, Control content, bool expanded)
     {
         // A plain-string title (Clip, Multicam, the TEXT sections) would render at the Expander's default
         // header font — visibly larger than the effect sections' hand-built 12px semibold headers. Wrap it
         // so every section header reads at the same size.
-        Header = header is string title
+        Control headerControl = header is string title
             ? new TextBlock
             {
                 Text = title,
@@ -1335,13 +1359,51 @@ public sealed class InspectorPanel : UserControl
                 Foreground = TextBrush,
                 VerticalAlignment = VerticalAlignment.Center,
             }
-            : header,
-        Content = content,
-        IsExpanded = expanded,
-        Margin = new Avalonia.Thickness(8, 6, 8, 0),
-        HorizontalAlignment = HorizontalAlignment.Stretch,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch,
-    };
+            : (Control)header;
+
+        // Every section draws its own expand/collapse chevron (Icons.Chevron), replacing Fluent's built-in
+        // one — which is Stretch="None" and so can't be resized to match the effect headers' eye/× glyph set
+        // (App.axaml collapses it to zero for Expander.inspectorSection). Purely a state indicator: the whole
+        // header is already the Expander's own toggle target, so this glyph needs no click handler of its own.
+        var chevron = new ShapesPath
+        {
+            Data = Icons.Chevron,
+            Stroke = FaintText,
+            StrokeThickness = 1.2,
+            StrokeLineCap = PenLineCap.Round,
+            StrokeJoin = PenLineJoin.Round,
+            // Aspect-true box (Chevron's geometry is 12x6): Uniform stretch pins the scaled geometry to the
+            // box's top-left rather than centering the slack, so a square box would seat the arrow high and
+            // break the 180° center rotation.
+            Width = IconSizes.Chrome,
+            Height = IconSizes.Chrome * 6.0 / 12.0,
+            Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            RenderTransform = new RotateTransform(expanded ? 180 : 0),
+            RenderTransformOrigin = Avalonia.RelativePoint.Center,
+            Margin = new Avalonia.Thickness(3, 0, 5, 0),
+        };
+        var wrap = new DockPanel();
+        DockPanel.SetDock(chevron, Dock.Right);
+        wrap.Children.Add(chevron);
+        wrap.Children.Add(headerControl);
+
+        var expander = new Expander
+        {
+            Header = wrap,
+            Content = content,
+            IsExpanded = expanded,
+            Margin = new Avalonia.Thickness(8, 6, 8, 0),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        expander.Classes.Add("inspectorSection");
+        var rotate = (RotateTransform)chevron.RenderTransform!;
+        expander.Expanded += (_, _) => rotate.Angle = 180;
+        expander.Collapsed += (_, _) => rotate.Angle = 0;
+        return expander;
+    }
 
     private static Control InfoRow(string label, string value)
     {

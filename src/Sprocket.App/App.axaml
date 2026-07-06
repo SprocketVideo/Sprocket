@@ -37,12 +37,12 @@
     <GridLength x:Key="SliderPreContentMargin">1*</GridLength>
     <GridLength x:Key="SliderPostContentMargin">1*</GridLength>
 
-    <!-- The Inspector's collapsible sections (Clip / each effect) are Expanders; Fluent's defaults (a 32px
-         chevron button, 20px left margin ahead of it, 48px header min-height, 16px content padding) are sized
-         for a full-width settings page, not a ~280px side panel with 12px headers — against that the chevron
-         rendered comically oversized. Shrunk to match the panel's other 11–13px controls. -->
-    <x:Double x:Key="ExpanderChevronButtonSize">13</x:Double>
-    <Thickness x:Key="ExpanderChevronMargin">0,0,4,0</Thickness>
+    <!-- The Inspector's collapsible sections (Clip / each effect) are Expanders; Fluent's defaults (48px
+         header min-height, 16px content padding) are sized for a full-width settings page, not a ~280px side
+         panel with 12px headers. Fluent's built-in chevron is not used at all: its Path is Stretch="None"
+         (confirmed against Avalonia's Expander.xaml), so no resource can shrink the drawn 14x7 arrow to match
+         the panel's 8px icon set — every section (Classes="inspectorSection", InspectorPanel.cs Section())
+         hides it via the scoped style below and draws its own Icons.cs chevron instead. -->
     <x:Double x:Key="ExpanderMinHeight">28</x:Double>
     <Thickness x:Key="ExpanderHeaderPadding">4,0,0,0</Thickness>
     <Thickness x:Key="ExpanderContentPadding">0</Thickness>
@@ -179,6 +179,19 @@
     <Style Selector="Button.transport.play:pressed /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource Accent}" />
       <Setter Property="Foreground" Value="White" />
+    </Style>
+
+    <!-- Inspector section headers (InspectorPanel.cs Section(), Classes="inspectorSection") draw their own
+         chevron from Icons.cs, matching the effect headers' eye/× icon set — Fluent's built-in chevron Path
+         can't be resized to match (Stretch="None", see the ExpanderMinHeight comment above), so it's
+         collapsed to zero here instead. The Border lives inside the header ToggleButton's own ControlTheme,
+         one template level below the Expander's — /template/ pierces one level only, so the selector must
+         route through ToggleButton#ExpanderHeader explicitly. -->
+    <Style Selector="Expander.inspectorSection /template/ ToggleButton#ExpanderHeader /template/ Border#ExpandCollapseChevronBorder">
+      <Setter Property="Width" Value="0" />
+      <Setter Property="Height" Value="0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="IsVisible" Value="False" />
     </Style>
   </Application.Styles>
 </Application>
