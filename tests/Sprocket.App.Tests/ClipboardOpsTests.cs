@@ -70,6 +70,23 @@ public class ClipboardOpsTests
     }
 
     [Fact]
+    public void Copy_And_Paste_Preserve_Content_Nature_Including_A_Frame_Hold()
+    {
+        // Copy/Paste use CloneContentForSpan, so speed and a frame hold (PLAN.md step 43) survive the clipboard.
+        Clip original = MakeClip();
+        original.SpeedRatio = new Rational(2, 1);
+        original.HoldDuration = Timecode.FromSeconds(5);
+        original.HoldFrameAt = Timecode.FromSeconds(1.5);
+
+        Clip pasted = ClipboardOps.Paste(ClipboardOps.Copy(original), Timecode.FromSeconds(9));
+
+        Assert.Equal(new Rational(2, 1), pasted.SpeedRatio);
+        Assert.True(pasted.IsHeld);
+        Assert.Equal(Timecode.FromSeconds(1.5), pasted.HoldFrameAt!.Value);
+        Assert.Equal(Timecode.FromSeconds(5), pasted.Duration);
+    }
+
+    [Fact]
     public void Paste_Clamps_A_Negative_Time_To_The_Origin()
     {
         Clip snapshot = ClipboardOps.Copy(MakeClip());

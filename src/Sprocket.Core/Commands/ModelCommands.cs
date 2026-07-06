@@ -536,6 +536,9 @@ public sealed class SetClipSpeedCommand : EditCommand
 /// the split point); a new right-half clip is inserted immediately after it, carrying the remaining source
 /// span, a copy of the effect stack, and a link group. Undo removes the right half and restores the
 /// original out-point. <paramref name="at"/> must lie strictly inside the clip.
+/// A <em>held</em> clip (PLAN.md step 43) splits by its timeline span instead: both halves keep the retained
+/// source span and the frozen frame (the clone copies the hold), and only their <see cref="Clip.HoldDuration"/>s
+/// are set so they partition the original span — the source out-point is untouched.
 /// </summary>
 public sealed class SplitClipCommand : EditCommand
 {
@@ -543,7 +546,9 @@ public sealed class SplitClipCommand : EditCommand
     private readonly Clip _left;
     private readonly Clip _right;
     private readonly Timecode _oldOut;
+    private readonly Timecode _oldHoldDuration;
     private readonly Timecode _splitSource;
+    private readonly Timecode _leftHoldDuration;
     private int _rightIndex = -1;
 
     /// <summary>
@@ -562,9 +567,17 @@ public sealed class SplitClipCommand : EditCommand
         _track = track;
         _left = clip;
         _oldOut = clip.SourceOut;
+        _oldHoldDuration = clip.HoldDuration;
         _splitSource = clip.MapToSource(at);
+        _leftHoldDuration = at - clip.TimelineStart;
 
-        _right = clip.CloneContentForSpan(_splitSource, clip.SourceOut, at);
+        // A held clip's halves both keep the full retained source span (for exact un-hold on either side);
+        // an ordinary clip's right half starts where the left half's source ends.
+        _right = clip.IsHeld
+            ? clip.CloneContentForSpan(clip.SourceIn, clip.SourceOut, at)
+            : clip.CloneContentForSpan(_splitSource, clip.SourceOut, at);
+        if (_right.IsHeld)
+            _right.HoldDuration = clip.TimelineEnd - at;
         _right.LinkGroupId = rightLinkGroup ?? clip.LinkGroupId;
         foreach (EffectInstance e in clip.Effects)
             _right.Effects.Add(e.Clone());
@@ -576,7 +589,10 @@ public sealed class SplitClipCommand : EditCommand
     /// <inheritdoc />
     public override void Apply()
     {
-        _left.SourceOut = _splitSource;
+        if (_left.IsHeld)
+            _left.HoldDuration = _leftHoldDuration;
+        else
+            _left.SourceOut = _splitSource;
         int leftIndex = _track.Clips.IndexOf(_left);
         _rightIndex = leftIndex < 0 ? _track.Clips.Count : leftIndex + 1;
         _track.Clips.Insert(_rightIndex, _right);
@@ -586,7 +602,10 @@ public sealed class SplitClipCommand : EditCommand
     public override void Revert()
     {
         _track.Clips.Remove(_right);
-        _left.SourceOut = _oldOut;
+        if (_left.IsHeld)
+            _left.HoldDuration = _oldHoldDuration;
+        else
+            _left.SourceOut = _oldOut;
     }
 }
 
@@ -1489,6 +1508,165 @@ public sealed class ReinterpretFootageCommand : EditCommand
         {
             clip.SourceIn = inPoint;
             clip.SourceOut = outPoint;
+        }
+    }
+}
+
+/// <summary>
+/// Sets or clears a clip's frame hold (PLAN.md step 43): <see cref="Clip.HoldFrameAt"/> (the frozen source
+/// time) and <see cref="Clip.HoldDuration"/> (the held span's independent timeline duration) together, since a
+/// hold is meaningless without a span. Un-hold passes <see langword="null"/> — the retained
+/// <see cref="Clip.SourceIn"/>/<see cref="Clip.SourceOut"/> and <see cref="Clip.SpeedRatio"/> are untouched by
+/// holding, so clearing restores the derived duration exactly. Coalesces with further holds of the same clip so
+/// dragging the inspector's hold frame/duration fields is one undo entry.
+/// </summary>
+public sealed class SetClipHoldCommand : EditCommand
+{
+    private readonly Clip _clip;
+    private readonly Timecode? _oldHoldAt;
+    private readonly Timecode _oldHoldDuration;
+    private Timecode? _newHoldAt;
+    private Timecode _newHoldDuration;
+
+    /// <summary>Captures the clip's current hold and records the new one to apply (<paramref name="holdFrameAt"/>
+    /// <see langword="null"/> = un-hold; <paramref name="holdDuration"/> is then ignored and the old value kept).</summary>
+    public SetClipHoldCommand(Clip clip, Timecode? holdFrameAt, Timecode holdDuration, string label = "Frame hold")
+        : base(label)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (holdFrameAt is { Ticks: < 0 })
+            throw new ArgumentOutOfRangeException(nameof(holdFrameAt), "The held source time must be non-negative.");
+        if (holdFrameAt is not null && holdDuration.Ticks <= 0)
+            throw new ArgumentOutOfRangeException(nameof(holdDuration), "The hold duration must be strictly positive.");
+        _clip = clip;
+        _oldHoldAt = clip.HoldFrameAt;
+        _oldHoldDuration = clip.HoldDuration;
+        _newHoldAt = holdFrameAt;
+        _newHoldDuration = holdFrameAt is null ? clip.HoldDuration : holdDuration;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _clip.HoldFrameAt = _newHoldAt;
+        _clip.HoldDuration = _newHoldDuration;
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        _clip.HoldFrameAt = _oldHoldAt;
+        _clip.HoldDuration = _oldHoldDuration;
+    }
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        if (next is SetClipHoldCommand other && ReferenceEquals(other._clip, _clip))
+        {
+            _newHoldAt = other._newHoldAt;
+            _newHoldDuration = other._newHoldDuration;
+            return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
+/// Trims a held clip (PLAN.md step 43): sets its <see cref="Clip.TimelineStart"/> and
+/// <see cref="Clip.HoldDuration"/> together — a frozen frame's span is independent of the media, so a hold trim
+/// has no media clamp (like a generator/still) and never touches the retained
+/// <see cref="Clip.SourceIn"/>/<see cref="Clip.SourceOut"/>. Coalesces with further hold trims of the same clip
+/// so a trim-handle drag is one undo entry (the held counterpart of <see cref="SetClipPlacementCommand"/>).
+/// </summary>
+public sealed class TrimHeldClipCommand : EditCommand
+{
+    private readonly Clip _clip;
+    private readonly Timecode _oldStart, _oldDuration;
+    private Timecode _newStart, _newDuration;
+
+    /// <summary>Captures the held clip's current placement and records the new start/duration to apply.</summary>
+    public TrimHeldClipCommand(Clip clip, Timecode newStart, Timecode newDuration, string label = "Trim clip")
+        : base(label)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (!clip.IsHeld)
+            throw new ArgumentException("The clip is not held — trim it through its source span instead.", nameof(clip));
+        if (newDuration.Ticks <= 0)
+            throw new ArgumentOutOfRangeException(nameof(newDuration), "The hold duration must be strictly positive.");
+        _clip = clip;
+        _oldStart = clip.TimelineStart;
+        _oldDuration = clip.HoldDuration;
+        _newStart = newStart;
+        _newDuration = newDuration;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _clip.TimelineStart = _newStart;
+        _clip.HoldDuration = _newDuration;
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        _clip.TimelineStart = _oldStart;
+        _clip.HoldDuration = _oldDuration;
+    }
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        if (next is TrimHeldClipCommand other && ReferenceEquals(other._clip, _clip))
+        {
+            _newStart = other._newStart;
+            _newDuration = other._newDuration;
+            return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
+/// Shifts a captured set of clips along the timeline by a fixed delta — the pure downstream-move half of a
+/// ripple (PLAN.md step 43). Insert Frame Hold Segment / Duplicate Frame push everything after the insertion
+/// point right, and Remove Frame closes the gap left; unlike <see cref="RippleTrimCommand"/> no clip is
+/// re-trimmed. Each shifted clip is a pure move, so its effect keyframes shift with it
+/// (<see cref="ClipMoveRebase"/>). Starts are re-derived from the captured originals on every apply, so
+/// apply/revert cycles stay exact.
+/// </summary>
+public sealed class ShiftClipsCommand : EditCommand
+{
+    private readonly IReadOnlyList<(Clip Clip, Timecode OrigStart)> _clips;
+    private readonly long _shift;
+
+    /// <summary>Captures the clips (with their current starts) and the tick delta to shift them by.</summary>
+    public ShiftClipsCommand(IReadOnlyList<(Clip Clip, Timecode OrigStart)> clips, long shiftTicks, string label = "Ripple")
+        : base(label)
+    {
+        ArgumentNullException.ThrowIfNull(clips);
+        _clips = clips;
+        _shift = shiftTicks;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        foreach ((Clip c, Timecode origStart) in _clips)
+        {
+            ClipMoveRebase.ShiftEffectsTo(c, origStart.Ticks + _shift);
+            c.TimelineStart = new Timecode(origStart.Ticks + _shift);
+        }
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        foreach ((Clip c, Timecode origStart) in _clips)
+        {
+            ClipMoveRebase.ShiftEffectsTo(c, origStart.Ticks);
+            c.TimelineStart = origStart;
         }
     }
 }

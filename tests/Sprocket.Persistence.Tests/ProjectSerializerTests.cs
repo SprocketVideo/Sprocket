@@ -410,6 +410,46 @@ public class ProjectSerializerTests
     }
 
     [Fact]
+    public void Clip_Frame_Hold_Round_Trips()
+    {
+        // Frame hold (PLAN.md step 43): the frozen source time + independent duration survive a round trip,
+        // and the retained source span / speed still load beside them (for exact un-hold).
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var project = new Project(timeline);
+        project.MediaPool.Add(new MediaRef(VideoId, @"C:\media\clip.mp4",
+            new ProbedMediaInfo(Timecode.FromSeconds(12.5), true, new Rational(30, 1), 1920, 1080, false, 0, 0)));
+        var video = new VideoTrack { Name = "V1" };
+        var held = new Clip(VideoId, Timecode.Zero, Timecode.FromSeconds(6), Timecode.Zero)
+        {
+            SpeedRatio = new Rational(3, 2),
+            HoldDuration = Timecode.FromSeconds(4),
+            HoldFrameAt = Timecode.FromSeconds(2.5),
+        };
+        video.Clips.Add(held);
+        timeline.Tracks.Add(video);
+
+        Clip loaded = RoundTrip(project).Timeline.VideoTracks.First().Clips.Single();
+        Assert.True(loaded.IsHeld);
+        Assert.Equal(Timecode.FromSeconds(2.5), loaded.HoldFrameAt!.Value);
+        Assert.Equal(Timecode.FromSeconds(4), loaded.Duration);           // HoldDuration wins while held
+        Assert.Equal(new Rational(3, 2), loaded.SpeedRatio);              // retained for un-hold
+        loaded.HoldFrameAt = null;
+        Assert.Equal(Timecode.FromSeconds(4), loaded.Duration);           // 6s span / 1.5× — derived again
+    }
+
+    [Fact]
+    public void Unheld_Clip_Omits_Hold_Fields_In_Json_And_Loads_Unheld()
+    {
+        // Hold is additive + nullable: an unheld clip must not emit the fields so pre-43 files stay byte-identical.
+        string json = ProjectSerializer.Serialize(BuildRichProject());
+        Assert.DoesNotContain("\"holdAtTicks\"", json);
+        Assert.DoesNotContain("\"holdDurationTicks\"", json);
+
+        Clip loaded = RoundTrip(BuildRichProject()).Timeline.VideoTracks.First().Clips.Single();
+        Assert.False(loaded.IsHeld);
+    }
+
+    [Fact]
     public void Serialized_Json_Carries_The_Schema_Version()
     {
         string json = ProjectSerializer.Serialize(BuildRichProject());

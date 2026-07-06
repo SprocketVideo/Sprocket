@@ -100,6 +100,8 @@ public static class EdlExporter
                 report.Count("Clip effects dropped");
             if (clip.SpeedRatio != Rational.One)
                 report.Count("Clip retime/speed dropped");
+            if (clip.IsHeld)
+                report.Count("Clip frame hold dropped");
             if (clip.Kind != ClipKind.Media)
                 report.Count($"Non-media ({clip.Kind}) clip exported as a placeholder event");
 

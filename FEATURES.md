@@ -116,6 +116,8 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Clip Speed / Duration dialog (constant speed, presets) | Dialogs.cs `SpeedDialog`; PLAN.md step 21 | — | ❌ (Inspector shows Speed; never explained) |
+| Frame hold / freeze frame: Frame Hold Options…, Add Frame Hold, Insert Frame Hold Segment (Clip menu; HOLD badge, Inspector Hold row) | PLAN.md step 43; FrameHoldOptionsDialog.cs, TimelineControl `AddFrameHoldAtPlayhead` | — | ❌ |
+| Stop-motion frame edits: Duplicate Frame / Remove Frame (source-frame grid, ripple ±1 frame) | PLAN.md step 43; Sprocket.Core/Commands/FrameHoldEdits.cs | — | ❌ |
 | Insert generators: Title, Lower Third, Credits Roll, Crawl, Color Matte | Sprocket.Core/Model/GeneratorCatalog.cs | — | ❌ |
 | Edit title text inline (double-click title clip) | TimelineControl.cs:1432 | — | ❌ |
 | Rich text & titles (styling, lower thirds, credits) | PLAN.md step 40 | — | ❌ |
@@ -236,7 +238,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 
 | Feature | Status source |
 |---|---|
-| Variable / ramped speed retime (also reverse & freeze-frame) | PLAN.md step 21 (constant-speed only is done); SpeedDialog notes deferral |
+| Variable / ramped speed retime (also reverse) | PLAN.md step 21 (constant-speed only is done; freeze-frame shipped as the step-43 frame hold); SpeedDialog notes deferral |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial) |
 | Convolution / Creative (shimmer) reverbs | PLAN.md steps 49–50 (Studio Reverb + audio freeze shipped in step 41) |

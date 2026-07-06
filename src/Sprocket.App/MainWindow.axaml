@@ -93,6 +93,17 @@
             <MenuItem x:Name="ClipInterpretFootageMenuItem" Header="Interpret _Footage…" IsEnabled="False" />
 
             <Separator />
+            <!-- Frame hold + stop-motion frame edits (PLAN.md step 43), Premiere naming. Options… holds/unholds the
+                 whole selected video clip; Add Frame Hold splits at the playhead and freezes the right half; Insert
+                 Frame Hold Segment inserts a 2 s freeze at the playhead and ripples downstream. Duplicate/Remove
+                 Frame edit one source frame on the exact frame grid and ripple ±1 frame. -->
+            <MenuItem x:Name="ClipFrameHoldOptionsMenuItem" Header="Frame _Hold Options…" IsEnabled="False" />
+            <MenuItem x:Name="ClipAddFrameHoldMenuItem" Header="_Add Frame Hold" IsEnabled="False" />
+            <MenuItem x:Name="ClipInsertFrameHoldSegmentMenuItem" Header="Insert Frame Hold Se_gment" IsEnabled="False" />
+            <MenuItem x:Name="ClipDuplicateFrameMenuItem" Header="_Duplicate Frame" IsEnabled="False" />
+            <MenuItem x:Name="ClipRemoveFrameMenuItem" Header="Remo_ve Frame" IsEnabled="False" />
+
+            <Separator />
             <!-- Loudness-normalize the selected clip's audio to the mixer's target (PLAN.md step 30); enabled when
                  the selected clip references an audio-bearing source. Applying it to each clip matches their loudness. -->
             <MenuItem x:Name="ClipNormalizeMenuItem" Header="_Normalize Audio" IsEnabled="False" />

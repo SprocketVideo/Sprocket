@@ -96,6 +96,8 @@ public static class FinalCutXmlInterchange
                 report.Count("Clip effect not exported");
             if (clip.SpeedRatio != Rational.One)
                 report.Count("Clip speed/retime not exported");
+            if (clip.IsHeld)
+                report.Count("Clip frame hold not exported");
             if (clip.Kind != ClipKind.Media)
             {
                 report.Count($"Non-media ({clip.Kind}) clip not exported");

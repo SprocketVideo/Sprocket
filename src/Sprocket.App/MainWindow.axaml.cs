@@ -123,6 +123,9 @@ public partial class MainWindow : Window
     private MenuItem? _createMulticamMenuItem; // Clip ▸ Create Multicam Source (PLAN.md step 24)
     private MenuItem? _clipNormalizeMenuItem;  // Clip ▸ Normalize Audio (PLAN.md step 30)
     private MenuItem? _clipInterpretFootageMenuItem;  // Clip ▸ Interpret Footage (PLAN.md step 42)
+    // Frame hold + stop-motion frame edits (PLAN.md step 43)
+    private MenuItem? _clipFrameHoldOptionsMenuItem, _clipAddFrameHoldMenuItem, _clipInsertFrameHoldSegmentMenuItem;
+    private MenuItem? _clipDuplicateFrameMenuItem, _clipRemoveFrameMenuItem;
     private MenuItem? _nestMenuItem, _openSequenceMenuItem; // Sequence menu (PLAN.md step 23)
     private MenuItem? _snappingMenuItem, _guidesMenuItem, _showProjectMenuItem, _showInspectorMenuItem, _showStatsMenuItem;
     private PlaybackStatsOverlay? _statsOverlay; // floating playback-diagnostics window (View ▸ Playback Statistics)
@@ -418,6 +421,17 @@ public partial class MainWindow : Window
         _clipNormalizeMenuItem.Click += (_, _) => NormalizeSelectedClip();
         _clipInterpretFootageMenuItem = this.FindControl<MenuItem>("ClipInterpretFootageMenuItem")!;
         _clipInterpretFootageMenuItem.Click += (_, _) => InterpretSelectedClipFootage();
+        // Frame hold + stop-motion frame edits (PLAN.md step 43).
+        _clipFrameHoldOptionsMenuItem = this.FindControl<MenuItem>("ClipFrameHoldOptionsMenuItem")!;
+        _clipFrameHoldOptionsMenuItem.Click += async (_, _) => await ShowFrameHoldOptionsAsync();
+        _clipAddFrameHoldMenuItem = this.FindControl<MenuItem>("ClipAddFrameHoldMenuItem")!;
+        _clipAddFrameHoldMenuItem.Click += (_, _) => _timeline?.AddFrameHoldAtPlayhead();
+        _clipInsertFrameHoldSegmentMenuItem = this.FindControl<MenuItem>("ClipInsertFrameHoldSegmentMenuItem")!;
+        _clipInsertFrameHoldSegmentMenuItem.Click += (_, _) => _timeline?.InsertFrameHoldSegmentAtPlayhead();
+        _clipDuplicateFrameMenuItem = this.FindControl<MenuItem>("ClipDuplicateFrameMenuItem")!;
+        _clipDuplicateFrameMenuItem.Click += (_, _) => _timeline?.DuplicateFrameAtPlayhead();
+        _clipRemoveFrameMenuItem = this.FindControl<MenuItem>("ClipRemoveFrameMenuItem")!;
+        _clipRemoveFrameMenuItem.Click += (_, _) => _timeline?.RemoveFrameAtPlayhead();
         this.FindControl<MenuItem>("ClipMenu")!.SubmenuOpened += (_, _) => RefreshClipMenu();
 
         // ── Clip ▸ Insert (generators + adjustment layer, PLAN.md step 19) ──
@@ -1564,6 +1578,15 @@ public partial class MainWindow : Window
         if (_createMulticamMenuItem is not null) _createMulticamMenuItem.IsEnabled = _timeline?.CanCreateMulticam == true;
         if (_clipNormalizeMenuItem is not null) _clipNormalizeMenuItem.IsEnabled = SelectedClipHasAudio();
         if (_clipInterpretFootageMenuItem is not null) _clipInterpretFootageMenuItem.IsEnabled = SelectedClipVideoMedia() is not null;
+        // Frame hold (PLAN.md step 43): enabled for a video clip with frame content; the stop-motion frame
+        // edits act on the source-frame grid, so they need an unheld clip (a hold has no frame grid).
+        bool canHold = _timeline?.SelectedCanFrameHold == true;
+        bool held = _timeline?.SelectedIsHeld == true;
+        if (_clipFrameHoldOptionsMenuItem is not null) _clipFrameHoldOptionsMenuItem.IsEnabled = canHold;
+        if (_clipAddFrameHoldMenuItem is not null) _clipAddFrameHoldMenuItem.IsEnabled = canHold && !held;
+        if (_clipInsertFrameHoldSegmentMenuItem is not null) _clipInsertFrameHoldSegmentMenuItem.IsEnabled = canHold && !held;
+        if (_clipDuplicateFrameMenuItem is not null) _clipDuplicateFrameMenuItem.IsEnabled = canHold && !held;
+        if (_clipRemoveFrameMenuItem is not null) _clipRemoveFrameMenuItem.IsEnabled = canHold && !held;
     }
 
     /// <summary>Whether the timeline selection is a clip whose source carries audio (so Clip ▸ Normalize Audio can act).</summary>
@@ -1654,6 +1677,38 @@ public partial class MainWindow : Window
             timeline.SetSelectedClipSpeed(s);
             SetStatus($"Clip speed set to {(s.ToDouble() * 100):0.##}%.");
         }
+    }
+
+    /// <summary>Clip ▸ Frame Hold Options (PLAN.md step 43, Premiere naming): freeze the whole selected clip on
+    /// one source frame — at its in point, the playhead frame, or an explicit source time — or release the hold.
+    /// The clip's timeline span never changes; un-holding restores normal playback exactly.</summary>
+    private async Task ShowFrameHoldOptionsAsync()
+    {
+        if (_timeline is not { SelectedCanFrameHold: true } timeline || timeline.SelectedClip is not { } clip
+            || _project is null)
+            return;
+
+        string name = clip.Kind == ClipKind.Media
+            ? System.IO.Path.GetFileName(_project.MediaPool.Get(clip.MediaRefId)?.AbsolutePath ?? "clip")
+            : "Selected clip";
+        FrameHoldOptionsResult? result = await FrameHoldOptionsDialog.Show(
+            this, name, clip.IsHeld, clip.HoldFrameAt, clip.SourceIn, timeline.SelectedClipSourceAtPlayhead);
+        if (result is null)
+            return;
+
+        if (!result.Hold)
+        {
+            if (clip.IsHeld)
+            {
+                timeline.UnholdSelectedClip();
+                SetStatus("Frame hold removed.");
+            }
+            return;
+        }
+        if (clip.IsHeld && clip.HoldFrameAt == result.HoldAt)
+            return; // nothing changed — keep the undo history clean
+        timeline.HoldSelectedClip(result.HoldAt);
+        SetStatus($"Clip held on the frame at {result.HoldAt.ToSeconds():0.###} s.");
     }
 
     private void RefreshViewMenu()

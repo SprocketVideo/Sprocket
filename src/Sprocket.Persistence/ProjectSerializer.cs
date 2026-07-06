@@ -299,7 +299,9 @@ public static class ProjectSerializer
             retimed ? c.SpeedRatio.Num : null, retimed ? c.SpeedRatio.Den : null,
             c.SourceSequenceId?.Value,
             multicam ? c.SourceMulticamId?.Value : null, multicam ? c.ActiveAngle : null,
-            c.GainDb != 0 ? c.GainDb : null);
+            c.GainDb != 0 ? c.GainDb : null,
+            // An unheld clip writes neither hold field (WhenWritingNull) — byte-identical to pre-43 files.
+            c.HoldFrameAt?.Ticks, c.IsHeld ? c.HoldDuration.Ticks : null);
     }
 
     private static GeneratorDto ToDto(GeneratorSpec g)
@@ -523,6 +525,12 @@ public static class ProjectSerializer
         if (c.SpeedNum is int speedNum && c.SpeedDen is int speedDen)
             clip.SpeedRatio = new Rational(speedNum, speedDen);
         clip.GainDb = c.GainDb ?? 0; // GainDb absent ⇒ 0 dB (pre-30 files / un-gained clips)
+        // Hold absent ⇒ unheld (pre-43 files). Duration first so the pair is consistent the moment HoldFrameAt lands.
+        if (c.HoldAtTicks is long holdAt)
+        {
+            clip.HoldDuration = new Timecode(c.HoldDurationTicks ?? 0);
+            clip.HoldFrameAt = new Timecode(holdAt);
+        }
         foreach (EffectDto e in c.Effects)
             clip.Effects.Add(FromDto(e));
         AddMarkers(clip.Markers, c.Markers);

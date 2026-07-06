@@ -32,6 +32,12 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
     private VideoFrame? _current;      // presented frame; guarded by _frameGate
     private VideoFrame? _next;         // pump-thread-only prefetch
 
+    // Repeat-frame fast path (PLAN.md step 43): the source target the presented frame is known-correct for.
+    // A held clip maps every timeline time to the same source time, so scrub/seek ticks inside its span keep
+    // requesting the identical target — when it matches, the seek (and the re-decode behind it) is skipped and
+    // the presented frame simply stays. Cleared whenever the feed or the presented frame is invalidated.
+    private Timecode? _presentedTarget;
+
     // Decode info (codec + hw device) of the current feed, snapshotted when the feed is (re)built — it is
     // immutable for a feed's life, so caching it lets the diagnostics overlay read it from the UI thread
     // without touching native decoder state. Set on the pump thread / at construction; read cross-thread.
@@ -134,6 +140,13 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         bool localForce = force || _needsSeek;
         if (_needsSeek)
         {
+            // Repeat-frame fast path: the presented frame is already exactly right for this source target (a
+            // held clip's constant map, or repeated seeks to one spot), so don't disturb the feed at all.
+            if (_presentedTarget == target && _current is not null)
+            {
+                _needsSeek = false;
+                return false;
+            }
             _feed!.RequestSeek(target);
             _next?.Dispose();
             _next = null;
@@ -176,6 +189,10 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         if (_next is null)
             _atEof = true;
 
+        // Remember the target the presented frame is known-correct for (the repeat-frame fast path above). Only
+        // when it is the latest frame at/before the target — the force-present path can show a frame past it.
+        _presentedTarget = _current is not null && _current.Pts <= target ? target : null;
+
         return promoted;
     }
 
@@ -192,6 +209,7 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         // Either the active clip's source changed, or the source's best-available file changed under us (a proxy
         // became ready). Tear down the old feed and build one for the (possibly same) source.
         DisposeFeed();
+        _presentedTarget = null; // a new feed must decode the frame fresh — never skip its first seek
         _needsRebuild = false;
         _feed = _feedFactory(sourceId);
         _feedSource = sourceId;
@@ -216,6 +234,7 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
 
     private void ClearCurrent()
     {
+        _presentedTarget = null;
         VideoFrame? old;
         lock (_frameGate)
         {

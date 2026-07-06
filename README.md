@@ -41,7 +41,8 @@ frames never touch the managed heap per frame.
   source media is never rewritten.
 - **Full editing toolset** — multi-track timeline (filmstrips, waveforms, snapping, zoom) with
   Select / Blade / Slip / Hand / Zoom tools, ripple & roll trims, linked A/V, markers,
-  constant-speed retime, nested sequences, and multicam.
+  constant-speed retime, freeze frames & stop-motion frame edits (frame hold, duplicate/remove
+  frame), nested sequences, and multicam.
 - **Image sequences & stills** — import a folder of numbered frames as one clip at a chosen frame
   rate (the stop-motion / time-lapse on-ramp) or a single still with a default duration, plus
   Interpret Footage to reassign a source's frame rate.
@@ -77,8 +78,8 @@ The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step bui
 
 Code-signing & notarization (alpha artifacts are unsigned) · native plugin hosting — VST3/AU audio
 and OpenColorIO/OFX (the managed plugin host and built-in effects ship today) · variable/ramped
-speed, reverse & freeze-frame retime · convolution & shimmer reverbs (Studio Reverb and audio
-freeze ship today). See the [Roadmap](#roadmap).
+speed & reverse retime (freeze frames ship today) · convolution & shimmer reverbs (Studio Reverb
+and audio freeze ship today). See the [Roadmap](#roadmap).
 
 ---
 
@@ -300,8 +301,8 @@ today. Remaining work (full detail and per-step status in [PLAN.md](PLAN.md)):
   artifacts are unsigned, so Windows signing and macOS notarization remain.
 - **Native plugin & color hosting** — VST3/AU audio plugins and OpenColorIO / OFX. The managed
   plugin host (collectible `AssemblyLoadContext`) and the built-in managed effects ship today.
-- **Advanced retime** — variable/ramped speed, reverse, and freeze-frame (constant-speed retime
-  ships today).
+- **Advanced retime** — variable/ramped speed and reverse (constant-speed retime, freeze frames,
+  and stop-motion frame edits ship today).
 - **Audio extras** — convolution and shimmer reverbs, delays, gate and shelving EQ (the Studio
   Reverb, factory presets, and clip-audio freeze ship today).
 

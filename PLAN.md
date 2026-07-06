@@ -1237,7 +1237,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
       - **Deferred (noted, on the same seam — additive when picked up):** **reverse** playback (the `Reverse` flag —
         needs backward decode in the feed/export provider, not just a negated map), keyframed **speed ramps** (an
         integrated time map from a keyframed-speed `AnimatableValue`), **freeze frame** (speed 0 — needs an
-        independent timeline duration rather than one derived from the source span; **now picked up by step 43**,
+        independent timeline duration rather than one derived from the source span; **✅ shipped in step 43**,
         which models it as a `HoldFrameAt`/`HoldDuration` field rather than speed 0, leaving the
         `SpeedRatio > 0` invariant intact), and **pitch-preserving**
         time-stretch / frame-interpolated slow-motion (step 31 / a later quality tier behind the same seam).
@@ -2982,6 +2982,44 @@ Tags reference the [UI.md §4 checklist](UI.md).
       companion composites); decode-ring thrash without the repeat-frame fast path; UX ambiguity
       between Remove Frame (this step, frame-grid) and ripple delete (step 22, span) — keep distinct
       shortcuts.
+    - **✅ DONE** (`Sprocket.Core/Model/Clip` + `Sprocket.Core/Commands/{ModelCommands,FrameHoldEdits}` +
+      `Sprocket.Playback/VideoTrackPlayer` + `Sprocket.Persistence/{ProjectDto,ProjectSerializer}` +
+      `Sprocket.App/{MainWindow,FrameHoldOptionsDialog,ClipboardOps,Inspector/InspectorPanel,Timeline/TimelineControl}`;
+      21 new tests — Core +17 (`FrameHoldTests`), Persistence +2, App +1 (`ClipboardOpsTests`), plus 1 amended;
+      full suite **1231 green**, clean Release build (0 warnings). Delivered:
+      - **Model (Core, §4):** `Clip.HoldFrameAt` (nullable source `Timecode`) + `Clip.HoldDuration` + `IsHeld`.
+        Held: `Duration => HoldDuration` and `MapToSource(t) => HoldFrameAt` (a constant map — preview and
+        export render the identical frame with zero new render-graph plumbing, verified by a plan-constancy
+        test). `SourceIn/Out` + `SpeedRatio` retained untouched, so un-hold restores the derived duration
+        exactly; the defined precedence is hold-ignores-speed. `CloneContentForSpan` copies the hold;
+        `SplitClipCommand` grew hold-awareness (a held clip splits by timeline span — both halves keep the full
+        retained source span + frozen frame, only their `HoldDuration`s partition).
+      - **Commands (§ step 10):** `SetClipHoldCommand` (hold/un-hold/retarget, coalescing),
+        `TrimHeldClipCommand` (start+duration, no media clamp, coalescing), `ShiftClipsCommand` (the pure
+        downstream-move half of a ripple), and the `FrameHoldEdits` builders — `AddFrameHold` (split at
+        playhead, freeze the right half, no ripple), `InsertFrameHoldSegment` (2 s freeze + ripple, Premiere
+        default), `DuplicateFrame` / `RemoveFrame` (exact source-frame grid via `Rational`/`Int128` math,
+        `SourceFrameSpan`, ±1-frame ripple; tested at 12, 24, and 30000/1001 fps) — each one
+        `CompositeCommand` = one undo entry, downstream sets captured by the caller like `RippleTrimCommand`.
+      - **UI (App):** Clip ▸ **Frame Hold Options…** (hold at In Point / Playhead / source time, or release —
+        `FrameHoldOptionsDialog`), **Add Frame Hold**, **Insert Frame Hold Segment**, **Duplicate Frame**,
+        **Remove Frame** (no default shortcuts — Premiere ships none; Remove Frame stays distinct from
+        Shift+Delete ripple delete). Video-track clips with frame content only (media/nested/multicam;
+        generators animate by local progress); linked audio keeps playing, matching Premiere — Add/Insert split
+        companions spanning the cut, frame-edit ripples shift **every** track downstream so A/V sync holds.
+        Held-clip gestures: trim edits `HoldDuration` (no media clamp, like generators/stills), slip moves
+        `HoldFrameAt`, ripple/roll/slide abort on held edges (their source-trim math doesn't apply); clip body
+        gets a HOLD pill badge, Inspector a Hold row; `ClipboardOps` now clones via `CloneContentForSpan` so
+        copy/paste/Alt-drag keep kind/speed/gain/hold.
+      - **Playback:** repeat-frame fast path in `VideoTrackPlayer` — a seek whose target equals the
+        already-presented source time (a held span's constant map, scrub ticks in a freeze) skips the
+        re-seek/re-decode entirely; the presented-target latch is invalidated on feed rebuild/clear.
+      - **Persistence (§12):** additive nullable `ClipDto.holdAtTicks`/`holdDurationTicks`
+        (`WhenWritingNull`) — unheld clips serialize byte-identically, no schema bump; EDL/FCP-XML interchange
+        counts a "frame hold dropped/not exported" warning (their events derive source span from record span).
+      - **Deliberate departures:** whole-clip on-twos stays Interpret Footage at half rate (step 42), not
+        Dragonframe X-sheet editing; Duplicate/Remove Frame are disabled on an already-held clip (no frame grid
+        on a constant map).
 
 44. **Audio-only export delivery.** Add an explicit user-facing **audio-only** export mode for writing
     the active sequence's master mix without rendering or muxing a video stream. This is a later

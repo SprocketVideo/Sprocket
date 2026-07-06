@@ -185,6 +185,10 @@ public sealed class InspectorPanel : UserControl
         info.Children.Add(InfoRow("Duration", FormatSeconds(clip.Duration)));
         info.Children.Add(InfoRow("Trim", $"{FormatSeconds(clip.SourceIn)} – {FormatSeconds(clip.SourceOut)}"));
         info.Children.Add(BuildSpeedRow(clip));
+        // A held clip shows its frozen frame + hold span (PLAN.md step 43); the speed above is retained but
+        // ignored while held. Edited via Clip ▸ Frame Hold Options / the trim handles.
+        if (clip.IsHeld)
+            info.Children.Add(InfoRow("Hold", $"{FormatSeconds(clip.HoldFrameAt!.Value)} for {FormatSeconds(clip.HoldDuration)}"));
         return Section("Clip", info, expanded: true);
     }
 

@@ -174,6 +174,50 @@ public sealed class Clip
     /// </summary>
     public Guid? LinkGroupId { get; set; }
 
+    private Timecode? _holdFrameAt;
+
+    /// <summary>
+    /// Freeze-frame (PLAN.md step 43): when non-null, the clip shows the single source frame at this
+    /// <em>source</em> time for its whole timeline span — <see cref="MapToSource"/> becomes a constant map and
+    /// <see cref="Duration"/> becomes the independent <see cref="HoldDuration"/>. Modelled as a hold field, not
+    /// speed 0, so the <see cref="SpeedRatio"/> &gt; 0 invariant and the derived-duration formula stay intact:
+    /// a held clip simply <em>ignores</em> its speed ratio (the defined precedence), and
+    /// <see cref="SourceIn"/>/<see cref="SourceOut"/> are retained untouched for exact un-hold. Video holds
+    /// only — a linked audio companion clip keeps playing normally, matching Premiere.
+    /// </summary>
+    public Timecode? HoldFrameAt
+    {
+        get => _holdFrameAt;
+        set
+        {
+            if (value is { Ticks: < 0 })
+                throw new ArgumentOutOfRangeException(nameof(value), "The held source time must be non-negative.");
+            _holdFrameAt = value;
+        }
+    }
+
+    private Timecode _holdDuration;
+
+    /// <summary>
+    /// The held clip's independent timeline duration (PLAN.md step 43) — meaningful only while
+    /// <see cref="HoldFrameAt"/> is set. A frozen frame has no media length to derive a duration from, so the
+    /// span is free like a generator's: trimming a held clip edits this with no media clamp. Must be
+    /// non-negative.
+    /// </summary>
+    public Timecode HoldDuration
+    {
+        get => _holdDuration;
+        set
+        {
+            if (value.Ticks < 0)
+                throw new ArgumentOutOfRangeException(nameof(value), "The hold duration must be non-negative.");
+            _holdDuration = value;
+        }
+    }
+
+    /// <summary>Whether the clip is a frame hold (<see cref="HoldFrameAt"/> is set, PLAN.md step 43).</summary>
+    public bool IsHeld => _holdFrameAt is not null;
+
     /// <summary>Ordered effect stack, applied bottom→top (ARCHITECTURE.md §5d).</summary>
     public List<EffectInstance> Effects { get; } = new();
 
@@ -184,9 +228,11 @@ public sealed class Clip
     /// <summary>
     /// Duration on the timeline, derived from the trimmed source span and the playback <see cref="SpeedRatio"/>:
     /// <c>(SourceOut - SourceIn) / Speed</c> (so a 2× clip is half as long, a ½× clip twice as long). At the
-    /// default 1/1 speed this is simply the source span.
+    /// default 1/1 speed this is simply the source span. A held clip's duration is the independent
+    /// <see cref="HoldDuration"/> instead (PLAN.md step 43) — un-hold restores the derived value exactly since
+    /// the source span and speed are untouched.
     /// </summary>
-    public Timecode Duration => (SourceOut - SourceIn).Scale(_speedRatio.Inverse());
+    public Timecode Duration => _holdFrameAt is null ? (SourceOut - SourceIn).Scale(_speedRatio.Inverse()) : _holdDuration;
 
     /// <summary>Exclusive end of the clip on the timeline (<see cref="TimelineStart"/> + <see cref="Duration"/>).</summary>
     public Timecode TimelineEnd => TimelineStart + Duration;
@@ -198,17 +244,20 @@ public sealed class Clip
     /// Maps a timeline time within this clip to the corresponding time within the source
     /// (ARCHITECTURE.md §5b): <c>sourceT = SourceIn + (t - TimelineStart) × Speed</c>. At the default 1/1 speed
     /// this is the plain <c>SourceIn + (t - TimelineStart)</c>; a faster clip walks the source proportionally
-    /// faster (PLAN.md step 21).
+    /// faster (PLAN.md step 21). A held clip maps every time to the constant <see cref="HoldFrameAt"/>
+    /// (PLAN.md step 43), so preview and export render the identical frame across the span with no extra
+    /// render-graph plumbing.
     /// </summary>
-    public Timecode MapToSource(Timecode t) => SourceIn + (t - TimelineStart).Scale(_speedRatio);
+    public Timecode MapToSource(Timecode t) => _holdFrameAt ?? SourceIn + (t - TimelineStart).Scale(_speedRatio);
 
     /// <summary>
     /// A new clip of the same <see cref="Kind"/> and content (media id / cloned generator) over the given span and
     /// placement, <em>without</em> effects or link group. The blade split uses this for the right-hand half, and
     /// duplicate/paste paths use it as the content base, so the new clip keeps a media/generator/adjustment clip's
-    /// nature (PLAN.md steps 13/19).
+    /// nature (PLAN.md steps 13/19). A frame hold is content too, so it is copied (PLAN.md step 43) — the blade
+    /// split then sets each half's own <see cref="HoldDuration"/>.
     /// </summary>
     public Clip CloneContentForSpan(Timecode sourceIn, Timecode sourceOut, Timecode timelineStart) =>
         new(Kind, MediaRefId, Generator?.Clone(), SourceSequenceId, SourceMulticamId, sourceIn, sourceOut, timelineStart)
-        { SpeedRatio = _speedRatio, ActiveAngle = ActiveAngle, GainDb = GainDb };
+        { SpeedRatio = _speedRatio, ActiveAngle = ActiveAngle, GainDb = GainDb, HoldFrameAt = _holdFrameAt, HoldDuration = _holdDuration };
 }

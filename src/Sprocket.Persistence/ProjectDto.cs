@@ -193,7 +193,12 @@ internal sealed record ClipDto(
     int? ActiveAngle = null,
     // Per-clip audio gain in dB (PLAN.md step 30). Additive + nullable: unity (0 dB) writes null (WhenWritingNull),
     // so pre-30 files load at unity and un-gained projects serialize byte-identically.
-    double? GainDb = null);
+    double? GainDb = null,
+    // Frame hold (PLAN.md step 43): the frozen source time and the held span's independent timeline duration.
+    // Additive + nullable: an unheld clip writes neither (WhenWritingNull), so pre-43 files load unheld and
+    // hold-free projects serialize byte-identically.
+    long? HoldAtTicks = null,
+    long? HoldDurationTicks = null);
 
 /// <summary>A marker (PLAN.md step 20): a time, optional name/comment, colour band, and an optional span
 /// (<see cref="DurationTicks"/> &gt; 0). Colour serializes as a string enum.</summary>

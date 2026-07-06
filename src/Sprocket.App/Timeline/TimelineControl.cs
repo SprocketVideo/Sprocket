@@ -573,6 +573,189 @@ public sealed class TimelineControl : Control
     /// <summary>The selected clip's current playback speed (1/1 when nothing is selected), for the Speed dialog.</summary>
     public Rational SelectedClipSpeed => _selected?.SpeedRatio ?? Rational.One;
 
+    // ── Frame hold + stop-motion frame edits (PLAN.md step 43) ──────────────────────────────────────
+
+    /// <summary>Premiere's Insert Frame Hold Segment inserts a 2-second freeze; kept as the convention.</summary>
+    private static readonly Timecode HoldSegmentDuration = Timecode.FromSeconds(2);
+
+    /// <summary>Whether the selection can carry a frame hold: a clip with frame content (media / nested sequence /
+    /// multicam — a generator animates by local progress, not source time) on a video track. Video holds only —
+    /// linked audio keeps playing normally, matching Premiere (PLAN.md step 43).</summary>
+    public bool SelectedCanFrameHold => _selected is { } clip && CanFrameHold(clip);
+
+    /// <summary>Whether the selected clip is currently a frame hold (for the menu/dialog state).</summary>
+    public bool SelectedIsHeld => _selected?.IsHeld == true;
+
+    private bool CanFrameHold(Clip clip) =>
+        clip.Kind is ClipKind.Media or ClipKind.Sequence or ClipKind.Multicam && TrackOf(clip) is VideoTrack;
+
+    /// <summary>The source time under the playhead in the selected clip via the <em>unheld</em> speed map (the
+    /// Frame Hold Options "Playhead" choice must retarget a held clip, whose live map is constant), or
+    /// <see langword="null"/> when the playhead is outside the clip.</summary>
+    public Timecode? SelectedClipSourceAtPlayhead =>
+        _selected is { } clip && clip.Contains(_playhead)
+            ? clip.SourceIn + (_playhead - clip.TimelineStart).Scale(clip.SpeedRatio)
+            : null;
+
+    /// <summary>Freezes the whole selected clip at source time <paramref name="holdAt"/> (Clip ▸ Frame Hold
+    /// Options): its timeline span is kept, so nothing downstream moves. One undo entry.</summary>
+    public void HoldSelectedClip(Timecode holdAt)
+    {
+        if (_selected is not { } clip || _history is null || !CanFrameHold(clip) || holdAt.Ticks < 0)
+            return;
+        Execute(new SetClipHoldCommand(clip, holdAt, clip.Duration, "Frame hold"));
+    }
+
+    /// <summary>Removes the selected clip's frame hold: the retained source span and speed take over again, so
+    /// the derived duration is restored exactly (PLAN.md step 43).</summary>
+    public void UnholdSelectedClip()
+    {
+        if (_selected is not { IsHeld: true } clip || _history is null)
+            return;
+        Execute(new SetClipHoldCommand(clip, null, default, "Remove frame hold"));
+    }
+
+    /// <summary>
+    /// Clip ▸ Add Frame Hold (Premiere naming): splits the selected clip at the playhead and freezes the right
+    /// half at the playhead frame — playback runs to the playhead and holds. The clip's span is unchanged (no
+    /// ripple). With Linked on, companion clips spanning the cut are split too (the audio keeps playing across
+    /// both halves); at the clip's very start the whole clip is held instead. One undo entry.
+    /// </summary>
+    public void AddFrameHoldAtPlayhead()
+    {
+        if (_selected is not { } clip || _history is null || _project is null || !CanFrameHold(clip))
+            return;
+        Track? track = TrackOf(clip);
+        Timecode at = _playhead;
+        if (track is null || at < clip.TimelineStart || at >= clip.TimelineEnd)
+            return;
+        if (at == clip.TimelineStart)
+        {
+            Execute(new SetClipHoldCommand(clip, clip.MapToSource(at), clip.Duration, "Add frame hold"));
+            return;
+        }
+
+        List<(Track Track, Clip Clip)> companions = Linked
+            ? _project.Timeline.ClipsLinkedTo(clip).Where(l => l.Clip.Contains(at) && l.Clip.TimelineStart < at).ToList()
+            : [];
+        Guid? rightGroup = (Linked && clip.LinkGroupId is not null && companions.Count > 0) ? Guid.NewGuid() : null;
+
+        (IEditCommand primary, Clip held) = FrameHoldEdits.AddFrameHold(track, clip, at, rightGroup);
+        if (companions.Count == 0)
+        {
+            Execute(primary);
+        }
+        else
+        {
+            var commands = new List<IEditCommand> { primary };
+            foreach ((Track ctrack, Clip cclip) in companions)
+                commands.Add(new SplitClipCommand(ctrack, cclip, at, rightGroup));
+            Execute(new CompositeCommand("Add frame hold", commands));
+        }
+        Select(held);
+    }
+
+    /// <summary>
+    /// Clip ▸ Insert Frame Hold Segment (Premiere naming): inserts a 2-second freeze of the playhead frame into
+    /// the selected clip and ripples everything at/after the playhead — on every track, so A/V sync holds —
+    /// right by the same amount. With Linked on, companions spanning the playhead are split with it. One undo
+    /// entry; the new freeze segment is selected.
+    /// </summary>
+    public void InsertFrameHoldSegmentAtPlayhead()
+    {
+        if (_selected is not { } clip || _history is null || _project is null || !CanFrameHold(clip))
+            return;
+        Track? track = TrackOf(clip);
+        Timecode at = _playhead;
+        if (track is null || at < clip.TimelineStart || at >= clip.TimelineEnd)
+            return;
+
+        List<(Track Track, Clip Clip)> companions = Linked
+            ? _project.Timeline.ClipsLinkedTo(clip).Where(l => l.Clip.Contains(at) && l.Clip.TimelineStart < at).ToList()
+            : [];
+        Guid? rightGroup = (Linked && clip.LinkGroupId is not null && companions.Count > 0) ? Guid.NewGuid() : null;
+
+        List<(Clip Clip, Timecode OrigStart)> downstream = DownstreamFrom(at, clip, companions.Select(l => l.Clip).ToList());
+        var commands = new List<IEditCommand>();
+        foreach ((Track ctrack, Clip cclip) in companions)
+        {
+            var split = new SplitClipCommand(ctrack, cclip, at, rightGroup);
+            commands.Add(split);
+            downstream.Add((split.RightClip, at));
+        }
+
+        (IEditCommand insert, Clip held) =
+            FrameHoldEdits.InsertFrameHoldSegment(track, clip, at, HoldSegmentDuration, downstream, rightGroup);
+        commands.Add(insert);
+        Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Insert frame hold segment", commands));
+        Select(held);
+    }
+
+    /// <summary>
+    /// Clip ▸ Duplicate Frame (stop-motion frame edit, PLAN.md step 43): inserts a one-frame hold of the source
+    /// frame under the playhead right after it and ripples every track downstream by one frame. Repeating it is
+    /// per-frame "on twos/threes" (whole-clip on-twos = Interpret Footage at half rate, step 42).
+    /// </summary>
+    public void DuplicateFrameAtPlayhead()
+    {
+        if (_selected is not { IsHeld: false } clip || _history is null || _project is null || !CanFrameHold(clip))
+            return;
+        Track? track = TrackOf(clip);
+        Timecode at = _playhead;
+        if (track is null || at < clip.TimelineStart || at >= clip.TimelineEnd)
+            return;
+
+        Rational fps = FrameEditRate(clip);
+        FrameHoldEdits.FrameSpan span = FrameHoldEdits.SourceFrameSpan(clip, at, fps);
+        Timecode boundary = Timecode.Min(span.TimelineEnd, clip.TimelineEnd);
+        (IEditCommand command, Clip held) =
+            FrameHoldEdits.DuplicateFrame(track, clip, at, fps, DownstreamFrom(boundary, clip));
+        Execute(command);
+        Select(held);
+    }
+
+    /// <summary>
+    /// Clip ▸ Remove Frame (stop-motion frame edit, PLAN.md step 43): extracts the timeline span of the source
+    /// frame under the playhead — snapped to the exact source-frame grid — and ripple-closes every track by one
+    /// frame. Distinct from Ripple Delete (Shift+Delete), which removes the whole selected clip's span.
+    /// </summary>
+    public void RemoveFrameAtPlayhead()
+    {
+        if (_selected is not { IsHeld: false } clip || _history is null || _project is null || !CanFrameHold(clip))
+            return;
+        Track? track = TrackOf(clip);
+        Timecode at = _playhead;
+        if (track is null || at < clip.TimelineStart || at >= clip.TimelineEnd)
+            return;
+
+        Rational fps = FrameEditRate(clip);
+        FrameHoldEdits.FrameSpan span = FrameHoldEdits.SourceFrameSpan(clip, at, fps);
+        Timecode to = Timecode.Min(span.TimelineEnd, clip.TimelineEnd);
+        Execute(FrameHoldEdits.RemoveFrame(track, clip, at, fps, DownstreamFrom(to, clip)));
+        if (TrackOf(clip) is null) // a single-frame clip was removed outright
+            Select(null);
+    }
+
+    /// <summary>The frame grid for the stop-motion edits: the source's own rate for media clips (correct for
+    /// reinterpreted image sequences and NTSC sources), else the sequence rate.</summary>
+    private Rational FrameEditRate(Clip clip) =>
+        clip.Kind == ClipKind.Media && _project?.MediaPool.Get(clip.MediaRefId) is { Info.FrameRate.Num: > 0 } media
+            ? media.Info.FrameRate
+            : _project!.Timeline.FrameRate;
+
+    /// <summary>Every clip on any track starting at/after <paramref name="at"/> with its current start — the
+    /// cross-track downstream set the frame-edit ripples shift (A/V stays in sync). <paramref name="exclude"/>
+    /// and <paramref name="alsoExclude"/> are the clips the composite handles internally.</summary>
+    private List<(Clip Clip, Timecode OrigStart)> DownstreamFrom(Timecode at, Clip exclude, List<Clip>? alsoExclude = null)
+    {
+        var list = new List<(Clip, Timecode)>();
+        foreach (Track t in _project!.Timeline.Tracks)
+            foreach (Clip c in t.Clips)
+                if (!ReferenceEquals(c, exclude) && (alsoExclude is null || !alsoExclude.Contains(c)) && c.TimelineStart >= at)
+                    list.Add((c, c.TimelineStart));
+        return list;
+    }
+
     /// <summary>Appends an effect (by catalog id) to the selected clip via <see cref="AddEffectCommand"/> (steps 15–16).</summary>
     public void ApplyEffectToSelected(string effectTypeId)
     {
@@ -1117,12 +1300,29 @@ public sealed class TimelineControl : Control
                     ctx.DrawText(Label(ClipName(clip), 11, Text), new Point(rect.X + 6, rect.Y + 4));
                     DrawClipMarkers(ctx, clip, rect);
                     DrawFadeOverlay(ctx, clip, rect);
+                    if (clip.IsHeld)
+                        DrawHoldBadge(ctx, rect);
                 }
 
                 if (ReferenceEquals(clip, _selected))
                     ctx.DrawRectangle(null, SelectPen, rounded);
             }
         }
+    }
+
+    // A held clip's "HOLD" pill, pinned to the clip body's top-right corner (PLAN.md step 43) — the freeze-frame
+    // marker, so a hold reads at a glance like a fade or marker does. Skipped when the clip is too narrow.
+    private static readonly IBrush HoldBadgeFill = Brush("#B3141821");
+
+    private static void DrawHoldBadge(DrawingContext ctx, Rect rect)
+    {
+        FormattedText text = Label("HOLD", 9, Text);
+        double w = text.Width + 10, h = text.Height + 3;
+        var badge = new Rect(rect.Right - w - 4, rect.Y + 3, w, h);
+        if (badge.X < rect.X + 4)
+            return;
+        ctx.DrawRectangle(HoldBadgeFill, null, new RoundedRect(badge, 3));
+        ctx.DrawText(text, new Point(badge.X + 5, badge.Y + 1.5));
     }
 
     // Transitions on the cut (PLAN.md step 25): the classic NLE overlay — a translucent box spanning the
@@ -1680,6 +1880,12 @@ public sealed class TimelineControl : Control
         return clip is not null;
     }
 
+    // A held clip's drag baseline (PLAN.md step 43): its independent hold duration and frozen source time —
+    // trimming a held clip edits the hold duration (no media clamp) and slipping moves the frozen frame.
+    private long _dragOrigHoldDur;
+    private long _dragOrigHoldAt;
+    private long _dragOrigDur; // clip.Duration at drag start (≠ out−in for a held clip)
+
     private void BeginClipDrag(Clip clip, ClipDragMode mode, Point p)
     {
         _dragClip = clip;
@@ -1689,6 +1895,9 @@ public sealed class TimelineControl : Control
         _dragOrigIn = clip.SourceIn;
         _dragOrigOut = clip.SourceOut;
         _dragOrigStart = clip.TimelineStart;
+        _dragOrigHoldDur = clip.HoldDuration.Ticks;
+        _dragOrigHoldAt = clip.HoldFrameAt?.Ticks ?? 0;
+        _dragOrigDur = clip.Duration.Ticks;
         _snapPoints = BuildSnapPoints(clip);
         _movePreview = false;
         _dragKind = DragKind.None;
@@ -1753,6 +1962,35 @@ public sealed class TimelineControl : Control
             case DragKind.None: return;
         }
 
+        // A held clip's trim edits its independent HoldDuration — no media clamp, like a generator/still
+        // (PLAN.md step 43). The frozen frame and the retained source span are untouched.
+        if (_dragClip!.IsHeld)
+        {
+            long newDur = _dragOrigHoldDur, newHeldStart = _dragOrigStart.Ticks;
+            if (_dragMode == ClipDragMode.TrimEnd)
+            {
+                newDur = Math.Max(_minDurTicks, _dragOrigHoldDur + delta);
+                if (Snapping)
+                {
+                    long end = _dragOrigStart.Ticks + newDur;
+                    long snapped = TimelineMath.Snap(end, _snapPoints, SnapTolerancePx, _pxPerSecond);
+                    if (snapped != end)
+                        newDur = Math.Max(_minDurTicks, snapped - _dragOrigStart.Ticks);
+                }
+            }
+            else if (_dragMode == ClipDragMode.TrimStart)
+            {
+                long origEnd = _dragOrigStart.Ticks + _dragOrigHoldDur;
+                newHeldStart = TimelineMath.ClampNonNegative(_dragOrigStart.Ticks + delta);
+                if (Snapping)
+                    newHeldStart = TimelineMath.Snap(newHeldStart, _snapPoints, SnapTolerancePx, _pxPerSecond);
+                newHeldStart = TimelineMath.ClampNonNegative(Math.Min(newHeldStart, origEnd - _minDurTicks));
+                newDur = origEnd - newHeldStart;
+            }
+            Execute(new TrimHeldClipCommand(_dragClip, new Timecode(newHeldStart), new Timecode(newDur), "Trim clip"));
+            return;
+        }
+
         // Otherwise an edge trim: mutate live and coalesce so the whole drag is one undo entry.
         long newIn = _dragOrigIn.Ticks, newOut = _dragOrigOut.Ticks, newStart = _dragOrigStart.Ticks;
 
@@ -1806,8 +2044,7 @@ public sealed class TimelineControl : Control
         {
             // Clamp the delta so no group member would cross t=0, then snap the primary's start.
             long clamped = Math.Max(delta, -_dragGroupMinStart);
-            long dur = _dragOrigOut.Ticks - _dragOrigIn.Ticks;
-            _movePreviewStart = SnapMove(_dragOrigStart.Ticks + clamped, dur);
+            _movePreviewStart = SnapMove(_dragOrigStart.Ticks + clamped, _dragOrigDur);
         }
 
         (Track? laneTrack, _) = TrackAndKindAtY(p.Y);
@@ -1871,6 +2108,16 @@ public sealed class TimelineControl : Control
     /// </summary>
     private void UpdateSlip(long rawDelta)
     {
+        // Slip on a held clip moves the frozen frame through the source instead (PLAN.md step 43): same gesture
+        // (content shifts, placement/duration fixed), applied to the single held source time, clamped to media.
+        if (_dragClip!.IsHeld)
+        {
+            long media = MediaDurationTicks(_dragClip);
+            long newHoldAt = Math.Clamp(_dragOrigHoldAt + rawDelta, 0, Math.Max(0, media - 1));
+            Execute(new SetClipHoldCommand(_dragClip, new Timecode(newHoldAt), _dragClip.HoldDuration, "Slip clip"));
+            return;
+        }
+
         long mediaDuration = MediaDurationTicks(_dragClip!);
         long slip = TimelineMath.ClampSlip(_dragOrigIn.Ticks, _dragOrigOut.Ticks, mediaDuration, rawDelta);
         Execute(new SetClipPlacementCommand(
@@ -2011,12 +2258,23 @@ public sealed class TimelineControl : Control
     // edges. Each "unit" carries the downstream clips on its own track so every affected track stays gap-free.
     private void BeginRipple(Clip clip, ClipDragMode mode)
     {
+        // A held clip's duration is independent of its source span, so the source-trim ripple math doesn't apply
+        // — the gesture aborts (trim a held clip with the Select tool instead; PLAN.md step 43).
+        if (clip.IsHeld)
+            return;
         _rippleTrimEnd = mode == ClipDragMode.TrimEnd;
         _rippleUnits.Clear();
         _rippleUnits.Add(BuildRippleUnit(clip, _dragSourceTrack!));
         if (Linked)
             foreach ((Track ctrack, Clip cclip) in _project!.Timeline.ClipsLinkedTo(clip))
+            {
+                if (cclip.IsHeld)
+                {
+                    _rippleUnits.Clear();
+                    return;
+                }
                 _rippleUnits.Add(BuildRippleUnit(cclip, ctrack));
+            }
         _dragKind = DragKind.Ripple;
     }
 
@@ -2081,6 +2339,10 @@ public sealed class TimelineControl : Control
         Clip? right = mode == ClipDragMode.TrimEnd ? AdjacentAfter(track, clip) : clip;
         if (left is null || right is null)
             return;
+        // A held clip's duration ignores its source span, so rolling its source edge can't move the cut — abort
+        // (PLAN.md step 43).
+        if (left.IsHeld || right.IsHeld)
+            return;
 
         _rollLeft = left;
         _rollRight = right;
@@ -2119,6 +2381,14 @@ public sealed class TimelineControl : Control
         Track track = _dragSourceTrack!;
         _slidePrev = AdjacentBefore(track, clip);
         _slideNext = AdjacentAfter(track, clip);
+        // Sliding trims the neighbours' source edges — meaningless on a held neighbour, whose duration ignores
+        // its source span (PLAN.md step 43). The slid clip itself moving is fine even when held.
+        if (_slidePrev?.IsHeld == true || _slideNext?.IsHeld == true)
+        {
+            _slidePrev = null;
+            _slideNext = null;
+            return;
+        }
         _slidePrevSpeed = _slidePrev?.SpeedRatio ?? Rational.One;
         _slideNextSpeed = _slideNext?.SpeedRatio ?? Rational.One;
         _slidePrevMedia = _slidePrev is null ? 0 : MediaDurationTicks(_slidePrev);

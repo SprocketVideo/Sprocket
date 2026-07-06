@@ -22,7 +22,9 @@ public static class ClipboardOps
     public static Clip Copy(Clip clip)
     {
         ArgumentNullException.ThrowIfNull(clip);
-        var copy = new Clip(clip.MediaRefId, clip.SourceIn, clip.SourceOut, clip.TimelineStart);
+        // CloneContentForSpan keeps the clip's whole content nature — kind, generator, speed, gain, and any
+        // frame hold (PLAN.md step 43) — not just the media reference.
+        Clip copy = clip.CloneContentForSpan(clip.SourceIn, clip.SourceOut, clip.TimelineStart);
         foreach (EffectInstance e in clip.Effects)
             copy.Effects.Add(e.Clone());
         return copy; // LinkGroupId intentionally left null — a pasted clip is independent
@@ -37,7 +39,7 @@ public static class ClipboardOps
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         long start = Math.Max(0, at.Ticks);
-        var copy = new Clip(snapshot.MediaRefId, snapshot.SourceIn, snapshot.SourceOut, new Timecode(start));
+        Clip copy = snapshot.CloneContentForSpan(snapshot.SourceIn, snapshot.SourceOut, new Timecode(start));
         // Effect keyframe times are absolute timeline time (AnimatableValue.Evaluate is called with the playhead's
         // timeline time). A clip pasted at a new start must therefore shift its animated parameters by the
         // placement delta so they move with the clip — otherwise the copy's keyframes stay anchored to the
