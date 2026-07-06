@@ -72,13 +72,18 @@ public sealed class ThumbnailService : IDisposable
             return null;
         try
         {
-            using MediaSource source = MediaSource.Open(media.AbsolutePath, HardwareAccelMode.Disabled);
+            // An image sequence opens through the image2 demuxer; a still / ordinary file opens by path (step 42).
+            using MediaSource source = MediaSource.Open(MediaOpenRequest.FromMediaRef(media), HardwareAccelMode.Disabled);
             using var pool = new VideoFramePool(source.Info.Width, source.Info.Height);
 
-            // Seek a little into the clip for a representative poster (avoids a black/leader first frame).
-            Timecode poster = Timecode.Min(Timecode.FromSeconds(1), new Timecode(media.Info.Duration.Ticks / 2));
-            if (poster.Ticks > 0)
-                source.SeekTo(poster);
+            // Seek a little into the clip for a representative poster (avoids a black/leader first frame). A still has
+            // only one frame at time zero, so never seek past it (PLAN.md step 42) — its poster is that frame.
+            if (!media.HasUnboundedDuration)
+            {
+                Timecode poster = Timecode.Min(Timecode.FromSeconds(1), new Timecode(media.Info.Duration.Ticks / 2));
+                if (poster.Ticks > 0)
+                    source.SeekTo(poster);
+            }
 
             if (!source.TryDecodeNextFrame(pool, out VideoFrame? frame))
                 return null;

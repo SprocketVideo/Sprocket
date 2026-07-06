@@ -232,6 +232,15 @@ public static class MediaRelink
             if (project.MediaPool.Get(match.Id) is { } media)
             {
                 media.AbsolutePath = match.NewPath;
+                // An image sequence relinks by its first frame; carry the printf pattern to the new folder so the
+                // image2 demuxer opens the moved run (PLAN.md step 42).
+                if (media.Kind == MediaKind.ImageSequence && media.SequencePattern is { } pattern)
+                {
+                    string? dir = Path.GetDirectoryName(match.NewPath);
+                    media.SequencePattern = string.IsNullOrEmpty(dir)
+                        ? pattern
+                        : Path.Combine(dir, Path.GetFileName(pattern));
+                }
                 relinked++;
             }
         }

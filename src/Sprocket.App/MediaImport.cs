@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
+using Sprocket.Core.Timing;
 using Sprocket.Media;
 
 namespace Sprocket.App;
@@ -24,13 +25,20 @@ internal static class MediaImport
         public bool Succeeded => Media is not null;
     }
 
+    /// <summary>The Premiere-default on-timeline duration for a newly imported still (PLAN.md step 42), used when
+    /// no per-project preference is supplied (MCP / CLI import).</summary>
+    public static readonly Timecode DefaultStillDuration = Timecode.FromSeconds(5);
+
     /// <summary>
     /// Probes <paramref name="path"/> and adds it to the project (deduplicating by absolute path — re-importing
-    /// the same file returns the existing reference rather than a second copy). Returns a <see cref="Result"/>
-    /// carrying the imported/existing <see cref="MediaRef"/>, or the failure reason (the underlying FFmpeg
-    /// message) when the file can't be opened/probed — so the caller can show *why* rather than a bare "failed".
+    /// the same file returns the existing reference rather than a second copy). A recognised image file imports as
+    /// a single <see cref="MediaKind.Still"/> with <paramref name="stillDuration"/> (defaulting to
+    /// <see cref="DefaultStillDuration"/>) as its initial on-timeline length (PLAN.md step 42); everything else
+    /// imports as an ordinary file. Returns a <see cref="Result"/> carrying the imported/existing
+    /// <see cref="MediaRef"/>, or the failure reason (the underlying FFmpeg message) when the file can't be
+    /// opened/probed — so the caller can show *why* rather than a bare "failed".
     /// </summary>
-    public static Result TryImport(Project project, EditHistory history, string path)
+    public static Result TryImport(Project project, EditHistory history, string path, Timecode? stillDuration = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(history);
@@ -44,6 +52,7 @@ internal static class MediaImport
             if (string.Equals(existing.AbsolutePath, path, StringComparison.OrdinalIgnoreCase))
                 return new Result(existing, null);
 
+        bool isStill = ImageSequenceDetection.IsImagePath(path);
         ProbedMediaInfo info;
         try
         {
@@ -56,8 +65,70 @@ internal static class MediaImport
             return new Result(null, ex.Message); // surfaced to the user (§15)
         }
 
-        var media = new MediaRef(MediaRefId.New(), path, info);
+        if (isStill)
+            // The probed duration is one frame; a still's on-timeline length is the import preference, and its
+            // media headroom is unbounded (MediaRef.HasUnboundedDuration) so it extends freely like a generator.
+            info = info with { Duration = stillDuration ?? DefaultStillDuration };
+
+        var media = new MediaRef(MediaRefId.New(), path, info)
+        {
+            Kind = isStill ? MediaKind.Still : MediaKind.File,
+        };
         history.Execute(new AddMediaCommand(project.MediaPool, media));
         return new Result(media, null);
     }
+
+    /// <summary>
+    /// Imports a detected numbered image run as one <see cref="MediaKind.ImageSequence"/> clip at
+    /// <paramref name="frameRate"/> (PLAN.md step 42), deduplicating by the sequence's printf pattern. The
+    /// intrinsic frame rate and the total duration (<c>frameCount / fps</c>) are the single source of truth for the
+    /// sequence's timing; the probe supplies the per-frame facts (dimensions, alpha, codec).
+    /// </summary>
+    public static Result TryImportSequence(Project project, EditHistory history, ImageSequenceInfo sequence, Rational frameRate)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(history);
+        if (frameRate.Num <= 0)
+            return new Result(null, "Invalid sequence frame rate.");
+
+        // Already imported? Match on the pattern so the same run isn't added twice.
+        foreach (MediaRef existing in project.MediaPool.Items)
+            if (existing.Kind == MediaKind.ImageSequence
+                && string.Equals(existing.SequencePattern, sequence.Pattern, StringComparison.OrdinalIgnoreCase))
+                return new Result(existing, null);
+
+        var media = new MediaRef(MediaRefId.New(), sequence.FirstFilePath, PlaceholderInfo(frameRate))
+        {
+            Kind = MediaKind.ImageSequence,
+            SequencePattern = sequence.Pattern,
+            SequenceStartNumber = sequence.StartNumber,
+            SequenceFrameCount = sequence.FrameCount,
+        };
+
+        ProbedMediaInfo probed;
+        try
+        {
+            probed = MediaSource.ProbeInfo(MediaOpenRequest.FromMediaRef(media));
+        }
+        catch (Exception ex)
+        {
+            return new Result(null, ex.Message);
+        }
+
+        // fps and duration are authoritative from the user's choice + frame count (exact Timecode math), not the
+        // demuxer's report; keep the probed per-frame facts (size, alpha, pixel format, codec).
+        media.Info = probed with
+        {
+            HasVideo = true,
+            FrameRate = frameRate,
+            Duration = Timecode.FromFrames(sequence.FrameCount, frameRate),
+        };
+        history.Execute(new AddMediaCommand(project.MediaPool, media));
+        return new Result(media, null);
+    }
+
+    // A minimal info used only to carry the chosen frame rate into the image2 open request before the real probe.
+    private static ProbedMediaInfo PlaceholderInfo(Rational frameRate) =>
+        new(Duration: Timecode.Zero, HasVideo: true, FrameRate: frameRate, Width: 0, Height: 0,
+            HasAudio: false, SampleRate: 0, Channels: 0);
 }

@@ -2,6 +2,29 @@ using Sprocket.Core.Timing;
 
 namespace Sprocket.Core.Model;
 
+/// <summary>
+/// What kind of source a <see cref="MediaRef"/> addresses (PLAN.md step 42). Ordinary movie/audio files
+/// are <see cref="File"/>; the two stop-motion / VFX on-ramps are a folder of numbered stills imported as
+/// one clip (<see cref="ImageSequence"/>) and a single still with a default on-timeline duration
+/// (<see cref="Still"/>). The enum drives how the Media layer opens the source (the FFmpeg <c>image2</c>
+/// demuxer vs. a plain container) and how the editor bounds trimming (a still is unbounded, like a
+/// generator).
+/// </summary>
+public enum MediaKind
+{
+    /// <summary>An ordinary movie/audio file opened by container probing (the default).</summary>
+    File,
+
+    /// <summary>A folder of numbered stills opened as one video clip via FFmpeg's <c>image2</c> demuxer at a
+    /// chosen frame rate (<see cref="MediaRef.SequencePattern"/> / <see cref="MediaRef.SequenceStartNumber"/> /
+    /// <see cref="MediaRef.SequenceFrameCount"/>).</summary>
+    ImageSequence,
+
+    /// <summary>A single still image. Decoded once and held; its on-timeline headroom is unbounded (the
+    /// probed <see cref="ProbedMediaInfo.Duration"/> is only the initial drop length).</summary>
+    Still,
+}
+
 /// <summary>A stable, serialization-friendly identifier for an entry in the <see cref="MediaPool"/>.</summary>
 public readonly record struct MediaRefId(Guid Value)
 {
@@ -91,9 +114,40 @@ public sealed class MediaRef
     /// <summary>Stable id used by clips to address this source.</summary>
     public MediaRefId Id { get; }
 
-    /// <summary>Absolute path to the source on disk at import time.</summary>
+    /// <summary>
+    /// Absolute path to the source on disk at import time. For an <see cref="MediaKind.ImageSequence"/> this
+    /// is the resolved first-frame path; the printf pattern the Media layer feeds the <c>image2</c> demuxer is
+    /// <see cref="SequencePattern"/>.
+    /// </summary>
     public string AbsolutePath { get; set; }
 
     /// <summary>Streams/duration/format probed at import.</summary>
     public ProbedMediaInfo Info { get; set; }
+
+    /// <summary>What kind of source this is (PLAN.md step 42). Defaults to <see cref="MediaKind.File"/>, so
+    /// ordinary imports and pre-step-42 projects are unaffected.</summary>
+    public MediaKind Kind { get; set; } = MediaKind.File;
+
+    /// <summary>
+    /// For an <see cref="MediaKind.ImageSequence"/>, the printf-style absolute path pattern (e.g.
+    /// <c>C:\shot\frame_%04d.png</c>) the FFmpeg <c>image2</c> demuxer expands; <see langword="null"/> for
+    /// other kinds. Core stores the string only — no IO (ARCHITECTURE.md §4).
+    /// </summary>
+    public string? SequencePattern { get; set; }
+
+    /// <summary>For an <see cref="MediaKind.ImageSequence"/>, the number of the first frame in the run (the
+    /// <c>start_number</c> the demuxer begins at). Unused for other kinds.</summary>
+    public int SequenceStartNumber { get; set; }
+
+    /// <summary>For an <see cref="MediaKind.ImageSequence"/>, the count of contiguous numbered frames in the
+    /// run. With the intrinsic <see cref="ProbedMediaInfo.FrameRate"/> this is the single source of truth for
+    /// the sequence's <see cref="ProbedMediaInfo.Duration"/> (<c>count / fps</c>). Unused for other kinds.</summary>
+    public int SequenceFrameCount { get; set; }
+
+    /// <summary>
+    /// Whether the source's on-timeline headroom is unbounded — a <see cref="MediaKind.Still"/> extends freely
+    /// like a step-19 generator, so trim/drop clamps must not cap it at <see cref="ProbedMediaInfo.Duration"/>
+    /// (PLAN.md step 42).
+    /// </summary>
+    public bool HasUnboundedDuration => Kind == MediaKind.Still;
 }

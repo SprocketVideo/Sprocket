@@ -2895,6 +2895,43 @@ Tags reference the [UI.md §4 checklist](UI.md).
       dialog); decoder coverage in the BtbN gpl natives varies for exotic formats (DPX; keep EXR out of
       the default filter) — per-file graceful import failure already exists; audit everywhere
       `Info.Duration` is assumed finite (trim clamps, drop-duration, slip bounds).
+    - **✅ DONE** (`Sprocket.Core/Model/MediaRef` + `Sprocket.Media/{Native/LibAv,Native/Handles,MediaOpenRequest,
+      MediaSource,StillFrameSource}` + `Sprocket.Playback/StillFrameFeed` + `Sprocket.Export/{ExportFrameProvider,
+      VideoExporter}` + `Sprocket.Core/Commands/ModelCommands` (`ReinterpretFootageCommand`) + `Sprocket.App/
+      {ImageSequenceDetection,MediaImport,ImageSequenceImportDialog,InterpretFootageDialog,MainWindow,MediaBootstrap,
+      Proxy/ProxyService,PreferencesDialog,UserSettingsStore,MediaBrowser/{MediaBadges,MediaBrowserPanel},
+      Timeline/TimelineControl}` + `Sprocket.Persistence/{ProjectDto,ProjectSerializer,MediaRelink}`; 24 new tests —
+      Media +5, Core +4, App +15 (`ImageSequenceDetectionTests` +8, `MediaBadgesSequenceTests` +3, plus the existing
+      suite), Persistence +4; full suite **1196 green**, clean Release build (0 warnings), smoke `--version` + `--probe`
+      a still exit 0). Delivered:
+      - **Model (Core, §4):** `MediaKind` (`File` / `ImageSequence` / `Still`) + `MediaRef.{SequencePattern,
+        SequenceStartNumber,SequenceFrameCount}` and a `HasUnboundedDuration` (stills). `Info.Duration = count/fps`
+        via exact `Timecode.FromFrames`; Core stays pure data (pattern strings only, no IO).
+      - **Media (§11) + binding:** bound `av_find_input_format` + a `ref`-options `avformat_open_input` overload
+        (`FUTURE_BINDINGS.md` item consumed); one `FormatContextHandle.OpenInput(path, format, options)` choke point;
+        `MediaOpenRequest.FromMediaRef` maps a `MediaRef` → open request (image sequence → `image2` with
+        `framerate`/`start_number`/`pattern_type sequence`); `MediaSource.Open`/`ProbeInfo` grew request overloads
+        (string overloads unchanged). Stills decode **once** via `StillFrameSource` (held master frame, pooled
+        copies) — no managed pixels (§1).
+      - **Feed sweep:** every `MediaSource.Open` call site now routes through the request mapper keyed off
+        `MediaRef.Kind` — preview feed factory (`MediaBootstrap`, stills → `StillFrameFeed`), `VideoExporter`
+        (`ExportFrameProvider` pins a still to one held frame so preview == export), and `ThumbnailService` (poster
+        opens sequences via `image2`, never seeks past a still's one frame).
+      - **Import & UI:** picker **Images** filter (`png/jpg/jpeg/tif/tiff/bmp/tga/webp/dpx`; EXR excluded); pure
+        headless `ImageSequenceDetection` (contiguous run → pattern/start/count, refusing gaps + mixed padding, last
+        digit-run = frame number); a Premiere-style **Import as image sequence** dialog with an fps combo
+        (12/15/24 + project rate, default = project rate); stills import at the **Still image default duration**
+        preference (5 s, unbounded headroom like a generator); media-bin badges (`SEQ · N frames @ fps` / `STILL`).
+      - **Interpret Footage (§10 command):** `ReinterpretFootageCommand.ForMedia` rewrites the media rate/duration
+        and rescales every referencing clip's `SourceIn/Out` by `oldFps/newFps` (same frames stay selected), one
+        undo entry; entry points on the media-bin tile context menu **and** Clip ▸ Interpret Footage. Works on any
+        video media (also the whole-clip "shoot on twos" lever for step 43).
+      - **Persistence (§12):** additive nullable `MediaRefDto` fields (`kind`/`sequencePattern`/`sequenceStartNumber`/
+        `sequenceFrameCount`, `WhenWritingNull`) — ordinary files serialize byte-identically, no schema bump; batch
+        relink + sidecar rebase a moved sequence's pattern directory onto the relinked first frame. The proxy service
+        skips sequences/stills (`ProxyService`).
+      - **Still outstanding:** none for this tier — frame-hold / stop-motion frame edits are the separate step 43
+        (which builds on this step's `StillFrameSource` and `ReinterpretFootageCommand`).
 
 43. **Frame-level retime tools: frame hold + stop-motion frame edits (tier 2).** Freeze-frame and
     per-frame timing surgery ("on twos", duplicate/remove a frame) on the existing clip/command/render

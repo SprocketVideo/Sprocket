@@ -23,6 +23,7 @@ internal sealed class ExportFrameProvider : IDisposable
 
     private readonly MediaSource _source;
     private readonly VideoFramePool _pool;
+    private readonly bool _isStill;   // a single-frame still: hold the one frame for every requested time (step 42)
 
     private VideoFrame? _current;   // the frame currently "on screen" for the last request
     private VideoFrame? _pending;   // decoded look-ahead whose PTS is past the last request
@@ -30,9 +31,14 @@ internal sealed class ExportFrameProvider : IDisposable
     private bool _eof;
     private bool _disposed;
 
-    public ExportFrameProvider(MediaSource source)
+    /// <param name="source">The full-resolution source to decode. The provider owns and disposes it.</param>
+    /// <param name="isStill">Whether the source is a single still image (PLAN.md step 42): its one frame is held
+    /// and returned for every requested source time, so a still clip renders identically across its whole span
+    /// instead of seeking past its only frame and going black.</param>
+    public ExportFrameProvider(MediaSource source, bool isStill = false)
     {
         _source = source;
+        _isStill = isStill;
         _pool = new VideoFramePool(source.Info.Width, source.Info.Height);
     }
 
@@ -50,6 +56,11 @@ internal sealed class ExportFrameProvider : IDisposable
     public VideoFrame? GetFrame(Timecode sourceTime)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+
+        // A still has one frame at (about) time zero; every timeline time inside the clip maps to it, so pin the
+        // request to zero instead of seeking to the mapped source time (which would run off the single frame).
+        if (_isStill)
+            sourceTime = Timecode.Zero;
 
         if (!_started)
         {

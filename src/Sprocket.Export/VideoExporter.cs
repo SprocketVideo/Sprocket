@@ -567,8 +567,12 @@ public static class VideoExporter
         {
             try
             {
-                // Software decode for bit-deterministic, GPU-independent export output.
-                provider = new ExportFrameProvider(MediaSource.Open(media.AbsolutePath, HardwareAccelMode.Disabled));
+                // Software decode for bit-deterministic, GPU-independent export output. Export always pulls the
+                // full-resolution original — the request mapper routes an image sequence through the image2 demuxer,
+                // and a still is held as one frame across its span (PLAN.md step 42), so preview == export.
+                MediaOpenRequest request = MediaOpenRequest.FromMediaRef(media);
+                provider = new ExportFrameProvider(
+                    MediaSource.Open(request, HardwareAccelMode.Disabled), isStill: media.Kind == MediaKind.Still);
             }
             catch
             {

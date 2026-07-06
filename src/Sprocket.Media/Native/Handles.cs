@@ -35,6 +35,50 @@ internal sealed unsafe class FormatContextHandle : IDisposable
         }
     }
 
+    /// <summary>
+    /// Opens an input, forcing a specific demuxer by short name (<paramref name="inputFormatName"/>, e.g.
+    /// <c>"image2"</c>) and passing demuxer options (<paramref name="options"/>, e.g. <c>framerate</c> /
+    /// <c>start_number</c> / <c>pattern_type</c>) — the image-sequence path (PLAN.md step 42). Both are
+    /// optional; a null format falls back to extension probing and null/empty options behave like
+    /// <see cref="OpenInput(string)"/>. The options dictionary is always freed before returning.
+    /// </summary>
+    public static FormatContextHandle OpenInput(string path, string? inputFormatName,
+        IReadOnlyList<KeyValuePair<string, string>>? options)
+    {
+        IntPtr fmt = IntPtr.Zero;
+        if (!string.IsNullOrEmpty(inputFormatName))
+        {
+            fmt = LibAv.av_find_input_format(inputFormatName);
+            if (fmt == IntPtr.Zero)
+                throw new FFmpegException("av_find_input_format", 0, $"unknown input format '{inputFormatName}'");
+        }
+
+        IntPtr opts = IntPtr.Zero;
+        try
+        {
+            if (options is not null)
+                foreach (KeyValuePair<string, string> o in options)
+                    FFmpegError.Check(LibAv.av_dict_set(ref opts, o.Key, o.Value, 0), "av_dict_set");
+
+            FFmpegError.Check(LibAv.avformat_open_input_opts(out IntPtr p, path, fmt, ref opts), "avformat_open_input");
+            try
+            {
+                FFmpegError.Check(LibAv.avformat_find_stream_info(p, IntPtr.Zero), "avformat_find_stream_info");
+                return new FormatContextHandle(p, output: false);
+            }
+            catch
+            {
+                LibAv.avformat_close_input(ref p);
+                throw;
+            }
+        }
+        finally
+        {
+            if (opts != IntPtr.Zero)
+                LibAv.av_dict_free(ref opts);
+        }
+    }
+
     /// <summary>Allocates an output (muxer) context. <paramref name="formatName"/> pins the container
     /// explicitly (e.g. <c>"mov"</c>, <c>"matroska"</c>, <c>"webm"</c>); when null the muxer is guessed from
     /// the file extension (the original behaviour).</summary>

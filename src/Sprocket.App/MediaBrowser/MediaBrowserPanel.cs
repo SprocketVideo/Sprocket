@@ -74,6 +74,10 @@ public sealed class MediaBrowserPanel : UserControl
     /// selected clip. Dragging a transition onto a cut is handled by the timeline directly.</summary>
     public event Action<string>? TransitionActivated;
 
+    /// <summary>Raised when the media-bin tile's "Interpret Footage…" is chosen (PLAN.md step 42); the shell opens
+    /// the frame-rate dialog and runs the reinterpret command for the source.</summary>
+    public event Action<MediaRef>? InterpretFootageRequested;
+
     private enum Tab { Media, Effects, Transitions, Audio }
 
     public MediaBrowserPanel()
@@ -302,7 +306,7 @@ public sealed class MediaBrowserPanel : UserControl
         };
 
         var badges = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        foreach (string badge in MediaBadges.Describe(media.Info, media.AbsolutePath))
+        foreach (string badge in MediaBadges.Describe(media))
             badges.Children.Add(Badge(badge));
 
         var stack = new StackPanel { Width = TileWidth - 12 };
@@ -322,6 +326,15 @@ public sealed class MediaBrowserPanel : UserControl
         ToolTip.SetTip(tile, "Drag onto a timeline track to place a clip.");
         // Drag the source onto the timeline to place a clip (PLAN.md step 16b).
         EnableDrag(tile, DragFormats.MediaRefId, () => media.Id.Value.ToString());
+
+        // Interpret Footage — reassign the source's frame rate (PLAN.md step 42). Offered for any video-bearing
+        // source (it re-times image sequences and is the whole-clip "shoot on twos" lever); audio-only has no rate.
+        if (media.Info.HasVideo)
+        {
+            var interpret = new MenuItem { Header = "Interpret Footage…" };
+            interpret.Click += (_, _) => InterpretFootageRequested?.Invoke(media);
+            tile.ContextMenu = new ContextMenu { ItemsSource = new[] { interpret } };
+        }
         return tile;
     }
 

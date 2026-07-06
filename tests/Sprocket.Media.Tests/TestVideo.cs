@@ -21,6 +21,15 @@ internal static class TestVideo
     private static readonly Lazy<string> LazyAlphaPath = new(GenerateAlpha);
     private static readonly Lazy<string> LazyAudioOnlyPath = new(GenerateAudioOnly);
     private static readonly Lazy<string> LazyDLogMPath = new(GenerateDLogM);
+    private static readonly Lazy<string> LazySequenceDir = new(GenerateSequence);
+    private static readonly Lazy<string> LazyStillPath = new(GenerateStill);
+
+    /// <summary>Frames in the numbered-PNG image-sequence fixture (PLAN.md step 42).</summary>
+    public const int SequenceFrameCount = 12;
+
+    /// <summary>Pixel size of the image-sequence / still fixtures.</summary>
+    public const int ImageWidth = 64;
+    public const int ImageHeight = 48;
 
     /// <summary>Absolute path to the fixture clip, generating it on first use.</summary>
     public static string Path => LazyPath.Value;
@@ -42,6 +51,17 @@ internal static class TestVideo
     /// color metadata on the stream plus a container comment naming <c>D-Log M</c>, generating it on first
     /// use. Exercises the color-metadata probe + log-profile detection.</summary>
     public static string DLogMPath => LazyDLogMPath.Value;
+
+    /// <summary>Directory holding a numbered PNG run (<c>frame_0001.png</c>…) for the image-sequence tests
+    /// (PLAN.md step 42), generating it on first use.</summary>
+    public static string SequenceDir => LazySequenceDir.Value;
+
+    /// <summary>The printf pattern the <c>image2</c> demuxer expands for <see cref="SequenceDir"/>.</summary>
+    public static string SequencePattern => System.IO.Path.Combine(SequenceDir, "frame_%04d.png");
+
+    /// <summary>Absolute path to a single still PNG with a 50%-alpha channel (PLAN.md step 42), generating it on
+    /// first use — exercises the still probe (alpha intact, one held frame).</summary>
+    public static string StillPath => LazyStillPath.Value;
 
     private static string Generate() => RunFfmpeg(
         "fixture.mp4",
@@ -72,6 +92,31 @@ internal static class TestVideo
         "-f lavfi -i testsrc2=size=64x64:rate=30:duration=1 " +
         "-vf \"format=rgba,colorchannelmixer=aa=0.5\" -c:v qtrle ");
 
+    private static string GenerateStill() => RunFfmpeg(
+        "fixture-still.png",
+        "-y " +
+        $"-f lavfi -i testsrc2=size={ImageWidth}x{ImageHeight}:rate=1:duration=1 " +
+        "-frames:v 1 -vf format=rgba ");
+
+    /// <summary>Emits a numbered PNG run (<c>frame_0001.png</c>…<c>frame_00NN.png</c>) into a dedicated <c>seq</c>
+    /// dir and returns that dir. testsrc2 varies per frame, so the frames differ.</summary>
+    private static string GenerateSequence()
+    {
+        string dir = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "seq");
+        Directory.CreateDirectory(dir);
+        string first = System.IO.Path.Combine(dir, "frame_0001.png");
+        if (File.Exists(first))
+            return dir;
+
+        double duration = (double)SequenceFrameCount / Fps;
+        RunFfmpegTo(
+            System.IO.Path.Combine(dir, "frame_%04d.png"),
+            "-y " +
+            $"-f lavfi -i testsrc2=size={ImageWidth}x{ImageHeight}:rate={Fps}:duration={duration.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+            $"-frames:v {SequenceFrameCount} -start_number 1 ");
+        return dir;
+    }
+
     /// <summary>Runs the <c>ffmpeg</c> CLI to produce <paramref name="fileName"/> in the test <c>fixtures</c> dir
     /// with the given <paramref name="args"/> (the output path is appended), cached across runs.</summary>
     private static string RunFfmpeg(string fileName, string args)
@@ -81,7 +126,14 @@ internal static class TestVideo
         string path = System.IO.Path.Combine(dir, fileName);
         if (File.Exists(path))
             return path;
+        RunFfmpegTo(path, args);
+        return path;
+    }
 
+    /// <summary>Runs the <c>ffmpeg</c> CLI with <paramref name="args"/> and the given output <paramref name="path"/>
+    /// appended (a plain file or a printf pattern for an image run).</summary>
+    private static void RunFfmpegTo(string path, string args)
+    {
         var psi = new ProcessStartInfo("ffmpeg", args + $"\"{path}\"")
         {
             UseShellExecute = false,
@@ -94,8 +146,7 @@ internal static class TestVideo
         string stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
 
-        if (!File.Exists(path))
+        if (process.ExitCode != 0)
             throw new InvalidOperationException($"ffmpeg failed to generate the fixture.\n{stderr}");
-        return path;
     }
 }

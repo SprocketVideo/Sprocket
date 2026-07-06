@@ -237,10 +237,20 @@ internal static class MediaBootstrap
     {
         if (media is not { Info.HasVideo: true })
             return null;
-        string path = proxy?.BestPath(media) ?? media.AbsolutePath;
         try
         {
-            return new RingVideoFrameFeed(new VideoDecodeRing(MediaSource.Open(path)));
+            // A still shows one frame across its whole (unbounded) span — decode it once and hold it, rather than
+            // re-seek/re-decode per scrub (PLAN.md step 42). Sequences and ordinary files decode through the ring;
+            // the request mapper routes an image sequence through the image2 demuxer, keyed off MediaRef.Kind.
+            if (media.Kind == MediaKind.Still)
+                return new StillFrameFeed(StillFrameSource.Decode(MediaOpenRequest.FromMediaRef(media)));
+
+            // Proxies only exist for ordinary files (the proxy service skips sequences/stills, PLAN.md step 42), so
+            // the best-path swap applies to File media only; sequences always open their pattern.
+            MediaOpenRequest request = media.Kind == MediaKind.ImageSequence
+                ? MediaOpenRequest.FromMediaRef(media)
+                : MediaOpenRequest.ForPath(proxy?.BestPath(media) ?? media.AbsolutePath);
+            return new RingVideoFrameFeed(new VideoDecodeRing(MediaSource.Open(request)));
         }
         catch
         {

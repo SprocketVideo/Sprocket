@@ -24,6 +24,9 @@ namespace Sprocket.App;
 /// Only Velopack-installed builds can also download/apply; a portable build never checks.</param>
 /// <param name="UpdateDismissedTag">The release version the user dismissed ("Skip This Version") — the
 /// badge stays hidden for exactly that version, so a result never nags across startups.</param>
+/// <param name="StillImageDefaultSeconds">Default on-timeline duration for a newly imported still image, in
+/// seconds (PLAN.md step 42; Premiere's default is 5 s). A still's media headroom is unbounded, so this is only
+/// the initial drop length.</param>
 public sealed record UserSettings(
     string ExportTitle = "",
     string ExportAuthor = "",
@@ -35,7 +38,8 @@ public sealed record UserSettings(
     bool McpRequireToken = false,
     string McpToken = "",
     bool UpdateCheckEnabled = true,
-    string UpdateDismissedTag = "");
+    string UpdateDismissedTag = "",
+    double StillImageDefaultSeconds = 5);
 
 /// <summary>
 /// The pure, headlessly-tested (de)serialization and validation logic for <see cref="UserSettings"/> —
@@ -52,6 +56,12 @@ public static class UserSettingsStore
 
     /// <inheritdoc cref="MinAutosaveSeconds"/>
     public const int MaxAutosaveSeconds = 600;
+
+    /// <summary>Still-image default-duration bounds in seconds (PLAN.md step 42).</summary>
+    public const double MinStillSeconds = 0.1;
+
+    /// <inheritdoc cref="MinStillSeconds"/>
+    public const double MaxStillSeconds = 3600;
 
     /// <summary>MCP port bounds (non-privileged TCP range).</summary>
     public const int MinPort = 1024;
@@ -94,6 +104,7 @@ public static class UserSettingsStore
         McpPort = Math.Clamp(settings.McpPort, MinPort, MaxPort),
         McpToken = settings.McpToken ?? "",
         UpdateDismissedTag = settings.UpdateDismissedTag ?? "",
+        StillImageDefaultSeconds = Math.Clamp(settings.StillImageDefaultSeconds, MinStillSeconds, MaxStillSeconds),
     };
 
     /// <summary>Generates a fresh MCP bearer token: 32 random bytes, base64url (no padding, URL/header safe).</summary>

@@ -42,6 +42,9 @@ frames never touch the managed heap per frame.
 - **Full editing toolset** — multi-track timeline (filmstrips, waveforms, snapping, zoom) with
   Select / Blade / Slip / Hand / Zoom tools, ripple & roll trims, linked A/V, markers,
   constant-speed retime, nested sequences, and multicam.
+- **Image sequences & stills** — import a folder of numbered frames as one clip at a chosen frame
+  rate (the stop-motion / time-lapse on-ramp) or a single still with a default duration, plus
+  Interpret Footage to reassign a source's frame rate.
 - **First-class undo/redo** — every model mutation (including AI edits) routes through an
   inverse-command stack, with gesture coalescing and an edit-history surface.
 - **GPU effects & keyframing** — brightness, color, and geometric transform as SkSL shaders that

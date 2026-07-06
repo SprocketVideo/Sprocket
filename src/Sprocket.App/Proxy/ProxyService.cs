@@ -119,7 +119,9 @@ public sealed class ProxyService : IDisposable
         {
             if (_entries.ContainsKey(media.Id))
                 continue;
-            if (!ProxyPolicy.NeedsProxy(media.Info, _tier))
+            // Proxies apply to ordinary files only; the first cut skips image sequences and stills (PLAN.md step 42) —
+            // a still is one held frame, and a sequence's still frames are already cheap to decode.
+            if (media.Kind != MediaKind.File || !ProxyPolicy.NeedsProxy(media.Info, _tier))
             {
                 _entries[media.Id] = new Entry(ProxyState.NotNeeded, null, default);
                 continue;

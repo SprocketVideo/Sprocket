@@ -48,6 +48,12 @@ internal static class PreferencesDialog
         autosave.Width = 80;
         autosave.HorizontalAlignment = HorizontalAlignment.Left;
 
+        // ── Import (PLAN.md step 42) ──────────────────────────────────────────────────────────────
+        TextBox stillDuration = MakeText(
+            current.StillImageDefaultSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        stillDuration.Width = 80;
+        stillDuration.HorizontalAlignment = HorizontalAlignment.Left;
+
         // ── Updates (PLAN.md steps 36 + 45) ─────────────────────────────────────────────────────
         var updatesEnabled = new CheckBox
         {
@@ -179,6 +185,9 @@ internal static class PreferencesDialog
                                 Section("Autosave"),
                                 Labeled($"Interval (seconds, {UserSettingsStore.MinAutosaveSeconds}–{UserSettingsStore.MaxAutosaveSeconds})", autosave),
 
+                                Section("Import"),
+                                Labeled("Still image default duration (seconds)", stillDuration),
+
                                 Section("Updates"),
                                 updatesEnabled,
                                 updatesNote,
@@ -239,6 +248,11 @@ internal static class PreferencesDialog
             ExportCopyright = copyright.Text ?? "",
             ExportComment = comment.Text ?? "",
             AutosaveIntervalSeconds = PreferencesFormat.ParseSeconds(autosave.Text) ?? current.AutosaveIntervalSeconds,
+            StillImageDefaultSeconds =
+                double.TryParse(stillDuration.Text, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double s)
+                    ? s
+                    : current.StillImageDefaultSeconds,
             McpEnabled = mcpEnabled.IsChecked == true,
             McpPort = PreferencesFormat.ParsePort(port.Text) ?? current.McpPort,
             McpRequireToken = requireToken.IsChecked == true,

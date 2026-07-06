@@ -75,12 +75,15 @@ only tracks whether a user guide covers it yet, not whether it exists.
 |---|---|---|---|
 | Import Media (`Ctrl+I`, file picker) | MainWindow.axaml.cs `ImportDialogAsync` | getting-started.md#open-something-to-work-with | ✅ |
 | Drag-and-drop files from OS to import | MainWindow.axaml.cs:795 | getting-started.md#open-something-to-work-with | ✅ |
-| Supported import formats (16 video + 11 audio extensions) | MainWindow.axaml.cs:137–148 | — | ❌ (needs a reference list) |
+| Supported import formats (16 video + 11 audio + 9 image extensions) | MainWindow.axaml.cs `VideoFileType`/`AudioFileType`/`ImageFileType` | — | ❌ (needs a reference list) |
 | Media bin: thumbnails, waveforms, format/duration badges | Sprocket.App/MediaBrowser/MediaBrowserPanel.cs | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
 | Media bin search/filter | MediaBrowser/MediaSearch.cs | — | ❌ |
 | Project panel tabs: Media / Effects / Transitions / Audio | MediaBrowserPanel.cs:77 | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (tabs named; Effects/Transitions/Audio tabs never shown in use) |
 | Drag media from bin onto timeline tracks | TimelineControl.cs `OnDrop` | getting-started.md#open-something-to-work-with | 🟡 (tip only) |
 | Alpha-channel media import & compositing | PLAN.md step 26; MediaBadges.cs | — | ❌ |
+| Image-sequence import (numbered stills → one clip, fps choice) | PLAN.md step 42; ImageSequenceDetection.cs, ImageSequenceImportDialog.cs, MediaImport.cs | — | ❌ |
+| Still-image import (single image, default duration preference) | PLAN.md step 42; MediaImport.cs, PreferencesDialog.cs | — | ❌ |
+| Interpret Footage (reassign frame rate; media-bin & Clip menu) | PLAN.md step 42; ReinterpretFootageCommand, InterpretFootageDialog.cs | — | ❌ |
 
 ## 4. Timeline editing
 

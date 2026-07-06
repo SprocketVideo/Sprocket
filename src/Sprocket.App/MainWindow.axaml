@@ -88,6 +88,9 @@
             <MenuItem x:Name="ClipUnlinkMenuItem" Header="_Unlink" IsEnabled="False" />
             <Separator />
             <MenuItem x:Name="ClipSpeedMenuItem" Header="_Speed / Duration…" IsEnabled="False" /> <!-- enabled when a clip is selected -->
+            <!-- Interpret Footage (PLAN.md step 42): reassign the selected clip's source frame rate. Enabled when the
+                 selected clip references video media (also on the media-bin tile context menu). -->
+            <MenuItem x:Name="ClipInterpretFootageMenuItem" Header="Interpret _Footage…" IsEnabled="False" />
 
             <Separator />
             <!-- Loudness-normalize the selected clip's audio to the mixer's target (PLAN.md step 30); enabled when

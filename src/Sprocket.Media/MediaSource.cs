@@ -94,15 +94,25 @@ public sealed unsafe class MediaSource : IDisposable
     /// opened or has no decodable video stream (the slice is video-led; audio is probed but decoded by
     /// <see cref="AudioSource"/>). <paramref name="hwAccel"/> selects GPU decode with software fallback.
     /// </summary>
-    public static MediaSource Open(string path, HardwareAccelMode hwAccel = HardwareAccelMode.Auto)
+    public static MediaSource Open(string path, HardwareAccelMode hwAccel = HardwareAccelMode.Auto) =>
+        Open(MediaOpenRequest.ForPath(path), hwAccel);
+
+    /// <summary>
+    /// Opens and probes <paramref name="request"/>, opening its video decoder. Same as
+    /// <see cref="Open(string, HardwareAccelMode)"/> but honouring an image-sequence <c>image2</c> open
+    /// (PLAN.md step 42) — the one entry point every decode call site routes through so a sequence decodes
+    /// exactly like an ordinary file downstream.
+    /// </summary>
+    public static MediaSource Open(MediaOpenRequest request, HardwareAccelMode hwAccel = HardwareAccelMode.Auto)
     {
+        string path = request.Path;
         ArgumentException.ThrowIfNullOrEmpty(path);
 
         // Ensure any FFmpeg natives bundled beside the executable are loaded + the version is FFmpeg 8 before
         // the first FFmpeg call (ARCHITECTURE.md §11); no-op on Windows / local dev once resolved.
         FFmpegLoader.EnsureBundledNativesLoaded();
 
-        FormatContextHandle format = FormatContextHandle.OpenInput(path);
+        FormatContextHandle format = FormatContextHandle.OpenInput(path, request.InputFormatName, request.Options);
         try
         {
             if (!format.TryFindBestStream(AvConst.MediaTypeVideo, out int videoIndex, out IntPtr videoStream, out IntPtr decoderCodec)
@@ -156,12 +166,21 @@ public sealed unsafe class MediaSource : IDisposable
     /// <see cref="ProbedMediaInfo"/> (<c>HasVideo = false</c>). Throws when the file has neither a decodable
     /// video nor audio stream. This is the import-time probe (PLAN.md step 16b).
     /// </summary>
-    public static ProbedMediaInfo ProbeInfo(string path)
+    public static ProbedMediaInfo ProbeInfo(string path) => ProbeInfo(MediaOpenRequest.ForPath(path));
+
+    /// <summary>
+    /// Probes <paramref name="request"/> for stream facts, honouring an image-sequence <c>image2</c> open
+    /// (PLAN.md step 42). Same contract as <see cref="ProbeInfo(string)"/>. For an image sequence the intrinsic
+    /// frame rate and total duration are the caller's chosen fps × frame count (the single source of truth); this
+    /// probe supplies the per-frame facts (dimensions, alpha, pixel format, codec).
+    /// </summary>
+    public static ProbedMediaInfo ProbeInfo(MediaOpenRequest request)
     {
+        string path = request.Path;
         ArgumentException.ThrowIfNullOrEmpty(path);
         FFmpegLoader.EnsureBundledNativesLoaded();
 
-        using (FormatContextHandle format = FormatContextHandle.OpenInput(path))
+        using (FormatContextHandle format = FormatContextHandle.OpenInput(path, request.InputFormatName, request.Options))
         {
             bool hasVideo = format.TryFindBestStream(AvConst.MediaTypeVideo, out _, out _, out IntPtr videoDecoder)
                 && videoDecoder != IntPtr.Zero;
@@ -169,7 +188,7 @@ public sealed unsafe class MediaSource : IDisposable
                 return ProbeAudioOnly(format, path);
         }
 
-        using MediaSource source = Open(path);
+        using MediaSource source = Open(request);
         return source.Info;
     }
 

@@ -58,7 +58,15 @@ internal sealed record MediaRefDto(
     Guid Id,
     ProbedInfoDto Info,
     string? AbsolutePath = null,
-    string? RelativePath = null);
+    string? RelativePath = null,
+    // Image-sequence / still source (PLAN.md step 42). Additive + nullable: an ordinary file writes none
+    // (WhenWritingNull), so pre-42 files load as File media and file-only projects serialize byte-identically.
+    // For an ImageSequence the pattern is stored beside the paths; a moved sequence relinks by rewriting the
+    // pattern's directory (the sidecar carries it too).
+    MediaKind? Kind = null,
+    string? SequencePattern = null,
+    int? SequenceStartNumber = null,
+    int? SequenceFrameCount = null);
 
 /// <summary>
 /// The per-user media-link sidecar (PLAN.md step 28, ARCHITECTURE.md §12): the mapping from a source's stable

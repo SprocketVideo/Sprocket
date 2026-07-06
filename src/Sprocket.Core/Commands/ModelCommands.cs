@@ -1397,3 +1397,98 @@ public sealed class SetTransitionWindowCommand : EditCommand
         return false;
     }
 }
+
+/// <summary>
+/// Reinterprets a source's frame rate (PLAN.md step 42, Premiere's "Interpret Footage ▸ Assume this frame
+/// rate"): rewrites the media's <see cref="ProbedMediaInfo.FrameRate"/> and <see cref="ProbedMediaInfo.Duration"/>
+/// and rescales every referencing clip's <see cref="Clip.SourceIn"/>/<see cref="Clip.SourceOut"/> by
+/// <c>oldFps / newFps</c> (exact <see cref="Timecode.Scale"/> math), so the same <em>frames</em> stay selected
+/// and each clip's timeline duration stretches/squeezes accordingly. Works on any video media — for an image
+/// sequence it is the frame-rate re-time; it is also the whole-clip "shoot on twos" lever (step 43). One undo
+/// entry restores the media info and every clip's source span byte-exactly.
+/// </summary>
+public sealed class ReinterpretFootageCommand : EditCommand
+{
+    private readonly MediaRef _media;
+    private readonly ProbedMediaInfo _oldInfo;
+    private readonly ProbedMediaInfo _newInfo;
+    private readonly (Clip Clip, Timecode OldIn, Timecode OldOut, Timecode NewIn, Timecode NewOut)[] _clips;
+
+    private ReinterpretFootageCommand(
+        MediaRef media, ProbedMediaInfo oldInfo, ProbedMediaInfo newInfo,
+        (Clip, Timecode, Timecode, Timecode, Timecode)[] clips)
+        : base("Interpret footage")
+    {
+        _media = media;
+        _oldInfo = oldInfo;
+        _newInfo = newInfo;
+        _clips = clips;
+    }
+
+    /// <summary>
+    /// Builds the reinterpret command for <paramref name="media"/> at <paramref name="newFrameRate"/>, gathering
+    /// every clip across the project's sequences that references the source. Throws for a non-positive rate or a
+    /// source with no probed frame rate (nothing to rescale from).
+    /// </summary>
+    public static ReinterpretFootageCommand ForMedia(Project project, MediaRef media, Rational newFrameRate)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(media);
+        if (newFrameRate.Num <= 0)
+            throw new ArgumentOutOfRangeException(nameof(newFrameRate), "Frame rate must be strictly positive.");
+        Rational oldFps = media.Info.FrameRate;
+        if (oldFps.Num <= 0)
+            throw new InvalidOperationException("The source has no frame rate to reinterpret.");
+
+        // Same frames stay selected: a source time t maps to frame t·oldFps; holding that frame index constant
+        // across the rate change means the new source time is t·(oldFps/newFps). Reduced exactly by Rational.
+        var ratio = new Rational(oldFps.Num * newFrameRate.Den, oldFps.Den * newFrameRate.Num);
+
+        ProbedMediaInfo newInfo = media.Info with
+        {
+            FrameRate = newFrameRate,
+            Duration = media.Info.Duration.Scale(ratio),
+        };
+
+        var clips = new List<(Clip, Timecode, Timecode, Timecode, Timecode)>();
+        foreach (Sequence seq in project.Sequences)
+            foreach (Track track in seq.Timeline.Tracks)
+                foreach (Clip clip in track.Clips)
+                    if (clip.Kind == ClipKind.Media && clip.MediaRefId == media.Id)
+                        clips.Add((clip, clip.SourceIn, clip.SourceOut,
+                            clip.SourceIn.Scale(ratio), clip.SourceOut.Scale(ratio)));
+
+        return new ReinterpretFootageCommand(media, media.Info, newInfo, [.. clips]);
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _media.Info = _newInfo;
+        foreach ((Clip clip, _, _, Timecode newIn, Timecode newOut) in _clips)
+            SetSpan(clip, newIn, newOut);
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        _media.Info = _oldInfo;
+        foreach ((Clip clip, Timecode oldIn, Timecode oldOut, _, _) in _clips)
+            SetSpan(clip, oldIn, oldOut);
+    }
+
+    // Assigns a clip's source span in an order that never trips the SourceOut >= SourceIn invariant mid-update.
+    private static void SetSpan(Clip clip, Timecode inPoint, Timecode outPoint)
+    {
+        if (outPoint >= clip.SourceIn)
+        {
+            clip.SourceOut = outPoint;
+            clip.SourceIn = inPoint;
+        }
+        else
+        {
+            clip.SourceIn = inPoint;
+            clip.SourceOut = outPoint;
+        }
+    }
+}

@@ -25,6 +25,15 @@ internal static unsafe partial class LibAv
     // ---- libavformat ----
     [LibraryImport(Avformat, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int avformat_open_input(out IntPtr ps, string url, IntPtr fmt, IntPtr options);
+    // Same native symbol, but with a `ref` demuxer-options dict (AVDictionary**) so FFmpeg can consume the
+    // options we set (image2 framerate/start_number/pattern_type, PLAN.md step 42) and hand back any it didn't
+    // apply for us to free. The plain overload above passes IntPtr.Zero for options; this one threads a dict.
+    [LibraryImport(Avformat, EntryPoint = "avformat_open_input", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int avformat_open_input_opts(out IntPtr ps, string url, IntPtr fmt, ref IntPtr options);
+    // Finds a demuxer by its short name (e.g. "image2") so an image-sequence open forces the right demuxer
+    // instead of relying on extension probing (PLAN.md step 42). Returns null (IntPtr.Zero) if unknown.
+    [LibraryImport(Avformat, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr av_find_input_format(string shortName);
     [LibraryImport(Avformat)] internal static partial int avformat_find_stream_info(IntPtr ic, IntPtr options);
     [LibraryImport(Avformat)] internal static partial void avformat_close_input(ref IntPtr s);
     [LibraryImport(Avformat)] internal static partial int av_read_frame(IntPtr s, IntPtr pkt);

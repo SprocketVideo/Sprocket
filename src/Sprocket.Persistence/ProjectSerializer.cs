@@ -165,8 +165,18 @@ public static class ProjectSerializer
     private static MediaRefDto ToDto(MediaRef media, string? projectDir, bool inlineMediaPaths)
     {
         ProbedInfoDto info = ToDto(media.Info);
+
+        // Step-42 source-kind fields — content facts, so written in both the split (collab) and inline forms.
+        // File media writes none (WhenWritingNull), so file-only projects serialize byte-identically to pre-42.
+        MediaKind? kind = media.Kind == MediaKind.File ? null : media.Kind;
+        bool seq = media.Kind == MediaKind.ImageSequence;
+        string? pattern = seq ? media.SequencePattern : null;
+        int? start = seq ? media.SequenceStartNumber : null;
+        int? count = seq ? media.SequenceFrameCount : null;
+
         if (!inlineMediaPaths || string.IsNullOrEmpty(media.AbsolutePath))
-            return new MediaRefDto(media.Id.Value, info);
+            return new MediaRefDto(media.Id.Value, info,
+                Kind: kind, SequencePattern: pattern, SequenceStartNumber: start, SequenceFrameCount: count);
 
         string? relative = null;
         if (projectDir is not null)
@@ -177,7 +187,7 @@ public static class ProjectSerializer
             if (rel != media.AbsolutePath && !Path.IsPathRooted(rel))
                 relative = rel;
         }
-        return new MediaRefDto(media.Id.Value, info, media.AbsolutePath, relative);
+        return new MediaRefDto(media.Id.Value, info, media.AbsolutePath, relative, kind, pattern, start, count);
     }
 
     private static ProbedInfoDto ToDto(ProbedMediaInfo i) => new(
@@ -372,7 +382,28 @@ public static class ProjectSerializer
     {
         var id = new MediaRefId(m.Id);
         string path = ResolvePath(id, m, projectDir, links);
-        return new MediaRef(id, path, FromDto(m.Info));
+        var media = new MediaRef(id, path, FromDto(m.Info)) { Kind = m.Kind ?? MediaKind.File };
+        if (media.Kind == MediaKind.ImageSequence)
+        {
+            media.SequenceStartNumber = m.SequenceStartNumber ?? 0;
+            media.SequenceFrameCount = m.SequenceFrameCount ?? 0;
+            // Rebase the stored pattern's directory onto the resolved first-file path, so a relinked / moved folder
+            // (sidecar entry or batch relink) carries the pattern with it (PLAN.md step 42). Falls back to the
+            // stored pattern when the source is offline (no resolved path).
+            media.SequencePattern = RebaseSequencePattern(m.SequencePattern, path);
+        }
+        return media;
+    }
+
+    /// <summary>Rewrites <paramref name="pattern"/>'s directory to that of <paramref name="firstFilePath"/> (the
+    /// resolved first frame), keeping the pattern's file-name part. Returns the stored pattern unchanged when the
+    /// source is offline or has no directory.</summary>
+    private static string? RebaseSequencePattern(string? pattern, string firstFilePath)
+    {
+        if (string.IsNullOrEmpty(pattern) || string.IsNullOrEmpty(firstFilePath))
+            return pattern;
+        string? dir = Path.GetDirectoryName(firstFilePath);
+        return string.IsNullOrEmpty(dir) ? pattern : Path.Combine(dir, Path.GetFileName(pattern));
     }
 
     /// <summary>

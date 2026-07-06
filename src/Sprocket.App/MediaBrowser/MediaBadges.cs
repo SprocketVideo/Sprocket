@@ -34,6 +34,35 @@ public static class MediaBadges
         return badges;
     }
 
+    /// <summary>
+    /// Builds the badges for a media reference, adding an image-sequence / still tag (PLAN.md step 42) before the
+    /// duration: a sequence shows <c>SEQ · 240 frames @ 12</c> and a still shows <c>STILL</c>. Ordinary files fall
+    /// through to <see cref="Describe(ProbedMediaInfo, string)"/> unchanged.
+    /// </summary>
+    public static IReadOnlyList<string> Describe(MediaRef media)
+    {
+        ArgumentNullException.ThrowIfNull(media);
+        IReadOnlyList<string> baseBadges = Describe(media.Info, media.AbsolutePath);
+        return media.Kind switch
+        {
+            MediaKind.ImageSequence => [SequenceTag(media), .. baseBadges],
+            MediaKind.Still => ["STILL", .. baseBadges],
+            _ => baseBadges,
+        };
+    }
+
+    /// <summary>The image-sequence tag, e.g. <c>SEQ · 240 frames @ 12</c> (frame rate shown as fps).</summary>
+    public static string SequenceTag(MediaRef media)
+    {
+        ArgumentNullException.ThrowIfNull(media);
+        int count = media.SequenceFrameCount;
+        Sprocket.Core.Timing.Rational fps = media.Info.FrameRate;
+        string rate = fps.Den == 1
+            ? fps.Num.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : ((double)fps.Num / fps.Den).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        return $"SEQ · {count} frames @ {rate}";
+    }
+
     /// <summary>A coarse, human-friendly resolution label: <c>4K</c>, <c>1080p</c>, <c>720p</c>, else <c>W×H</c>.</summary>
     public static string ResolutionTier(int width, int height)
     {

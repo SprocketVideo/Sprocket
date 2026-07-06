@@ -122,6 +122,7 @@ public partial class MainWindow : Window
     private MenuItem? _unlinkMenuItem, _nudgeLeftMenuItem, _nudgeRightMenuItem, _clipSpeedMenuItem;
     private MenuItem? _createMulticamMenuItem; // Clip ▸ Create Multicam Source (PLAN.md step 24)
     private MenuItem? _clipNormalizeMenuItem;  // Clip ▸ Normalize Audio (PLAN.md step 30)
+    private MenuItem? _clipInterpretFootageMenuItem;  // Clip ▸ Interpret Footage (PLAN.md step 42)
     private MenuItem? _nestMenuItem, _openSequenceMenuItem; // Sequence menu (PLAN.md step 23)
     private MenuItem? _snappingMenuItem, _guidesMenuItem, _showProjectMenuItem, _showInspectorMenuItem, _showStatsMenuItem;
     private PlaybackStatsOverlay? _statsOverlay; // floating playback-diagnostics window (View ▸ Playback Statistics)
@@ -149,6 +150,13 @@ public partial class MainWindow : Window
     private static readonly FilePickerFileType AudioFileType = new("Audio")
     {
         Patterns = ["*.wav", "*.mp3", "*.aac", "*.m4a", "*.flac", "*.ac3", "*.opus", "*.ogg", "*.wma", "*.aif", "*.aiff"],
+    };
+
+    /// <summary>Image import filter (PLAN.md step 42): single stills and numbered image-sequence frames. EXR is
+    /// intentionally excluded (unreliable decoder coverage in the bundled gpl natives).</summary>
+    private static readonly FilePickerFileType ImageFileType = new("Images")
+    {
+        Patterns = ["*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff", "*.bmp", "*.tga", "*.webp", "*.dpx"],
     };
 
     /// <summary>Raised when File ▸ New / Open wants the composition root to swap to a freshly built session over
@@ -408,6 +416,8 @@ public partial class MainWindow : Window
         _createMulticamMenuItem.Click += (_, _) => CreateMulticamSource();
         _clipNormalizeMenuItem = this.FindControl<MenuItem>("ClipNormalizeMenuItem")!;
         _clipNormalizeMenuItem.Click += (_, _) => NormalizeSelectedClip();
+        _clipInterpretFootageMenuItem = this.FindControl<MenuItem>("ClipInterpretFootageMenuItem")!;
+        _clipInterpretFootageMenuItem.Click += (_, _) => InterpretSelectedClipFootage();
         this.FindControl<MenuItem>("ClipMenu")!.SubmenuOpened += (_, _) => RefreshClipMenu();
 
         // ── Clip ▸ Insert (generators + adjustment layer, PLAN.md step 19) ──
@@ -907,9 +917,10 @@ public partial class MainWindow : Window
         var itemsText = this.FindControl<TextBlock>("ProjectItemsText")!;
         browser.ItemCountChanged += n => itemsText.Text = n == 1 ? "1 item" : $"{n} items";
         browser.Status += SetStatus;
-        browser.FilesDropped += paths => Import(paths); // OS file-drop onto the bin (PLAN.md step 16b)
+        browser.FilesDropped += paths => _ = ImportAsync(paths); // OS file-drop onto the bin (PLAN.md step 16b)
         // Double-clicking a transition in the browser applies it to the selected clip's cut (PLAN.md step 25).
         browser.TransitionActivated += id => _timeline?.ApplyTransitionToSelectedCut(id);
+        browser.InterpretFootageRequested += media => _ = InterpretFootageAsync(media); // PLAN.md step 42
         browser.Attach(_project, _history, _thumbnails);
 
         WireMixer(browser);
@@ -1552,12 +1563,29 @@ public partial class MainWindow : Window
         if (_clipSpeedMenuItem is not null) _clipSpeedMenuItem.IsEnabled = sel;
         if (_createMulticamMenuItem is not null) _createMulticamMenuItem.IsEnabled = _timeline?.CanCreateMulticam == true;
         if (_clipNormalizeMenuItem is not null) _clipNormalizeMenuItem.IsEnabled = SelectedClipHasAudio();
+        if (_clipInterpretFootageMenuItem is not null) _clipInterpretFootageMenuItem.IsEnabled = SelectedClipVideoMedia() is not null;
     }
 
     /// <summary>Whether the timeline selection is a clip whose source carries audio (so Clip ▸ Normalize Audio can act).</summary>
     private bool SelectedClipHasAudio() =>
         _project is not null && _selectedClip is { } clip && clip.Kind == ClipKind.Media
         && _project.MediaPool.Get(clip.MediaRefId) is { Info.HasAudio: true };
+
+    /// <summary>The video-bearing source of the selected media clip, or <see langword="null"/> — so Clip ▸ Interpret
+    /// Footage enables and acts only when the selection references reinterpretable video (PLAN.md step 42).</summary>
+    private MediaRef? SelectedClipVideoMedia() =>
+        _project is not null && _selectedClip is { Kind: ClipKind.Media } clip
+        && _project.MediaPool.Get(clip.MediaRefId) is { Info.HasVideo: true } media
+            ? media
+            : null;
+
+    /// <summary>Clip ▸ Interpret Footage (PLAN.md step 42): reinterpret the selected clip's source frame rate,
+    /// the same command the media-bin tile menu runs.</summary>
+    private void InterpretSelectedClipFootage()
+    {
+        if (SelectedClipVideoMedia() is { } media)
+            _ = InterpretFootageAsync(media);
+    }
 
     /// <summary>
     /// Clip ▸ Normalize Audio (PLAN.md step 30): measures the selected clip's raw loudness over its used source span
@@ -2167,10 +2195,11 @@ public partial class MainWindow : Window
             [
                 new FilePickerFileType("Media files")
                 {
-                    Patterns = [.. VideoFileType.Patterns!, .. AudioFileType.Patterns!],
+                    Patterns = [.. VideoFileType.Patterns!, .. AudioFileType.Patterns!, .. ImageFileType.Patterns!],
                 },
                 VideoFileType,
                 AudioFileType,
+                ImageFileType,
                 FilePickerFileTypes.All,
             ],
         });
@@ -2180,20 +2209,50 @@ public partial class MainWindow : Window
             if (file.TryGetLocalPath() is { } path)
                 paths.Add(path);
         if (paths.Count > 0)
-            Import(paths);
+            await ImportAsync(paths);
     }
 
-    /// <summary>Imports the given paths into the project and refreshes the media bin (PLAN.md step 16b).</summary>
-    private void Import(IReadOnlyList<string> paths)
+    /// <summary>
+    /// Imports the given paths into the project and refreshes the media bin (PLAN.md step 16b / step 42). An
+    /// image file with a detected contiguous numbered run prompts to import it as one image sequence (with a
+    /// frame-rate choice) or as a single still; other images import as stills at the preference default duration;
+    /// everything else imports as an ordinary file. Runs of one detected sequence are prompted once per batch.
+    /// </summary>
+    private async Task ImportAsync(IReadOnlyList<string> paths)
     {
         if (_project is null)
             return;
+
+        Timecode stillDuration = Timecode.FromSeconds(_userSettings.StillImageDefaultSeconds);
+        var handledSequencePatterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         int added = 0;
         var failures = new List<(string Name, string Reason)>();
         foreach (string path in paths)
         {
-            MediaImport.Result result = MediaImport.TryImport(_project, _history, path);
+            MediaImport.Result result;
+            ImageSequenceInfo? seq = ImageSequenceDetection.IsImagePath(path) ? ImageSequenceDetection.Detect(path) : null;
+            if (seq is { } run)
+            {
+                // Skip siblings of a run already dealt with (imported or declined) in this batch — prompt only once.
+                if (handledSequencePatterns.Contains(run.Pattern))
+                    continue;
+                handledSequencePatterns.Add(run.Pattern);
+
+                (int w, int h) = TryProbeDimensions(path);
+                SequenceImportChoice? choice =
+                    await ImageSequenceImportDialog.Show(this, run, w, h, _project.Timeline.FrameRate);
+                if (choice is not { } c)
+                    continue; // cancelled — leave the whole run unimported
+                result = c.AsSequence
+                    ? MediaImport.TryImportSequence(_project, _history, run, c.FrameRate)
+                    : MediaImport.TryImport(_project, _history, path, stillDuration);
+            }
+            else
+            {
+                result = MediaImport.TryImport(_project, _history, path, stillDuration);
+            }
+
             if (result.Succeeded)
                 added++;
             else
@@ -2213,6 +2272,38 @@ public partial class MainWindow : Window
             string detail = $"{failures[0].Name}: {failures[0].Reason}"
                 + (failures.Count > 1 ? $" (+{failures.Count - 1} more)" : "");
             SetStatus($"Imported {added}, {failures.Count} failed — {detail}");
+        }
+    }
+
+    /// <summary>Interpret Footage (PLAN.md step 42): pick a new frame rate for a source and reinterpret it — the
+    /// media's rate/duration and every referencing clip's source span rescale so the same frames stay selected.
+    /// One undo entry. Refreshes the bin (badges/duration) and repaints the timeline (clip durations changed).</summary>
+    private async Task InterpretFootageAsync(MediaRef media)
+    {
+        if (_project is null)
+            return;
+        Rational? chosen = await InterpretFootageDialog.Show(this, Path.GetFileName(media.AbsolutePath), media.Info.FrameRate);
+        if (chosen is not { } newFps || newFps == media.Info.FrameRate)
+            return;
+
+        _history.Execute(ReinterpretFootageCommand.ForMedia(_project, media, newFps));
+        _mediaBrowser?.Refresh();
+        _timeline?.InvalidateVisual();
+        SetStatus($"Interpreted {Path.GetFileName(media.AbsolutePath)} at {newFps.Num}/{newFps.Den} fps.");
+    }
+
+    /// <summary>Best-effort probe of a single image's pixel dimensions for the sequence-import dialog (PLAN.md
+    /// step 42). Returns <c>(0, 0)</c> if the file can't be probed — the dialog then simply omits the size.</summary>
+    private static (int Width, int Height) TryProbeDimensions(string path)
+    {
+        try
+        {
+            ProbedMediaInfo info = Sprocket.Media.MediaSource.ProbeInfo(path);
+            return (info.Width, info.Height);
+        }
+        catch
+        {
+            return (0, 0);
         }
     }
 

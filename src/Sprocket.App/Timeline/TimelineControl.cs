@@ -2259,9 +2259,18 @@ public sealed class TimelineControl : Control
         return null;
     }
 
+    /// <summary>An effectively-infinite source length for media with unbounded headroom (a still, PLAN.md step 42)
+    /// — the same sentinel <see cref="UpdateSlide"/> uses for a missing neighbour, so trim/slip/ripple/slide let a
+    /// still extend freely like a generator.</summary>
+    private const long UnboundedMediaTicks = long.MaxValue / 4;
+
     private long MediaDurationTicks(Clip clip)
     {
         MediaRef? media = _project?.MediaPool.Get(clip.MediaRefId);
+        // A still has one frame but unbounded on-timeline headroom — never cap its trim at the probed (default-drop)
+        // duration (PLAN.md step 42).
+        if (media is { HasUnboundedDuration: true })
+            return UnboundedMediaTicks;
         // When the source duration is unknown (offline media), fall back to the current out-point so slip is
         // a no-op rather than running off an unknown end.
         return media is { Info.Duration.Ticks: > 0 } ? media.Info.Duration.Ticks : clip.SourceOut.Ticks;
