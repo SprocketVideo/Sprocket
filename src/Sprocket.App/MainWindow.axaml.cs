@@ -960,6 +960,17 @@ public partial class MainWindow : Window
             readLoudness,
             measureTrack: track => MeasureTrackLoudness(track),
             measureMaster: () => MeasureMasterLoudness());
+        // Clicking an insert row opens the chain in the Inspector (PLAN.md step 31) — the mixer's rows are
+        // the add/enable/reorder surface; parameters/keyframes edit in the Inspector like clip effects.
+        _mixer.InspectChainRequested += target =>
+        {
+            _inspector?.SetSelectedChain(target);
+            if (_showInspectorMenuItem is { } item && item.IsChecked != true)
+            {
+                item.IsChecked = true;
+                SetPanelVisible(project: false, true);
+            }
+        };
         browser.SetMixer(_mixer);
     }
 

@@ -25,4 +25,10 @@ public static class EffectRelevance
         bool audio = IsOnAudioTrack(timeline, clip);
         return EffectCatalog.All.Where(d => (d.Category == EffectCategory.Audio) == audio);
     }
+
+    /// <summary>The catalog effects a mixer insert chain offers (track / bus / master, PLAN.md step 31) —
+    /// those chains carry audio DSP by construction, so this is the Audio half of the catalog with no clip
+    /// involved. Plugin-contributed audio effects (step 33) appear here the same as built-ins.</summary>
+    public static IEnumerable<EffectDescriptor> ForAudioChain() =>
+        EffectCatalog.All.Where(d => d.Category == EffectCategory.Audio);
 }

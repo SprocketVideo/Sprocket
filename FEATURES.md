@@ -165,6 +165,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Track mute / solo | TimelineControl.cs headers | getting-started.md#8-adjust-the-audio | ✅ |
 | Audio fades (Fade effect; fade handles on clips) | EffectCatalog.cs; TimelineControl fade handles | getting-started.md#8-adjust-the-audio | 🟡 (effect covered; on-clip handles not) |
 | Mixer (Audio tab): per-track gain/pan/mute/solo, master strip | Sprocket.App/Mixer/MixerView.cs | — | ❌ |
+| Mixer insert chains: track / Sequence Bus / Master inserts (add, enable LED, remove, Move Up/Down; click an insert to edit its parameters/keyframes in the Inspector) | MixerView.cs `BuildInsertsBlock`; Mixer/AudioChainTarget.cs; InspectorPanel.cs `SetSelectedChain`; PLAN.md step 31 follow-on | — | ❌ |
 | Loudness meters (LUFS + true peak, EBU R128) | Sprocket.Audio/Loudness/*.cs | — | ❌ |
 | Loudness normalization (clip / track / master to LUFS target) | MixerView.cs; `NormalizeSelectedClip` | — | ❌ |
 | Audio effects: Gain/Pan, Parametric EQ, Compressor, Reverb (Lite) | Sprocket.Audio/Effects/*.cs; EffectCatalog.cs | — | ❌ |

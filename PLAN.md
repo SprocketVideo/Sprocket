@@ -2108,9 +2108,27 @@ Tags reference the [UI.md §4 checklist](UI.md).
         per-format C-ABI bridge shims (`sprocket_vst3host` / `sprocket_auhost`), plugin scan/instantiate off
         the audio thread, plugin editor GUI embedding, **plugin delay compensation**, the opaque state-blob
         persistence + offline-plugin bypass, per-RID bridge bundling (steps 35–36), and the VST3 SDK licensing
-        decision. A dedicated track/bus/master chain **UI** (mixer-panel inserts) is also future work — today
-        those scopes are model + command + persistence complete and clip-scope editing is live in the
-        Inspector/browser.
+        decision.
+      - **✅ FOLLOW-ON DONE (2026-07-06 — track/bus/master chain UI, the "mixer-panel inserts" item formerly
+        on the outstanding list above; `Sprocket.App/Mixer/{AudioChainTarget,MixerView}` +
+        `Inspector/InspectorPanel` + `EffectRelevance.ForAudioChain` + MainWindow wiring; 15 new tests —
+        App `AudioChainTargetTests` +14, `EffectRelevanceTests` +1; full suite 1340 green, 0 warnings, smoke
+        launch OK.)** Follows the Premiere Audio Track Mixer convention (per-strip insert slots; deep editing
+        elsewhere): every mixer channel strip, a new **Sequence Bus** pseudo-strip, and the master panel carry
+        an **Inserts** block — "+" flyout of the catalog's audio effects (`AddChainEffectCommand`), per-insert
+        enable LED (`SetEffectEnabledCommand`), remove (`RemoveChainEffectCommand`), and Move Up / Down
+        context menu (`MoveChainEffectCommand`) — and clicking an insert opens the chain in the **Inspector**
+        (`InspectChainRequested` → `SetSelectedChain`), whose per-effect sections were generalised from the
+        clip stack (a `ChainContext` carries the chain list, remove command, and mixer DSP state key), so
+        chain effects get the full parameter/keyframe/preset UI **and live compressor metering** (the new
+        `AudioChainTarget.StateKey` matches the render graph's chain keying — track object / timeline /
+        settings — so `AudioMixer.TryPeekEffect` works at chain scope). Chain keyframe lanes span the whole
+        sequence (chain automation is in sequence time). A stale target (track removed by undo, sequence
+        switched) is dropped via `AudioChainTarget.IsAlive`; a timeline deselect keeps the chain view, a real
+        clip selection replaces it. Mixer insert rows rebuild only when `AudioChainTarget.Signature` (chain
+        identities + effect refs + enabled flags) changes, so fader-drag command streams don't tear strips
+        down mid-gesture. Heavy-tail hints at chain scope say "recomputed on every playback pass" (freeze is
+        clip-scoped; track-scope freeze remains deferred, see step 41).
 32. **Preview render cache (pre-render / "freeze").** Expensive subgraphs — nested sequences
     (step 23), adjustment-layer spans (step 19), deep effect chains, and audio plugin chains
     (step 31) — shouldn't be recomputed every playback pass. Because the render graph is a **pure,
@@ -2829,8 +2847,9 @@ Tags reference the [UI.md §4 checklist](UI.md).
       - **Deferred (documented):** per-effect quality modes (Draft/Realtime/High/Offline), preview tail-length
         caps, and oversampling — they matter for convolution/shimmer (steps 49/50) where realtime genuinely
         strains, not for the realtime-safe Studio Reverb; a numeric chain CPU-cost meter (the boolean
-        heavy-hint shipped); track-scope freeze (clip-scope shipped — track chains have no chain UI yet, see
-        step 31's outstanding list); Inspector frozen-state badges (the render bar already shows frozen
+        heavy-hint shipped); track-scope freeze (clip-scope shipped — track chains gained an editing UI in the
+        step-31 follow-on, but freezing a track chain's output is still future work); Inspector frozen-state
+        badges (the render bar already shows frozen
         ranges); and the opt-in export reuse of a full-quality cache (unchanged from step 32).
 
 42. **Image-sequence & still import (stop-motion tier 1).** Import a folder of numbered stills as one

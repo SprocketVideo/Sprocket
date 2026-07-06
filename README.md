@@ -57,8 +57,8 @@ frames never touch the managed heap per frame.
   scrolling titles), adjustment layers whose effect stacks apply to everything beneath, and a
   transition library with overlapping-clip resolution.
 - **Audio** — sample-accurate mixer with per-clip gain envelopes, per-track gain/pan/mute/solo,
-  built-in audio effects, loudness metering & normalization, and a master limiter. **Audio is the
-  master clock** for A/V sync.
+  built-in audio effects on insert chains at clip / track / bus / master scope, loudness metering &
+  normalization, and a master limiter. **Audio is the master clock** for A/V sync.
 - **Performance** — proxy media (edit low-res, export from originals), a timeline render cache,
   hardware-accelerated decode (D3D11VA / CUDA / QSV, VAAPI, VideoToolbox) with software fallback,
   and premultiplied-alpha compositing of alpha-channel media.

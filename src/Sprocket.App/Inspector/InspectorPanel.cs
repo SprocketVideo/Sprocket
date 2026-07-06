@@ -9,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Sprocket.App.Mixer;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
@@ -49,6 +50,9 @@ public sealed class InspectorPanel : UserControl
     private Func<Sprocket.Audio.AudioMixer?>? _liveMixer;
 
     private Clip? _clip;
+    // A mixer insert chain being edited instead of a clip (PLAN.md step 31: track / bus / master scope).
+    // Mutually exclusive with _clip: selecting a clip clears it, and vice versa.
+    private AudioChainTarget? _chain;
     private readonly StackPanel _body;
     private readonly List<Action> _valueRefreshers = new();
 
@@ -127,12 +131,37 @@ public sealed class InspectorPanel : UserControl
     /// </summary>
     public void SetLiveAudioMixer(Func<Sprocket.Audio.AudioMixer?> getMixer) => _liveMixer = getMixer;
 
-    /// <summary>Shows the given clip's properties (or the empty state when <see langword="null"/>).</summary>
+    /// <summary>Shows the given clip's properties (or the empty state when <see langword="null"/>). A mere
+    /// timeline deselect (<see langword="null"/>) keeps an active insert-chain view (PLAN.md step 31) in
+    /// place — only an actual clip selection replaces it.</summary>
     public void SetSelectedClip(Clip? clip)
     {
+        if (clip is not null)
+            _chain = null;
+        else if (_chain is not null)
+        {
+            _clip = null;
+            Rebuild();
+            return;
+        }
         if (!ReferenceEquals(_clip, clip))
             _effectExpanded.Clear();
         _clip = clip;
+        Rebuild();
+    }
+
+    /// <summary>
+    /// Shows a mixer insert chain — a track's pre-fader inserts, the sequence bus, or the master chain
+    /// (PLAN.md step 31) — with the same per-effect sections, parameter rows, and keyframe editing clip
+    /// effects get. Entered from the mixer's insert rows; a later clip selection switches back.
+    /// </summary>
+    public void SetSelectedChain(AudioChainTarget? target)
+    {
+        if (!ReferenceEquals(_chain?.Chain, target?.Chain))
+            _effectExpanded.Clear();
+        _chain = target;
+        if (target is not null)
+            _clip = null;
         Rebuild();
     }
 
@@ -162,6 +191,18 @@ public sealed class InspectorPanel : UserControl
         _valueRefreshers.Clear();
         _body.Children.Clear();
 
+        // A stale chain target (its track removed by undo / Remove Track, or the open sequence switched)
+        // is dropped rather than edited — its chain is no longer what the mixer plays.
+        if (_chain is not null && _project is not null && !_chain.IsAlive(_project))
+            _chain = null;
+
+        if (_chain is not null && _project is not null && _history is not null)
+        {
+            BuildChainView(_chain);
+            RefreshValues();
+            return;
+        }
+
         if (_clip is null || _project is null || _history is null)
         {
             _body.Children.Add(new TextBlock
@@ -190,11 +231,74 @@ public sealed class InspectorPanel : UserControl
             _body.Children.Add(BuildScrollSection(gen));
         }
 
+        Clip clip = _clip;
+        var clipContext = new ChainContext(clip.Effects, clip, e => new RemoveEffectCommand(clip, e), ClipScope: true);
         foreach (EffectInstance effect in _clip.Effects)
-            _body.Children.Add(BuildEffectSection(_clip, effect));
+            _body.Children.Add(BuildEffectSection(clipContext, effect));
 
         _body.Children.Add(BuildAddEffectBar(_clip));
         RefreshValues();
+    }
+
+    /// <summary>
+    /// How an effect section addresses the chain that carries it, shared by the clip stack and the mixer
+    /// insert scopes (PLAN.md step 31): the list itself (indexing / reorder / move commands), the identity
+    /// the live mixer keys the chain's DSP state by (<see cref="Sprocket.Audio.AudioMixer.TryPeekEffect"/>
+    /// metering), the scope's remove command, and whether this is the clip stack (freeze hints and the fade
+    /// envelope are clip-scope concepts).
+    /// </summary>
+    private sealed record ChainContext(
+        List<EffectInstance> Effects,
+        object MeterKey,
+        Func<EffectInstance, IEditCommand> Remove,
+        bool ClipScope);
+
+    /// <summary>
+    /// The insert-chain view (PLAN.md step 31): a heading section describing the scope's place in the signal
+    /// flow, one section per effect — the same parameter/keyframe/preset rows clip effects get, with
+    /// add/remove/reorder running the chain commands — and the audio "+ Effect" bar.
+    /// </summary>
+    private void BuildChainView(AudioChainTarget target)
+    {
+        var info = new StackPanel { Spacing = 4, Margin = new Avalonia.Thickness(4, 4, 4, 2) };
+        info.Children.Add(new TextBlock
+        {
+            Text = target.Description,
+            FontSize = 11,
+            Foreground = FaintText,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        _body.Children.Add(Section(target.Title, info, expanded: true));
+
+        var context = new ChainContext(
+            target.Chain, target.StateKey, e => new RemoveChainEffectCommand(target.Chain, e), ClipScope: false);
+        foreach (EffectInstance effect in target.Chain)
+            _body.Children.Add(BuildEffectSection(context, effect));
+
+        if (target.Chain.Count == 0)
+            _body.Children.Add(new TextBlock
+            {
+                Text = "No inserts yet.",
+                FontSize = 11,
+                Foreground = FaintText,
+                Margin = new Avalonia.Thickness(16, 10, 16, 0),
+            });
+
+        _body.Children.Add(BuildAddChainEffectBar(target));
+    }
+
+    /// <summary>
+    /// The horizontal span animated chain/effect parameters display (and keyframe) over: the clip's timeline
+    /// span for clip effects, the whole sequence for a mixer insert chain (its keyframes are in sequence
+    /// time and it has no clip bounds). Read live at refresh time so a moved/trimmed clip's lane follows.
+    /// </summary>
+    private (long Start, long End)? LaneRange()
+    {
+        if (_chain is not null && _project is not null)
+            return (0, Math.Max(_project.Timeline.Duration.Ticks, Timecode.TicksPerSecond));
+        if (_clip is { } clip)
+            return (clip.TimelineStart.Ticks, clip.TimelineEnd.Ticks);
+        return null;
     }
 
     private Control BuildClipSection(Clip clip)
@@ -730,7 +834,7 @@ public sealed class InspectorPanel : UserControl
         return row;
     }
 
-    private Control BuildEffectSection(Clip clip, EffectInstance effect)
+    private Control BuildEffectSection(ChainContext context, EffectInstance effect)
     {
         EffectDescriptor? descriptor = EffectCatalog.Find(effect.EffectTypeId);
         string title = descriptor?.DisplayName ?? effect.EffectTypeId;
@@ -745,14 +849,17 @@ public sealed class InspectorPanel : UserControl
         // Live compressor metering: gain reduction + input/output peak, read straight from the playing mixer's
         // DSP state when one is attached (SetLiveAudioMixer) — omitted otherwise (no live playback yet).
         if (effect.EffectTypeId == EffectTypeIds.AudioCompressor)
-            rows.Children.Add(BuildCompressorMeterRow(clip, effect));
+            rows.Children.Add(BuildCompressorMeterRow(context, effect));
 
         // Heavy-chain hint (PLAN.md step 41): long-tailed DSP is worth pre-rendering rather than recomputing
-        // every playback pass — point at the freeze command instead of silently burning CPU.
+        // every playback pass — point at the freeze command instead of silently burning CPU. Freeze is
+        // clip-scoped, so insert chains (track/bus/master) get the plain cost warning.
         if (Sprocket.Core.Audio.AudioEffectTraits.IsHeavy(effect.EffectTypeId))
             rows.Children.Add(new TextBlock
             {
-                Text = "CPU-heavy tail — Sequence ▸ Freeze Clip Audio pre-renders it.",
+                Text = context.ClipScope
+                    ? "CPU-heavy tail — Sequence ▸ Freeze Clip Audio pre-renders it."
+                    : "CPU-heavy tail — recomputed on every playback pass.",
                 FontSize = 11,
                 Foreground = FaintText,
                 TextWrapping = TextWrapping.Wrap,
@@ -832,7 +939,7 @@ public sealed class InspectorPanel : UserControl
         {
             e.Handled = true;
             _effectExpanded.Remove(effect);
-            _history!.Execute(new RemoveEffectCommand(clip, effect));
+            _history!.Execute(context.Remove(effect));
         };
 
         // The expand/collapse chevron itself is added by Section() (rightmost, shared by every section);
@@ -880,8 +987,8 @@ public sealed class InspectorPanel : UserControl
         // Reorder within the stack (PLAN.md step 51) — stack order is processing order. Primary gesture:
         // drag the section header onto another effect section (top half = before it, bottom half = after).
         // Fallback: Move Up / Move Down on the header's context menu, clamped at the ends.
-        int index = clip.Effects.IndexOf(effect);
-        int count = clip.Effects.Count;
+        int index = context.Effects.IndexOf(effect);
+        int count = context.Effects.Count;
         header.PointerPressed += (_, e) =>
         {
             if (e.GetCurrentPoint(header).Properties.IsLeftButtonPressed)
@@ -891,7 +998,7 @@ public sealed class InspectorPanel : UserControl
                 _reorderSourceIndex = index;
             }
         };
-        header.ContextMenu = BuildMoveMenu(clip, effect, index, count);
+        header.ContextMenu = BuildMoveMenu(context, index, count);
 
         Control section = Section(header, rows, expanded);
         if (SectionExpander(section) is { } expander)
@@ -915,30 +1022,30 @@ public sealed class InspectorPanel : UserControl
                     NumberStyles.Integer, CultureInfo.InvariantCulture, out int source))
                 return;
             bool bottomHalf = e.GetPosition(section).Y > section.Bounds.Height / 2;
-            MoveEffect(clip, source, EffectReorder.DropIndex(source, index, bottomHalf, count));
+            MoveEffect(context.Effects, source, EffectReorder.DropIndex(source, index, bottomHalf, count));
         });
         return section;
     }
 
     /// <summary>The effect header's Move Up / Move Down context menu — the discoverable, non-drag reorder
     /// affordance (PLAN.md step 51). Boundary items are disabled rather than wrapping.</summary>
-    private ContextMenu BuildMoveMenu(Clip clip, EffectInstance effect, int index, int count)
+    private ContextMenu BuildMoveMenu(ChainContext context, int index, int count)
     {
         var up = new MenuItem { Header = "Move Up", FontSize = 12, IsEnabled = index > 0 };
-        up.Click += (_, _) => MoveEffect(clip, index, EffectReorder.StepIndex(index, count, -1));
+        up.Click += (_, _) => MoveEffect(context.Effects, index, EffectReorder.StepIndex(index, count, -1));
         var down = new MenuItem { Header = "Move Down", FontSize = 12, IsEnabled = index < count - 1 };
-        down.Click += (_, _) => MoveEffect(clip, index, EffectReorder.StepIndex(index, count, +1));
+        down.Click += (_, _) => MoveEffect(context.Effects, index, EffectReorder.StepIndex(index, count, +1));
         return new ContextMenu { ItemsSource = new[] { up, down } };
     }
 
-    /// <summary>Executes a stack reorder as one undoable <see cref="MoveChainEffectCommand"/>; a same-index
-    /// gesture is skipped so no-ops don't pollute the undo history.</summary>
-    private void MoveEffect(Clip clip, int fromIndex, int toIndex)
+    /// <summary>Executes a stack/chain reorder as one undoable <see cref="MoveChainEffectCommand"/>; a
+    /// same-index gesture is skipped so no-ops don't pollute the undo history.</summary>
+    private void MoveEffect(List<EffectInstance> chain, int fromIndex, int toIndex)
     {
         if (_history is null || fromIndex == toIndex ||
-            fromIndex < 0 || fromIndex >= clip.Effects.Count)
+            fromIndex < 0 || fromIndex >= chain.Count)
             return;
-        _history.Execute(new MoveChainEffectCommand(clip.Effects, clip.Effects[fromIndex], toIndex));
+        _history.Execute(new MoveChainEffectCommand(chain, chain[fromIndex], toIndex));
     }
 
     /// <summary>
@@ -951,7 +1058,7 @@ public sealed class InspectorPanel : UserControl
     /// attached, the clip isn't currently playing, or a chain edit hasn't been re-mixed since (all of which
     /// mean there's nothing live to show, not an error).
     /// </summary>
-    private Control BuildCompressorMeterRow(Clip clip, EffectInstance effect)
+    private Control BuildCompressorMeterRow(ChainContext context, EffectInstance effect)
     {
         (StackPanel Row, MiniMeterBar Bar, TextBlock Label) Meter(IBrush accent)
         {
@@ -978,7 +1085,7 @@ public sealed class InspectorPanel : UserControl
 
         _valueRefreshers.Add(() =>
         {
-            Sprocket.Audio.Effects.CompressorMeterSnapshot? s = TryReadCompressorMeter(clip, effect);
+            Sprocket.Audio.Effects.CompressorMeterSnapshot? s = TryReadCompressorMeter(context, effect);
             if (s is { } snapshot)
             {
                 grBar.SetLevel(Math.Clamp(snapshot.GainReductionDb / 24.0, 0, 1));
@@ -1004,14 +1111,14 @@ public sealed class InspectorPanel : UserControl
     /// <summary>Looks up the live <see cref="Sprocket.Audio.Effects.CompressorEffect"/> backing this exact model
     /// instance, or <see langword="null"/> if there isn't one right now (see <see cref="BuildCompressorMeterRow"/>
     /// for why that's an expected, non-error state).</summary>
-    private Sprocket.Audio.Effects.CompressorMeterSnapshot? TryReadCompressorMeter(Clip clip, EffectInstance effect)
+    private Sprocket.Audio.Effects.CompressorMeterSnapshot? TryReadCompressorMeter(ChainContext context, EffectInstance effect)
     {
         if (_liveMixer?.Invoke() is not { } mixer)
             return null;
-        int chainIndex = EffectTypeIds.AudioChainIndexOf(clip.Effects, effect);
+        int chainIndex = EffectTypeIds.AudioChainIndexOf(context.Effects, effect);
         if (chainIndex < 0)
             return null;
-        return mixer.TryPeekEffect(clip, chainIndex) is Sprocket.Audio.Effects.CompressorEffect compressor
+        return mixer.TryPeekEffect(context.MeterKey, chainIndex) is Sprocket.Audio.Effects.CompressorEffect compressor
             ? compressor.TakeSnapshot()
             : null;
     }
@@ -1271,8 +1378,8 @@ public sealed class InspectorPanel : UserControl
 
             graphButton.IsVisible = value.IsAnimated;
             lane.IsVisible = value.IsAnimated;
-            if (value.IsAnimated && _clip is { } clip)
-                lane.Update(value, clip.TimelineStart.Ticks, clip.TimelineEnd.Ticks, _playhead().Ticks, p.Min, p.Max);
+            if (value.IsAnimated && LaneRange() is { } range)
+                lane.Update(value, range.Start, range.End, _playhead().Ticks, p.Min, p.Max);
         });
 
         return stack;
@@ -1302,6 +1409,32 @@ public sealed class InspectorPanel : UserControl
             item.Click += (_, _) => _history!.Execute(prepend
                 ? new InsertEffectAtCommand(clip, descriptor.CreateInstance(), 0)
                 : new AddEffectCommand(clip, descriptor.CreateInstance()));
+            items.Add(item);
+        }
+        add.Flyout = new MenuFlyout { ItemsSource = items };
+        return add;
+    }
+
+    /// <summary>The insert-chain "+ Effect" bar (PLAN.md step 31): the catalog's audio effects, appended to
+    /// the chain via <see cref="AddChainEffectCommand"/> (processing order = chain order; reorder after).</summary>
+    private Control BuildAddChainEffectBar(AudioChainTarget target)
+    {
+        var add = new Button
+        {
+            Content = "+ Effect",
+            FontSize = 12,
+            Padding = new Avalonia.Thickness(10, 4),
+            Margin = new Avalonia.Thickness(8, 6, 8, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Background = RaisedBg,
+            Foreground = TextBrush,
+        };
+        var items = new List<MenuItem>();
+        foreach (EffectDescriptor descriptor in EffectRelevance.ForAudioChain())
+        {
+            var item = new MenuItem { Header = descriptor.DisplayName, FontSize = 13 };
+            item.Click += (_, _) => _history!.Execute(
+                new AddChainEffectCommand(target.Chain, descriptor.CreateInstance()));
             items.Add(item);
         }
         add.Flyout = new MenuFlyout { ItemsSource = items };

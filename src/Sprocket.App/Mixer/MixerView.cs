@@ -9,6 +9,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Sprocket.App.Inspector;
 using Sprocket.Audio.Loudness;
 using Sprocket.Core.Audio;
 using Sprocket.Core.Commands;
@@ -22,7 +23,10 @@ namespace Sprocket.App.Mixer;
 /// meters), a channel strip per audio track (gain fader, pan/balance, mute, solo), and loudness-normalization to a
 /// chosen target at track and master scope. Every edit routes through the <see cref="EditHistory"/> so it is
 /// undoable; the meters poll the audio engine's <see cref="AudioEngine.CurrentLoudness"/> only while this tab is on
-/// screen.
+/// screen. Each strip also carries its <b>insert chain</b> (PLAN.md step 31, the Premiere Audio Track Mixer
+/// convention): the track's pre-fader inserts, plus a Sequence Bus strip and the master panel's inserts —
+/// add / enable / reorder / remove here, deep parameter editing in the Inspector via
+/// <see cref="InspectChainRequested"/>.
 /// </summary>
 public sealed class MixerView : UserControl
 {
@@ -57,6 +61,16 @@ public sealed class MixerView : UserControl
     private readonly StackPanel _strips = new() { Spacing = 6 };
     private readonly List<AudioTrack> _builtOrder = new();
     private readonly Dictionary<AudioTrack, StripWidgets> _stripWidgets = new();
+
+    // Insert chains (PLAN.md step 31): the master panel's insert rows (rebuilt with the strips), and the
+    // chain snapshot the last build reflected — compared on history changes so a fader drag's command
+    // stream doesn't rebuild the strips mid-gesture, but any chain edit (add/remove/move/toggle) does.
+    private readonly StackPanel _masterInserts = new() { Spacing = 2 };
+    private List<object> _builtChainSignature = new();
+
+    /// <summary>Raised when the user asks to edit a chain's effects (clicks an insert row / the chain's edit
+    /// affordance) — the window shows it in the Inspector, where the full parameter/keyframe UI lives.</summary>
+    public event Action<AudioChainTarget>? InspectChainRequested;
 
     public MixerView()
     {
@@ -93,11 +107,13 @@ public sealed class MixerView : UserControl
 
     private void OnHistoryChanged()
     {
-        // A gain/pan drag issues a stream of commands; only rebuild when the track set actually changed, otherwise
-        // just refresh values so an in-progress fader isn't torn out from under the pointer.
+        // A gain/pan drag issues a stream of commands; only rebuild when the track set or an insert chain
+        // actually changed, otherwise just refresh values so an in-progress fader isn't torn out from under
+        // the pointer.
         if (_project is null) return;
         List<AudioTrack> now = _project.Timeline.AudioTracks.ToList();
-        if (!now.SequenceEqual(_builtOrder))
+        if (!now.SequenceEqual(_builtOrder) ||
+            !AudioChainTarget.Signature(_project).SequenceEqual(_builtChainSignature))
             RebuildStrips();
         else
             RefreshValues();
@@ -180,6 +196,7 @@ public sealed class MixerView : UserControl
         var panel = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 8) };
         panel.Children.Add(grid);
         panel.Children.Add(targetRow);
+        panel.Children.Add(_masterInserts); // populated by RebuildStrips once a project is attached
 
         return new Border
         {
@@ -220,7 +237,9 @@ public sealed class MixerView : UserControl
         _strips.Children.Clear();
         _stripWidgets.Clear();
         _builtOrder.Clear();
+        _masterInserts.Children.Clear();
         if (_project is null) return;
+        _builtChainSignature = AudioChainTarget.Signature(_project);
 
         foreach (AudioTrack track in _project.Timeline.AudioTracks)
         {
@@ -234,6 +253,37 @@ public sealed class MixerView : UserControl
                 Foreground = Palette.FaintTextBrush,
                 Margin = new Thickness(2, 8),
             });
+
+        // The sequence output bus reads as one more strip after the tracks (signal flows tracks → bus →
+        // master), and the master chain's inserts sit inside the master panel above (PLAN.md step 31).
+        _strips.Children.Add(BuildBusStrip());
+        _masterInserts.Children.Add(BuildInsertsBlock(AudioChainTarget.ForMaster(_project.Settings)));
+    }
+
+    /// <summary>The Sequence Bus pseudo-strip: no fader of its own (the sequence mix is shaped by the track
+    /// faders below and the master above) — it exists to carry the bus insert chain.</summary>
+    private Control BuildBusStrip()
+    {
+        var name = new TextBlock
+        {
+            Text = "Sequence Bus",
+            Foreground = Palette.TextBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(name, "The sequence's output bus — its inserts process the summed sequence mix before the project master chain.");
+
+        var body = new StackPanel { Spacing = 4 };
+        body.Children.Add(name);
+        body.Children.Add(BuildInsertsBlock(
+            AudioChainTarget.ForSequenceBus(_project!.Timeline, _project.ActiveSequence.Name)));
+
+        return new Border
+        {
+            Background = Palette.RaisedBgBrush,
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8, 4),
+            Child = body,
+        };
     }
 
     private Control BuildStrip(AudioTrack track)
@@ -293,13 +343,138 @@ public sealed class MixerView : UserControl
 
         _stripWidgets[track] = new StripWidgets(gain, gainLabel, pan, panLabel, mute, solo);
 
+        var body = new StackPanel { Spacing = 4 };
+        body.Children.Add(row);
+        body.Children.Add(BuildInsertsBlock(AudioChainTarget.ForTrack(track)));
+
         return new Border
         {
             Background = Palette.RaisedBgBrush,
             CornerRadius = new CornerRadius(4),
             Padding = new Thickness(8, 4),
-            Child = row,
+            Child = body,
         };
+    }
+
+    // ── insert chains (PLAN.md step 31) ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A strip's insert-chain block, following the Premiere Audio Track Mixer's per-strip effect slots: an
+    /// "Inserts" header with a "+" flyout of the catalog's audio effects, then one compact row per effect —
+    /// enable LED, name (click opens the chain in the Inspector for parameter editing), and remove. Reorder
+    /// via the row's context menu (Move Up / Move Down, the step-51 fallback affordance). All edits are
+    /// undoable chain commands.
+    /// </summary>
+    private Control BuildInsertsBlock(AudioChainTarget target)
+    {
+        var block = new StackPanel { Spacing = 2 };
+
+        var add = new Button
+        {
+            Content = "+",
+            FontSize = 11,
+            Width = 22,
+            Padding = new Thickness(0, 1),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(add, "Add an insert effect");
+        var items = new List<MenuItem>();
+        foreach (EffectDescriptor descriptor in EffectRelevance.ForAudioChain())
+        {
+            var item = new MenuItem { Header = descriptor.DisplayName, FontSize = 12 };
+            item.Click += (_, _) => Execute(new AddChainEffectCommand(target.Chain, descriptor.CreateInstance()));
+            items.Add(item);
+        }
+        add.Flyout = new MenuFlyout { ItemsSource = items };
+
+        var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        header.Children.Add(new TextBlock
+        {
+            Text = "Inserts",
+            Foreground = Palette.MutedTextBrush,
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        header.Children.Add(add);
+        block.Children.Add(header);
+
+        for (int i = 0; i < target.Chain.Count; i++)
+            block.Children.Add(BuildInsertRow(target, target.Chain[i], i));
+        return block;
+    }
+
+    private Control BuildInsertRow(AudioChainTarget target, EffectInstance effect, int index)
+    {
+        string title = EffectCatalog.Find(effect.EffectTypeId)?.DisplayName ?? effect.EffectTypeId;
+
+        // Enable LED (the Inspector's audio-rack convention: green = active, grey = bypassed).
+        var led = new Border
+        {
+            Width = 8,
+            Height = 8,
+            CornerRadius = new CornerRadius(4),
+            Background = effect.Enabled ? Palette.GoodBrush : Palette.EdgeBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var toggle = new Button
+        {
+            Content = led,
+            Padding = new Thickness(4, 4),
+            Background = Brushes.Transparent,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(toggle, effect.Enabled ? "Disable effect" : "Enable effect");
+        toggle.Click += (_, _) => Execute(new SetEffectEnabledCommand(effect, !effect.Enabled));
+
+        var name = new Button
+        {
+            Content = title,
+            FontSize = 11,
+            Padding = new Thickness(6, 2),
+            Background = Brushes.Transparent,
+            Foreground = effect.Enabled ? Palette.TextBrush : Palette.FaintTextBrush,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(name, "Edit parameters in the Inspector");
+        name.Click += (_, _) => InspectChainRequested?.Invoke(target);
+
+        var remove = new Button
+        {
+            Content = "×",
+            FontSize = 11,
+            Padding = new Thickness(5, 1),
+            Background = Brushes.Transparent,
+            Foreground = Palette.FaintTextBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(remove, "Remove effect");
+        remove.Click += (_, _) => Execute(new RemoveChainEffectCommand(target.Chain, effect));
+
+        int count = target.Chain.Count;
+        var up = new MenuItem { Header = "Move Up", FontSize = 12, IsEnabled = index > 0 };
+        up.Click += (_, _) => MoveInsert(target, index, EffectReorder.StepIndex(index, count, -1));
+        var down = new MenuItem { Header = "Move Down", FontSize = 12, IsEnabled = index < count - 1 };
+        down.Click += (_, _) => MoveInsert(target, index, EffectReorder.StepIndex(index, count, +1));
+
+        var row = new DockPanel { Background = Brushes.Transparent, Margin = new Thickness(8, 0, 0, 0) };
+        row.ContextMenu = new ContextMenu { ItemsSource = new[] { up, down } };
+        DockPanel.SetDock(toggle, Dock.Left);
+        DockPanel.SetDock(remove, Dock.Right);
+        row.Children.Add(toggle);
+        row.Children.Add(remove);
+        row.Children.Add(name);
+        return row;
+    }
+
+    /// <summary>A same-index move is skipped so no-ops don't pollute the undo history (PLAN.md step 51).</summary>
+    private void MoveInsert(AudioChainTarget target, int fromIndex, int toIndex)
+    {
+        if (fromIndex == toIndex || fromIndex < 0 || fromIndex >= target.Chain.Count)
+            return;
+        Execute(new MoveChainEffectCommand(target.Chain, target.Chain[fromIndex], toIndex));
     }
 
     private void WireGainFader(Slider gain, AudioTrack track)

@@ -70,6 +70,18 @@ public sealed class EffectRelevanceTests
     }
 
     [Fact]
+    public void ForAudioChain_OffersExactlyTheAudioHalfOfTheCatalog()
+    {
+        // Mixer insert chains (track / bus / master, PLAN.md step 31) are audio by construction: their
+        // "+ Effect" flyouts offer every Audio-category effect and nothing else, with no clip involved.
+        var offered = EffectRelevance.ForAudioChain().ToList();
+        Assert.NotEmpty(offered);
+        Assert.All(offered, d => Assert.Equal(EffectCategory.Audio, d.Category));
+        Assert.Contains(offered, d => d.Id == EffectTypeIds.AudioEq);
+        Assert.DoesNotContain(offered, d => d.Id == EffectTypeIds.Color);
+    }
+
+    [Fact]
     public void IsOnAudioTrack_DistinguishesTrackKinds()
     {
         (Timeline timeline, Clip videoClip, Clip audioClip) = MakeTimeline();
