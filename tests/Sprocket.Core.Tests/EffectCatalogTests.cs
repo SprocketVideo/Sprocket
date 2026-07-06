@@ -263,6 +263,31 @@ public class EffectCatalogTests
             names);
     }
 
+    // ── Step 47: the Noise Gate ────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Noise_Gate_Is_Registered_As_An_Audio_Effect()
+    {
+        EffectDescriptor? gate = EffectCatalog.Find(EffectTypeIds.AudioNoiseGate);
+        Assert.NotNull(gate);
+        Assert.Equal(EffectCategory.Audio, gate!.Category);
+        Assert.True(EffectTypeIds.IsAudio(EffectTypeIds.AudioNoiseGate)); // routes to the mixer, not the shaders
+        Assert.Equal("Noise Gate", EffectCatalog.DisplayName(EffectTypeIds.AudioNoiseGate));
+    }
+
+    [Fact]
+    public void Noise_Gate_Exposes_The_Step47_Parameters()
+    {
+        string[] names = EffectCatalog.Find(EffectTypeIds.AudioNoiseGate)!.Parameters.Select(p => p.Name).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                EffectParamNames.ThresholdDb, EffectParamNames.AttackMs, EffectParamNames.HoldMs,
+                EffectParamNames.ReleaseMs, EffectParamNames.RangeDb, EffectParamNames.HysteresisDb,
+            },
+            names);
+    }
+
     // ── Step 41: heavy-chain traits (freeze hints) ─────────────────────────────────────────────────────
 
     [Fact]

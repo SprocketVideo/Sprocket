@@ -3239,6 +3239,23 @@ Tags reference the [UI.md §4 checklist](UI.md).
       `AudioEffectsTests`/`AudioMixerChainTests` (steady-state allocation-free assertion,
       pass-through/bypass, chain ordering) the same way the step-31 built-ins and step-46 delays
       were covered.
+    - **✅ DONE (`Sprocket.Core/Model/{EffectInstance,EffectCatalog}` + `Sprocket.Audio/Effects/{NoiseGateEffect,
+      BuiltInAudioEffects}`; 16 new tests — Audio +13 (`NoiseGateEffectTests` + 2 `AudioMixerChainTests`),
+      Core +2 (`EffectCatalogTests`), Persistence +1; full suite **1277 green** (Core 357, Media 43,
+      Render 123, Audio 118, Playback 56, Export 101, Persistence 117, Plugins 10, Mcp 65, App 287);
+      clean build (0 warnings).)** One id, `builtin.audio.noisegate`, registered in `EffectCatalog` under
+      `EffectCategory.Audio` — it appears in the Effects browser / audio add-effect flow and serializes
+      through the existing `EffectInstance` JSON (additive, no schema bump) with **zero App/mixer changes**
+      (the chain executor and catalog-driven UI are generic over ids). Typed descriptors: threshold
+      (−40 dB default), attack (1 ms), hold (50 ms), release (100 ms), range (−80 dB floor ≈ full mute;
+      the Pro Tools/Logic "Range" convention), hysteresis (3 dB). DSP reuses `CompressorEffect`'s
+      detector shape (per-frame cross-channel peak, one-pole smoothing — instant rise + fixed 10 ms fall)
+      driving a stereo-linked gain state machine: open at ≥ threshold, close only after the envelope has
+      sat below threshold − hysteresis for the hold time, gain ramping between unity and the range floor
+      through one-pole attack/release. Causal (no look-ahead), state carries across buffers, steady-state
+      allocation-free; `RangeDb = 0` is an exact pass-through (the `Mix = 0` convention's analogue).
+      Reuses the existing `thresholdDb`/`attackMs`/`releaseMs` param names; adds `holdMs`/`rangeDb`/
+      `hysteresisDb`.
 
 48. **Shelving EQ audio effect.** A new built-in `IAudioEffect` in `Sprocket.Audio/Effects`
     alongside `ParametricEqEffect`/`CompressorEffect`/the step-46/47 effects, registered through

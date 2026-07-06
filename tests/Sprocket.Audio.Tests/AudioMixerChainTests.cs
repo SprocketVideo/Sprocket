@@ -220,6 +220,36 @@ public class AudioMixerChainTests
     }
 
     [Fact]
+    public void NoiseGate_On_The_Track_Chain_Attenuates_Signal_Below_Threshold()
+    {
+        // A -34 dB clip against a -20 dB gate threshold with a -40 dB range (PLAN.md step 47): the gate
+        // never opens and the track output settles at the range floor (source × 0.01), not at zero.
+        var track = TrackOver(A);
+        track.Effects.Add(new EffectInstance(EffectTypeIds.AudioNoiseGate)
+            .Set(EffectParamNames.ThresholdDb, -20.0)
+            .Set(EffectParamNames.ReleaseMs, 50.0)
+            .Set(EffectParamNames.RangeDb, -40.0));
+        using AudioMixer mixer = MixerFor((A, 0.02f));
+
+        float[] buffer = Mix(mixer, ProjectWith(track), Rate, Timecode.Zero); // 1 s so the gain settles
+        Assert.Equal(0.02f * 0.01f, buffer[^1], 0.0001);
+    }
+
+    [Fact]
+    public void NoiseGate_On_The_Track_Chain_Passes_Signal_Above_Threshold_At_Unity()
+    {
+        var track = TrackOver(A);
+        track.Effects.Add(new EffectInstance(EffectTypeIds.AudioNoiseGate)
+            .Set(EffectParamNames.ThresholdDb, -40.0)
+            .Set(EffectParamNames.AttackMs, 1.0)
+            .Set(EffectParamNames.RangeDb, -80.0));
+        using AudioMixer mixer = MixerFor((A, 0.5f));
+
+        float[] buffer = Mix(mixer, ProjectWith(track), Rate, Timecode.Zero);
+        Assert.Equal(0.5f, buffer[^1], 0.001); // open gate = unity, the source is untouched
+    }
+
+    [Fact]
     public void Fast_Path_Without_Chains_Is_Unchanged()
     {
         // No chains anywhere → the combined clip × track gain ramp sums exactly as before step 31.

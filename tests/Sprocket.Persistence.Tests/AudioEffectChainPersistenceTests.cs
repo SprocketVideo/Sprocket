@@ -112,6 +112,33 @@ public class AudioEffectChainPersistenceTests
     }
 
     [Fact]
+    public void Step47_Noise_Gate_Round_Trips()
+    {
+        // The gate id serializes via the existing EffectInstance JSON — additive, no schema bump.
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var project = new Project(timeline);
+        var track = new AudioTrack { Name = "A1" };
+        track.Effects.Add(new EffectInstance(EffectTypeIds.AudioNoiseGate)
+            .Set(EffectParamNames.ThresholdDb, -45.0)
+            .Set(EffectParamNames.AttackMs, 2.5)
+            .Set(EffectParamNames.HoldMs, 120.0)
+            .Set(EffectParamNames.ReleaseMs, 250.0)
+            .Set(EffectParamNames.RangeDb, -30.0)
+            .Set(EffectParamNames.HysteresisDb, 6.0));
+        timeline.Tracks.Add(track);
+
+        AudioTrack loaded = Assert.IsType<AudioTrack>(RoundTrip(project).Timeline.Tracks[0]);
+        EffectInstance gate = Assert.Single(loaded.Effects);
+        Assert.Equal(EffectTypeIds.AudioNoiseGate, gate.EffectTypeId);
+        Assert.Equal(-45.0, gate.Parameters[EffectParamNames.ThresholdDb].Evaluate(Timecode.Zero));
+        Assert.Equal(2.5, gate.Parameters[EffectParamNames.AttackMs].Evaluate(Timecode.Zero));
+        Assert.Equal(120.0, gate.Parameters[EffectParamNames.HoldMs].Evaluate(Timecode.Zero));
+        Assert.Equal(250.0, gate.Parameters[EffectParamNames.ReleaseMs].Evaluate(Timecode.Zero));
+        Assert.Equal(-30.0, gate.Parameters[EffectParamNames.RangeDb].Evaluate(Timecode.Zero));
+        Assert.Equal(6.0, gate.Parameters[EffectParamNames.HysteresisDb].Evaluate(Timecode.Zero));
+    }
+
+    [Fact]
     public void Chainless_Project_Omits_The_Chain_Fields_In_Json()
     {
         var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));

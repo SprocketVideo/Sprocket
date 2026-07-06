@@ -161,6 +161,16 @@ public static class EffectTypeIds
     public const string AudioDelayStereo = "builtin.audio.delay.stereo";
 
     /// <summary>
+    /// Noise Gate (PLAN.md step 47): the standard DAW gate design — an envelope follower drives a gain that
+    /// opens above <see cref="EffectParamNames.ThresholdDb"/> and closes once the signal has stayed below the
+    /// close threshold (threshold − <see cref="EffectParamNames.HysteresisDb"/>) for
+    /// <see cref="EffectParamNames.HoldMs"/>, ramping through <see cref="EffectParamNames.AttackMs"/> /
+    /// <see cref="EffectParamNames.ReleaseMs"/> and attenuating to the <see cref="EffectParamNames.RangeDb"/>
+    /// floor rather than hard on/off (the Pro Tools / Logic "Range" convention).
+    /// </summary>
+    public const string AudioNoiseGate = "builtin.audio.noisegate";
+
+    /// <summary>
     /// Whether an effect type id names an <b>audio</b> chain stage (PLAN.md step 31). The render graph uses
     /// this to split a clip's single effect stack: audio ids feed the mixer's DSP chain, everything else feeds
     /// the video shader chain (where unknown ids pass through). Built-in audio effects share the
@@ -345,16 +355,19 @@ public static class EffectParamNames
     /// <summary>High-shelf corner frequency in Hz — <see cref="EffectTypeIds.AudioEq"/>.</summary>
     public const string HighFreq = "highFreq";
 
-    /// <summary>Compressor threshold in dBFS — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
+    /// <summary>Threshold in dBFS — the compressor's knee (<see cref="EffectTypeIds.AudioCompressor"/>) and
+    /// the noise gate's open threshold (<see cref="EffectTypeIds.AudioNoiseGate"/>).</summary>
     public const string ThresholdDb = "thresholdDb";
 
     /// <summary>Compression ratio (N:1) — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
     public const string Ratio = "ratio";
 
-    /// <summary>Compressor attack time in milliseconds — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
+    /// <summary>Attack time in milliseconds — <see cref="EffectTypeIds.AudioCompressor"/> and
+    /// <see cref="EffectTypeIds.AudioNoiseGate"/> (gain-opening ramp).</summary>
     public const string AttackMs = "attackMs";
 
-    /// <summary>Compressor release time in milliseconds — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
+    /// <summary>Release time in milliseconds — <see cref="EffectTypeIds.AudioCompressor"/> and
+    /// <see cref="EffectTypeIds.AudioNoiseGate"/> (gain-closing ramp).</summary>
     public const string ReleaseMs = "releaseMs";
 
     /// <summary>Compressor make-up gain in dB — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
@@ -445,6 +458,22 @@ public static class EffectParamNames
     /// <summary>Cross-feed amount in [0, 1] (how much of each repeat crosses channels when Ping Pong is on;
     /// 1 = the classic full bounce) — <see cref="EffectTypeIds.AudioDelayStereo"/>.</summary>
     public const string CrossFeed = "crossFeed";
+
+    // ── Noise Gate (PLAN.md step 47). ──
+    /// <summary>Hold time in milliseconds — how long the gate stays open after the signal falls below the
+    /// close threshold, so it doesn't clip off decaying tails or close on a brief dip —
+    /// <see cref="EffectTypeIds.AudioNoiseGate"/>.</summary>
+    public const string HoldMs = "holdMs";
+
+    /// <summary>Range (closed-gate floor) in dB — how far the gain closes below the threshold: 0 = no
+    /// attenuation, the −80 dB minimum ≈ full mute (a partial attenuation floor, matching Pro Tools /
+    /// Logic's "Range", rather than a hard on/off) — <see cref="EffectTypeIds.AudioNoiseGate"/>.</summary>
+    public const string RangeDb = "rangeDb";
+
+    /// <summary>Hysteresis in dB — the close threshold sits this far below the open threshold so input
+    /// straddling the threshold cannot rapidly re-trigger the gate (chatter) —
+    /// <see cref="EffectTypeIds.AudioNoiseGate"/>.</summary>
+    public const string HysteresisDb = "hysteresisDb";
 
     /// <summary>The fixed tap cap of the Multi-Tap Delay (PLAN.md step 46) — matches typical DAW
     /// multi-tap plugins.</summary>

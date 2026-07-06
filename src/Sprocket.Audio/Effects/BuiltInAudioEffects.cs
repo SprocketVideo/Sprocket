@@ -27,6 +27,7 @@ public static class BuiltInAudioEffects
         EffectTypeIds.AudioDelayTape => new TapeDelayEffect(),
         EffectTypeIds.AudioDelayMultiTap => new MultiTapDelayEffect(),
         EffectTypeIds.AudioDelayStereo => new StereoDelayEffect(),
+        EffectTypeIds.AudioNoiseGate => new NoiseGateEffect(),
         _ => null,
     };
 }

@@ -408,6 +408,21 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.CrossFeed, "Cross-Feed", 1.0, 0.0, 1.0, 0.05),
                 new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05),
             ]),
+
+        // ── Noise Gate (PLAN.md step 47) — the standard DAW gate/expander design. ──
+        new EffectDescriptor(
+            EffectTypeIds.AudioNoiseGate,
+            "Noise Gate",
+            EffectCategory.Audio,
+            "Attenuates signal below a threshold: attack / hold / release, range floor, hysteresis.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.ThresholdDb, "Threshold", -40.0, -80.0, 0.0, 0.5, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.AttackMs, "Attack", 1.0, 0.01, 100.0, 0.1, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.HoldMs, "Hold", 50.0, 0.0, 1000.0, 5.0, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.ReleaseMs, "Release", 100.0, 1.0, 2000.0, 10.0, "ms"),
+                new EffectParameterDescriptor(EffectParamNames.RangeDb, "Range", -80.0, -80.0, 0.0, 1.0, "dB"),
+                new EffectParameterDescriptor(EffectParamNames.HysteresisDb, "Hysteresis", 3.0, 0.0, 24.0, 0.5, "dB"),
+            ]),
     ];
 
     /// <summary>
