@@ -81,16 +81,20 @@ chmod +x Sprocket-linux-x64.AppImage
 Download the **`Sprocket-osx-arm64-Portable.zip`** (Apple Silicon) or **`Sprocket-osx-x64-Portable.zip`**
 (Intel), unzip it, and drag **Sprocket.app** into **Applications**.
 
-Because the alpha isn't notarized yet, macOS blocks the first launch. Any ONE of these clears it:
-
-- **Right-click** (Control-click) Sprocket.app → **Open** → **Open** in the dialog (may need doing twice), or
-- **System Settings ▸ Privacy & Security** → scroll down → **Open Anyway** (macOS 15 Sequoia shows
-  the blocked app there after your first launch attempt), or
-- in Terminal:
+Because the alpha isn't notarized yet, macOS blocks the first launch — usually with a dialog
+claiming *"Sprocket.app" is damaged and can't be opened. You should move it to the Trash.*
+**The download is not damaged** — that's just how recent macOS reports an app it can't verify.
+To clear it, run this in Terminal, then launch normally:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Sprocket.app
 ```
+
+Alternatively, after one blocked launch attempt, **System Settings ▸ Privacy & Security** may
+offer an **Open Anyway** button for Sprocket (scroll down) — but if you got the "damaged" dialog
+it often doesn't appear, so the Terminal command is the reliable path. The classic right-click →
+**Open** trick no longer works on macOS 15 Sequoia and later — Apple removed that bypass for
+unsigned apps.
 
 FFmpeg 8 is bundled inside the app — no Homebrew setup is needed. In-app self-update on unsigned
 macOS builds is experimental; if an update fails, just download the new zip.
