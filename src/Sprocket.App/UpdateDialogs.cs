@@ -81,7 +81,7 @@ internal static class UpdateAvailableDialog
         {
             Title = "Update Available",
             Icon = AppIcon.Window,
-            Width = 560,
+            Width = 640,
             Height = 240,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
