@@ -135,16 +135,16 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Source monitor (preview a bin clip; Program/Source tabs) | Sprocket.App/Monitors.cs; `WireMonitorTabs` | — | ❌ (guides only cover Program) |
 | Preview zoom: Fit / 50 / 100 / 200% | MainWindow.axaml.cs `WireZoomAndGuides` | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
 | Guides overlay (safe areas / framing grid) | PreviewSurface.ShowGuides | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
-| Grading scopes: Waveform / RGB Parade / Vectorscope / Histogram | Sprocket.App/ScopeView.cs | — | ❌ |
+| Grading scopes: Waveform / RGB Parade / Vectorscope / Histogram | Sprocket.App/ScopeView.cs | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (Scopes menu named in the quick tour; not explained) |
 | Timecode readouts (position / duration) | MainWindow.axaml:360 | getting-started.md#1-play-and-preview-your-video | ✅ |
 
 ## 7. Effects, keyframing & color
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Applying effects (Effects menu, browser drag, + Effect button) | MainWindow.axaml.cs `RefreshEffectsMenu`; `ApplyEffectToSelected` | getting-started.md#7-change-how-a-clip-looks | 🟡 (guide names only 4 effects; catalog has 14 — see accuracy note below) |
+| Applying effects (Effects menu, browser drag, + Effect button) | MainWindow.axaml.cs `RefreshEffectsMenu`; `ApplyEffectToSelected` | getting-started.md#7-change-how-a-clip-looks | 🟡 (guide covers the 4 everyday effects and acknowledges the rest of the menu; the color-grading effects themselves are still undocumented) |
 | Transform effect (scale/position/rotation/anchor/opacity) | Sprocket.Core/Model/EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | ✅ |
-| Color effect (exposure/contrast/saturation/vibrance) | EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | 🟡 (Vibrance not mentioned) |
+| Color effect (exposure/contrast/saturation/vibrance) | EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | ✅ |
 | Brightness effect | EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | ✅ |
 | Fade effect (video opacity + audio gain) | EffectCatalog.cs | getting-started.md#8-adjust-the-audio | ✅ |
 | Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; PLAN.md step 34 | — | ❌ |
@@ -234,7 +234,7 @@ Preferences or an "advanced" page.
 | What AI can do: the tool surface (~50 tools — edit, effects, markers, export, transport) | Sprocket.Mcp/SprocketTools*.cs; PLAN.md step 38 | — | ❌ (needs a reference list, like export formats) |
 | AI edits are undoable (route through the same undo stack) | Sprocket.Mcp/McpEditorSession.cs | — | ❌ (key trust point — state it explicitly) |
 | Address effects by reference tag (effect_tag, e.g. RV-1 — stable across reorders; shown as the Inspector tag chip) | Sprocket.Core/Model/EffectTags.cs; Sprocket.Mcp/SprocketTools*.cs `ResolveEffect` | — | ❌ |
-| MCP status in the status bar | MainWindow.axaml.cs `UpdateMcpStatus` | — | ❌ |
+| MCP status in the status bar | MainWindow.axaml.cs `UpdateMcpStatus` | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named in the quick tour; not explained) |
 | Open a media file from the command line (bare arg) | Sprocket.App/Program.cs | — | ❌ |
 | Diagnostics: `--version`, `--ffmpeg-check`, `--probe` | Program.cs | — | 🟡 (`--probe` appears in RELEASE_NOTES bug-report instructions only; docs site says nothing) |
 

@@ -638,6 +638,27 @@ public class EditingToolsTests
     }
 
     [Fact]
+    public void Split_Without_A_Link_Group_Leaves_The_Right_Half_Unlinked()
+    {
+        // Regression (2026-07-06): the right half used to inherit the original's group when no fresh group was
+        // given (a blade with no companion spanning the cut). Every split piece then shared one group, so a
+        // linked delete of any piece removed them all — "Delete wipes the whole track".
+        var track = new VideoTrack();
+        Clip clip = MakeClip(Timecode.Zero, Timecode.FromSeconds(6));
+        clip.LinkGroupId = Guid.NewGuid();
+        track.Clips.Add(clip);
+
+        var split = new SplitClipCommand(track, clip, Timecode.FromSeconds(3));
+        split.Apply();
+
+        Assert.Null(split.RightClip.LinkGroupId); // not linked to the left half (or its companion)
+
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        timeline.Tracks.Add(track);
+        Assert.Empty(timeline.ClipsLinkedTo(split.RightClip));
+    }
+
+    [Fact]
     public void Composite_Applies_In_Order_And_Reverts_In_Reverse()
     {
         var log = new List<string>();

@@ -110,6 +110,47 @@ public class SprocketToolsExtendedTests
     }
 
     [Fact]
+    public async Task SplitClip_With_No_Partner_At_The_Cut_Leaves_The_Right_Half_Unlinked()
+    {
+        // Regression (2026-07-06): a clip can carry a link group whose partner no longer spans the cut (e.g.
+        // the audio was deleted separately). The right half used to inherit that group, chaining every split
+        // piece into one link group — so a linked delete of any piece wiped the whole track, and a linked
+        // ripple delete removed everything instead of closing the gap.
+        (FakeEditorSession session, SprocketTools tools, Clip video, Clip audio) = await LinkedPair();
+        await tools.DeleteClip(RuntimeIds.IdOf(audio), includeLinked: false); // dangling group on the video
+
+        long cut = video.TimelineStart.Ticks + 120000;
+        JsonNode result = JsonNode.Parse(await tools.SplitClip(RuntimeIds.IdOf(video), cut))!;
+        Clip right = RuntimeIds.FindClip(session.Project, (int)result["right_clip_id"]!, out _)!;
+
+        Assert.Null(right.LinkGroupId); // no companion split with it → not linked to the left half
+        Assert.NotNull(video.LinkGroupId);
+
+        // A linked delete of the left half must not take the right half with it.
+        await tools.DeleteClip(RuntimeIds.IdOf(video));
+        Assert.Same(right, Assert.Single(session.Project.Timeline.VideoTracks.Single().Clips));
+    }
+
+    [Fact]
+    public async Task RippleDelete_On_A_Split_Piece_Closes_The_Gap_With_Linked_On()
+    {
+        // The user-visible half of the same regression: ripple-deleting one blade-split piece with linked
+        // deletion on must remove just that piece (and a real partner) and shift the rest left — not remove
+        // every piece and ripple nothing.
+        (FakeEditorSession session, SprocketTools tools, Clip video, Clip audio) = await LinkedPair();
+        await tools.DeleteClip(RuntimeIds.IdOf(audio), includeLinked: false);
+
+        long cut = video.TimelineStart.Ticks + 120000;
+        JsonNode result = JsonNode.Parse(await tools.SplitClip(RuntimeIds.IdOf(video), cut))!;
+        Clip right = RuntimeIds.FindClip(session.Project, (int)result["right_clip_id"]!, out _)!;
+        long start = video.TimelineStart.Ticks;
+
+        await tools.RippleDelete(RuntimeIds.IdOf(video)); // includeLinked defaults to true
+        Assert.Same(right, Assert.Single(session.Project.Timeline.VideoTracks.Single().Clips));
+        Assert.Equal(start, right.TimelineStart.Ticks); // shifted left into the deleted piece's span
+    }
+
+    [Fact]
     public async Task TrimClip_Trims_The_Linked_Partner_Too()
     {
         (FakeEditorSession _, SprocketTools tools, Clip video, Clip audio) = await LinkedPair();

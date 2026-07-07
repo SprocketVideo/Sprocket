@@ -554,7 +554,9 @@ public sealed class SplitClipCommand : EditCommand
     /// <summary>
     /// Prepares the split. <paramref name="rightLinkGroup"/> sets the new half's
     /// <see cref="Clip.LinkGroupId"/> (a linked blade gives every right half a fresh shared group so the two
-    /// sides stay independently linked); when omitted the right half inherits the original's group.
+    /// sides stay independently linked); when omitted the right half is unlinked. It must never inherit the
+    /// original's group: that group ties the left half to its companion, and a right half joining it would
+    /// chain every subsequent split into one group — so a linked delete of any piece would wipe them all.
     /// </summary>
     public SplitClipCommand(Track track, Clip clip, Timecode at, Guid? rightLinkGroup = null)
         : base("Split clip")
@@ -578,7 +580,7 @@ public sealed class SplitClipCommand : EditCommand
             : clip.CloneContentForSpan(_splitSource, clip.SourceOut, at);
         if (_right.IsHeld)
             _right.HoldDuration = clip.TimelineEnd - at;
-        _right.LinkGroupId = rightLinkGroup ?? clip.LinkGroupId;
+        _right.LinkGroupId = rightLinkGroup;
         foreach (EffectInstance e in clip.Effects)
             _right.Effects.Add(e.Clone());
     }
