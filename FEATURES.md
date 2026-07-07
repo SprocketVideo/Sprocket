@@ -29,14 +29,41 @@ only tracks whether a user guide covers it yet, not whether it exists.
   behavior, add or amend its row in the same change (new features start ❌).
   This complements PLAN.md's step markers: PLAN tracks *build order*, this file
   tracks *doc coverage*.
+- **App side (§0 rows):** when a change matches a §0 row's staleness trigger,
+  flip that row to 🟡/❌ in the same change with a one-line note of what
+  changed (e.g. "🟡 stale — new Ripple button in toolbar; quick tour
+  screenshot + text").
 - **Docs side (`../sprocket-docs`):** when a guide is written or extended,
   update the affected rows' Docs status and Docs columns in the same change.
+- **Docs side (§0 rows):** when a page listed in §0 is updated, bump its
+  Audited @ stamp to the app commit the update was checked against and reset
+  its Status, in the same change.
 - The section grouping below is the intended docs-site information
   architecture: new guides should map to one section (or a coherent slice).
 - Docs anchors listed here are load-bearing (see sprocket-docs/CLAUDE.md) —
   if one changes, fix it here too.
 
 ---
+
+## 0. Doc pages & cross-cutting sections
+
+Unlike feature rows, these track *pages/sections of the docs site* whose
+content spans many features — the getting-started guide, the quick tour, the
+shortcut reference, the landing page. Each row has its own audit stamp; a row
+goes stale when any feature it draws from changes, even if no single feature
+row below flips status. The **Staleness trigger** column states the condition
+in terms an app-side committer can check against their diff.
+
+| Page / section | Draws from | Staleness trigger | Audited @ | Status |
+|---|---|---|---|---|
+| getting-started.md (whole guide) | §§1–4, 6, 7, 9 (everyday subset) | a *common-task* workflow changes, or a new feature belongs in the everyday path | 92226ec | ✅ current |
+| getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 92226ec | ✅ current |
+| getting-started.md#keyboard-shortcuts-worth-knowing | §12 | any shortcut in the curated table changes | 92226ec | ✅ current |
+| Keyboard shortcut reference (full page) | §12; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | — | ❌ missing |
+| index.md (landing page) | guide list | a guide is added/renamed | c86c921 | ✅ current |
+| editing-on-the-timeline.md | §4 | any timeline tool/behavior changes | 92226ec | ✅ current |
+| color-grading.md | §§6–7 (color subset) | grading effects, scopes, or wheel UI change | 92226ec | ✅ current |
+| ai-control.md | §13 (+ §11 MCP settings, §7 effect tags) | the MCP tool surface, Preferences AI section, setup command, status-bar indicator, or effect-tag UI changes | c86c921 | ✅ current |
 
 ## 1. Application window & layout
 
@@ -151,7 +178,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Log footage: Input Color Transform (DJI D-Log family via vendor LUT; ARRI LogC3/LogC4, Sony S-Log3, Panasonic V-Log, Canon C-Log3, Blackmagic Film Gen 5, Fujifilm F-Log2, Nikon N-Log via math curve), ACES Filmic | EffectCatalog.cs; PLAN.md steps 37, 52 | color-grading.md#log-footage-input-color-transform-and-aces-filmic | ✅ |
 | Inspector: sections, sliders/numeric entry, remove effect | Sprocket.App/Inspector/InspectorPanel.cs | getting-started.md#3-select-a-clip | 🟡 (sliders/typing covered; the typed controls — checkbox toggles for on/off params (keyframeable, hold-stepped), dropdowns for choices, integer-snapped sliders, unit-aware typing like "1.5 EV" — are new and undocumented) |
 | Enable/bypass an effect (green status LED in the effect header; parameters kept while bypassed) | InspectorPanel.cs `BuildEffectSection`; ModelCommands.cs `SetEffectEnabledCommand` | — | ❌ |
-| Effect reference tags (unique per-instance tag chip in the effect header, e.g. RV-1 — how AI/MCP clients address an effect) | Sprocket.Core/Model/EffectTags.cs; InspectorPanel.cs | — | ❌ |
+| Effect reference tags (unique per-instance tag chip in the effect header, e.g. RV-1 — how AI/MCP clients address an effect) | Sprocket.Core/Model/EffectTags.cs; InspectorPanel.cs | ai-control.md#effect-reference-tags | ✅ |
 | Effect parameter tooltips (hover a parameter label for a plain-language description) | EffectCatalog.cs `EffectParameterDescriptor.Description`; InspectorPanel.cs | — | ❌ |
 | Reorder effects in the stack (drag a section header; Move Up/Down context menu) | InspectorPanel.cs; ModelCommands.cs `MoveChainEffectCommand`; PLAN.md step 51 | — | ❌ |
 | Inspector: Expand All / Collapse All section buttons (pane header) | MainWindow.axaml `InspectorExpandAllButton`; InspectorPanel.cs `SetAllSectionsExpanded` | — | ❌ |
@@ -213,7 +240,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Export metadata defaults | PreferencesDialog.cs | — | ❌ |
 | Autosave interval | PreferencesDialog.cs | — | ❌ |
 | Update check settings (enable/disable) | PreferencesDialog.cs; Sprocket.App/UpdateService.cs | — | ❌ |
-| AI control (MCP) settings | PreferencesDialog.cs | — | ❌ (cover within the AI-control guide — see §13) |
+| AI control (MCP) settings | PreferencesDialog.cs | ai-control.md#turn-on-ai-control | ✅ |
 
 ## 12. Keyboard shortcuts
 
@@ -229,12 +256,12 @@ Preferences or an "advanced" page.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Enable AI control (Edit ▸ Preferences, or `--mcp` / `--mcp-port` flags) | Sprocket.App/PreferencesDialog.cs; CliOptions.cs | — | ❌ |
-| Connect an AI client (Copy setup command, bearer token, loopback security model) | PreferencesDialog.cs; McpServerService.cs | — | ❌ |
-| What AI can do: the tool surface (~50 tools — edit, effects, markers, export, transport) | Sprocket.Mcp/SprocketTools*.cs; PLAN.md step 38 | — | ❌ (needs a reference list, like export formats) |
-| AI edits are undoable (route through the same undo stack) | Sprocket.Mcp/McpEditorSession.cs | — | ❌ (key trust point — state it explicitly) |
-| Address effects by reference tag (effect_tag, e.g. RV-1 — stable across reorders; shown as the Inspector tag chip) | Sprocket.Core/Model/EffectTags.cs; Sprocket.Mcp/SprocketTools*.cs `ResolveEffect` | — | ❌ |
-| MCP status in the status bar | MainWindow.axaml.cs `UpdateMcpStatus` | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named in the quick tour; not explained) |
+| Enable AI control (Edit ▸ Preferences, or `--mcp` / `--mcp-port` flags) | Sprocket.App/PreferencesDialog.cs; CliOptions.cs | ai-control.md#turn-on-ai-control + #starting-from-the-command-line | ✅ |
+| Connect an AI client (Copy setup command, bearer token, loopback security model) | PreferencesDialog.cs; McpServerService.cs | ai-control.md#connect-an-ai-client + #require-a-bearer-token | ✅ |
+| What AI can do: the tool surface (~70 tools — edit, effects, markers, export, transport) | Sprocket.Mcp/SprocketTools*.cs; PLAN.md step 38 | ai-control.md#what-ai-can-do-the-tool-reference | ✅ |
+| AI edits are undoable (route through the same undo stack) | Sprocket.Mcp/McpEditorSession.cs | ai-control.md#ai-edits-are-undoable | ✅ |
+| Address effects by reference tag (effect_tag, e.g. RV-1 — stable across reorders; shown as the Inspector tag chip) | Sprocket.Core/Model/EffectTags.cs; Sprocket.Mcp/SprocketTools*.cs `ResolveEffect` | ai-control.md#effect-reference-tags | ✅ |
+| MCP status in the status bar | MainWindow.axaml.cs `UpdateMcpStatus` | ai-control.md#the-status-bar-tells-you-when-its-on | ✅ (also named in the quick tour) |
 | Open a media file from the command line (bare arg) | Sprocket.App/Program.cs | — | ❌ |
 | Diagnostics: `--version`, `--ffmpeg-check`, `--probe` | Program.cs | — | 🟡 (`--probe` appears in RELEASE_NOTES bug-report instructions only; docs site says nothing) |
 
