@@ -192,11 +192,16 @@ public static class StateFormatter
             ["min"] = p.Min,
             ["max"] = p.Max,
             ["step"] = p.Step,
+            // The control kind (continuous / toggle / integer / dropdown) so a client knows a parameter
+            // takes discrete values — a toggle is 0/1, a dropdown value is an index into "choices".
+            ["kind"] = p.Kind.ToString().ToLowerInvariant(),
         };
         if (p.Unit is { } unit)
             obj["unit"] = unit;
         if (p.Description is { } description)
             obj["description"] = description;
+        if (p.Choices is { Count: > 0 } choices)
+            obj["choices"] = new JsonArray(choices.Select(c => (JsonNode?)c).ToArray());
         return obj;
     }
 

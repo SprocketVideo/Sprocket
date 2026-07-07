@@ -14,12 +14,36 @@ public enum EffectCategory
 }
 
 /// <summary>
+/// The control a parameter descriptor asks the Inspector to build. The kind is always declared
+/// explicitly on the descriptor — it is never inferred from <c>Min</c>/<c>Max</c>/<c>Step</c>, because
+/// genuinely continuous parameters (Rotation, Temperature, delay times…) also use a step of 1.
+/// </summary>
+public enum ParameterKind
+{
+    /// <summary>A continuous scalar — slider + numeric entry (the default).</summary>
+    Continuous,
+
+    /// <summary>An on/off flag stored as 0/1 and read with a ≥ 0.5 threshold — a checkbox; keyframes
+    /// use <see cref="Interpolation.Hold"/> so the value never interpolates through the threshold.</summary>
+    Toggle,
+
+    /// <summary>A whole-number scalar — slider snapped to integers; new keyframes default to
+    /// <see cref="Interpolation.Hold"/> but may be re-eased.</summary>
+    Integer,
+
+    /// <summary>A choice from <see cref="EffectParameterDescriptor.Choices"/> stored as its index —
+    /// a dropdown; constant-only (not keyframeable).</summary>
+    Dropdown,
+}
+
+/// <summary>
 /// A type-driven description of one editable effect parameter (PLAN.md step 16): its stable name (matches
 /// the key in <see cref="EffectInstance.Parameters"/>), a display label, the default value a fresh instance
-/// gets, the slider range, an editing step for numeric nudge, an optional unit suffix, and an optional
-/// one-line description shown as the label's tooltip. The Inspector builds a slider + numeric editor per
-/// descriptor, so a new effect's UI falls out of its registration with no bespoke control code (and a
-/// plugin gets the same treatment, ARCHITECTURE.md §4).
+/// gets, the slider range, an editing step for numeric nudge, an optional unit suffix, an optional
+/// one-line description shown as the label's tooltip, and the control kind the Inspector should build
+/// (with the choice labels when the kind is <see cref="ParameterKind.Dropdown"/>). The Inspector builds
+/// the control per descriptor, so a new effect's UI falls out of its registration with no bespoke
+/// control code (and a plugin gets the same treatment, ARCHITECTURE.md §4).
 /// </summary>
 /// <param name="Name">The parameter key (matches <see cref="EffectParamNames"/>).</param>
 /// <param name="DisplayName">Human-readable label shown in the Inspector.</param>
@@ -30,6 +54,10 @@ public enum EffectCategory
 /// <param name="Unit">Optional unit suffix for display (e.g. <c>"°"</c>, <c>"EV"</c>).</param>
 /// <param name="Description">One-line plain-language explanation of what the parameter does, shown as the
 /// Inspector label's tooltip (and surfaced to MCP clients). <see langword="null"/> = no tooltip.</param>
+/// <param name="Kind">The control the Inspector builds for this parameter (default
+/// <see cref="ParameterKind.Continuous"/>).</param>
+/// <param name="Choices">Display labels for a <see cref="ParameterKind.Dropdown"/> parameter, indexed by
+/// the parameter's value; <see langword="null"/> for every other kind.</param>
 public sealed record EffectParameterDescriptor(
     string Name,
     string DisplayName,
@@ -38,7 +66,9 @@ public sealed record EffectParameterDescriptor(
     double Max,
     double Step = 0.01,
     string? Unit = null,
-    string? Description = null);
+    string? Description = null,
+    ParameterKind Kind = ParameterKind.Continuous,
+    IReadOnlyList<string>? Choices = null);
 
 /// <summary>
 /// A named factory preset for an effect (PLAN.md step 41): the parameter values that give a recognisable
@@ -264,7 +294,8 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.Exposure, "Exposure", 0.0, -3.0, 3.0, 0.1, "EV",
                     "Brightens or darkens the keyed pixels, in photographic stops."),
                 new EffectParameterDescriptor(EffectParamNames.ShowMask, "Show Mask", 0.0, 0.0, 1.0, 1.0,
-                    Description: "Shows the key as a black-and-white matte instead of the graded image."),
+                    Description: "Shows the key as a black-and-white matte instead of the graded image.",
+                    Kind: ParameterKind.Toggle),
             ]) { ShortCode = "HQ" },
 
         new EffectDescriptor(
@@ -275,7 +306,8 @@ public static class EffectCatalog
             [
                 new EffectParameterDescriptor(EffectParamNames.SourceProfile, "Source Profile",
                     0.0, 0.0, ColorProfiles.All.Count - 1, 1.0,
-                    Description: "The camera log profile the footage was recorded in."),
+                    Description: "The camera log profile the footage was recorded in.",
+                    Kind: ParameterKind.Dropdown, Choices: ColorProfiles.DisplayNames),
             ]) { ShortCode = "CT" },
 
         new EffectDescriptor(
@@ -519,7 +551,8 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05,
                     Description: "How much of each repeat feeds back — higher = more repeats."),
                 new EffectParameterDescriptor(EffectParamNames.PingPong, "Ping Pong", 0.0, 0.0, 1.0, 1.0,
-                    Description: "Bounces the repeats alternately between left and right."),
+                    Description: "Bounces the repeats alternately between left and right.",
+                    Kind: ParameterKind.Toggle),
                 new EffectParameterDescriptor(EffectParamNames.CrossFeed, "Cross-Feed", 1.0, 0.0, 1.0, 0.05,
                     Description: "How much each channel's repeats bleed into the other side."),
                 new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
@@ -561,7 +594,7 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.LowSlope, "Low Slope", 1.0, 0.1, 2.0, 0.05,
                     Description: "Steepness of the low shelf's transition."),
                 new EffectParameterDescriptor(EffectParamNames.LowEnable, "Low Shelf", 1.0, 0.0, 1.0, 1.0,
-                    Description: "Enables the low shelf."),
+                    Description: "Enables the low shelf.", Kind: ParameterKind.Toggle),
                 new EffectParameterDescriptor(EffectParamNames.HighFreq, "High Freq", 8000.0, 2000.0, 16000.0, 100.0, "Hz",
                     "Corner frequency of the high shelf."),
                 new EffectParameterDescriptor(EffectParamNames.HighGainDb, "High Gain", 0.0, -15.0, 15.0, 0.5, "dB",
@@ -569,7 +602,7 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.HighSlope, "High Slope", 1.0, 0.1, 2.0, 0.05,
                     Description: "Steepness of the high shelf's transition."),
                 new EffectParameterDescriptor(EffectParamNames.HighEnable, "High Shelf", 1.0, 0.0, 1.0, 1.0,
-                    Description: "Enables the high shelf."),
+                    Description: "Enables the high shelf.", Kind: ParameterKind.Toggle),
             ]) { ShortCode = "SE" },
 
         // ── Shimmer Reverb (PLAN.md step 50) — the "Creative Reverb ▸ shimmer" tier as its own effect. ──
@@ -582,7 +615,8 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.ShimmerAmount, "Shimmer", 0.5, 0.0, 1.0, 0.05,
                     Description: "How much pitched-up signal feeds the tail — higher = more ethereal."),
                 new EffectParameterDescriptor(EffectParamNames.ShimmerInterval, "Interval", 12.0, 1.0, 12.0, 1.0, "st",
-                    "Pitch shift of the shimmer path, in semitones (12 = one octave up)."),
+                    "Pitch shift of the shimmer path, in semitones (12 = one octave up).",
+                    Kind: ParameterKind.Integer),
                 new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05,
                     Description: "Apparent size of the simulated space."),
                 new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 4.0, 0.1, 20.0, 0.1, "s",
@@ -641,7 +675,7 @@ public static class EffectCatalog
             int tap = i + 1;
             parameters[i * 4 + 0] = new EffectParameterDescriptor(
                 EffectParamNames.TapEnable[i], $"Tap {tap}", i < 2 ? 1.0 : 0.0, 0.0, 1.0, 1.0,
-                Description: $"Enables tap {tap}.");
+                Description: $"Enables tap {tap}.", Kind: ParameterKind.Toggle);
             parameters[i * 4 + 1] = new EffectParameterDescriptor(
                 EffectParamNames.TapTimeMs[i], $"Tap {tap} Time", 150.0 * tap, 1.0, 2000.0, 1.0, "ms",
                 $"Delay time of tap {tap}.");

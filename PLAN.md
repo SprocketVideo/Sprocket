@@ -672,6 +672,33 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         `SPROCKET_APP_SECONDS=5` smoke launch starts the shell with the Inspector wired and tears down cleanly
         (exit 0). Full suite: **241 tests green** (Core 84, Media 24, Render 16, Audio 16, Playback 31, Export 6,
         Persistence 12, App 52).
+      - **✅ FOLLOW-ON (2026-07-07): typed parameter-control kinds.** `EffectParameterDescriptor` gained an
+        explicit **`ParameterKind`** (`Continuous` / `Toggle` / `Integer` / `Dropdown`, plus `Choices` labels for
+        dropdowns — declared per descriptor, never inferred from Min/Max/Step, since continuous params like
+        Rotation also step by 1) and the Inspector dispatches on it: **toggles render as checkboxes**
+        (ShowMask, Ping Pong, Low/High Shelf, Tap 1–8 enables) and stay **keyframeable with Hold-pinned
+        interpolation** (`AnimatableEditing` upserts Hold keys; the lane is `HoldOnly` — no easing cycle, no
+        velocity graph — so a keyframed boolean flips hard at each key instead of ramping through the DSP's
+        ≥ 0.5 threshold, matching how Resolve/Premiere hold-step boolean params); **dropdowns** generalize the
+        step-37 profile combo into a descriptor-driven, constant-only row (the ColorTransform special case was
+        deleted); **integer params** (Shimmer Interval) snap the slider and round commits, defaulting new keys
+        to Hold but still easeable. The numeric box's silent-revert bug was fixed with a unit-aware parse
+        (`InspectorFormat.TryParseValue` accepts the displayed `"1.5 EV"` / `"90°"` shapes). MCP mirrors the
+        policy (`kind`/`choices` in `list_effect_types`; discrete values snap; toggle/dropdown keyframes coerce
+        to Hold). Zero persistence impact (descriptor metadata is never serialized). Tests: Core catalog-kind
+        invariants, App parse/Hold-editing, MCP kind emission + coercion — all green.
+      - **✅ FOLLOW-ON (2026-07-07): Color Wheels trackballs.** The step-34 Color Wheels section replaced its
+        twelve stacked sliders with **three Resolve-style wheels** (Lift / Gamma / Gain side by side): a hue
+        disc + draggable puck per wheel (drag to tint, **Shift = 0.1× fine**, **double-click recentres**), the
+        master slider beneath each, and the R/G/B rows in a collapsed **Channels** expander so all twelve
+        params stay individually keyframeable. Pure `ColorWheelMath` maps puck ↔ zero-sum R/G/B tint on
+        vectorscope axes (R 0° / G 120° / B 240°), **preserving the channels' mean** so a puck move never
+        destroys a slider tweak (the mean is the master's axis — exactly how the shader sums master +
+        channel); a puck move commits one `CompositeCommand` of the three channel sets, which merges
+        child-wise across the drag scope → **one undo entry per drag**, keyframes upserted at the playhead
+        when a channel is animated. The wheel is an Inspector composite editor dispatched by effect id
+        (promote to descriptor group metadata if plugins ever need wheels). Round-trip/axis/clamp math tests
+        green.
 16b. **Direct-manipulation editing & keyframe editor (follow-on to 15/16).** The conveniences that the
     bin + inspector + timeline make obvious but that steps 15/16 deferred. Lands entirely on existing
     seams + commands ([ARCHITECTURE §17](ARCHITECTURE.md)) — no model redesign:

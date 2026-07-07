@@ -16,26 +16,42 @@ public static class AnimatableEditing
     /// <summary>
     /// The new value for a slider/numeric edit at <paramref name="time"/>. A constant value is replaced with a
     /// new constant; an animated value gets a keyframe upserted at <paramref name="time"/> (so editing scrubs a
-    /// keyframe in at the playhead, the standard NLE gesture).
+    /// keyframe in at the playhead, the standard NLE gesture). <paramref name="mode"/> is the interpolation a
+    /// newly created keyframe gets; discrete parameter kinds pass <see cref="Interpolation.Hold"/> (see
+    /// <see cref="DefaultInterpolation"/>), which also rewrites a replaced keyframe's mode so a toggle can
+    /// never keep a stale eased key.
     /// </summary>
-    public static AnimatableValue SetValueAt(AnimatableValue current, Timecode time, double value)
+    public static AnimatableValue SetValueAt(AnimatableValue current, Timecode time, double value,
+        Interpolation mode = Interpolation.Linear)
     {
         ArgumentNullException.ThrowIfNull(current);
-        return current.IsAnimated ? UpsertKeyframe(current, time, value) : AnimatableValue.Constant(value);
+        return current.IsAnimated ? UpsertKeyframe(current, time, value, mode) : AnimatableValue.Constant(value);
     }
 
     /// <summary>
     /// Turns a constant value into an animated one with a single keyframe at <paramref name="time"/> carrying
     /// the current (evaluated) value — the "start keyframing" affordance. An already-animated value is returned
-    /// unchanged.
+    /// unchanged. <paramref name="mode"/> is the new keyframe's interpolation.
     /// </summary>
-    public static AnimatableValue EnableKeyframing(AnimatableValue current, Timecode time)
+    public static AnimatableValue EnableKeyframing(AnimatableValue current, Timecode time,
+        Interpolation mode = Interpolation.Linear)
     {
         ArgumentNullException.ThrowIfNull(current);
         if (current.IsAnimated)
             return current;
-        return AnimatableValue.Animated([new Keyframe(time, current.Evaluate(time), Interpolation.Linear)]);
+        return AnimatableValue.Animated([new Keyframe(time, current.Evaluate(time), mode)]);
     }
+
+    /// <summary>
+    /// The interpolation new keyframes get for a parameter of <paramref name="kind"/>: Hold for the discrete
+    /// kinds (a fractional toggle/index is never meaningful — and the DSP reads booleans with a ≥ 0.5
+    /// threshold), Linear for continuous scalars.
+    /// </summary>
+    public static Interpolation DefaultInterpolation(ParameterKind kind) => kind switch
+    {
+        ParameterKind.Toggle or ParameterKind.Integer or ParameterKind.Dropdown => Interpolation.Hold,
+        _ => Interpolation.Linear,
+    };
 
     /// <summary>
     /// Collapses an animated value back to a constant equal to its value at <paramref name="time"/> — the
@@ -49,14 +65,17 @@ public static class AnimatableEditing
 
     /// <summary>
     /// Inserts or replaces the keyframe at <paramref name="time"/> on an animated value, preserving every other
-    /// keyframe (and the edited keyframe's interpolation mode when it already existed). A constant value becomes
-    /// animated with this single keyframe.
+    /// keyframe. A replaced keyframe keeps its interpolation — except when <paramref name="mode"/> is
+    /// <see cref="Interpolation.Hold"/>, which overwrites it (discrete kinds must never keep a stale eased
+    /// key). A new keyframe gets <paramref name="mode"/>. A constant value becomes animated with this single
+    /// keyframe.
     /// </summary>
-    public static AnimatableValue UpsertKeyframe(AnimatableValue current, Timecode time, double value)
+    public static AnimatableValue UpsertKeyframe(AnimatableValue current, Timecode time, double value,
+        Interpolation mode = Interpolation.Linear)
     {
         ArgumentNullException.ThrowIfNull(current);
         if (!current.IsAnimated)
-            return AnimatableValue.Animated([new Keyframe(time, value, Interpolation.Linear)]);
+            return AnimatableValue.Animated([new Keyframe(time, value, mode)]);
 
         var keyframes = new List<Keyframe>(current.Keyframes.Count + 1);
         bool replaced = false;
@@ -64,7 +83,9 @@ public static class AnimatableEditing
         {
             if (k.Time.Ticks == time.Ticks)
             {
-                keyframes.Add(k with { Value = value });
+                keyframes.Add(mode == Interpolation.Hold
+                    ? k with { Value = value, Interpolation = Interpolation.Hold }
+                    : k with { Value = value });
                 replaced = true;
             }
             else
@@ -74,7 +95,7 @@ public static class AnimatableEditing
         }
 
         if (!replaced)
-            keyframes.Add(new Keyframe(time, value, Interpolation.Linear));
+            keyframes.Add(new Keyframe(time, value, mode));
 
         return AnimatableValue.Animated(keyframes);
     }

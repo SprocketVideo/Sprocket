@@ -85,13 +85,21 @@ public sealed class KeyframeLane : Control
         DoubleTapped += OnDoubleTappedHandler;
     }
 
+    /// <summary>
+    /// Pins every keyframe to <see cref="Interpolation.Hold"/> — set for discrete parameter kinds
+    /// (<see cref="ParameterKind.Toggle"/>), whose values must never interpolate. Double-click stops cycling
+    /// interpolation modes, keyframes added by the lane are Hold, and <see cref="GraphMode"/> can't be
+    /// entered (a step function has no velocity curve worth editing).
+    /// </summary>
+    public bool HoldOnly { get; set; }
+
     /// <summary>Whether the lane shows the value graph (with draggable Bezier handles) or the compact strip.</summary>
     public bool GraphMode
     {
         get => _graphMode;
         set
         {
-            if (_graphMode == value)
+            if (_graphMode == value || (value && HoldOnly))
                 return;
             _graphMode = value;
             Height = value ? GraphHeight : StripHeight;
@@ -520,6 +528,9 @@ public sealed class KeyframeLane : Control
         if (index >= 0)
         {
             // Cycle the keyframe's interpolation mode (Linear → Ease In → Ease Out → Ease In/Out → Bezier → Hold → …).
+            // Hold-only lanes (discrete parameters) don't cycle — Hold is the only valid mode.
+            if (HoldOnly)
+                return;
             Keyframe k = _value.Keyframes[index];
             Edited?.Invoke(AnimatableEditing.CycleInterpolation(_value, k.Time), false);
         }
@@ -532,7 +543,8 @@ public sealed class KeyframeLane : Control
             double value = _graphMode
                 ? KeyframeGraphMath.ValueForY(p.Y - VPad, _valueMin, _valueMax, GraphDrawable)
                 : _value.Evaluate(t);
-            Edited?.Invoke(AnimatableEditing.UpsertKeyframe(_value, t, value), false);
+            Edited?.Invoke(AnimatableEditing.UpsertKeyframe(_value, t, value,
+                HoldOnly ? Interpolation.Hold : Interpolation.Linear), false);
         }
         e.Handled = true;
     }

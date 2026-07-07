@@ -30,6 +30,86 @@ public class InspectorTests
         Assert.Equal("1.5 EV", InspectorFormat.Value(1.5, "EV")); // other units are spaced
     }
 
+    // ── InspectorFormat.TryParseValue: the numeric box's unit-aware commit parse ─────────────────────────
+
+    [Theory]
+    [InlineData("1.5", null, 1.5)]
+    [InlineData("  -2.25  ", null, -2.25)]
+    [InlineData("1.5 EV", "EV", 1.5)]       // exactly what InspectorFormat.Value displays
+    [InlineData("1.5EV", "EV", 1.5)]        // no space
+    [InlineData("1.5 ev", "EV", 1.5)]       // any case
+    [InlineData("90°", "°", 90)]            // degrees abut the number
+    [InlineData("12 st", "st", 12)]
+    [InlineData("-40.5 dB", "dB", -40.5)]
+    [InlineData("42", "ms", 42)]            // bare number for a unit-bearing param
+    [InlineData("12 semitones", "st", 12)]  // unknown suffix → leading numeric token
+    public void TryParseValue_Accepts_Displayed_And_Bare_Values(string text, string? unit, double expected)
+    {
+        Assert.True(InspectorFormat.TryParseValue(text, unit, out double v));
+        Assert.Equal(expected, v, 5);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", "EV")]
+    [InlineData("   ", null)]
+    [InlineData("abc", "EV")]
+    [InlineData("EV", "EV")] // unit only, no number
+    public void TryParseValue_Rejects_NonNumeric(string? text, string? unit) =>
+        Assert.False(InspectorFormat.TryParseValue(text, unit, out _));
+
+    // ── AnimatableEditing: Hold mode for discrete parameter kinds ────────────────────────────────────────
+
+    [Fact]
+    public void DefaultInterpolation_Is_Hold_For_Discrete_Kinds()
+    {
+        Assert.Equal(Interpolation.Hold, AnimatableEditing.DefaultInterpolation(ParameterKind.Toggle));
+        Assert.Equal(Interpolation.Hold, AnimatableEditing.DefaultInterpolation(ParameterKind.Integer));
+        Assert.Equal(Interpolation.Hold, AnimatableEditing.DefaultInterpolation(ParameterKind.Dropdown));
+        Assert.Equal(Interpolation.Linear, AnimatableEditing.DefaultInterpolation(ParameterKind.Continuous));
+    }
+
+    [Fact]
+    public void EnableKeyframing_Hold_Creates_A_Hold_Keyframe()
+    {
+        AnimatableValue result = AnimatableEditing.EnableKeyframing(
+            AnimatableValue.Constant(1.0), Timecode.FromSeconds(1), Interpolation.Hold);
+        Assert.Equal(Interpolation.Hold, Assert.Single(result.Keyframes).Interpolation);
+    }
+
+    [Fact]
+    public void UpsertKeyframe_Hold_Creates_Hold_Keyframes()
+    {
+        AnimatableValue result = AnimatableEditing.SetValueAt(
+            AnimatableEditing.EnableKeyframing(AnimatableValue.Constant(0.0), Timecode.Zero, Interpolation.Hold),
+            Timecode.FromSeconds(1), 1.0, Interpolation.Hold);
+        Assert.All(result.Keyframes, k => Assert.Equal(Interpolation.Hold, k.Interpolation));
+        // The whole point: a keyframed toggle flips hard at the key, never interpolating through 0.5.
+        Assert.Equal(0.0, result.Evaluate(Timecode.FromSeconds(0.999)), 5);
+        Assert.Equal(1.0, result.Evaluate(Timecode.FromSeconds(1)), 5);
+    }
+
+    [Fact]
+    public void UpsertKeyframe_Hold_Rewrites_A_Replaced_Keyframes_Interpolation()
+    {
+        AnimatableValue linear = AnimatableValue.Animated(
+            [new Keyframe(Timecode.FromSeconds(1), 0.0, Interpolation.Linear)]);
+        AnimatableValue result = AnimatableEditing.UpsertKeyframe(
+            linear, Timecode.FromSeconds(1), 1.0, Interpolation.Hold);
+        Keyframe k = Assert.Single(result.Keyframes);
+        Assert.Equal(Interpolation.Hold, k.Interpolation); // a toggle never keeps a stale eased key
+        Assert.Equal(1.0, k.Value);
+    }
+
+    [Fact]
+    public void UpsertKeyframe_Linear_Preserves_A_Replaced_Keyframes_Interpolation()
+    {
+        AnimatableValue eased = AnimatableValue.Animated(
+            [new Keyframe(Timecode.FromSeconds(1), 0.0, Interpolation.EaseInOut)]);
+        AnimatableValue result = AnimatableEditing.UpsertKeyframe(eased, Timecode.FromSeconds(1), 1.0);
+        Assert.Equal(Interpolation.EaseInOut, Assert.Single(result.Keyframes).Interpolation);
+    }
+
     // ── AnimatableEditing: scalar set ───────────────────────────────────────────────────────────────────
 
     [Fact]

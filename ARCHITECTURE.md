@@ -528,7 +528,9 @@ directory and preferred when present; missing media loads offline rather than fa
 
 - **The contract is declarative and lives in Core** (`Sprocket.Core/Rendering/IVideoEffect.cs`): an
   `IVideoEffect` supplies its `EffectDescriptor` (id, display name, category, typed parameter
-  descriptors — the Inspector builds its UI from these), its **SkSL source** (must declare
+  descriptors — the Inspector builds its UI from these, including each parameter's declared control
+  **kind**: continuous/integer slider, checkbox toggle with Hold-only keyframes, or a dropdown over
+  the descriptor's choice labels), its **SkSL source** (must declare
   `uniform shader src;` and operate on premultiplied colour), and a per-frame `BindUniforms` over the
   GPU-agnostic `IUniformWriter`. The Render layer owns compilation/execution
   (`SkiaEffectPipeline.RegisterEffect` — a process-wide registry the effect-chain `switch` falls back

@@ -188,8 +188,10 @@ public sealed partial class SprocketTools
     [Description("Animates one parameter of a clip's effect with a list of keyframes (replacing the " +
                  "parameter's previous value or keyframes). Keyframe times are relative to the clip's " +
                  "timeline start; interpolation per keyframe is Hold, Linear (default), EaseIn, EaseOut, or " +
-                 "EaseInOut. Use set_effect_parameter for a constant instead. Identify the effect by " +
-                 "effect_tag (preferred — stable across reorders) or effect_index.")]
+                 "EaseInOut. Discrete parameter kinds (see list_effect_types) get their values rounded; " +
+                 "toggle/dropdown keyframes are always Hold, and integer keyframes default to Hold. Use " +
+                 "set_effect_parameter for a constant instead. Identify the effect by effect_tag (preferred " +
+                 "— stable across reorders) or effect_index.")]
     public Task<string> SetEffectParameterKeyframes(
         [Description("clip_id of the clip carrying the effect.")] int clipId,
         [Description("Parameter name, e.g. \"opacity\".")] string parameter,
@@ -203,16 +205,26 @@ public sealed partial class SprocketTools
             if (keyframes is null || keyframes.Length == 0)
                 throw new McpException("pass at least one keyframe.");
 
+            // Discrete kinds keep their keyframes honest: values snap, and toggles/dropdowns are always
+            // Hold (Linear/eased would interpolate a boolean through the DSP's ≥ 0.5 threshold); integers
+            // default to Hold but honour an explicit ease.
+            EffectParameterDescriptor? descriptor = FindParameter(effect, parameter);
+            ParameterKind kind = descriptor?.Kind ?? ParameterKind.Continuous;
+            Interpolation fallback = kind == ParameterKind.Continuous ? Interpolation.Linear : Interpolation.Hold;
+
             var points = new List<Keyframe>(keyframes.Length);
             foreach (KeyframeInput k in keyframes)
             {
-                Interpolation interpolation = Interpolation.Linear;
+                Interpolation interpolation = fallback;
                 if (!string.IsNullOrWhiteSpace(k.Interpolation)
                     && !Enum.TryParse(k.Interpolation, ignoreCase: true, out interpolation))
                     throw new McpException(
                         $"unknown interpolation '{k.Interpolation}' — use Hold, Linear, EaseIn, EaseOut, or EaseInOut.");
+                if (kind is ParameterKind.Toggle or ParameterKind.Dropdown)
+                    interpolation = Interpolation.Hold;
                 points.Add(new Keyframe(
-                    clip.TimelineStart + new Timecode(k.ClipOffsetTicks), k.Value, interpolation));
+                    clip.TimelineStart + new Timecode(k.ClipOffsetTicks),
+                    CoerceParameterValue(descriptor, k.Value), interpolation));
             }
 
             api.History.Execute(new SetEffectParameterCommand(

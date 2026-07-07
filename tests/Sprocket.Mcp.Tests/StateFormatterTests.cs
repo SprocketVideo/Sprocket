@@ -93,6 +93,30 @@ public class StateFormatterTests
     }
 
     [Fact]
+    public void EffectTypes_Expose_Parameter_Kinds_And_Dropdown_Choices()
+    {
+        string json = StateFormatter.EffectTypes()!;
+        JsonArray effects = JsonNode.Parse(json)!["effect_types"]!.AsArray();
+
+        // A continuous scalar declares its kind (and has no choices).
+        JsonNode amount = effects.Single(e => (string)e!["type_id"]! == EffectTypeIds.Brightness)!
+            ["parameters"]!.AsArray().Single(p => (string)p!["name"]! == EffectParamNames.Amount)!;
+        Assert.Equal("continuous", (string)amount["kind"]!);
+        Assert.Null(amount["choices"]);
+
+        // A toggle is marked so a client knows it's 0/1.
+        JsonNode showMask = effects.Single(e => (string)e!["type_id"]! == EffectTypeIds.HslQualifier)!
+            ["parameters"]!.AsArray().Single(p => (string)p!["name"]! == EffectParamNames.ShowMask)!;
+        Assert.Equal("toggle", (string)showMask["kind"]!);
+
+        // A dropdown carries the choice labels its value indexes into.
+        JsonNode profile = effects.Single(e => (string)e!["type_id"]! == EffectTypeIds.ColorTransform)!
+            ["parameters"]!.AsArray().Single(p => (string)p!["name"]! == EffectParamNames.SourceProfile)!;
+        Assert.Equal("dropdown", (string)profile["kind"]!);
+        Assert.Equal(ColorProfiles.DisplayNames.Count, profile["choices"]!.AsArray().Count);
+    }
+
+    [Fact]
     public void HistoryState_Reports_Labels_And_The_Performed_Note()
     {
         var history = new EditHistory();

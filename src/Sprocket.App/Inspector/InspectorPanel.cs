@@ -870,10 +870,11 @@ public sealed class InspectorPanel : UserControl
         if (parameters.Count == 0)
             rows.Children.Add(new TextBlock { Text = "No editable parameters.", FontSize = 11, Foreground = FaintText });
 
-        // The input color transform's profile is an enum, not a slider scalar — a dropdown over the
-        // known log profiles (PLAN.md step 37) replaces the auto-generated numeric row.
-        if (effect.EffectTypeId == EffectTypeIds.ColorTransform)
-            rows.Children.Add(BuildColorProfileRow(effect));
+        // The three-way grade is a composite control over four parameters per wheel, which the per-param
+        // descriptor model can't express — so Color Wheels gets Resolve-style trackballs instead of twelve
+        // stacked sliders. (If plugins ever need wheels, promote this to descriptor group metadata.)
+        if (effect.EffectTypeId == EffectTypeIds.ColorWheels)
+            BuildColorWheelsRows(effect, rows);
         else
             foreach (EffectParameterDescriptor p in parameters)
                 rows.Children.Add(BuildParamRow(effect, p));
@@ -1125,10 +1126,6 @@ public sealed class InspectorPanel : UserControl
 
     private static string PeakDbText(double db) => double.IsNegativeInfinity(db) ? "-∞" : $"{db:0.0}";
 
-    /// <summary>The input-transform profile dropdown (PLAN.md step 37): selects which log encoding the source
-    /// was shot in (<see cref="ColorProfiles"/>), committing the effect's numeric
-    /// <see cref="EffectParamNames.SourceProfile"/> index through the command stack. Auto-detected clips arrive
-    /// pre-set; this row is the manual per-clip tag / override.</summary>
     /// <summary>The preset picker row (PLAN.md step 41): selecting a preset applies its parameter values as one
     /// <see cref="CompositeCommand"/> — a single undo entry. Parameters a preset omits (e.g. Mix) keep their
     /// current value, so switching character preserves the user's wet/dry blend.</summary>
@@ -1155,36 +1152,6 @@ public sealed class InspectorPanel : UserControl
         return LabeledRow("Preset", combo);
     }
 
-    private Control BuildColorProfileRow(EffectInstance effect)
-    {
-        var combo = new ComboBox
-        {
-            ItemsSource = ColorProfiles.DisplayNames,
-            FontSize = 11,
-            MinHeight = 24,
-            Width = 170,
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (_suppress || combo.SelectedIndex < 0)
-                return;
-            ExecuteParam(effect, EffectParamNames.SourceProfile,
-                AnimatableValue.Constant(combo.SelectedIndex), coalescing: false);
-        };
-        _valueRefreshers.Add(() =>
-        {
-            _suppress = true;
-            double current = effect.Parameters.TryGetValue(EffectParamNames.SourceProfile, out AnimatableValue? v)
-                ? v.Evaluate(Sprocket.Core.Timing.Timecode.Zero) : 0.0;
-            combo.SelectedIndex = Math.Clamp((int)Math.Round(current), 0, ColorProfiles.All.Count - 1);
-            _suppress = false;
-        });
-        string? tip = EffectCatalog.Find(effect.EffectTypeId)?.Parameters
-            .FirstOrDefault(x => x.Name == EffectParamNames.SourceProfile)?.Description;
-        return LabeledRow("Source Profile", combo, tip);
-    }
-
     private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p) =>
         BuildAnimatableRow(
             p,
@@ -1192,8 +1159,10 @@ public sealed class InspectorPanel : UserControl
             (next, coalescing) => ExecuteParam(effect, p.Name, next, coalescing));
 
     /// <summary>
-    /// One animatable numeric parameter row (slider + numeric box + keyframe toggle + keyframe lane), driven
-    /// by delegates so effect parameters (<see cref="EffectInstance.Parameters"/>) and generator parameters
+    /// One parameter row, dispatched by the descriptor's <see cref="ParameterKind"/> — the continuous /
+    /// integer slider UI, a checkbox for <see cref="ParameterKind.Toggle"/>, or a dropdown for
+    /// <see cref="ParameterKind.Dropdown"/> — driven by delegates so effect parameters
+    /// (<see cref="EffectInstance.Parameters"/>) and generator parameters
     /// (<see cref="GeneratorSpec.Parameters"/>, PLAN.md step 40) share the identical editing UI: <paramref
     /// name="get"/> reads the current <see cref="AnimatableValue"/>, <paramref name="execute"/> runs an edit
     /// through the command stack (coalescing mid-drag).
@@ -1201,6 +1170,25 @@ public sealed class InspectorPanel : UserControl
     private Control BuildAnimatableRow(
         EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute)
     {
+        if (p.Kind == ParameterKind.Toggle)
+            return BuildToggleRow(p, get, execute);
+        if (p.Kind == ParameterKind.Dropdown)
+            return BuildDropdownRow(p, get, execute);
+        return BuildSliderRow(p, get, execute);
+    }
+
+    /// <summary>
+    /// The slider + numeric box + keyframe toggle + keyframe lane row shared by
+    /// <see cref="ParameterKind.Continuous"/> and <see cref="ParameterKind.Integer"/> parameters. Integer
+    /// parameters snap the slider to whole numbers, round every commit, and default new keyframes to
+    /// <see cref="Interpolation.Hold"/> (still re-easable in the lane — an int glide is occasionally
+    /// meaningful, unlike a fractional toggle).
+    /// </summary>
+    private Control BuildSliderRow(
+        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute)
+    {
+        bool integer = p.Kind == ParameterKind.Integer;
+        Interpolation newKeyMode = AnimatableEditing.DefaultInterpolation(p.Kind);
         var keyGlyph = new ShapesPath
         {
             Data = Icons.Diamond,
@@ -1230,6 +1218,8 @@ public sealed class InspectorPanel : UserControl
             Maximum = p.Max,
             SmallChange = p.Step,
             LargeChange = p.Step * 10,
+            IsSnapToTickEnabled = integer,
+            TickFrequency = integer ? 1.0 : 0.0,
             // Negative margin trims the empty track padding the Fluent slider reserves above/below the
             // 14px thumb, so each parameter block is tighter without clipping the thumb.
             Margin = new Avalonia.Thickness(0, -4, 0, -4),
@@ -1288,12 +1278,15 @@ public sealed class InspectorPanel : UserControl
 
         // Slider drag → coalesced edits (one undo entry); numeric box → a single discrete edit.
         void Commit(double value, bool coalescing) =>
-            execute(AnimatableEditing.SetValueAt(get(), _playhead(), value), coalescing);
+            execute(AnimatableEditing.SetValueAt(
+                get(), _playhead(), integer ? Math.Round(value) : value, newKeyMode), coalescing);
         void CommitBox()
         {
             if (_suppress)
                 return;
-            if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+            // Unit-aware parse: the box displays "1.5 EV" / "90°" (InspectorFormat.Value), which a plain
+            // double.TryParse rejects — committing back a displayed value must not silently revert.
+            if (!InspectorFormat.TryParseValue(box.Text, p.Unit, out double v))
             {
                 RefreshValues(); // revert the text to the model value
                 return;
@@ -1327,7 +1320,7 @@ public sealed class InspectorPanel : UserControl
             Timecode t = _playhead();
             execute(current.IsAnimated
                 ? AnimatableEditing.DisableKeyframing(current, t)
-                : AnimatableEditing.EnableKeyframing(current, t), false);
+                : AnimatableEditing.EnableKeyframing(current, t, newKeyMode), false);
         };
 
         // Header line: label + keyframe toggle + numeric box; slider below.
@@ -1383,6 +1376,271 @@ public sealed class InspectorPanel : UserControl
         });
 
         return stack;
+    }
+
+    /// <summary>
+    /// A <see cref="ParameterKind.Toggle"/> row: label + keyframe toggle + checkbox (in the numeric-box
+    /// slot), with the keyframe lane below when animated. The value stays the 0/1 scalar the DSP reads with
+    /// its ≥ 0.5 threshold; every keyframe is <see cref="Interpolation.Hold"/> (and the lane is
+    /// <see cref="KeyframeLane.HoldOnly"/>) so a keyframed toggle flips hard at each key instead of
+    /// interpolating through the threshold. No slider, numeric box, or velocity-graph button.
+    /// </summary>
+    private Control BuildToggleRow(
+        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute)
+    {
+        var keyGlyph = new ShapesPath
+        {
+            Data = Icons.Diamond,
+            Fill = Brushes.Transparent,
+            Stroke = FaintText,
+            StrokeThickness = 1.5,
+            Width = IconSizes.Compact,
+            Height = IconSizes.Compact,
+            Stretch = Stretch.Uniform,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var keyButton = new Button
+        {
+            Content = keyGlyph,
+            Width = 24,
+            Height = 22,
+            Padding = new Avalonia.Thickness(0),
+            Background = Brushes.Transparent,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(keyButton, "Toggle keyframing at the playhead");
+
+        var check = new CheckBox
+        {
+            MinHeight = 22,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        check.Click += (_, _) =>
+        {
+            if (_suppress)
+                return;
+            execute(AnimatableEditing.SetValueAt(
+                get(), _playhead(), check.IsChecked == true ? 1.0 : 0.0, Interpolation.Hold), false);
+        };
+
+        keyButton.Click += (_, _) =>
+        {
+            AnimatableValue current = get();
+            Timecode t = _playhead();
+            execute(current.IsAnimated
+                ? AnimatableEditing.DisableKeyframing(current, t)
+                : AnimatableEditing.EnableKeyframing(current, t, Interpolation.Hold), false);
+        };
+
+        var label = new TextBlock
+        {
+            Text = p.DisplayName,
+            FontSize = 11,
+            Foreground = MutedText,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        if (p.Description is { Length: > 0 } description)
+            ToolTip.SetTip(label, description);
+
+        var top = new DockPanel { Margin = new Avalonia.Thickness(0, 0, 0, 2) };
+        var rightGroup = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        rightGroup.Children.Add(keyButton);
+        rightGroup.Children.Add(check);
+        DockPanel.SetDock(rightGroup, Dock.Right);
+        top.Children.Add(rightGroup);
+        top.Children.Add(label);
+
+        var lane = new KeyframeLane { IsVisible = false, HoldOnly = true };
+        lane.DragStarted += BeginDrag;
+        lane.DragEnded += EndDrag;
+        lane.Edited += (next, coalescing) => execute(next, coalescing);
+
+        var stack = new StackPanel();
+        stack.Children.Add(top);
+        stack.Children.Add(lane);
+
+        _valueRefreshers.Add(() =>
+        {
+            AnimatableValue value = get();
+            _suppress = true;
+            check.IsChecked = value.Evaluate(_playhead()) >= 0.5;
+            _suppress = false;
+            keyGlyph.Fill = value.IsAnimated ? Accent : Brushes.Transparent;
+            keyGlyph.Stroke = value.IsAnimated ? Accent : FaintText;
+            lane.IsVisible = value.IsAnimated;
+            if (value.IsAnimated && LaneRange() is { } range)
+                lane.Update(value, range.Start, range.End, _playhead().Ticks, p.Min, p.Max);
+        });
+
+        return stack;
+    }
+
+    /// <summary>
+    /// A <see cref="ParameterKind.Dropdown"/> row: a combo over the descriptor's
+    /// <see cref="EffectParameterDescriptor.Choices"/>, storing the selected index as a constant (dropdowns
+    /// are not keyframeable — matching how professional editors treat enum parameters like input color
+    /// transforms). Replaced the bespoke ColorTransform-only profile row (PLAN.md step 37) when kinds became
+    /// descriptor-driven.
+    /// </summary>
+    private Control BuildDropdownRow(
+        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute)
+    {
+        IReadOnlyList<string> choices = p.Choices ?? [];
+        var combo = new ComboBox
+        {
+            ItemsSource = choices,
+            FontSize = 11,
+            MinHeight = 24,
+            Width = 170,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (_suppress || combo.SelectedIndex < 0)
+                return;
+            execute(AnimatableValue.Constant(combo.SelectedIndex), false);
+        };
+        _valueRefreshers.Add(() =>
+        {
+            _suppress = true;
+            combo.SelectedIndex = choices.Count == 0
+                ? -1
+                : Math.Clamp((int)Math.Round(get().Evaluate(_playhead())), 0, choices.Count - 1);
+            _suppress = false;
+        });
+        return LabeledRow(p.DisplayName, combo, p.Description);
+    }
+
+    /// <summary>
+    /// The Color Wheels section body: three Resolve-style trackballs (Lift / Gamma / Gain) side by side,
+    /// each with its master slider beneath and its R/G/B rows in a collapsed "Channels" expander — all
+    /// twelve parameters stay individually keyframeable there. The wheel is a composite editor over the
+    /// existing R/G/B params (<see cref="ColorWheelMath"/>): each puck move commits one
+    /// <see cref="CompositeCommand"/> of three parameter sets, which coalesces child-wise across the drag
+    /// scope, so a whole drag is a single undo entry.
+    /// </summary>
+    private void BuildColorWheelsRows(EffectInstance effect, StackPanel rows)
+    {
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*,*"),
+            Margin = new Avalonia.Thickness(0, 2, 0, 0),
+        };
+        (string Label, string Master, string R, string G, string B)[] wheels =
+        [
+            ("Lift", EffectParamNames.LiftMaster, EffectParamNames.LiftR, EffectParamNames.LiftG, EffectParamNames.LiftB),
+            ("Gamma", EffectParamNames.GammaMaster, EffectParamNames.GammaR, EffectParamNames.GammaG, EffectParamNames.GammaB),
+            ("Gain", EffectParamNames.GainMaster, EffectParamNames.GainR, EffectParamNames.GainG, EffectParamNames.GainB),
+        ];
+        for (int i = 0; i < wheels.Length; i++)
+        {
+            Control cell = BuildWheelGroup(effect, wheels[i].Label,
+                wheels[i].Master, wheels[i].R, wheels[i].G, wheels[i].B);
+            Grid.SetColumn(cell, i);
+            grid.Children.Add(cell);
+        }
+        rows.Children.Add(grid);
+    }
+
+    private Control BuildWheelGroup(
+        EffectInstance effect, string label, string master, string r, string g, string b)
+    {
+        IReadOnlyList<EffectParameterDescriptor> parameters =
+            EffectCatalog.Find(effect.EffectTypeId)?.Parameters ?? FallbackDescriptors(effect);
+        EffectParameterDescriptor Descriptor(string name) =>
+            parameters.FirstOrDefault(p => p.Name == name)
+            ?? new EffectParameterDescriptor(name, name, 0.0, -1.0, 1.0, 0.005);
+        EffectParameterDescriptor rDesc = Descriptor(r), gDesc = Descriptor(g), bDesc = Descriptor(b);
+
+        (double R, double G, double B) Offsets(Timecode t) => (
+            ParamValue(effect, rDesc).Evaluate(t),
+            ParamValue(effect, gDesc).Evaluate(t),
+            ParamValue(effect, bDesc).Evaluate(t));
+
+        // One puck move = one composite of the three channel sets. Composites of the same shape merge
+        // child-wise (same effect instance + same param names in order), so a drag coalesces to one entry.
+        void CommitOffsets((double R, double G, double B) next, bool coalescing)
+        {
+            Timecode t = _playhead();
+            ExecuteEdit(new CompositeCommand($"{label} wheel",
+            [
+                new SetEffectParameterCommand(effect, r, AnimatableEditing.SetValueAt(ParamValue(effect, rDesc), t, next.R)),
+                new SetEffectParameterCommand(effect, g, AnimatableEditing.SetValueAt(ParamValue(effect, gDesc), t, next.G)),
+                new SetEffectParameterCommand(effect, b, AnimatableEditing.SetValueAt(ParamValue(effect, bDesc), t, next.B)),
+            ]), coalescing);
+        }
+
+        var wheel = new ColorWheelControl
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Avalonia.Thickness(0, 2, 0, 4),
+        };
+        wheel.DragStarted += BeginDrag;
+        wheel.DragEnded += EndDrag;
+        wheel.PuckChanged += (x, y) =>
+        {
+            if (_suppress)
+                return;
+            CommitOffsets(ColorWheelMath.FromPuck(x, y, Offsets(_playhead())), coalescing: _dragScope is not null);
+        };
+        wheel.ResetRequested += () =>
+        {
+            if (_suppress)
+                return;
+            // Recentre the tint but keep the common component (it belongs to the master slider).
+            CommitOffsets(ColorWheelMath.FromPuck(0, 0, Offsets(_playhead())), coalescing: false);
+        };
+
+        var title = new TextBlock
+        {
+            Text = label,
+            FontSize = 11,
+            Foreground = MutedText,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+
+        // The R/G/B rows keep the full slider/keyframe UI, tucked into a collapsed expander per wheel so
+        // the section shows three wheels + masters by default instead of twelve stacked sliders.
+        var channels = new StackPanel { Spacing = 4 };
+        channels.Children.Add(BuildParamRow(effect, rDesc));
+        channels.Children.Add(BuildParamRow(effect, gDesc));
+        channels.Children.Add(BuildParamRow(effect, bDesc));
+        var channelsExpander = new Expander
+        {
+            Header = new TextBlock { Text = "Channels", FontSize = 11, Foreground = FaintText },
+            Content = channels,
+            IsExpanded = false,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        channelsExpander.Classes.Add("inspectorSection");
+
+        var cell = new StackPanel { Spacing = 2, Margin = new Avalonia.Thickness(2, 0, 2, 0) };
+        cell.Children.Add(title);
+        cell.Children.Add(wheel);
+        cell.Children.Add(BuildParamRow(effect, Descriptor(master)));
+        cell.Children.Add(channelsExpander);
+
+        _valueRefreshers.Add(() =>
+        {
+            (double cr, double cg, double cb) = Offsets(_playhead());
+            (double x, double y) = ColorWheelMath.ToPuck(cr, cg, cb);
+            bool animated = ParamValue(effect, rDesc).IsAnimated
+                || ParamValue(effect, gDesc).IsAnimated
+                || ParamValue(effect, bDesc).IsAnimated;
+            _suppress = true;
+            wheel.Update(x, y, animated);
+            _suppress = false;
+        });
+
+        return cell;
     }
 
     private Control BuildAddEffectBar(Clip clip)

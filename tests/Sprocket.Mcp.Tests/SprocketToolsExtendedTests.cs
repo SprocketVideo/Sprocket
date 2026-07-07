@@ -293,6 +293,37 @@ public class SprocketToolsExtendedTests
     }
 
     [Fact]
+    public async Task Discrete_Parameter_Kinds_Snap_Values_And_Hold_Keyframes()
+    {
+        (FakeEditorSession _, SprocketTools tools, Clip video, Clip _) = await LinkedPair();
+        int clipId = RuntimeIds.IdOf(video);
+        JsonNode added = JsonNode.Parse(await tools.AddEffect(clipId, EffectTypeIds.HslQualifier))!;
+        int index = (int)added["effect_index"]!;
+
+        // A fractional toggle value snaps to 0/1 (0.3 means "off", not a 30% mask).
+        await tools.SetEffectParameter(clipId, EffectParamNames.ShowMask, 0.3, effectIndex: index);
+        Assert.Equal(0.0, video.Effects[index].Parameters[EffectParamNames.ShowMask].Evaluate(default), 6);
+        await tools.SetEffectParameter(clipId, EffectParamNames.ShowMask, 0.7, effectIndex: index);
+        Assert.Equal(1.0, video.Effects[index].Parameters[EffectParamNames.ShowMask].Evaluate(default), 6);
+
+        // Toggle keyframes are forced to Hold (an explicit ease is overridden) and values snap.
+        await tools.SetEffectParameterKeyframes(clipId, EffectParamNames.ShowMask,
+        [
+            new KeyframeInput(0, 0.2, "Linear"),
+            new KeyframeInput(120000, 0.9),
+        ], effectIndex: index);
+        AnimatableValue mask = video.Effects[index].Parameters[EffectParamNames.ShowMask];
+        Assert.All(mask.Keyframes, k => Assert.Equal(Interpolation.Hold, k.Interpolation));
+        Assert.Equal(0.0, mask.Evaluate(video.TimelineStart), 6);
+        Assert.Equal(0.0, mask.Evaluate(video.TimelineStart + new Timecode(119999)), 6); // holds, no ramp
+        Assert.Equal(1.0, mask.Evaluate(video.TimelineStart + new Timecode(120000)), 6);
+
+        // Continuous parameters stay untouched (no snapping).
+        await tools.SetEffectParameter(clipId, EffectParamNames.Exposure, 0.35, effectIndex: index);
+        Assert.Equal(0.35, video.Effects[index].Parameters[EffectParamNames.Exposure].Evaluate(default), 6);
+    }
+
+    [Fact]
     public async Task GetClip_Reports_Placement_Links_Fades_And_Media()
     {
         (FakeEditorSession _, SprocketTools tools, Clip video, Clip audio) = await LinkedPair();

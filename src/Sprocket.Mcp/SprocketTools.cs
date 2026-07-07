@@ -432,10 +432,11 @@ public sealed partial class SprocketTools(IEditorSession session)
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
             EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
-            api.History.Execute(new SetEffectParameterCommand(effect, parameter, AnimatableValue.Constant(value)));
+            double coerced = CoerceParameterValue(FindParameter(effect, parameter), value);
+            api.History.Execute(new SetEffectParameterCommand(effect, parameter, AnimatableValue.Constant(coerced)));
             api.RefreshPreview();
             return StateFormatter.HistoryState(api.History,
-                $"set {effect.EffectTypeId}.{parameter} = {value}");
+                $"set {effect.EffectTypeId}.{parameter} = {coerced}");
         });
 
     [McpServerTool(Name = "remove_effect", Destructive = true)]
@@ -537,6 +538,21 @@ public sealed partial class SprocketTools(IEditorSession session)
             ? clip.Effects[index]
             : throw new McpException($"the clip has no effect at index {index} (it has {clip.Effects.Count}).");
     }
+
+    /// <summary>The catalog descriptor for one of the effect's parameters, or <see langword="null"/> for an
+    /// unregistered effect / unknown parameter name (those stay unvalidated — the tools are lenient).</summary>
+    internal static EffectParameterDescriptor? FindParameter(EffectInstance effect, string parameter) =>
+        EffectCatalog.Find(effect.EffectTypeId)?.Parameters.FirstOrDefault(p => p.Name == parameter);
+
+    /// <summary>
+    /// Snaps a value for a discrete parameter kind: toggle / integer / dropdown values are rounded and
+    /// clamped into the descriptor's range (an AI passing showMask = 0.3 means "off", not a 30% mask).
+    /// Continuous parameters — and parameters with no descriptor — pass through untouched.
+    /// </summary>
+    internal static double CoerceParameterValue(EffectParameterDescriptor? p, double value) =>
+        p is null || p.Kind == ParameterKind.Continuous
+            ? value
+            : Math.Clamp(Math.Round(value), p.Min, p.Max);
 
     private static string Kind(Track track) => track is VideoTrack ? "video" : "audio";
 
