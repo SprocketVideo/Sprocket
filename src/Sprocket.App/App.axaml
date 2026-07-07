@@ -50,6 +50,12 @@
 
     <!-- Placeholder text must clear WCAG AA (≥4.5:1) on the dark input surface — Fluent's default is too dim. -->
     <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{x:Static app:Palette.FaintText}" />
+
+    <!-- Fluent's overlay scrollbar (ScrollBar.xaml) draws its thumb at ScrollBarSize (16px default) whenever
+         it is expanded (pointer-over or dragging); the collapsed sliver is that same thumb just scaled down
+         by a render transform, not a smaller control. Shrinking this one resource thins the hover/drag thumb
+         everywhere in the shell, matching the compact density of the other Fluent metric overrides above. -->
+    <x:Double x:Key="ScrollBarSize">8</x:Double>
   </Application.Resources>
 
   <Application.Styles>

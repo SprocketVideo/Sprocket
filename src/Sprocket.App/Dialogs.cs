@@ -842,7 +842,7 @@ internal static class ExportSettingsDialog
         {
             Title = "Export Settings",
             Icon = AppIcon.Window,
-            Width = 460,
+            Width = 500,
             Height = 680,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -865,6 +865,12 @@ internal static class ExportSettingsDialog
                     new ScrollViewer
                     {
                         HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+                        // Fluent's ScrollViewer overlays the vertical scrollbar on top of the content column
+                        // (AllowAutoHide's default) rather than reserving space for it, so the full-width
+                        // hover/drag thumb would otherwise sit directly on top of the right-column controls
+                        // below (audio codec, encoding, frame rate, burn-in position pickers) — this padding
+                        // reserves it a lane of its own, clear of everything the form draws.
+                        Padding = new Thickness(0, 0, 12, 0),
                         Content = settings,
                     },
                 },

@@ -135,7 +135,7 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Source monitor (preview a bin clip; Program/Source tabs) | Sprocket.App/Monitors.cs; `WireMonitorTabs` | — | ❌ (guides only cover Program) |
 | Preview zoom: Fit / 50 / 100 / 200% | MainWindow.axaml.cs `WireZoomAndGuides` | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
 | Guides overlay (safe areas / framing grid) | PreviewSurface.ShowGuides | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
-| Grading scopes: Waveform / RGB Parade / Vectorscope / Histogram | Sprocket.App/ScopeView.cs | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (Scopes menu named in the quick tour; not explained) |
+| Grading scopes: Waveform / RGB Parade / Vectorscope / Histogram | Sprocket.App/ScopeView.cs | color-grading.md#judging-your-grade-with-scopes | ✅ |
 | Timecode readouts (position / duration) | MainWindow.axaml:360 | getting-started.md#1-play-and-preview-your-video | ✅ |
 
 ## 7. Effects, keyframing & color
@@ -147,8 +147,8 @@ only tracks whether a user guide covers it yet, not whether it exists.
 | Color effect (exposure/contrast/saturation/vibrance) | EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | ✅ |
 | Brightness effect | EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | ✅ |
 | Fade effect (video opacity + audio gain) | EffectCatalog.cs | getting-started.md#8-adjust-the-audio | ✅ |
-| Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; PLAN.md step 34 | — | ❌ |
-| Log footage: Input Color Transform (DJI D-Log family via vendor LUT; ARRI LogC3/LogC4, Sony S-Log3, Panasonic V-Log, Canon C-Log3, Blackmagic Film Gen 5, Fujifilm F-Log2, Nikon N-Log via math curve), ACES Filmic | EffectCatalog.cs; PLAN.md steps 37, 52 | — | ❌ |
+| Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; PLAN.md step 34 | color-grading.md | ✅ |
+| Log footage: Input Color Transform (DJI D-Log family via vendor LUT; ARRI LogC3/LogC4, Sony S-Log3, Panasonic V-Log, Canon C-Log3, Blackmagic Film Gen 5, Fujifilm F-Log2, Nikon N-Log via math curve), ACES Filmic | EffectCatalog.cs; PLAN.md steps 37, 52 | color-grading.md#log-footage-input-color-transform-and-aces-filmic | ✅ |
 | Inspector: sections, sliders/numeric entry, remove effect | Sprocket.App/Inspector/InspectorPanel.cs | getting-started.md#3-select-a-clip | ✅ |
 | Enable/bypass an effect (green status LED in the effect header; parameters kept while bypassed) | InspectorPanel.cs `BuildEffectSection`; ModelCommands.cs `SetEffectEnabledCommand` | — | ❌ |
 | Effect reference tags (unique per-instance tag chip in the effect header, e.g. RV-1 — how AI/MCP clients address an effect) | Sprocket.Core/Model/EffectTags.cs; InspectorPanel.cs | — | ❌ |
