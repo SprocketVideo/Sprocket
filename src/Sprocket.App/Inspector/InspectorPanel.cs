@@ -1152,11 +1152,12 @@ public sealed class InspectorPanel : UserControl
         return LabeledRow("Preset", combo);
     }
 
-    private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p) =>
+    private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p, bool compact = false) =>
         BuildAnimatableRow(
             p,
             () => ParamValue(effect, p),
-            (next, coalescing) => ExecuteParam(effect, p.Name, next, coalescing));
+            (next, coalescing) => ExecuteParam(effect, p.Name, next, coalescing),
+            compact);
 
     /// <summary>
     /// One parameter row, dispatched by the descriptor's <see cref="ParameterKind"/> — the continuous /
@@ -1165,16 +1166,20 @@ public sealed class InspectorPanel : UserControl
     /// (<see cref="EffectInstance.Parameters"/>) and generator parameters
     /// (<see cref="GeneratorSpec.Parameters"/>, PLAN.md step 40) share the identical editing UI: <paramref
     /// name="get"/> reads the current <see cref="AnimatableValue"/>, <paramref name="execute"/> runs an edit
-    /// through the command stack (coalescing mid-drag).
+    /// through the command stack (coalescing mid-drag). <paramref name="compact"/> stacks the label above the
+    /// value instead of sharing one row with it — needed when the row is squeezed into a third-width column
+    /// (the Color Wheels master/channel rows, <see cref="BuildWheelGroup"/>), where the ordinary label+box
+    /// DockPanel needs more horizontal room than the column has and clips the numeric box.
     /// </summary>
     private Control BuildAnimatableRow(
-        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute)
+        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute,
+        bool compact = false)
     {
         if (p.Kind == ParameterKind.Toggle)
             return BuildToggleRow(p, get, execute);
         if (p.Kind == ParameterKind.Dropdown)
             return BuildDropdownRow(p, get, execute);
-        return BuildSliderRow(p, get, execute);
+        return BuildSliderRow(p, get, execute, compact);
     }
 
     /// <summary>
@@ -1185,7 +1190,8 @@ public sealed class InspectorPanel : UserControl
     /// meaningful, unlike a fractional toggle).
     /// </summary>
     private Control BuildSliderRow(
-        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute)
+        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute,
+        bool compact = false)
     {
         bool integer = p.Kind == ParameterKind.Integer;
         Interpolation newKeyMode = AnimatableEditing.DefaultInterpolation(p.Kind);
@@ -1323,20 +1329,36 @@ public sealed class InspectorPanel : UserControl
                 : AnimatableEditing.EnableKeyframing(current, t, newKeyMode), false);
         };
 
-        // Header line: label + keyframe toggle + numeric box; slider below.
-        var top = new DockPanel { Margin = new Avalonia.Thickness(0, 0, 0, 2) };
+        // Header: label + keyframe toggle + numeric box. Ordinarily one DockPanel row (label left, controls
+        // docked right) — but that needs more horizontal room than a third-width column has (the Color Wheels
+        // master/channel rows), where it squeezes the numeric box until it clips and can't be clicked into.
+        // Compact mode stacks the label above the controls instead, so each gets the full row width.
         var rightGroup = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 4,
-            HorizontalAlignment = HorizontalAlignment.Right,
+            HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Right,
         };
         rightGroup.Children.Add(graphButton);
         rightGroup.Children.Add(keyButton);
         rightGroup.Children.Add(box);
-        DockPanel.SetDock(rightGroup, Dock.Right);
-        top.Children.Add(rightGroup);
-        top.Children.Add(label);
+
+        Control top;
+        if (compact)
+        {
+            var topStack = new StackPanel { Spacing = 1, Margin = new Avalonia.Thickness(0, 0, 0, 2) };
+            topStack.Children.Add(label);
+            topStack.Children.Add(rightGroup);
+            top = topStack;
+        }
+        else
+        {
+            var dock = new DockPanel { Margin = new Avalonia.Thickness(0, 0, 0, 2) };
+            DockPanel.SetDock(rightGroup, Dock.Right);
+            dock.Children.Add(rightGroup);
+            dock.Children.Add(label);
+            top = dock;
+        }
 
         // Keyframe lane (PLAN.md step 16b/16d): shown only when the parameter is animated. It edits the same
         // AnimatableValue through the command stack; a keyframe/handle drag coalesces to one undo entry.
@@ -1607,11 +1629,13 @@ public sealed class InspectorPanel : UserControl
         };
 
         // The R/G/B rows keep the full slider/keyframe UI, tucked into a collapsed expander per wheel so
-        // the section shows three wheels + masters by default instead of twelve stacked sliders.
+        // the section shows three wheels + masters by default instead of twelve stacked sliders. compact:
+        // true because this column is a third the Inspector's width — the ordinary label+box row needs more
+        // room than that and clips the numeric box (see BuildSliderRow).
         var channels = new StackPanel { Spacing = 4 };
-        channels.Children.Add(BuildParamRow(effect, rDesc));
-        channels.Children.Add(BuildParamRow(effect, gDesc));
-        channels.Children.Add(BuildParamRow(effect, bDesc));
+        channels.Children.Add(BuildParamRow(effect, rDesc, compact: true));
+        channels.Children.Add(BuildParamRow(effect, gDesc, compact: true));
+        channels.Children.Add(BuildParamRow(effect, bDesc, compact: true));
         var channelsExpander = new Expander
         {
             Header = new TextBlock { Text = "Channels", FontSize = 11, Foreground = FaintText },
@@ -1625,7 +1649,7 @@ public sealed class InspectorPanel : UserControl
         var cell = new StackPanel { Spacing = 2, Margin = new Avalonia.Thickness(2, 0, 2, 0) };
         cell.Children.Add(title);
         cell.Children.Add(wheel);
-        cell.Children.Add(BuildParamRow(effect, Descriptor(master)));
+        cell.Children.Add(BuildParamRow(effect, Descriptor(master), compact: true));
         cell.Children.Add(channelsExpander);
 
         _valueRefreshers.Add(() =>

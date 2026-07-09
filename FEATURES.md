@@ -60,8 +60,8 @@ in terms an app-side committer can check against their diff.
 | getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 92226ec | ✅ current |
 | getting-started.md#keyboard-shortcuts-worth-knowing | §12 | any shortcut in the curated table changes | 92226ec | ✅ current |
 | Keyboard shortcut reference (full page) | §12; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | — | ❌ missing |
-| index.md (landing page) | guide list | a guide is added/renamed | c86c921 | ✅ current |
-| editing-on-the-timeline.md | §4 | any timeline tool/behavior changes | 92226ec | ✅ current |
+| index.md (landing page) | guide list | a guide is added/renamed | 502a36e | ✅ current |
+| editing-on-the-timeline.md | §4, §5 (Speed / Duration) | any timeline tool/behavior changes, or the Speed/Duration dialog changes | 502a36e | ✅ current |
 | color-grading.md | §§6–7 (color subset) | grading effects, scopes, or wheel UI change | 92226ec | ✅ current |
 | ai-control.md | §13 (+ §11 MCP settings, §7 effect tags) | the MCP tool surface, Preferences AI section, setup command, status-bar indicator, or effect-tag UI changes | c86c921 | ✅ current |
 
@@ -142,7 +142,7 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Clip Speed / Duration dialog (constant speed, presets) | Dialogs.cs `SpeedDialog`; PLAN.md step 21 | — | ❌ (Inspector shows Speed; never explained) |
+| Clip Speed / Duration dialog (constant speed, presets) | Dialogs.cs `SpeedDialog`; PLAN.md step 21 | editing-on-the-timeline.md#changing-a-clips-speed | ✅ |
 | Frame hold / freeze frame: Frame Hold Options…, Add Frame Hold, Insert Frame Hold Segment (Clip menu; HOLD badge, Inspector Hold row) | PLAN.md step 43; FrameHoldOptionsDialog.cs, TimelineControl `AddFrameHoldAtPlayhead` | — | ❌ |
 | Stop-motion frame edits: Duplicate Frame / Remove Frame (source-frame grid, ripple ±1 frame) | PLAN.md step 43; Sprocket.Core/Commands/FrameHoldEdits.cs | — | ❌ |
 | Insert generators: Title, Lower Third, Credits Roll, Crawl, Color Matte | Sprocket.Core/Model/GeneratorCatalog.cs | — | ❌ |
@@ -183,7 +183,7 @@ in terms an app-side committer can check against their diff.
 | Reorder effects in the stack (drag a section header; Move Up/Down context menu) | InspectorPanel.cs; ModelCommands.cs `MoveChainEffectCommand`; PLAN.md step 51 | — | ❌ |
 | Inspector: Expand All / Collapse All section buttons (pane header) | MainWindow.axaml `InspectorExpandAllButton`; InspectorPanel.cs `SetAllSectionsExpanded` | — | ❌ |
 | Keyframing: animate parameters, keyframe lanes, velocity graph, `[`/`]` navigation | InspectorPanel.cs; Inspector/KeyframeLane.cs | — | ❌ (teased twice in guides; never taught) |
-| Transitions: browse (Cross Dissolve, Dip to Black/White, Wipe), apply to a cut, delete | Sprocket.Core/Model/TransitionCatalog.cs; MediaBrowserPanel.cs:402 | — | ❌ |
+| Transitions: browse (Cross Dissolve, Dip to Black/White, Wipe), apply to a cut, delete | Sprocket.Core/Model/TransitionCatalog.cs; MediaBrowserPanel.cs:402 | transitions.md | ✅ |
 
 ## 8. Audio
 
