@@ -60,7 +60,7 @@ in terms an app-side committer can check against their diff.
 | getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 92226ec | ✅ current |
 | getting-started.md#keyboard-shortcuts-worth-knowing | §12 | any shortcut in the curated table changes | 92226ec | ✅ current |
 | Keyboard shortcut reference (full page) | §12; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | — | ❌ missing |
-| index.md (landing page) | guide list | a guide is added/renamed | 502a36e | ✅ current |
+| index.md (landing page) | guide list | a guide is added/renamed | 3d0b606 | ✅ current |
 | editing-on-the-timeline.md | §4, §5 (Speed / Duration, frame hold, frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 438f6e2 | ✅ current |
 | color-grading.md | §§6–7 (color subset) | grading effects, scopes, or wheel UI change | 438f6e2 | ✅ current |
 | ai-control.md | §13 (+ §11 MCP settings, §7 effect tags) | the MCP tool surface, Preferences AI section, setup command, status-bar indicator, or effect-tag UI changes | c86c921 | ✅ current |
@@ -77,7 +77,7 @@ in terms an app-side committer can check against their diff.
 | Window-state persistence (reopens maximized/centered) | Sprocket.App/WindowStateStore.cs | — | ➖ (invisible; mention only if asked) |
 | Project name + saved/unsaved indicator in title bar | MainWindow.axaml.cs:1609 | getting-started.md#11-save-your-project | ✅ |
 | Status bar (engine state, messages, live fps/size/duration) | UI.md §3.7; MainWindow.axaml.cs `RenderTelemetry` | getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
-| Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | — | ❌ |
+| Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | troubleshooting-playback.md | ✅ |
 | Help ▸ About (version, open logs folder) | Sprocket.App/Dialogs.cs `AboutDialog` | — | ❌ |
 | Help ▸ Third-Party Notices (bundled library/font/media licenses) | Sprocket.App/Dialogs.cs `ThirdPartyNoticesDialog`; THIRD-PARTY-NOTICES.md | — | ❌ |
 | Auto-update (Help ▸ Check for Updates; status-bar badge; installed builds download + Install & Restart in-app; portable builds link to the releases page) | Sprocket.App/UpdateService.cs; UpdateDialogs.cs; PLAN.md steps 36 + 45 | — | ❌ |
