@@ -12,7 +12,9 @@
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-blue)](#platform-support)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)
 
-**Website:** <https://sprocketvideo.org> · **Download:** [latest release](https://github.com/SprocketVideo/Sprocket/releases/latest) ([install instructions](#installing-sprocket))
+**Website:** <https://sprocketvideo.org> 
+**Download:** [latest release](https://github.com/SprocketVideo/Sprocket/releases/latest) ([install instructions](#installing-sprocket))
+**Docs:** <https://sprocketvideo.org/docs> 
 
 Sprocket runs on Windows 11, Linux, and macOS from a single managed codebase. It pairs a pure-data
 timeline model with GPU compositing (SkiaSharp) and library-level FFmpeg decode/encode, so C# acts
