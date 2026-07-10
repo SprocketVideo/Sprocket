@@ -61,8 +61,8 @@ in terms an app-side committer can check against their diff.
 | getting-started.md#keyboard-shortcuts-worth-knowing | §12 | any shortcut in the curated table changes | 92226ec | ✅ current |
 | Keyboard shortcut reference (full page) | §12; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | — | ❌ missing |
 | index.md (landing page) | guide list | a guide is added/renamed | 502a36e | ✅ current |
-| editing-on-the-timeline.md | §4, §5 (Speed / Duration) | any timeline tool/behavior changes, or the Speed/Duration dialog changes | 502a36e | ✅ current |
-| color-grading.md | §§6–7 (color subset) | grading effects, scopes, or wheel UI change | 92226ec | ✅ current |
+| editing-on-the-timeline.md | §4, §5 (Speed / Duration, frame hold, frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 438f6e2 | ✅ current |
+| color-grading.md | §§6–7 (color subset) | grading effects, scopes, or wheel UI change | 438f6e2 | ✅ current |
 | ai-control.md | §13 (+ §11 MCP settings, §7 effect tags) | the MCP tool surface, Preferences AI section, setup command, status-bar indicator, or effect-tag UI changes | c86c921 | ✅ current |
 
 ## 1. Application window & layout
@@ -107,7 +107,7 @@ in terms an app-side committer can check against their diff.
 | Media bin search/filter | MediaBrowser/MediaSearch.cs | — | ❌ |
 | Project panel tabs: Media / Effects / Transitions / Audio | MediaBrowserPanel.cs:77 | getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (tabs named; Effects/Transitions/Audio tabs never shown in use) |
 | Drag media from bin onto timeline tracks | TimelineControl.cs `OnDrop` | getting-started.md#open-something-to-work-with | 🟡 (tip only) |
-| Alpha-channel media import & compositing | PLAN.md step 26; MediaBadges.cs | — | ❌ |
+| Alpha-channel media import & compositing | PLAN.md step 26; Sprocket.Render/SkiaEffectPipeline.cs (premultiplied-alpha compositing); MediaBrowser/MediaBadges.cs | — | ❌ |
 | Image-sequence import (numbered stills → one clip, fps choice) | PLAN.md step 42; ImageSequenceDetection.cs, ImageSequenceImportDialog.cs, MediaImport.cs | — | ❌ |
 | Still-image import (single image, default duration preference) | PLAN.md step 42; MediaImport.cs, PreferencesDialog.cs | — | ❌ |
 | Interpret Footage (reassign frame rate; media-bin & Clip menu) | PLAN.md step 42; ReinterpretFootageCommand, InterpretFootageDialog.cs | — | ❌ |
@@ -143,11 +143,11 @@ in terms an app-side committer can check against their diff.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Clip Speed / Duration dialog (constant speed, presets) | Dialogs.cs `SpeedDialog`; PLAN.md step 21 | editing-on-the-timeline.md#changing-a-clips-speed | ✅ |
-| Frame hold / freeze frame: Frame Hold Options…, Add Frame Hold, Insert Frame Hold Segment (Clip menu; HOLD badge, Inspector Hold row) | PLAN.md step 43; FrameHoldOptionsDialog.cs, TimelineControl `AddFrameHoldAtPlayhead` | — | ❌ |
-| Stop-motion frame edits: Duplicate Frame / Remove Frame (source-frame grid, ripple ±1 frame) | PLAN.md step 43; Sprocket.Core/Commands/FrameHoldEdits.cs | — | ❌ |
+| Frame hold / freeze frame: Frame Hold Options…, Add Frame Hold, Insert Frame Hold Segment (Clip menu; HOLD badge, Inspector Hold row) | PLAN.md step 43; FrameHoldOptionsDialog.cs, TimelineControl `AddFrameHoldAtPlayhead` | editing-on-the-timeline.md#freezing-a-frame-frame-hold | ✅ |
+| Stop-motion frame edits: Duplicate Frame / Remove Frame (source-frame grid, ripple ±1 frame) | PLAN.md step 43; Sprocket.Core/Commands/FrameHoldEdits.cs | editing-on-the-timeline.md#duplicate-or-remove-a-single-frame-stop-motion | ✅ |
 | Insert generators: Title, Lower Third, Credits Roll, Crawl, Color Matte | Sprocket.Core/Model/GeneratorCatalog.cs | — | ❌ |
 | Edit title text inline (double-click title clip) | TimelineControl.cs:1432 | — | ❌ |
-| Rich text & titles (styling, lower thirds, credits) | PLAN.md step 40 | — | ❌ |
+| Rich text & titles (styling, lower thirds, credits) | PLAN.md step 40; Sprocket.Render/{TitleRenderer,TitleFonts}.cs; Sprocket.Core/Model/{Generator,GeneratorCatalog}.cs | — | ❌ |
 | Adjustment layers | MainWindow.axaml.cs:390; PLAN.md step 19 | — | ❌ |
 | Multicam: Create Multicam Source + angle switch (`1`–`9`) | MainWindow.axaml.cs `CreateMulticamSource`; PLAN.md step 24 | — | ❌ |
 | Multiple sequences: New / Open / Sequence Settings (rename) | MainWindow.axaml.cs `NewSequence`, `SwitchToSequence` | — | ❌ |
@@ -174,8 +174,8 @@ in terms an app-side committer can check against their diff.
 | Color effect (exposure/contrast/saturation/vibrance) | EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | ✅ |
 | Brightness effect | EffectCatalog.cs | getting-started.md#7-change-how-a-clip-looks | ✅ |
 | Fade effect (video opacity + audio gain) | EffectCatalog.cs | getting-started.md#8-adjust-the-audio | ✅ |
-| Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; PLAN.md step 34 | color-grading.md | 🟡 (effects covered; the trackball wheel UI — three Lift/Gamma/Gain wheels with master slider + collapsed Channels expander, drag to tint / Shift fine / double-click recentre — is new and undocumented) |
-| Log footage: Input Color Transform (DJI D-Log family via vendor LUT; ARRI LogC3/LogC4, Sony S-Log3, Panasonic V-Log, Canon C-Log3, Blackmagic Film Gen 5, Fujifilm F-Log2, Nikon N-Log via math curve), ACES Filmic | EffectCatalog.cs; PLAN.md steps 37, 52 | color-grading.md#log-footage-input-color-transform-and-aces-filmic | ✅ |
+| Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; Sprocket.Render/Effects/{WhiteBalance,ColorWheels,Curves,HslQualifier}Effect.cs; PLAN.md step 34 | color-grading.md | ✅ |
+| Log footage: Input Color Transform (DJI D-Log family via vendor LUT; ARRI LogC3/LogC4, Sony S-Log3, Panasonic V-Log, Canon C-Log3, Blackmagic Film Gen 5, Fujifilm F-Log2, Nikon N-Log via math curve), ACES Filmic | EffectCatalog.cs; Sprocket.Render/{ColorLuts,CubeLut}.cs + Effects/AcesFilmicEffect.cs; PLAN.md steps 37, 52 | color-grading.md#log-footage-input-color-transform-and-aces-filmic | ✅ |
 | Inspector: sections, sliders/numeric entry, remove effect | Sprocket.App/Inspector/InspectorPanel.cs | getting-started.md#3-select-a-clip | 🟡 (sliders/typing covered; the typed controls — checkbox toggles for on/off params (keyframeable, hold-stepped), dropdowns for choices, integer-snapped sliders, unit-aware typing like "1.5 EV" — are new and undocumented) |
 | Enable/bypass an effect (green status LED in the effect header; parameters kept while bypassed) | InspectorPanel.cs `BuildEffectSection`; ModelCommands.cs `SetEffectEnabledCommand` | — | ❌ |
 | Effect reference tags (unique per-instance tag chip in the effect header, e.g. RV-1 — how AI/MCP clients address an effect) | Sprocket.Core/Model/EffectTags.cs; InspectorPanel.cs | ai-control.md#effect-reference-tags | ✅ |
@@ -213,7 +213,7 @@ in terms an app-side committer can check against their diff.
 | Delivery presets (built-in + save your own) | ExportPresetStore.cs; UserExportPresets.cs | getting-started.md#12-export-your-finished-video | 🟡 (mentioned; built-in preset list undocumented) |
 | Burn-ins (timecode / clip name / watermark, 9-point position) | Dialogs.cs:593 | getting-started.md#12-export-your-finished-video | 🟡 (position options undocumented) |
 | Handles (extra frames around an in/out range) | Dialogs.cs:609 | getting-started.md#12-export-your-finished-video | 🟡 (named in screenshot; unexplained — depends on undocumented in/out marks) |
-| Hardware vs software encoding choice | Dialogs.cs; PLAN.md step 29 | — | ❌ |
+| Hardware vs software encoding choice | Dialogs.cs `ExportSettingsDialog` (Encoding picker); Sprocket.Media/MediaEncoder.cs `VideoEncoderSettings.HardwareCandidates`; PLAN.md step 29 | — | ❌ |
 | Export color handling (bake log transform vs pass-through) | Dialogs.cs:618 | — | ❌ |
 | Export metadata tags (title/author/copyright/comment) | Dialogs.cs:622 | — | ❌ |
 | Export progress, cancel, reveal in folder | Dialogs.cs `ExportProgressDialog` | — | ❌ |
@@ -229,7 +229,7 @@ in terms an app-side committer can check against their diff.
 | Render In to Out / Selection / Audio (Sequence menu) | MainWindow.axaml.cs `RenderRangeAsync` | — | ❌ |
 | Render bar (green/yellow/red cache states) | RenderCache/RenderBarModel.cs | — | ❌ |
 | Delete Render Files (with disk footprint) | MainWindow.axaml.cs `DeleteRenderFilesAsync` | — | ❌ |
-| Hardware-accelerated decode (automatic; software fallback) | PLAN.md step 6; README | — | ➖ (automatic; cover only in a troubleshooting note) |
+| Hardware-accelerated decode (automatic; software fallback) | Sprocket.Media/HardwareContext.cs; PLAN.md step 6; README | — | ➖ (automatic; cover only in a troubleshooting note) |
 
 ## 11. Preferences
 
@@ -278,7 +278,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial) |
 | Convolution reverb | PLAN.md step 49 (Studio Reverb + audio freeze shipped in step 41; Shimmer Reverb shipped in step 50) |
-| Installers / packaging (Windows installer, AppImage, notarized macOS app) | PLAN.md step 36 (⏳ not done) |
+| Code-signing & macOS notarization (installers themselves shipped: Windows Setup.exe, Linux AppImage, macOS .app via scripts/release.ps1 + Velopack; alpha is unsigned) | PLAN.md step 36 (✅ done except signing/notarization, deliberately deferred) |
 | Disabled menu items: Edit ▸ Select All, Clip ▸ Enable, Clip ▸ Link | greyed out in MainWindow.axaml |
 
 ## Not user-facing — never document
