@@ -218,4 +218,85 @@ public class TimelineMathTests
         Assert.Equal(-30, lower);
         Assert.Equal(100 - 10, upper);
     }
+
+    // ── Idle-hover cursor mapping ────────────────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(EditTool.Select, ClipDragMode.TrimStart, TimelineCursor.TrimStart)]
+    [InlineData(EditTool.Select, ClipDragMode.TrimEnd, TimelineCursor.TrimEnd)]
+    [InlineData(EditTool.Select, ClipDragMode.Move, TimelineCursor.Default)]
+    [InlineData(EditTool.Select, ClipDragMode.None, TimelineCursor.Default)]
+    [InlineData(EditTool.Ripple, ClipDragMode.TrimStart, TimelineCursor.RippleStart)]
+    [InlineData(EditTool.Ripple, ClipDragMode.TrimEnd, TimelineCursor.RippleEnd)]
+    [InlineData(EditTool.Ripple, ClipDragMode.Move, TimelineCursor.Default)]
+    [InlineData(EditTool.Roll, ClipDragMode.TrimStart, TimelineCursor.Roll)]
+    [InlineData(EditTool.Roll, ClipDragMode.TrimEnd, TimelineCursor.Roll)]
+    [InlineData(EditTool.Roll, ClipDragMode.Move, TimelineCursor.Default)]
+    public void HoverCursor_Is_Side_Specific_For_Edge_Tools(EditTool tool, ClipDragMode mode, TimelineCursor expected)
+    {
+        Assert.Equal(expected, TimelineMath.HoverCursor(tool, mode));
+    }
+
+    [Theory]
+    [InlineData(EditTool.Blade, TimelineCursor.Blade)]
+    [InlineData(EditTool.Slip, TimelineCursor.Slip)]
+    [InlineData(EditTool.Slide, TimelineCursor.Slide)]
+    [InlineData(EditTool.Hand, TimelineCursor.Hand)]
+    [InlineData(EditTool.Zoom, TimelineCursor.Zoom)]
+    public void HoverCursor_Shows_The_Tool_Cursor_Everywhere_For_Whole_Clip_Tools(EditTool tool, TimelineCursor expected)
+    {
+        // These tools act anywhere (or on the whole clip body), so the hover target doesn't change the cursor.
+        Assert.Equal(expected, TimelineMath.HoverCursor(tool, ClipDragMode.None));
+        Assert.Equal(expected, TimelineMath.HoverCursor(tool, ClipDragMode.Move));
+        Assert.Equal(expected, TimelineMath.HoverCursor(tool, ClipDragMode.TrimStart));
+    }
+
+    // ── Blade cut position (hover cut-line + actual split share this) ───────────────────────────────
+
+    [Fact]
+    public void BladeCutTicks_Returns_The_Pointer_Tick_Inside_The_Clip()
+    {
+        long start = Timecode.FromSeconds(2).Ticks, end = Timecode.FromSeconds(10).Ticks;
+        long probe = Timecode.FromSeconds(6).Ticks;
+        double x = TimelineMath.XAtTicks(probe, 80, 0, Header);
+        long? cut = TimelineMath.BladeCutTicks(x, start, end, snapping: false, playheadTicks: 0,
+            snapTolerancePx: 8, pxPerSecond: 80, scrollX: 0, headerWidth: Header);
+        Assert.Equal(probe, cut);
+    }
+
+    [Fact]
+    public void BladeCutTicks_Snaps_To_The_Playhead_When_Snapping_Is_On()
+    {
+        long start = Timecode.FromSeconds(2).Ticks, end = Timecode.FromSeconds(10).Ticks;
+        long playhead = Timecode.FromSeconds(6).Ticks;
+        long near = playhead + Timecode.FromSeconds(0.05).Ticks; // ≈4px at 80px/s, inside the 8px tolerance
+        double x = TimelineMath.XAtTicks(near, 80, 0, Header);
+        long? cut = TimelineMath.BladeCutTicks(x, start, end, snapping: true, playheadTicks: playhead,
+            snapTolerancePx: 8, pxPerSecond: 80, scrollX: 0, headerWidth: Header);
+        Assert.Equal(playhead, cut);
+    }
+
+    [Theory]
+    [InlineData(2.0)]  // exactly on the start edge — not strictly inside
+    [InlineData(10.0)] // exactly on the end edge
+    [InlineData(1.0)]  // before the clip
+    [InlineData(11.0)] // after the clip
+    public void BladeCutTicks_Is_Null_When_The_Cut_Would_Not_Fall_Strictly_Inside(double seconds)
+    {
+        long start = Timecode.FromSeconds(2).Ticks, end = Timecode.FromSeconds(10).Ticks;
+        double x = TimelineMath.XAtTicks(Timecode.FromSeconds(seconds).Ticks, 80, 0, Header);
+        Assert.Null(TimelineMath.BladeCutTicks(x, start, end, snapping: false, playheadTicks: 0,
+            snapTolerancePx: 8, pxPerSecond: 80, scrollX: 0, headerWidth: Header));
+    }
+
+    [Fact]
+    public void BladeCutTicks_Is_Null_When_The_Snap_Pulls_The_Cut_Onto_An_Edge()
+    {
+        // The playhead sits exactly on the clip's start; a pointer just inside snaps onto the edge → no cut.
+        long start = Timecode.FromSeconds(2).Ticks, end = Timecode.FromSeconds(10).Ticks;
+        long near = start + Timecode.FromSeconds(0.05).Ticks;
+        double x = TimelineMath.XAtTicks(near, 80, 0, Header);
+        Assert.Null(TimelineMath.BladeCutTicks(x, start, end, snapping: true, playheadTicks: start,
+            snapTolerancePx: 8, pxPerSecond: 80, scrollX: 0, headerWidth: Header));
+    }
 }

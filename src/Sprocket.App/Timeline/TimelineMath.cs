@@ -55,6 +55,48 @@ public enum ClipDragMode
     TrimEnd,
 }
 
+/// <summary>
+/// The cursor shape the timeline shows for the current tool + what the pointer is over. Kept as a pure enum
+/// (mapped by <see cref="TimelineMath.HoverCursor"/>) so the tool/hover → cursor decision is unit-tested; the
+/// control translates each kind to an Avalonia <c>Cursor</c>. The trim/ripple kinds are side-specific so the
+/// cursor can show which edge is grabbed (the <c>[</c> / <c>]</c> bracket convention shared by the leading editors).
+/// </summary>
+public enum TimelineCursor
+{
+    /// <summary>The default arrow.</summary>
+    Default,
+
+    /// <summary>Trim the clip's leading edge (Select tool over the left grip).</summary>
+    TrimStart,
+
+    /// <summary>Trim the clip's trailing edge (Select tool over the right grip).</summary>
+    TrimEnd,
+
+    /// <summary>The Blade (razor) tool.</summary>
+    Blade,
+
+    /// <summary>Ripple-trim the leading edge.</summary>
+    RippleStart,
+
+    /// <summary>Ripple-trim the trailing edge.</summary>
+    RippleEnd,
+
+    /// <summary>Roll the cut between two adjacent clips.</summary>
+    Roll,
+
+    /// <summary>Slip a clip's source window.</summary>
+    Slip,
+
+    /// <summary>Slide a clip between its neighbours.</summary>
+    Slide,
+
+    /// <summary>Pan the view (Hand tool).</summary>
+    Hand,
+
+    /// <summary>Zoom the view (Zoom tool).</summary>
+    Zoom,
+}
+
 /// <summary>Which fade handle a pointer is over (PLAN.md step 39) — the small triangles in a clip's top
 /// corners that set the fade-in/out length.</summary>
 public enum FadeHandleKind
@@ -127,6 +169,54 @@ public static class TimelineMath
         if (pointerX >= clipX0 && pointerX <= clipX1)
             return ClipDragMode.Move;
         return ClipDragMode.None;
+    }
+
+    /// <summary>
+    /// The cursor the timeline should show while idle-hovering, from the active tool and what the pointer is
+    /// over (the <see cref="HitMode"/> result, or <see cref="ClipDragMode.None"/> off-clip). Mirrors the leading
+    /// editors: the Select tool shows a side-specific trim cursor only inside an edge grip; Ripple/Roll act on
+    /// edges so they show their cursor on an edge and the plain arrow elsewhere; Slip/Slide/Hand/Zoom/Blade act
+    /// anywhere, so their tool cursor shows regardless of the hover target.
+    /// </summary>
+    public static TimelineCursor HoverCursor(EditTool tool, ClipDragMode mode) => tool switch
+    {
+        EditTool.Select => mode switch
+        {
+            ClipDragMode.TrimStart => TimelineCursor.TrimStart,
+            ClipDragMode.TrimEnd => TimelineCursor.TrimEnd,
+            _ => TimelineCursor.Default,
+        },
+        EditTool.Ripple => mode switch
+        {
+            ClipDragMode.TrimStart => TimelineCursor.RippleStart,
+            ClipDragMode.TrimEnd => TimelineCursor.RippleEnd,
+            _ => TimelineCursor.Default,
+        },
+        EditTool.Roll => mode is ClipDragMode.TrimStart or ClipDragMode.TrimEnd
+            ? TimelineCursor.Roll
+            : TimelineCursor.Default,
+        EditTool.Blade => TimelineCursor.Blade,
+        EditTool.Slip => TimelineCursor.Slip,
+        EditTool.Slide => TimelineCursor.Slide,
+        EditTool.Hand => TimelineCursor.Hand,
+        EditTool.Zoom => TimelineCursor.Zoom,
+        _ => TimelineCursor.Default,
+    };
+
+    /// <summary>
+    /// Where a blade cut at pointer X would land on a clip spanning <c>[clipStartTicks, clipEndTicks]</c>:
+    /// the pointer's timeline tick, snapped to the playhead when <paramref name="snapping"/> is on, or null
+    /// when the (snapped) cut would not fall strictly inside the clip. Shared by the Blade tool's hover
+    /// cut-line preview and the actual split, so the line always shows exactly where the cut will land.
+    /// </summary>
+    public static long? BladeCutTicks(
+        double pointerX, long clipStartTicks, long clipEndTicks, bool snapping, long playheadTicks,
+        double snapTolerancePx, double pxPerSecond, double scrollX, double headerWidth)
+    {
+        long at = TicksAtX(pointerX, pxPerSecond, scrollX, headerWidth);
+        if (snapping)
+            at = Snap(at, [playheadTicks], snapTolerancePx, pxPerSecond);
+        return at > clipStartTicks && at < clipEndTicks ? at : null;
     }
 
     /// <summary>

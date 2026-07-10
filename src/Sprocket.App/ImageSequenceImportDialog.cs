@@ -17,7 +17,7 @@ public readonly record struct SequenceImportChoice(bool AsSequence, Rational Fra
 
 /// <summary>
 /// Asks whether a detected numbered image run should import as one image sequence and at what frame rate
-/// (PLAN.md step 42). Follows the Premiere convention — an explicit "Import as image sequence" checkbox — so a
+/// (PLAN.md step 42). Follows leading NLEs convention — an explicit "Import as image sequence" checkbox — so a
 /// deliberate single-still import stays possible. The frame-rate combo offers the common stop-motion presets
 /// (12 / 15 / 24 fps) plus the project's timeline rate, defaulting to the project rate.
 /// </summary>

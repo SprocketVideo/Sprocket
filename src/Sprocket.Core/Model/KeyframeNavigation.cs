@@ -6,7 +6,7 @@ namespace Sprocket.Core.Model;
 /// Pure playhead navigation over a clip's keyframes (PLAN.md step 16d): given the current time, find the
 /// previous / next keyframe across <em>every</em> animated parameter of <em>every</em> effect on the clip, so
 /// the transport's jump-to-previous / jump-to-next-keyframe lands on the nearest animation event regardless of
-/// which parameter it belongs to (the Adobe-Premiere convention). Keyframe times are absolute timeline times —
+/// which parameter it belongs to (the leading NLEs convention). Keyframe times are absolute timeline times —
 /// the domain the render graph evaluates effects in (ARCHITECTURE.md §5/§9) — so the results are timeline
 /// positions the transport can seek to directly. Kept in Core (pure model reasoning, no UI) and unit-testable
 /// headlessly alongside <see cref="RenderGraph"/>.

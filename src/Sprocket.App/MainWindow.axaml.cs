@@ -657,7 +657,7 @@ public partial class MainWindow : Window
         else if (shift && e.Key == Key.M) { JumpToMarker(+1); e.Handled = true; }
         else if (e.Key == Key.M) { AddMarker(); e.Handled = true; }
         else if (shift && e.Key == Key.Z) { _timeline?.ZoomToFit(); e.Handled = true; }
-        // Timeline in/out marks (PLAN.md step 32): I / O set at the playhead (the Premiere convention), Alt+I /
+        // Timeline in/out marks (PLAN.md step 32): I / O set at the playhead (the leading NLEs convention), Alt+I /
         // Alt+O clear. Ctrl+I (Import) and Ctrl+O (Open) are handled above the text guard and never reach here.
         else if (alt && e.Key == Key.I) { ClearMark(inPoint: true); e.Handled = true; }
         else if (alt && e.Key == Key.O) { ClearMark(inPoint: false); e.Handled = true; }

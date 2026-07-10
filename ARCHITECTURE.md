@@ -773,9 +773,7 @@ shader agrees with that same Core-side reference for sample inputs.
 
 **Preset taxonomy — technical transforms vs. creative looks.** Any preset/look feature built on
 this pipeline must respect a **two-tier taxonomy**, mirroring how the leading NLEs separate the
-same concepts (Premiere's Lumetri *Input LUT* under Basic Correction vs. *Look* under Creative;
-Final Cut's auto-applied *Camera LUT* vs. the Custom LUT effect; Resolve's input color space /
-input LUT vs. node LUTs and PowerGrades):
+same concepts:
 
 1. **Technical presets (input transforms / normalization).** Camera-log → working-space
    conversions — the `builtin.colortransform` effect described above. Properties: **corrective,

@@ -679,7 +679,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         (ShowMask, Ping Pong, Low/High Shelf, Tap 1–8 enables) and stay **keyframeable with Hold-pinned
         interpolation** (`AnimatableEditing` upserts Hold keys; the lane is `HoldOnly` — no easing cycle, no
         velocity graph — so a keyframed boolean flips hard at each key instead of ramping through the DSP's
-        ≥ 0.5 threshold, matching how Resolve/Premiere hold-step boolean params); **dropdowns** generalize the
+        ≥ 0.5 threshold, matching how leading NLEs hold-step boolean params); **dropdowns** generalize the
         step-37 profile combo into a descriptor-driven, constant-only row (the ColorTransform special case was
         deleted); **integer params** (Shimmer Interval) snap the slider and round commits, defaulting new keys
         to Hold but still easeable. The numeric box's silent-revert bug was fixed with a unit-aware parse
@@ -818,9 +818,9 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         (exit 0) — confirming the expanded menu XAML parses and Save / Open / Export run from the menus. Full
         suite: **278 tests green** (Core 85, Media 24, Render 18, Audio 16, Playback 40, Export 6, Persistence 12,
         App 77).
-16d. **Premiere-parity keyframes.** The keyframe foundation exists — the model's `AnimatableValue`
+16d. **Keyframes.** The keyframe foundation exists — the model's `AnimatableValue`
     (constant or keyframed, with per-keyframe `Interpolation`), the step-16 ◇/◆ inspector affordances,
-    and the step-16b keyframe-lane editor (add / move / delete, Hold↔Linear). Bring it to Adobe-Premiere
+    and the step-16b keyframe-lane editor (add / move / delete, Hold↔Linear). Bring it to leading NLEs
     parity: **temporal interpolation beyond Hold/Linear** — Bezier / Ease In / Ease Out / Auto Bezier
     with an editable **velocity (value) graph**; **spatial interpolation** for positional params
     (Transform position/anchor) so keyframes define a **motion path** with linear or curved (spatial
@@ -1067,7 +1067,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         view out-resolves the proxy (the resolver would need the live zoom), and **Source-monitor proxying** (it
         previews on originals today) — none requires a redesign.
 19. **Generators & adjustment layers.** Title/text **generator clips** (a generator `IFrameSource`
-    feeding the render graph). **Adjustment layers**, modelled like Premiere: a synthetic Project-bin
+    feeding the render graph). **Adjustment layers**, modelled like leading NLEs: a synthetic Project-bin
     item with no source media, placed on a track as an ordinary clip, whose **effect stack applies to
     every track beneath it for the clip's time span** — a render-graph stage that composites the lower
     tracks, then runs the adjustment layer's effects over that result before the tracks above
@@ -2218,7 +2218,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         deferrals). `AudioEngine.RenderCache`: the feeder replays cached PCM when a buffer is fully covered, else
         mixes live — the `IPcmReader` seam step 41's heavy reverb freeze consumes.
       - **Storage (App `RenderCacheStore`).** A cache dir **beside the project** — `Sprocket Render Files/<project
-        name>/` (the Premiere convention; per-user fallback for untitled projects, `SPROCKET_RENDER_CACHE_DIR`
+        name>/` (the leading NLEs convention; per-user fallback for untitled projects, `SPROCKET_RENDER_CACHE_DIR`
         override) — holding the intermediates + a small manifest (scope, sequence, range, hash, file). Local,
         derived, never in the project file, **safely discardable**; a reopened project's still-matching renders
         validate immediately with no re-render. Atomic manifest writes; orphaned files swept best-effort.

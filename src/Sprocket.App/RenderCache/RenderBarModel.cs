@@ -5,7 +5,7 @@ using Sprocket.Core.Timing;
 
 namespace Sprocket.App.RenderCache;
 
-/// <summary>A render-bar span's colour, following the Premiere convention (PLAN.md step 32).</summary>
+/// <summary>A render-bar span's colour, following the leading NLEs convention (PLAN.md step 32).</summary>
 public enum RenderBarState
 {
     /// <summary>Yellow: un-rendered content that likely previews in real time (effect chains, adjustment layers).</summary>

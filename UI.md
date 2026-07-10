@@ -80,9 +80,15 @@ north-star layout; the vertical slice implements a subset of it without changing
 
 ### 3.2 Tool + action bar
 - **Tool palette** (radio group, one active): **Select · Blade · Ripple · Roll · Slip · Slide · Hand · Zoom**
-  (the Premiere/Resolve/FCP trim toolset).
-  - `Select` — default arrow; move/trim clips. **[slice]** (basic move + trim).
-  - `Blade` — razor; split a clip at the cursor. **[new, near-slice]** — a timeline edit op.
+  (the Premiere/Resolve/FCP trim toolset). Each tool has its own cursor (`ToolCursors.cs`, rendered at the
+  window's display scale): razor, side-specific red trim brackets (Select over a clip edge), yellow ripple
+  brackets, double-bracket roll, slip/slide arrow pairs, hand, magnifier — the cursor conventions shared by
+  Premiere, Resolve, and Final Cut.
+  - `Select` — default arrow; move/trim clips. **[slice]** (basic move + trim). Hovering within a clip
+    edge's grip zone shows the side-specific trim-bracket cursor before the drag starts.
+  - `Blade` — razor; split a clip at the cursor. **[new, near-slice]** — a timeline edit op. While
+    hovering a clip, a vertical cut-line previews exactly where the (snapped) split will land — the
+    FCP-skimmer / Resolve blade-line convention.
   - `Ripple` — trim a clip's edge and shift everything downstream to close/open the gap (keeps the
     track gap-free). **[new]** (PLAN step 22) — Linked A/V ripples together.
   - `Roll` — drag the cut between two adjacent clips (one's out + the next's in move together) keeping

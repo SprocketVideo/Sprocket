@@ -143,8 +143,9 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Select tool — move & edge-trim | UI.md §3.2; TimelineControl.cs | edit/editing-on-the-timeline.md#select--move-and-trim | ✅ |
-| Blade tool — split clips | TimelineControl.cs `BladeClip` | get-started/getting-started.md#5-split-a-clip-with-the-blade | ✅ |
+| Select tool — move & edge-trim (side-specific trim cursor on edge hover) | UI.md §3.2; TimelineControl.cs; TimelineMath.HoverCursor | edit/editing-on-the-timeline.md#select--move-and-trim | 🟡 (trim documented; hover cursor not mentioned) |
+| Blade tool — split clips (hover cut-line preview) | TimelineControl.cs `BladeClip` / `DrawBladePreview` | get-started/getting-started.md#5-split-a-clip-with-the-blade | 🟡 (split documented; cut-line preview not mentioned) |
+| Per-tool custom cursors (trim/ripple brackets, roll, slip/slide, razor, hand, magnifier) | ToolCursors.cs; TimelineMath.HoverCursor | — | ❌ |
 | Ripple tool | PLAN.md step 22; TimelineControl `DragKind.Ripple` | edit/editing-on-the-timeline.md#ripple | ✅ |
 | Roll tool | TimelineControl `DragKind.Roll` | edit/editing-on-the-timeline.md#roll | ✅ |
 | Slip tool | TimelineControl `DragKind.Slip` | edit/editing-on-the-timeline.md#slip | ✅ |

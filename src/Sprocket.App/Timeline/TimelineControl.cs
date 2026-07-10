@@ -226,21 +226,25 @@ public sealed class TimelineControl : Control
         {
             _activeTool = value;
             Cursor = ToolCursor(value);
+            if (value != EditTool.Blade)
+                SetBladeHover(null);
         }
     }
 
     private EditTool _activeTool = EditTool.Select;
 
-    /// <summary>The cursor for a tool — shared by the <see cref="ActiveTool"/> setter and idle-hover restore.</summary>
-    private static Cursor ToolCursor(EditTool tool) => tool switch
-    {
-        EditTool.Blade => new Cursor(StandardCursorType.Cross),
-        EditTool.Hand => new Cursor(StandardCursorType.SizeAll),
-        EditTool.Zoom => new Cursor(StandardCursorType.Hand),
-        EditTool.Slip or EditTool.Ripple or EditTool.Roll => new Cursor(StandardCursorType.SizeWestEast),
-        EditTool.Slide => new Cursor(StandardCursorType.SizeAll),
-        _ => Cursor.Default,
-    };
+    /// <summary>The cursor for a tool away from any hover context — the <see cref="ActiveTool"/> setter and
+    /// drag-release restore. Idle hover refines this per-position via <see cref="TimelineMath.HoverCursor"/>.</summary>
+    private Cursor ToolCursor(EditTool tool) =>
+        CursorFor(TimelineMath.HoverCursor(tool, ClipDragMode.None));
+
+    // The header-grip resize cursor, cached (like every cursor here) so the pointer-move path never allocates.
+    private static readonly Cursor HorizontalResizeCursor = new(StandardCursorType.SizeWestEast);
+
+    /// <summary>Translates the pure <see cref="TimelineCursor"/> kind to its custom bitmap cursor, rendered
+    /// at this window's display scale (<see cref="ToolCursors"/>; cached per kind + scale).</summary>
+    private Cursor CursorFor(TimelineCursor kind) =>
+        ToolCursors.Get(kind, TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0);
 
     /// <summary>The currently selected clip, or null.</summary>
     public Clip? SelectedClip => _selected;
@@ -1061,6 +1065,7 @@ public sealed class TimelineControl : Control
         DrawTransitions(ctx, size, lanes);
         DrawSequenceMarkers(ctx, size);
         DrawHeaders(ctx, lanes);
+        DrawBladePreview(ctx, size);
         DrawPlayhead(ctx, size);
         DrawDropPreview(ctx, size);
         DrawMovePreview(ctx, size);
@@ -1557,6 +1562,21 @@ public sealed class TimelineControl : Control
         ctx.DrawGeometry(Accent, null, handle);
     }
 
+    // The Blade tool's cut-line preview: a thin vertical line at the exact (snapped) position the next click
+    // would split — the FCP-skimmer / Resolve blade-line convention. Full lane height so the cut point can be
+    // judged against clips on every track; visually lighter than the playhead so the two never read as one.
+    private static readonly Pen BladePreviewPen = new(new ImmutableSolidColorBrush(Colors.White, 0.7), 1);
+
+    private void DrawBladePreview(DrawingContext ctx, Size size)
+    {
+        if (_bladeHoverTicks is not { } ticks)
+            return;
+        double x = TimelineMath.XAtTicks(ticks, _pxPerSecond, _scrollX, _headerWidth);
+        if (x < _headerWidth || x > size.Width)
+            return;
+        ctx.DrawLine(BladePreviewPen, new Point(x, RulerHeight), new Point(x, size.Height));
+    }
+
     // ── Pointer interaction ─────────────────────────────────────────────────────────────────────────
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -1701,11 +1721,44 @@ public sealed class TimelineControl : Control
             return;
         }
 
-        // Idle hover: show a resize cursor over the column edge, and the full track name as a tooltip when
-        // the name is too long to fit the current column width.
+        // Idle hover: show a resize cursor over the column edge, a hover-refined tool cursor over the lanes
+        // (e.g. a trim cursor inside a clip's edge grip), the Blade cut-line preview, and the full track name
+        // as a tooltip when the name is too long to fit the current column width.
         bool overGrip = p.Y > RulerHeight && Math.Abs(p.X - _headerWidth) <= EdgeGrip;
-        Cursor = overGrip ? new Cursor(StandardCursorType.SizeWestEast) : ToolCursor(_activeTool);
+        if (overGrip)
+        {
+            Cursor = HorizontalResizeCursor;
+            SetBladeHover(null);
+        }
+        else
+        {
+            TryHitClip(p, out Clip? hoverClip, out ClipDragMode hoverMode);
+            Cursor = CursorFor(TimelineMath.HoverCursor(_activeTool, hoverMode));
+            SetBladeHover(_activeTool == EditTool.Blade && hoverClip is not null
+                ? TimelineMath.BladeCutTicks(
+                    p.X, hoverClip.TimelineStart.Ticks, hoverClip.TimelineEnd.Ticks,
+                    Snapping, _playhead.Ticks, SnapTolerancePx, _pxPerSecond, _scrollX, _headerWidth)
+                : null);
+        }
         UpdateHeaderTooltip(p, overGrip);
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        SetBladeHover(null);
+    }
+
+    // The Blade tool's hover cut-line (timeline ticks), or null when no cut would land. Only redraws when the
+    // value actually changes so idle mouse movement doesn't trigger redundant render passes.
+    private long? _bladeHoverTicks;
+
+    private void SetBladeHover(long? ticks)
+    {
+        if (_bladeHoverTicks == ticks)
+            return;
+        _bladeHoverTicks = ticks;
+        InvalidateVisual();
     }
 
     // Sets the control tooltip to the full track name while hovering a truncated name in the header column;
@@ -2495,14 +2548,14 @@ public sealed class TimelineControl : Control
         if (track is null)
             return;
 
-        long atTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, _headerWidth);
-        if (Snapping)
-            atTicks = TimelineMath.Snap(atTicks, [_playhead.Ticks], SnapTolerancePx, _pxPerSecond);
-        var at = new Timecode(atTicks);
-
-        // Must fall strictly inside the clicked clip.
-        if (at <= clip.TimelineStart || at >= clip.TimelineEnd)
+        // Same position logic as the hover cut-line (BladeCutTicks), so the cut lands exactly where the
+        // preview showed. Null = the (snapped) cut would fall on/outside the clip's edges — ignored.
+        long? cutTicks = TimelineMath.BladeCutTicks(
+            p.X, clip.TimelineStart.Ticks, clip.TimelineEnd.Ticks,
+            Snapping, _playhead.Ticks, SnapTolerancePx, _pxPerSecond, _scrollX, _headerWidth);
+        if (cutTicks is not { } atTicks)
             return;
+        var at = new Timecode(atTicks);
 
         List<(Track Track, Clip Clip)> companions = Linked
             ? _project!.Timeline.ClipsLinkedTo(clip).Where(l => l.Clip.Contains(at)).ToList()
