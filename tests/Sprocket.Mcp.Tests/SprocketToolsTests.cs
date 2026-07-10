@@ -103,6 +103,23 @@ public class SprocketToolsTests
     }
 
     [Fact]
+    public async Task TrimClip_Rejects_Extending_Out_Past_The_Source_Media()
+    {
+        (FakeEditorSession session, SprocketTools tools, int clipId, Clip clip) = await PlacedClip();
+        long mediaEnd = clip.TimelineEnd.Ticks; // the placed clip spans the whole 2 s source
+        int entries = session.History.UndoCount;
+
+        await Assert.ThrowsAsync<McpException>(() => tools.TrimClip(clipId, "out", mediaEnd + 120000));
+        Assert.Equal(entries, session.History.UndoCount); // nothing landed
+
+        // Shortening and then extending back up to — but never past — the media end is allowed.
+        await tools.TrimClip(clipId, "out", mediaEnd - 120000);
+        await tools.TrimClip(clipId, "out", mediaEnd);
+        Assert.Equal(2 * 240000, clip.SourceOut.Ticks); // back at the full 2 s source
+        await Assert.ThrowsAsync<McpException>(() => tools.TrimClip(clipId, "out", mediaEnd + 1));
+    }
+
+    [Fact]
     public async Task MoveClip_Repositions_And_Changes_Tracks_With_Kind_Checking()
     {
         (FakeEditorSession session, SprocketTools tools, int clipId, Clip clip) = await PlacedClip();

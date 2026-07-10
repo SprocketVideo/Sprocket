@@ -2005,6 +2005,9 @@ public sealed class TimelineControl : Control
                     if (snapped != end)
                         newOut = Math.Max(_dragOrigIn.Ticks + _minDurTicks, _dragOrigIn.Ticks + (snapped - _dragOrigStart.Ticks));
                 }
+                // The out-point stops at the end of the source media, like slip/ripple/roll/slide (and every
+                // major NLE); the min-duration floor wins if the media is shorter than one frame.
+                newOut = Math.Max(_dragOrigIn.Ticks + _minDurTicks, Math.Min(newOut, MediaDurationTicks(_dragClip!)));
                 break;
 
             case ClipDragMode.TrimStart:

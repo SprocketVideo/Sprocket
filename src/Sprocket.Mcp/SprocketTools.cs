@@ -239,17 +239,17 @@ public sealed partial class SprocketTools(IEditorSession session)
                 throw new McpException("edge must be \"in\" or \"out\".");
 
             var at = new Timecode(newTimelineTicks);
-            var commands = new List<IEditCommand> { BuildTrimCommand(clip, trimIn, at) };
+            var commands = new List<IEditCommand> { BuildTrimCommand(api.Project, clip, trimIn, at) };
             if (includeLinked)
                 foreach ((Track _, Clip partner) in api.Project.Timeline.ClipsLinkedTo(clip))
-                    commands.Add(BuildTrimCommand(partner, trimIn, at));
+                    commands.Add(BuildTrimCommand(api.Project, partner, trimIn, at));
 
             api.History.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Trim linked clips", commands));
             api.RefreshPreview();
             return ClipResult(api, clip, "trimmed clip");
         });
 
-    private static IEditCommand BuildTrimCommand(Clip clip, bool trimIn, Timecode at)
+    private static IEditCommand BuildTrimCommand(Project project, Clip clip, bool trimIn, Timecode at)
     {
         if (trimIn)
         {
@@ -267,6 +267,13 @@ public sealed partial class SprocketTools(IEditorSession session)
         Timecode newSourceOut = clip.MapToSource(at);
         if (newSourceOut <= clip.SourceIn)
             throw new McpException($"that trim collapses clip {RuntimeIds.IdOf(clip)} to nothing.");
+        // A bounded source's out-point cannot pass the end of its media (stills/held clips are unbounded by design).
+        MediaRef? media = project.MediaPool.Get(clip.MediaRefId);
+        if (!clip.IsHeld && media is { HasUnboundedDuration: false, Info.Duration.Ticks: > 0 }
+            && newSourceOut.Ticks > media.Info.Duration.Ticks)
+            throw new McpException(
+                $"that trim runs clip {RuntimeIds.IdOf(clip)} past the end of its source media (pass " +
+                "includeLinked=false to trim only the addressed clip).");
         return new SetClipPlacementCommand(clip, clip.SourceIn, newSourceOut, clip.TimelineStart, "Trim clip");
     }
 
