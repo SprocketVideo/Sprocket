@@ -115,7 +115,16 @@ public partial class MainWindow : Window
     private Button? _exportButton, _maxButton;
     private ShapesPath? _maxButtonIcon; // swapped between Icons.Maximize / Icons.Restore by OnPropertyChanged
     private Control? _root;
-    private WindowState _lastNonMinimizedState = WindowState.Normal; // persisted on close (ignores Minimized)
+    private WindowState _lastNonMinimizedState = WindowState.Normal; // persisted on close (ignores Minimized/FullScreen)
+    private WindowState _stateBeforeFullScreen = WindowState.Normal; // restored when leaving View ▸ Full Screen
+
+    // Full-screen preview (View ▸ Full Screen Preview, Ctrl+F): the shared PreviewSurface is reparented into the
+    // window-covering FullscreenPreviewHost overlay while the window goes fullscreen (Resolve's Full Screen Viewer).
+    private Panel? _fullscreenPreviewHost;
+    private Panel? _previewHome; // the monitor DockPanel the surface is re-docked into on exit
+    private bool _previewFullscreen;
+    private bool _enteredWindowFullScreenForPreview; // whether exiting the preview should also leave fullscreen
+    private MonitorZoom _zoomBeforeFullscreenPreview;
 
     // Command-menu items refreshed on submenu open (context-enabling) + the View toggles / panes.
     private MenuItem? _cutMenuItem, _copyMenuItem, _pasteMenuItem, _deleteMenuItem, _rippleDeleteMenuItem;
@@ -128,6 +137,7 @@ public partial class MainWindow : Window
     private MenuItem? _clipDuplicateFrameMenuItem, _clipRemoveFrameMenuItem;
     private MenuItem? _nestMenuItem, _openSequenceMenuItem; // Sequence menu (PLAN.md step 23)
     private MenuItem? _snappingMenuItem, _guidesMenuItem, _showProjectMenuItem, _showInspectorMenuItem, _showStatsMenuItem;
+    private MenuItem? _fullScreenMenuItem; // View ▸ Full Screen (checked while fullscreen)
     private PlaybackStatsOverlay? _statsOverlay; // floating playback-diagnostics window (View ▸ Playback Statistics)
     private MenuItem? _effectsMenu;
     private ToggleButton? _snappingToggle, _guidesToggle;
@@ -186,6 +196,7 @@ public partial class MainWindow : Window
         _currentProjectPath = projectPath;
 
         _root = this.FindControl<Control>("Root");
+        _fullscreenPreviewHost = this.FindControl<Panel>("FullscreenPreviewHost");
         _statusText = this.FindControl<TextBlock>("StatusText")!;
         _telemetryText = this.FindControl<TextBlock>("TelemetryText")!;
         _engineStateText = this.FindControl<TextBlock>("EngineStateText")!;
@@ -289,8 +300,32 @@ public partial class MainWindow : Window
         this.FindControl<Button>("CloseButton")!.Click += (_, _) => Close();
     }
 
-    private void ToggleMaximize() =>
+    private void ToggleMaximize()
+    {
+        // While fullscreen, the caption button / title double-click reads as "get me out of fullscreen".
+        if (WindowState == WindowState.FullScreen)
+        {
+            ToggleWindowFullScreen();
+            return;
+        }
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    }
+
+    /// <summary>View ▸ Full Screen (F11; ⌃⌘F on macOS, where the frameless window has no native green-button
+    /// affordance): toggles <see cref="WindowState.FullScreen"/>, restoring the pre-fullscreen Normal/Maximized
+    /// state on exit. Esc also exits (OnKeyDown). Fullscreen is transient — never persisted by WindowStateStore.</summary>
+    private void ToggleWindowFullScreen()
+    {
+        if (WindowState == WindowState.FullScreen)
+        {
+            WindowState = _stateBeforeFullScreen;
+        }
+        else
+        {
+            _stateBeforeFullScreen = WindowState == WindowState.Maximized ? WindowState.Maximized : WindowState.Normal;
+            WindowState = WindowState.FullScreen;
+        }
+    }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
@@ -302,13 +337,18 @@ public partial class MainWindow : Window
             _root.Margin = WindowState == WindowState.Maximized ? OffScreenMargin : default;
             if (_maxButton is not null)
             {
-                bool maximized = WindowState == WindowState.Maximized;
+                bool zoomed = WindowState is WindowState.Maximized or WindowState.FullScreen;
                 if (_maxButtonIcon is not null)
-                    _maxButtonIcon.Data = maximized ? Icons.Restore : Icons.Maximize;
-                AutomationProperties.SetName(_maxButton, maximized ? "Restore" : "Maximize");
+                    _maxButtonIcon.Data = zoomed ? Icons.Restore : Icons.Maximize;
+                AutomationProperties.SetName(_maxButton,
+                    WindowState == WindowState.FullScreen ? "Exit full screen" : zoomed ? "Restore" : "Maximize");
             }
-            if (WindowState != WindowState.Minimized)
-                _lastNonMinimizedState = WindowState; // remember the real state to persist (not a transient minimize)
+            // Remember the real state to persist — not a transient minimize, and not fullscreen either (a session
+            // closed while fullscreen should reopen at its pre-fullscreen Normal/Maximized state).
+            if (WindowState is not (WindowState.Minimized or WindowState.FullScreen))
+                _lastNonMinimizedState = WindowState;
+            if (_fullScreenMenuItem is not null)
+                _fullScreenMenuItem.IsChecked = WindowState == WindowState.FullScreen;
         }
     }
 
@@ -470,6 +510,17 @@ public partial class MainWindow : Window
         _showInspectorMenuItem.Click += (_, _) => SetPanelVisible(project: false, _showInspectorMenuItem.IsChecked == true);
         _showStatsMenuItem = this.FindControl<MenuItem>("ShowStatsMenuItem")!;
         _showStatsMenuItem.Click += (_, _) => ShowStatsOverlay(_showStatsMenuItem.IsChecked == true);
+        _fullScreenMenuItem = this.FindControl<MenuItem>("FullScreenMenuItem")!;
+        _fullScreenMenuItem.Click += (_, _) => ToggleWindowFullScreen();
+        var fullScreenPreviewMenuItem = this.FindControl<MenuItem>("FullScreenPreviewMenuItem")!;
+        fullScreenPreviewMenuItem.Click += (_, _) => ToggleFullscreenPreview();
+        if (OperatingSystem.IsMacOS())
+        {
+            // The XAML gestures show the Windows/Linux keys; swap to the macOS-native chords (the labels are
+            // display-only — the accelerators live in OnKeyDown, which accepts both forms on macOS).
+            _fullScreenMenuItem.InputGesture = new KeyGesture(Key.F, KeyModifiers.Control | KeyModifiers.Meta);
+            fullScreenPreviewMenuItem.InputGesture = new KeyGesture(Key.F, KeyModifiers.Meta);
+        }
         this.FindControl<MenuItem>("ViewMenu")!.SubmenuOpened += (_, _) => RefreshViewMenu();
 
         // ── Sequence (multiple sequences + nested/compound clips, PLAN.md step 23) ──
@@ -506,8 +557,28 @@ public partial class MainWindow : Window
         bool ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control);
         bool shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         bool alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+        bool meta = e.KeyModifiers.HasFlag(KeyModifiers.Meta);
 
         // ── Global accelerators (work regardless of focus) ──
+        // Window fullscreen: F11 everywhere, plus the native ⌃⌘F on macOS (Magic Keyboards without an Fn row
+        // treat F11 as a media key, so F11 alone is unreachable there). While the fullscreen preview overlay is
+        // up, F11 peels that first — an overlay in a windowed frame isn't this feature's contract.
+        if (e.Key == Key.F11 || (OperatingSystem.IsMacOS() && ctrl && meta && e.Key == Key.F))
+        {
+            if (_previewFullscreen)
+                ExitFullscreenPreview();
+            else
+                ToggleWindowFullScreen();
+            e.Handled = true;
+            return;
+        }
+        // Full-screen preview: Ctrl+F (⌘F on macOS) — Resolve's Full Screen Viewer. ⌃⌘F returned above.
+        if ((ctrl || (OperatingSystem.IsMacOS() && meta)) && e.Key == Key.F)
+        {
+            ToggleFullscreenPreview();
+            e.Handled = true;
+            return;
+        }
         if (ctrl && e.Key == Key.N) { NewProject(); e.Handled = true; return; }
         if (ctrl && e.Key == Key.O) { _ = OpenProjectAsync(); e.Handled = true; return; }
         if (ctrl && shift && e.Key == Key.S) { _ = SaveAsAsync(); e.Handled = true; return; }
@@ -560,6 +631,14 @@ public partial class MainWindow : Window
         else if (e.Key == Key.I) { SetMarkAtPlayhead(inPoint: true); e.Handled = true; }
         else if (e.Key == Key.O) { SetMarkAtPlayhead(inPoint: false); e.Handled = true; }
         else if (e.Key == Key.Space) { if (!_exporting) _active?.TogglePlayPause(); e.Handled = true; }
+        // Esc peels fullscreen modes one layer at a time: the preview overlay first, then window fullscreen
+        // (unless the preview itself entered fullscreen, in which case exiting it restores everything at once).
+        // Sits below the text-box guard so the rename/title editors' own Escape handling wins.
+        else if (e.Key == Key.Escape)
+        {
+            if (_previewFullscreen) { ExitFullscreenPreview(); e.Handled = true; }
+            else if (WindowState == WindowState.FullScreen) { ToggleWindowFullScreen(); e.Handled = true; }
+        }
     }
 
     /// <summary>
@@ -1161,6 +1240,80 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>View ▸ Full Screen Preview (Ctrl+F; ⌘F on macOS — Resolve's Full Screen Viewer): the picture
+    /// takes over the whole screen while the transport keys (Space, I/O, arrows…) stay live. Esc or Ctrl+F exits.</summary>
+    private void ToggleFullscreenPreview()
+    {
+        if (_previewFullscreen)
+            ExitFullscreenPreview();
+        else
+            EnterFullscreenPreview();
+    }
+
+    /// <summary>
+    /// Reparents the shared <see cref="PreviewSurface"/> into the window-covering overlay and takes the window
+    /// fullscreen. Single-window by design: one compositor → one GRContext lease path (ARCHITECTURE.md §10), and
+    /// the window-level OnKeyDown keeps every transport shortcut working with no rewiring. Deliberate departure
+    /// from Resolve/Premiere: no second-monitor clean-feed output (that needs a second window — future work).
+    /// </summary>
+    private void EnterFullscreenPreview()
+    {
+        if (_previewFullscreen || _exporting || _preview is null || _fullscreenPreviewHost is null || _root is null)
+            return;
+        if (_active?.CurrentEngine is null || _preview.Parent is not Panel home)
+            return; // nothing loaded to show
+
+        // Reparenting detaches the surface from the visual tree, which disposes its effect pipeline; it must be
+        // Detach()ed first and re-Attach()ed after (a bare Attach with the same engine early-returns — dead surface).
+        _previewHome = home;
+        _preview.Detach();
+        home.Children.Remove(_preview);
+        _fullscreenPreviewHost.Children.Add(_preview);
+
+        _zoomBeforeFullscreenPreview = _preview.Zoom;
+        _preview.Zoom = MonitorZoom.Fit; // the overlay always fits the screen (the Resolve behavior)
+        _preview.Scopes = null;          // don't pay per-frame scope sampling for the hidden panel
+
+        _fullscreenPreviewHost.IsVisible = true;
+        _root.IsVisible = false; // the covered UI shouldn't layout/render per frame or catch Tab focus
+        _previewFullscreen = true;
+        BindActiveToSurface();
+
+        if (WindowState != WindowState.FullScreen)
+        {
+            _enteredWindowFullScreenForPreview = true;
+            ToggleWindowFullScreen();
+        }
+    }
+
+    /// <summary>Re-docks the surface into its monitor pane and restores zoom/scopes; leaves window fullscreen
+    /// only if the preview itself entered it.</summary>
+    private void ExitFullscreenPreview()
+    {
+        if (!_previewFullscreen || _preview is null || _fullscreenPreviewHost is null || _root is null)
+            return;
+
+        _preview.Detach();
+        _fullscreenPreviewHost.Children.Remove(_preview);
+        _previewHome?.Children.Add(_preview); // added last → the monitor DockPanel's fill slot
+        _previewHome = null;
+
+        _preview.Zoom = _zoomBeforeFullscreenPreview;
+        _preview.Scopes = _scopeState;
+
+        _fullscreenPreviewHost.IsVisible = false;
+        _root.IsVisible = true;
+        _previewFullscreen = false;
+        BindActiveToSurface();
+
+        if (_enteredWindowFullScreenForPreview)
+        {
+            _enteredWindowFullScreenForPreview = false;
+            if (WindowState == WindowState.FullScreen)
+                ToggleWindowFullScreen();
+        }
+    }
+
     /// <summary>Switches between the Program and Source monitors (UI.md §3.4): pauses the outgoing monitor,
     /// builds/frees the Source engine, re-binds the shared surface, and re-points the transport readouts.</summary>
     private void WireMonitorTabs()
@@ -1731,6 +1884,7 @@ public partial class MainWindow : Window
         if (_showProjectMenuItem is not null) _showProjectMenuItem.IsChecked = _projectPane?.IsVisible != false;
         if (_showInspectorMenuItem is not null) _showInspectorMenuItem.IsChecked = _inspectorPane?.IsVisible != false;
         if (_showStatsMenuItem is not null) _showStatsMenuItem.IsChecked = _statsOverlay is not null;
+        if (_fullScreenMenuItem is not null) _fullScreenMenuItem.IsChecked = WindowState == WindowState.FullScreen;
     }
 
     /// <summary>

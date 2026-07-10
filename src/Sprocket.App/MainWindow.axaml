@@ -19,6 +19,10 @@
     with the Program monitor + transport + Export + Save + Edit→Undo/Redo fully live.
   -->
 
+  <!-- The overlay Panel exists for the full-screen preview (View ▸ Full Screen Preview, Ctrl+F): the shared
+       PreviewSurface is reparented into FullscreenPreviewHost so the picture covers the whole window while the
+       window itself goes WindowState.FullScreen (single window → single compositor/GRContext lease, §10). -->
+  <Panel>
   <DockPanel x:Name="Root">
 
     <!-- ── Title bar: logo · menu · project title/save-state · window controls ─────────────────── -->
@@ -158,6 +162,12 @@
             <MenuItem x:Name="ShowInspectorMenuItem" Header="I_nspector Panel" ToggleType="CheckBox" IsChecked="True" />
             <Separator />
             <MenuItem x:Name="ShowStatsMenuItem" Header="Playback _Statistics" ToggleType="CheckBox" />
+            <Separator />
+            <!-- Fullscreen (user-requested; F11 is the Windows/Linux convention). On macOS the gestures are
+                 swapped in code to the native ⌃⌘F / ⌘F (WireCommandMenus) — Magic Keyboards treat F11 as a
+                 media key. Esc exits either mode; both accelerators are handled in OnKeyDown. -->
+            <MenuItem x:Name="FullScreenMenuItem" Header="_Full Screen" ToggleType="CheckBox" InputGesture="F11" />
+            <MenuItem x:Name="FullScreenPreviewMenuItem" Header="Full Screen Previe_w" InputGesture="Ctrl+F" />
           </MenuItem>
           <MenuItem x:Name="WindowMenu" Header="_Window">
             <MenuItem x:Name="ResetLayoutMenuItem" Header="_Reset Layout" />
@@ -520,4 +530,6 @@
       </Border>
     </Grid>
   </DockPanel>
+  <Grid x:Name="FullscreenPreviewHost" IsVisible="False" Background="Black" />
+  </Panel>
 </Window>

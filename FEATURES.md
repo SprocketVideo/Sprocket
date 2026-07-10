@@ -88,6 +88,7 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|
 | Main screen layout (menu bar, toolbar, panels, timeline, status bar) | UI.md §3; Sprocket.App/MainWindow.axaml | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Frameless window chrome (drag, double-click maximize, caption buttons) | MainWindow.axaml.cs `WireWindowChrome` | — | ❌ |
+| Full-screen window (View ▸ Full Screen; `F11`, `⌃⌘F` on macOS; `Esc` exits; title bar/menu stays visible; never persisted across launches) | MainWindow.axaml.cs `ToggleWindowFullScreen` | — | ❌ |
 | Resizable panels (splitters) | MainWindow.axaml GridSplitters | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Show/hide Project & Inspector panels (View menu) | MainWindow.axaml.cs `SetPanelVisible` | — | ❌ |
 | Reset Layout | MainWindow.axaml.cs `ResetLayout` | — | ❌ |
@@ -273,6 +274,7 @@ in terms an app-side committer can check against their diff.
 | Source monitor (preview a bin clip; Program/Source tabs) | Sprocket.App/Monitors.cs; `WireMonitorTabs` | — | ❌ (guides only cover Program) |
 | Preview zoom: Fit / 50 / 100 / 200% | MainWindow.axaml.cs `WireZoomAndGuides` | get-started/getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
 | Guides overlay (safe areas / framing grid) | PreviewSurface.ShowGuides | get-started/getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
+| Full-screen preview (View ▸ Full Screen Preview; `Ctrl+F`, `⌘F` on macOS; `Esc` or the shortcut exits; transport keys stay live; works for Program and Source) | MainWindow.axaml.cs `EnterFullscreenPreview`; PreviewSurface.cs | — | ❌ |
 | Timecode readouts (position / duration) | MainWindow.axaml:360 | get-started/getting-started.md#1-play-and-preview-your-video | ✅ |
 | Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | performance/troubleshooting-playback.md | 🟡 stale — dropped-frame/preview-rate semantics now speed-aware (slow-motion holds count as delivered, never as drops); re-verify the metric descriptions |
 
@@ -309,7 +311,7 @@ Preferences or an "advanced" page.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Complete shortcut reference | MainWindow.axaml.cs:456–547 key handlers; menu InputGestures | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | 🟡 (a "worth knowing" table exists; full reference page missing — code is the only complete source, incl. `I`/`O`, `[`/`]`, `1`–`9`, `Shift+M`, `Ctrl+Y`, `Ctrl+Shift+E`, `Ctrl+,`) |
+| Complete shortcut reference | MainWindow.axaml.cs:456–547 key handlers; menu InputGestures | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | 🟡 (a "worth knowing" table exists; full reference page missing — code is the only complete source, incl. `I`/`O`, `[`/`]`, `1`–`9`, `Shift+M`, `Ctrl+Y`, `Ctrl+Shift+E`, `Ctrl+,`, `F11`/`⌃⌘F`, `Ctrl+F`/`⌘F`, `Esc`) |
 
 ### Preferences
 
