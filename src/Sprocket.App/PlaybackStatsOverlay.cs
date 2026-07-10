@@ -88,15 +88,18 @@ internal sealed class PlaybackStatsOverlay : Window
         _targetFps = AddRow(grid, ref row, "Timeline rate",
             "The sequence's frame rate — the rate the preview is trying to hit.");
         _previewFps = AddRow(grid, ref row, "Preview rate",
-            "Frames actually shown per second, averaged over a few seconds. It should match the timeline rate "
-            + "during smooth playback; a lower number means the preview can't keep up.");
+            "Timeline frames delivered on schedule per second, averaged over a few seconds. A slow-motion clip "
+            + "holds each source frame across several timeline frames by design — those still count, so this should "
+            + "match the timeline rate during smooth playback at any clip speed; a lower number means the preview "
+            + "can't keep up.");
         _dropped = AddRow(grid, ref row, "Dropped frames",
             "Timeline frames the preview couldn't render in time and had to skip to keep pace with the clock, for "
-            + "the current playback (it resets each time you start playing). Frames a clip drops because its frame "
-            + "rate is higher than the sequence aren't counted — only frames lost to falling behind. This climbs "
-            + "when the preview can't keep up; 0 is ideal.");
+            + "the current playback (it resets each time you start playing). Frames a clip skips because its frame "
+            + "rate is higher than the sequence, and frames a slow-motion clip holds on purpose, aren't counted — "
+            + "only frames lost to falling behind. This climbs when the preview can't keep up; 0 is ideal.");
         _presented = AddRow(grid, ref row, "Frames shown",
-            "Total frames presented to the screen since playback started.");
+            "Total repaints presented to the screen since playback started. Slow-motion clips legitimately repaint "
+            + "below the timeline rate (held frames don't repaint), so this can trail the preview rate by design.");
         _pumpRate = AddRow(grid, ref row, "Pump rate",
             "How many times per second the playback loop runs to schedule and composite a frame "
             + "(target ≈ the timeline rate).");
@@ -198,7 +201,7 @@ internal sealed class PlaybackStatsOverlay : Window
             double window = (now - oldTs) / (double)Stopwatch.Frequency;
             if (window > 0)
             {
-                fps = (s.FramesPresented - old.FramesPresented) / window;
+                fps = (s.FramesDelivered - old.FramesDelivered) / window;
                 dropRate = (s.FramesDropped - old.FramesDropped) / window;
                 pumpRate = (s.PumpIterations - old.PumpIterations) / window;
             }

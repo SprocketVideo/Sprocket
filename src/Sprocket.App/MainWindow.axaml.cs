@@ -110,7 +110,7 @@ public partial class MainWindow : Window
     // and does zero work on the render/decode hot path. At idle it is stopped and the readout settles to the nominal
     // sequence rate on the state-change event, so a paused editor incurs no periodic wake-ups.
     private DispatcherTimer? _telemetryTimer;
-    private long _prevPresented, _prevStatsTs; // baseline for the live-fps delta (frames presented, Stopwatch ticks)
+    private long _prevDelivered, _prevStatsTs; // baseline for the live-fps delta (frames delivered, Stopwatch ticks)
     private MenuItem? _undoMenuItem, _redoMenuItem;
     private Button? _exportButton, _maxButton;
     private ShapesPath? _maxButtonIcon; // swapped between Icons.Maximize / Icons.Restore by OnPropertyChanged
@@ -863,7 +863,7 @@ public partial class MainWindow : Window
     {
         PlaybackEngine? engine = _active?.CurrentEngine ?? _engine;
         _prevStatsTs = Stopwatch.GetTimestamp();
-        _prevPresented = engine?.GetStatistics().FramesPresented ?? 0;
+        _prevDelivered = engine?.GetStatistics().FramesDelivered ?? 0;
 
         if (_telemetryTimer is null)
         {
@@ -884,7 +884,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>The live-telemetry tick: derives the measured preview fps from the delta of the engine's cumulative
-    /// present counter over the real elapsed interval, and refreshes the GPU/hw-accel status (it can change as the
+    /// delivered-frame counter (holds included, so slow-motion clips read at the timeline rate) over the real
+    /// elapsed interval, and refreshes the GPU/hw-accel status (it can change as the
     /// playhead crosses clips). Stops itself if playback has ended so it never spins at idle.</summary>
     private void OnTelemetryTick(object? sender, EventArgs e)
     {
@@ -899,8 +900,8 @@ public partial class MainWindow : Window
         PlaybackStatistics stats = engine.GetStatistics();
         double seconds = (now - _prevStatsTs) / (double)Stopwatch.Frequency;
         if (seconds > 0)
-            RenderTelemetry((stats.FramesPresented - _prevPresented) / seconds);
-        _prevPresented = stats.FramesPresented;
+            RenderTelemetry((stats.FramesDelivered - _prevDelivered) / seconds);
+        _prevDelivered = stats.FramesDelivered;
         _prevStatsTs = now;
 
         UpdateEngineStatus();

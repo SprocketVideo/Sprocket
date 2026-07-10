@@ -184,6 +184,88 @@ public class PlaybackEngineTests
     }
 
     [Fact]
+    public async Task Slow_Motion_Clip_Holds_Are_Delivered_Not_Dropped()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var elapsed = TimeSpan.Zero;
+        (Project project, RingVideoFrameFeed feed) = BuildSession();
+        // ½× slow motion: each source frame legitimately spans two timeline frames (the in-between timeline
+        // frames hold the current source frame — they are delivered on schedule, not dropped).
+        project.Timeline.VideoTracks.First().Clips[0].SpeedRatio = new Rational(1, 2);
+        var clock = new SoftwareClock(() => elapsed);
+        await using var engine = new PlaybackEngine(project, feed, clock);
+
+        feed.Start();
+        engine.SeekTo(Timecode.Zero);
+        await engine.PumpOnceAsync(forcePresent: true, cts.Token); // present source frame 0 at timeline frame 0
+
+        clock.Start();
+        long ptsChanges = 0, lastPts = CurrentPts(engine);
+        const int ticks = 8;
+        for (int k = 1; k <= ticks; k++)
+        {
+            // Step the clock one timeline frame per pump (sampled mid-frame so rounding never lands on a
+            // frame boundary) — a perfectly healthy playback cadence.
+            elapsed = TimeSpan.FromSeconds((k + 0.5) / TestVideo.Fps);
+            await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+            long pts = CurrentPts(engine);
+            if (pts != lastPts)
+                ptsChanges++;
+            lastPts = pts;
+        }
+
+        PlaybackStatistics stats = engine.GetStatistics();
+        Assert.Equal(0, stats.FramesDropped);            // holds are not drops
+        Assert.Equal(1 + ticks, stats.FramesDelivered);  // forced present + one serviced timeline frame per tick
+        Assert.Equal(ticks / 2, ptsChanges);             // a new source frame only every other timeline frame
+        Assert.Equal(1 + ticks / 2, stats.FramesPresented); // holds don't repaint
+    }
+
+    [Fact]
+    public async Task Slow_Motion_Clip_Still_Counts_Genuine_Drops()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var elapsed = TimeSpan.Zero;
+        (Project project, RingVideoFrameFeed feed) = BuildSession();
+        project.Timeline.VideoTracks.First().Clips[0].SpeedRatio = new Rational(1, 2);
+        var clock = new SoftwareClock(() => elapsed);
+        await using var engine = new PlaybackEngine(project, feed, clock);
+
+        feed.Start();
+        engine.SeekTo(Timecode.Zero);
+        await engine.PumpOnceAsync(forcePresent: true, cts.Token); // baseline at timeline frame 0
+
+        clock.Start();
+        elapsed = TimeSpan.FromSeconds(1.0); // jump to timeline frame 30 in one non-forced pump
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+
+        // A late tick is charged the timeline frames it skipped regardless of clip speed — slow motion excuses
+        // holds, not falling behind.
+        Assert.Equal(29, engine.GetStatistics().FramesDropped);
+    }
+
+    [Fact]
+    public async Task Parked_Clock_Ticks_Accrue_Nothing()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        (Project project, RingVideoFrameFeed feed) = BuildSession();
+        await using var engine = new PlaybackEngine(project, feed, new SoftwareClock(() => TimeSpan.Zero));
+
+        feed.Start();
+        engine.SeekTo(Timecode.Zero);
+        await engine.PumpOnceAsync(forcePresent: true, cts.Token); // present frame 0
+        long delivered = engine.GetStatistics().FramesDelivered;
+
+        // Idle ticks while the playhead is parked service no new timeline frame: nothing delivered, nothing dropped.
+        for (int i = 0; i < 5; i++)
+            await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+
+        PlaybackStatistics stats = engine.GetStatistics();
+        Assert.Equal(0, stats.FramesDropped);
+        Assert.Equal(delivered, stats.FramesDelivered);
+    }
+
+    [Fact]
     public async Task Reaches_End_Then_Stops_And_Signals()
     {
         using var cts = new CancellationTokenSource(Timeout);

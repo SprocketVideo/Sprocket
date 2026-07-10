@@ -77,7 +77,7 @@ in terms an app-side committer can check against their diff.
 | Window-state persistence (reopens maximized/centered) | Sprocket.App/WindowStateStore.cs | — | ➖ (invisible; mention only if asked) |
 | Project name + saved/unsaved indicator in title bar | MainWindow.axaml.cs:1609 | getting-started.md#11-save-your-project | ✅ |
 | Status bar (engine state, messages, live fps/size/duration) | UI.md §3.7; MainWindow.axaml.cs `RenderTelemetry` | getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
-| Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | troubleshooting-playback.md | ✅ |
+| Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | troubleshooting-playback.md | 🟡 stale — dropped-frame/preview-rate semantics now speed-aware (slow-motion holds count as delivered, never as drops); re-verify the metric descriptions |
 | Help ▸ About (version, open logs folder) | Sprocket.App/Dialogs.cs `AboutDialog` | — | ❌ |
 | Help ▸ Third-Party Notices (bundled library/font/media licenses) | Sprocket.App/Dialogs.cs `ThirdPartyNoticesDialog`; THIRD-PARTY-NOTICES.md | — | ❌ |
 | Auto-update (Help ▸ Check for Updates; status-bar badge; installed builds download + Install & Restart in-app; portable builds link to the releases page) | Sprocket.App/UpdateService.cs; UpdateDialogs.cs; PLAN.md steps 36 + 45 | — | ❌ |
