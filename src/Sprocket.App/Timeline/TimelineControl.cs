@@ -1144,7 +1144,9 @@ public sealed class TimelineControl : Control
 
     // The cross-track drag ghost (PLAN.md step 16e): highlights the target lane and draws a translucent block
     // where the clip will land (its current snapped start + duration), with a "+" hint while copying (Alt).
-    // The real clip stays drawn in place — the model isn't mutated until release.
+    // Linked companions get the same ghost on their own lanes (they shift in time only), except while
+    // copying — Alt duplicates just the primary. The real clips stay drawn in place — the model isn't
+    // mutated until release.
     private void DrawMovePreview(DrawingContext ctx, Size size)
     {
         if (!_movePreview || _dragClip is null || _movePreviewTrack is null)
@@ -1153,21 +1155,36 @@ public sealed class TimelineControl : Control
         int laneIndex = lanes.FindIndex(l => ReferenceEquals(l.track, _movePreviewTrack));
         if (laneIndex < 0)
             return;
-        bool isVideo = lanes[laneIndex].isVideo;
 
-        ctx.FillRectangle(MovePreviewLaneFill,
-            new Rect(_headerWidth, LaneTop(laneIndex), size.Width - _headerWidth, TrackHeight));
+        long delta = _movePreviewStart - _dragOrigStart.Ticks;
 
-        long dur = _dragOrigOut.Ticks - _dragOrigIn.Ticks;
-        double x0 = TimelineMath.XAtTicks(_movePreviewStart, _pxPerSecond, _scrollX, _headerWidth);
-        double x1 = TimelineMath.XAtTicks(_movePreviewStart + dur, _pxPerSecond, _scrollX, _headerWidth);
+        // Every ghost as (lane, start, duration) — the primary on the hovered lane, companions on their own.
+        var ghosts = new List<(int lane, long start, long dur)>
+        {
+            (laneIndex, _movePreviewStart, _dragOrigOut.Ticks - _dragOrigIn.Ticks),
+        };
+        if (!_movePreviewCopy)
+            foreach ((Clip companion, Timecode origStart) in _dragLinked)
+            {
+                int lane = lanes.FindIndex(l => l.track.Clips.Contains(companion));
+                if (lane >= 0)
+                    ghosts.Add((lane, origStart.Ticks + delta, companion.SourceOut.Ticks - companion.SourceIn.Ticks));
+            }
+
+        foreach (int lane in ghosts.Select(g => g.lane).Distinct())
+            ctx.FillRectangle(MovePreviewLaneFill,
+                new Rect(_headerWidth, LaneTop(lane), size.Width - _headerWidth, TrackHeight));
 
         using var _ = ctx.PushClip(new Rect(_headerWidth, RulerHeight, size.Width - _headerWidth, size.Height - RulerHeight));
-        var rect = new Rect(x0, LaneTop(laneIndex) + 3, Math.Max(2, x1 - x0), TrackHeight - 6);
-        var rounded = new RoundedRect(rect, 4);
-        ctx.DrawRectangle(isVideo ? VideoGhostFill : AudioGhostFill, SelectPen, rounded);
-        if (_movePreviewCopy)
-            DrawIcon(ctx, Icons.Plus, new Rect(rect.X + 4, rect.Y + 2, IconSizes.Compact, IconSizes.Compact), Brushes.White);
+        foreach ((int lane, long start, long dur) in ghosts)
+        {
+            double x0 = TimelineMath.XAtTicks(start, _pxPerSecond, _scrollX, _headerWidth);
+            double x1 = TimelineMath.XAtTicks(start + dur, _pxPerSecond, _scrollX, _headerWidth);
+            var rect = new Rect(x0, LaneTop(lane) + 3, Math.Max(2, x1 - x0), TrackHeight - 6);
+            ctx.DrawRectangle(lanes[lane].isVideo ? VideoGhostFill : AudioGhostFill, SelectPen, new RoundedRect(rect, 4));
+            if (_movePreviewCopy)
+                DrawIcon(ctx, Icons.Plus, new Rect(rect.X + 4, rect.Y + 2, IconSizes.Compact, IconSizes.Compact), Brushes.White);
+        }
     }
 
     /// <summary>The render-bar spans to draw over the ruler (PLAN.md step 32) — computed by
