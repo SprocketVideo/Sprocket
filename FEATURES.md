@@ -69,7 +69,7 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|---|
 | get-started/getting-started.md (whole guide) | §§1–4, 6–7 (everyday subset) | a *common-task* workflow changes, or a new feature belongs in the everyday path | 92226ec | ✅ current |
 | get-started/getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 92226ec | ✅ current |
-| get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 92226ec | ✅ current |
+| get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 92226ec | 🟡 stale (macOS now uses ⌘ as the primary modifier; table shows Ctrl only) |
 | Keyboard shortcut reference (full page) | §9; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | — | ❌ missing |
 | index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 92226ec | ✅ current |
 | edit/editing-on-the-timeline.md | §3 (Timeline editing; Clips: speed / frame hold / frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 438f6e2 | ✅ current |
@@ -111,7 +111,7 @@ in terms an app-side committer can check against their diff.
 | Discard-changes confirmation when dirty | MainWindow.axaml.cs `ConfirmDiscardIfDirty` | — | 🟡 (implied, never stated) |
 | Autosave + crash recovery (recover-newer-autosave prompt) | Sprocket.App/AutosaveService.cs; `ShouldRecoverAsync` | — | ❌ |
 | Relink Media (folder pick, match preview) | MainWindow.axaml.cs `RelinkMediaAsync` | get-started/getting-started.md#11-save-your-project | 🟡 (one-line mention; no walkthrough) |
-| Undo / Redo with named steps (`Ctrl+Z` / `Ctrl+Shift+Z`, also `Ctrl+Y`) | UI.md; MainWindow.axaml.cs:322 | get-started/getting-started.md#10-undo-and-redo | ✅ (`Ctrl+Y` alias undocumented) |
+| Undo / Redo with named steps (`Ctrl+Z` / `Ctrl+Shift+Z`, `⌘Z` / `⌘⇧Z` on macOS; `Ctrl+Y` alias on Windows/Linux only) | UI.md; MainWindow.axaml.cs:322 | get-started/getting-started.md#10-undo-and-redo | ✅ (`Ctrl+Y` alias undocumented) |
 
 ## 2. Import & organize media
 
@@ -311,7 +311,7 @@ Preferences or an "advanced" page.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Complete shortcut reference | MainWindow.axaml.cs:456–547 key handlers; menu InputGestures | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | 🟡 (a "worth knowing" table exists; full reference page missing — code is the only complete source, incl. `I`/`O`, `[`/`]`, `1`–`9`, `Shift+M`, `Ctrl+Y`, `Ctrl+Shift+E`, `Ctrl+,`, `F11`/`⌃⌘F`, `Ctrl+F`/`⌘F`, `Esc`) |
+| Complete shortcut reference (on macOS the primary modifier is `⌘` wherever Windows/Linux use `Ctrl`; Ctrl does not alias it there; `⌘Q` quits; `Ctrl+Y` redo is Windows/Linux-only) | MainWindow.axaml.cs `OnKeyDown` key handlers; menu InputGestures (macOS gestures swapped in `WireCommandMenus`) | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | 🟡 (a "worth knowing" table exists; full reference page missing — code is the only complete source, incl. `I`/`O`, `[`/`]`, `1`–`9`, `Shift+M`, `Ctrl+Y`, `Ctrl+Shift+E`, `Ctrl+,`, `F11`/`⌃⌘F`, `Ctrl+F`/`⌘F`, `Esc`) |
 
 ### Preferences
 

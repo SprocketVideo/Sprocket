@@ -517,9 +517,35 @@ public partial class MainWindow : Window
         if (OperatingSystem.IsMacOS())
         {
             // The XAML gestures show the Windows/Linux keys; swap to the macOS-native chords (the labels are
-            // display-only — the accelerators live in OnKeyDown, which accepts both forms on macOS).
+            // display-only — the accelerators live in OnKeyDown, where ⌘ is the primary modifier on macOS).
             _fullScreenMenuItem.InputGesture = new KeyGesture(Key.F, KeyModifiers.Control | KeyModifiers.Meta);
             fullScreenPreviewMenuItem.InputGesture = new KeyGesture(Key.F, KeyModifiers.Meta);
+
+            static KeyGesture Cmd(Key key, KeyModifiers extra = KeyModifiers.None) =>
+                new(key, KeyModifiers.Meta | extra);
+
+            this.FindControl<MenuItem>("NewMenuItem")!.InputGesture = Cmd(Key.N);
+            this.FindControl<MenuItem>("OpenMenuItem")!.InputGesture = Cmd(Key.O);
+            this.FindControl<MenuItem>("SaveMenuItem")!.InputGesture = Cmd(Key.S);
+            this.FindControl<MenuItem>("SaveAsMenuItem")!.InputGesture = Cmd(Key.S, KeyModifiers.Shift);
+            this.FindControl<MenuItem>("ImportMenuItem")!.InputGesture = Cmd(Key.I);
+            this.FindControl<MenuItem>("ExportMenuItem")!.InputGesture = Cmd(Key.E);
+            this.FindControl<MenuItem>("ExportQueueMenuItem")!.InputGesture = Cmd(Key.E, KeyModifiers.Shift);
+            this.FindControl<MenuItem>("ExitMenuItem")!.InputGesture = Cmd(Key.Q);
+            _undoMenuItem!.InputGesture = Cmd(Key.Z);
+            _redoMenuItem!.InputGesture = Cmd(Key.Z, KeyModifiers.Shift);
+            _cutMenuItem.InputGesture = Cmd(Key.X);
+            _copyMenuItem.InputGesture = Cmd(Key.C);
+            _pasteMenuItem.InputGesture = Cmd(Key.V);
+            this.FindControl<MenuItem>("SelectAllMenuItem")!.InputGesture = Cmd(Key.A);
+            // Parse keeps the "," glyph — new KeyGesture(Key.OemComma, …) would render as "Cmd+OemComma".
+            this.FindControl<MenuItem>("PreferencesMenuItem")!.InputGesture = KeyGesture.Parse("Cmd+,");
+
+            // Tooltips that spell out Ctrl-based shortcuts get the same treatment.
+            ToolTip.SetTip(this.FindControl<Button>("ZoomOutButton")!, "Zoom Out (Cmd+-)");
+            ToolTip.SetTip(this.FindControl<Button>("ZoomInButton")!, "Zoom In (Cmd+=)");
+            ToolTip.SetTip(this.FindControl<Button>("MarkersButton")!,
+                "Markers panel (M adds at the playhead; Shift+M / Cmd+Shift+M navigate)");
         }
         this.FindControl<MenuItem>("ViewMenu")!.SubmenuOpened += (_, _) => RefreshViewMenu();
 
@@ -558,12 +584,16 @@ public partial class MainWindow : Window
         bool shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         bool alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
         bool meta = e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+        bool isMac = OperatingSystem.IsMacOS();
+        // The platform's primary shortcut modifier: ⌘ on macOS (Ctrl deliberately does NOT alias it there —
+        // the Final Cut / Premiere / Resolve convention), Ctrl on Windows/Linux.
+        bool primary = isMac ? meta : ctrl;
 
         // ── Global accelerators (work regardless of focus) ──
         // Window fullscreen: F11 everywhere, plus the native ⌃⌘F on macOS (Magic Keyboards without an Fn row
         // treat F11 as a media key, so F11 alone is unreachable there). While the fullscreen preview overlay is
         // up, F11 peels that first — an overlay in a windowed frame isn't this feature's contract.
-        if (e.Key == Key.F11 || (OperatingSystem.IsMacOS() && ctrl && meta && e.Key == Key.F))
+        if (e.Key == Key.F11 || (isMac && ctrl && meta && e.Key == Key.F))
         {
             if (_previewFullscreen)
                 ExitFullscreenPreview();
@@ -573,46 +603,49 @@ public partial class MainWindow : Window
             return;
         }
         // Full-screen preview: Ctrl+F (⌘F on macOS) — Resolve's Full Screen Viewer. ⌃⌘F returned above.
-        if ((ctrl || (OperatingSystem.IsMacOS() && meta)) && e.Key == Key.F)
+        if (primary && e.Key == Key.F)
         {
             ToggleFullscreenPreview();
             e.Handled = true;
             return;
         }
-        if (ctrl && e.Key == Key.N) { NewProject(); e.Handled = true; return; }
-        if (ctrl && e.Key == Key.O) { _ = OpenProjectAsync(); e.Handled = true; return; }
-        if (ctrl && shift && e.Key == Key.S) { _ = SaveAsAsync(); e.Handled = true; return; }
-        if (ctrl && e.Key == Key.S) { Save(); e.Handled = true; return; }
-        if (ctrl && shift && e.Key == Key.E) { OpenExportQueue(); e.Handled = true; return; }
-        if (ctrl && e.Key == Key.E) { _ = ExportAsync(); e.Handled = true; return; }
-        if (ctrl && e.Key == Key.I) { _ = ImportDialogAsync(); e.Handled = true; return; }
-        if (ctrl && e.Key == Key.OemComma) { _ = ShowPreferencesAsync(); e.Handled = true; return; }
-        if (ctrl && shift && e.Key == Key.Z) { _history.Redo(); e.Handled = true; return; }
-        if (ctrl && e.Key == Key.Z) { _history.Undo(); e.Handled = true; return; }
-        if (ctrl && e.Key == Key.Y) { _history.Redo(); e.Handled = true; return; }
+        // ⌘Q quit on macOS (the Exit menu item's accelerator; Alt+F4 stays the Windows convention).
+        if (isMac && meta && e.Key == Key.Q) { Close(); e.Handled = true; return; }
+        if (primary && e.Key == Key.N) { NewProject(); e.Handled = true; return; }
+        if (primary && e.Key == Key.O) { _ = OpenProjectAsync(); e.Handled = true; return; }
+        if (primary && shift && e.Key == Key.S) { _ = SaveAsAsync(); e.Handled = true; return; }
+        if (primary && e.Key == Key.S) { Save(); e.Handled = true; return; }
+        if (primary && shift && e.Key == Key.E) { OpenExportQueue(); e.Handled = true; return; }
+        if (primary && e.Key == Key.E) { _ = ExportAsync(); e.Handled = true; return; }
+        if (primary && e.Key == Key.I) { _ = ImportDialogAsync(); e.Handled = true; return; }
+        if (primary && e.Key == Key.OemComma) { _ = ShowPreferencesAsync(); e.Handled = true; return; }
+        if (primary && shift && e.Key == Key.Z) { _history.Redo(); e.Handled = true; return; }
+        if (primary && e.Key == Key.Z) { _history.Undo(); e.Handled = true; return; }
+        // Ctrl+Y redo is the Windows/Linux alias only; macOS redo is ⌘⇧Z alone.
+        if (!isMac && ctrl && e.Key == Key.Y) { _history.Redo(); e.Handled = true; return; }
         // Jump to the previous marker (Premiere's Ctrl+Shift+M). Add (M) / next (Shift+M) are below the text guard.
-        if (ctrl && shift && e.Key == Key.M) { JumpToMarker(-1); e.Handled = true; return; }
+        if (primary && shift && e.Key == Key.M) { JumpToMarker(-1); e.Handled = true; return; }
         // Timeline zoom (Resolve/FCP convention). Ctrl++/Ctrl+- are safe with a focused text field; the bare
         // Shift+Z "zoom to fit" is gated below the text-box guard. OemPlus/OemMinus are the main-row =/- keys;
         // Add/Subtract are the numpad equivalents.
-        if (ctrl && (e.Key == Key.OemPlus || e.Key == Key.Add)) { _timeline?.ZoomIn(); e.Handled = true; return; }
-        if (ctrl && (e.Key == Key.OemMinus || e.Key == Key.Subtract)) { _timeline?.ZoomOut(); e.Handled = true; return; }
+        if (primary && (e.Key == Key.OemPlus || e.Key == Key.Add)) { _timeline?.ZoomIn(); e.Handled = true; return; }
+        if (primary && (e.Key == Key.OemMinus || e.Key == Key.Subtract)) { _timeline?.ZoomOut(); e.Handled = true; return; }
 
         // Below here are transport / editing keys that must not steal input from a focused text field
         // (the media-bin search box, the Inspector numeric boxes).
         if (IsTypingInTextBox())
             return;
 
-        if (ctrl && e.Key == Key.X) { _timeline?.CutSelected(); e.Handled = true; }
-        else if (ctrl && e.Key == Key.C) { _timeline?.CopySelected(); e.Handled = true; }
-        else if (ctrl && e.Key == Key.V) { _timeline?.PasteAtPlayhead(); e.Handled = true; }
+        if (primary && e.Key == Key.X) { _timeline?.CutSelected(); e.Handled = true; }
+        else if (primary && e.Key == Key.C) { _timeline?.CopySelected(); e.Handled = true; }
+        else if (primary && e.Key == Key.V) { _timeline?.PasteAtPlayhead(); e.Handled = true; }
         else if (shift && (e.Key == Key.Delete || e.Key == Key.Back)) { _timeline?.RippleDeleteSelected(); e.Handled = true; }
         else if (e.Key == Key.Delete || e.Key == Key.Back) { _timeline?.DeleteSelected(); e.Handled = true; }
         else if (alt && e.Key == Key.Left) { _timeline?.NudgeSelected(-1); e.Handled = true; }
         else if (alt && e.Key == Key.Right) { _timeline?.NudgeSelected(+1); e.Handled = true; }
         // Multicam angle switching (PLAN.md step 24): 1–9 cut the selected multicam clip to that angle at the
         // playhead — the Premiere/Resolve convention. Only swallow the digit when a multicam clip is selected.
-        else if (!ctrl && !alt && TryAngleKey(e.Key, out int angle) && _timeline?.SelectedIsMulticam == true)
+        else if (!primary && !ctrl && !alt && TryAngleKey(e.Key, out int angle) && _timeline?.SelectedIsMulticam == true)
         {
             _timeline.SwitchSelectedAngle(angle);
             e.Handled = true;
