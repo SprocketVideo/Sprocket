@@ -30,10 +30,7 @@ do the equivalent thing.** Prefer re-using their established behavior — the fe
 approach, default values, naming conventions, and keyboard shortcuts — over inventing our own, so the
 editor feels familiar to users also using professional tools. Note any deliberate departure and why.
 
-The project is mid-build: the **vertical slice (PLAN steps 1–9) is complete** — import, trim, GPU
-effects (brightness/fade), audio master clock + mixer, hardware-accel decode, MP4 export, and JSON
-save/load, all on one cross-platform managed codebase. The post-slice feature build-out is done
-through **step 30**, and **native-lib bundling + packaging/distribution (PLAN steps 35–36) ship
+The project is mid-build, all on one cross-platform managed codebase. **Native-lib bundling + packaging/distribution ship
 today**: `scripts/release.ps1` publishes self-contained per-RID folders (FFmpeg 8 + OpenAL Soft
 bundled) and packs them with **Velopack** (Windows Setup.exe, Linux AppImage, macOS `.app`, in-app
 auto-update via `UpdateService`); releases are cut by the `scripts/gh-release.ps1` tag-cutter and

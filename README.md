@@ -83,7 +83,9 @@ Code-signing & notarization (alpha artifacts are unsigned) · native plugin host
 and OpenColorIO/OFX (the managed plugin host and built-in effects ship today) · variable/ramped
 speed & reverse retime (freeze frames ship today) · convolution reverb (Studio Reverb, Shimmer
 Reverb, and audio freeze ship today) · timeline selection & clip conveniences — clip right-click
-menu, clip enable/disable, multi-select, re-link A/V. See the [Roadmap](#roadmap).
+menu, clip enable/disable, multi-select, re-link A/V · Windows 10 support (nothing gates it
+technically; verification on real Windows 10 + updated support claims remain). See the
+[Roadmap](#roadmap).
 
 ---
 
@@ -314,6 +316,9 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
 - **Timeline selection & clip conveniences** — a clip right-click context menu (with split at
   playhead, duplicate, and clip enable/disable), multi-clip selection, and re-linking A/V clips
   (unlink and linked A/V editing ship today).
+- **Windows 10 support** — nothing technically gates Windows 10 (no OS-version manifests or
+  checks; builds are self-contained); what remains is smoke-testing on a real Windows 10 machine
+  and updating the support claims (floor: Windows 10 64-bit, version 1809+).
 
 ---
 

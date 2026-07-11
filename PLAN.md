@@ -3689,6 +3689,43 @@ Tags reference the [UI.md §4 checklist](UI.md).
       pair); eligibility rules (rejects all-video / all-audio / single-clip selections); `Ctrl+L`
       toggle behavior; persistence round-trip is already covered by existing `LinkGroupId` tests.
 
+56. **Windows 10 support (verify + declare).** Promote Windows 10 to a fully supported platform
+    alongside Windows 11, with a support floor of **Windows 10 64-bit, version 1809 or later**
+    (x64 / arm64) — .NET 10's oldest supported Windows 10 baseline (covers LTSC 2019), and in line
+    with leading editors (Resolve requires Win10 1903+; Premiere requires 22H2). Deliberate nuance:
+    consumer Windows 10 editions are past Microsoft end-of-support (Oct 2025), so Sprocket supports
+    the OS on a "runs and is tested" basis, not an implied-OS-security basis. **No code changes are
+    expected** — an audit (recorded here so nobody hunts for a gate later) found nothing that blocks
+    Windows 10: both `app.manifest` files carry only DPI settings (no `<supportedOS>` GUIDs), the
+    TFM is plain `net10.0` (no `SupportedOSPlatformVersion`), release RIDs are architecture-only,
+    and no code path checks the Windows version (`OperatingSystem.Is*` calls branch on OS family,
+    never version). Sprocket ships self-contained, so no .NET install is needed on the target. The
+    work is verification + declaration:
+    - **Verification prerequisite — a Windows 10 VM** (none exists today): create a Windows 10
+      22H2 64-bit VM (Hyper-V + Microsoft's Windows 10 evaluation / media-creation ISO). Manual
+      smoke checklist on a release build: install via `Setup.exe`; open the sample project;
+      playback with clean A/V sync; hardware decode active (or clean software fallback); MP4
+      export; in-app auto-update from a prior version; uninstall. Also launch from the portable
+      zip. GitHub Actions has no Windows 10 runners, so CI stays on `windows-latest`; Windows 10
+      coverage is this manual checklist, re-run per release-worthy change.
+    - **Copy updates in this repo** ("Windows 11" → "Windows 10 & 11", with the 1809+ floor
+      wherever requirements are stated): `README.md` intro + requirements-table row;
+      `RELEASE_NOTES.md` header / bug-report OS line / testing note (keep "primary testing is on
+      Windows 11", add "smoke-tested on Windows 10"); the target-OS statements in `BRIEF.md`,
+      `ARCHITECTURE.md` §1, `CLAUDE.md`, and this file's Context/Decisions/Verification sections;
+      the generated release-body download table in `.github/workflows/release.yml`
+      ("**Windows 11** (most PCs)" → "**Windows 10 / 11** (most PCs)"); and a `FEATURES.md`
+      platform-support row amended in place (or added, starting ❌ undocumented).
+    - **Sibling repos:** `../sprocket-website/prototype/index.html` — OS-grid card label
+      "Windows 11" → "Windows 10 & 11" (subtitle stays "x64 · arm64"; the `detectOS()` script has
+      no version gate and needs no change). `../sprocket-docs` — no OS-requirements copy exists
+      today; add a short "System requirements" subsection to the getting-started page listing
+      Windows 10 (64-bit, 1809+) & 11 / Linux / macOS, then redeploy (`deploy.ps1`) and regenerate
+      the PDF manual.
+    - **Tests.** No automated tests (no code change). Acceptance = the Windows 10 VM smoke
+      checklist passes on a release build, and `grep -ri "windows 11"` across the three repos
+      shows only intentional remnants (e.g. "primary testing is on Windows 11").
+
 **Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
 program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a
 numbered still to an image-sequence media item — is *feasible on the seams this codebase already
