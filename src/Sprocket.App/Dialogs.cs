@@ -40,6 +40,12 @@ internal static class AboutDialog
     /// <summary>The public project site, shown in the About box and opened by Help ▸ Sprocket Website.</summary>
     public const string WebsiteUrl = "https://sprocketvideo.org";
 
+    /// <summary>The user documentation site, opened by Help ▸ Documentation.</summary>
+    public const string DocsUrl = "https://sprocketvideo.org/docs/";
+
+    /// <summary>The GitHub new-issue chooser, opened by Help ▸ Report an Issue.</summary>
+    public const string ReportIssueUrl = "https://github.com/SprocketVideo/Sprocket/issues/new/choose";
+
     public static Task Show(Window owner)
     {
         // The bundled media engine version — a user-facing credit for the core dependency (not framework

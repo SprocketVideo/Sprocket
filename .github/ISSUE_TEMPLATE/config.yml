@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://sprocketvideo.org/docs/
+    about: Guides and how-tos — your question may already be answered here.
+  - name: 🌐 Sprocket website
+    url: https://sprocketvideo.org
+    about: Learn more about Sprocket and download the latest version.

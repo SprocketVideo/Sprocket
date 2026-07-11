@@ -1,0 +1,32 @@
+name: 💡 Feature request or idea
+description: Suggest something new, or an improvement to how Sprocket works today.
+title: "[Idea]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea! 🎬 Tell us what you'd like to be able to do — you don't need to know how it should be built.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Sprocket to do?
+      description: Describe the feature or change in your own words.
+      placeholder: "I'd love to be able to add text captions on top of a clip."
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to accomplish?
+      description: What's the task or goal behind the request? Knowing the "why" helps us find the best solution.
+      placeholder: "I make short videos for social media and want to label scenes without editing the video in another app first."
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: How do you handle this today?
+      description: Optional. Is there another tool or workaround you use for this now?
+    validations:
+      required: false

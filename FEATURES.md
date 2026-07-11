@@ -99,6 +99,8 @@ in terms an app-side committer can check against their diff.
 | Help ▸ Third-Party Notices (bundled library/font/media licenses) | Sprocket.App/Dialogs.cs `ThirdPartyNoticesDialog`; THIRD-PARTY-NOTICES.md | — | ❌ |
 | Auto-update (Help ▸ Check for Updates; status-bar badge; installed builds download + Install & Restart in-app; portable builds link to the releases page) | Sprocket.App/UpdateService.cs; UpdateDialogs.cs; PLAN.md steps 36 + 45 | — | ❌ |
 | Help ▸ Sprocket Website (opens sprocketvideo.org; also linked in About) | MainWindow.axaml.cs `OpenWebsiteAsync`; Dialogs.cs `AboutDialog.WebsiteUrl` | — | ➖ (trivial; mention only if asked) |
+| Help ▸ Documentation (opens sprocketvideo.org/docs/) | MainWindow.axaml.cs `OpenUriAsync`; Dialogs.cs `AboutDialog.DocsUrl` | — | ➖ (trivial; mention only if asked) |
+| Help ▸ Report an Issue (opens the GitHub new-issue chooser) | MainWindow.axaml.cs `OpenUriAsync`; Dialogs.cs `AboutDialog.ReportIssueUrl`; .github/ISSUE_TEMPLATE/ | — | ➖ (trivial; mention only if asked) |
 
 ### Projects & saving
 

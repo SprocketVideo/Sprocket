@@ -1,0 +1,71 @@
+name: 🐞 Bug report
+description: Something in Sprocket isn't working the way you expected.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make Sprocket better! 🎬
+
+        Please fill in what you can — even a partial report is useful. There's no need to be technical; just describe what happened in your own words.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem. What did you see go wrong?
+      placeholder: "When I dragged a clip onto the timeline, the app froze for a few seconds and the clip disappeared."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, step by step, right before the problem happened? This is the single most helpful thing you can give us.
+      placeholder: |
+        1. Opened a new project
+        2. Imported a .mov file from my phone
+        3. Dragged it to the timeline
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: "The clip should stay on the timeline where I dropped it."
+    validations:
+      required: false
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or a screen recording
+      description: If you can, drop in an image or video showing the problem. You can paste or drag files directly into this box.
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Sprocket version
+      description: You'll find this under Help ▸ About Sprocket.
+      placeholder: "e.g. 0.1.62-alpha.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: |
+        Optional. If the app showed an error, or you can find the log files (Help ▸ About Sprocket ▸ Open Logs Folder), attaching them here helps a lot.
+    validations:
+      required: false
