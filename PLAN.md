@@ -3652,6 +3652,29 @@ Tags reference the [UI.md §4 checklist](UI.md).
       under a fresh group, one undo entry; `ToggleSelectedEnabled` toggles linked pairs together.
       Mcp — tool-surface + one behavioral test per new tool. On completion, add FEATURES.md rows
       (❌ undocumented) for the context menu, Split at Playhead, Duplicate, and Enable/Disable.
+    - **✅ DONE (Core `Model/Clip` + `Rendering/RenderGraph`; Persistence DTO field; App
+      `ClipEdits.cs` + `TimelineControl` + `MainWindow`; Mcp `set_clip_enabled`; 21 new tests —
+      Core +6, Persistence +3, App +9, Mcp +2 (tool-surface entry + behavioral), plus the
+      Enable/Disable render-cache-hash test; full suite 1514 green).** Landed as planned with two
+      notes. (1) The split core was extracted to a pure `ClipEdits` static class (the
+      `ClipboardOps` idiom) rather than a private `TimelineControl` method, so the
+      companion-collection / fresh-right-group / one-composite logic is headlessly testable;
+      `BladeClip` and `SplitAtPlayhead` both call it, and `DuplicateSelected` /
+      `ToggleSelectedEnabled` follow the same pattern. (2) Duplicate places the copies shifted by
+      the whole linked group's extent (the MCP `duplicate_clip` convention) — identical to "at the
+      original's `TimelineEnd`" for the normal equal-span A/V pair, but overlap-free when a linked
+      companion is longer than the addressed clip. The MCP tools `split_clip`, `duplicate_clip`,
+      and `link_clips` already existed from step 38, so only `set_clip_enabled` was added (and
+      `list_clips`/`get_clip` now report `enabled: false` on disabled clips). The context menu also
+      lists a multicam clip's angles (active one checked) under Multicam ▸, since the menu is
+      rebuilt per open anyway. Enable state is hashed for the render cache for free — the hash
+      already covers the clip DTO, which gained the `Enabled` field. The menu is shaped by the
+      clip's lane kind, as Premiere shapes its clip menus (the event carries the hit clip's
+      `Track`): video-only items (Frame Hold ▸, Interpret Footage…, Multicam ▸) appear only on a
+      video-track clip, Normalize Audio only on an audio-track clip — on a linked pair the video
+      clip contributes no audio (its companion does), so Normalize on it would silently set a
+      `GainDb` the audio planner never reads. Linkedness itself never changes the item set, only
+      what the operations act on.
 54. **Multi-clip selection.** Selection is a single field today (`TimelineControl._selected`), which
     blocks Link (step 55), keeps **Edit ▸ Select All** deliberately disabled (step 16c), and rules
     out the batch operations every leading editor supports (delete/copy/nudge several clips at

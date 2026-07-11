@@ -37,7 +37,7 @@ public class SprocketToolsTests
             "import_media", "add_clip_to_timeline", "trim_clip", "move_clip", "split_clip", "delete_clip",
             "add_effect", "set_effect_parameter", "remove_effect", "move_effect", "add_marker", "remove_marker",
             // Clip tools (step 38 follow-on)
-            "get_clip", "duplicate_clip", "unlink_clip", "link_clips", "set_clip_fade",
+            "get_clip", "duplicate_clip", "set_clip_enabled", "unlink_clip", "link_clips", "set_clip_fade",
             "set_effect_parameter_keyframes", "copy_effects", "set_effect_enabled",
             "set_clip_speed", "set_clip_gain", "ripple_trim", "roll_edit", "slide_clip", "ripple_delete",
             // Structure tools

@@ -40,7 +40,7 @@ namespace Sprocket.App;
 /// Save / Save As / Import / Export / Exit), Edit (undo/redo + clip cut/copy/paste/delete), Clip (unlink / nudge), Effects
 /// (apply from the catalog), View (zoom / snapping / guides / panel toggles), Window (reset layout) and Help
 /// (About) — every editing action routing through <see cref="EditHistory"/> so it stays undoable. Items whose
-/// feature lands in a later step (Sequence, per-clip Enable/Speed, Select All, Link) stay visibly disabled.
+/// feature lands in a later step (Select All, Link) stay visibly disabled.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -129,6 +129,8 @@ public partial class MainWindow : Window
     // Command-menu items refreshed on submenu open (context-enabling) + the View toggles / panes.
     private MenuItem? _cutMenuItem, _copyMenuItem, _pasteMenuItem, _deleteMenuItem, _rippleDeleteMenuItem;
     private MenuItem? _unlinkMenuItem, _nudgeLeftMenuItem, _nudgeRightMenuItem, _clipSpeedMenuItem;
+    // Split at Playhead / Duplicate / Enable toggle (PLAN.md step 53)
+    private MenuItem? _clipSplitMenuItem, _clipDuplicateMenuItem, _clipEnableMenuItem;
     private MenuItem? _createMulticamMenuItem; // Clip ▸ Create Multicam Source (PLAN.md step 24)
     private MenuItem? _clipNormalizeMenuItem;  // Clip ▸ Normalize Audio (PLAN.md step 30)
     private MenuItem? _clipInterpretFootageMenuItem;  // Clip ▸ Interpret Footage (PLAN.md step 42)
@@ -449,6 +451,12 @@ public partial class MainWindow : Window
         this.FindControl<MenuItem>("EditMenu")!.SubmenuOpened += (_, _) => RefreshEditMenu();
 
         // ── Clip ──
+        _clipSplitMenuItem = this.FindControl<MenuItem>("ClipSplitAtPlayheadMenuItem")!;
+        _clipDuplicateMenuItem = this.FindControl<MenuItem>("ClipDuplicateMenuItem")!;
+        _clipEnableMenuItem = this.FindControl<MenuItem>("ClipEnableMenuItem")!;
+        _clipSplitMenuItem.Click += (_, _) => _timeline?.SplitAtPlayhead();
+        _clipDuplicateMenuItem.Click += (_, _) => _timeline?.DuplicateSelected();
+        _clipEnableMenuItem.Click += (_, _) => _timeline?.ToggleSelectedEnabled();
         _unlinkMenuItem = this.FindControl<MenuItem>("ClipUnlinkMenuItem")!;
         _nudgeLeftMenuItem = this.FindControl<MenuItem>("NudgeLeftMenuItem")!;
         _nudgeRightMenuItem = this.FindControl<MenuItem>("NudgeRightMenuItem")!;
@@ -540,6 +548,7 @@ public partial class MainWindow : Window
             _copyMenuItem.InputGesture = Cmd(Key.C);
             _pasteMenuItem.InputGesture = Cmd(Key.V);
             this.FindControl<MenuItem>("SelectAllMenuItem")!.InputGesture = Cmd(Key.A);
+            _clipSplitMenuItem!.InputGesture = Cmd(Key.K); // ⌘K — Split at Playhead (Shift+E's label needs no swap)
             // Parse keeps the "," glyph — new KeyGesture(Key.OemComma, …) would render as "Cmd+OemComma".
             this.FindControl<MenuItem>("PreferencesMenuItem")!.InputGesture = KeyGesture.Parse("Cmd+,");
 
@@ -641,6 +650,10 @@ public partial class MainWindow : Window
         if (primary && e.Key == Key.X) { _timeline?.CutSelected(); e.Handled = true; }
         else if (primary && e.Key == Key.C) { _timeline?.CopySelected(); e.Handled = true; }
         else if (primary && e.Key == Key.V) { _timeline?.PasteAtPlayhead(); e.Handled = true; }
+        // Split at Playhead (Ctrl+K / ⌘K — Premiere's Add Edit) and the Enable toggle (Shift+E, Premiere's
+        // convention), PLAN.md step 53. Ctrl+Shift+E (Export Queue) is handled above the text guard.
+        else if (primary && e.Key == Key.K) { _timeline?.SplitAtPlayhead(); e.Handled = true; }
+        else if (shift && !primary && !alt && e.Key == Key.E) { _timeline?.ToggleSelectedEnabled(); e.Handled = true; }
         else if (shift && (e.Key == Key.Delete || e.Key == Key.Back)) { _timeline?.RippleDeleteSelected(); e.Handled = true; }
         else if (e.Key == Key.Delete || e.Key == Key.Back) { _timeline?.DeleteSelected(); e.Handled = true; }
         else if (alt && e.Key == Key.Left) { _timeline?.NudgeSelected(-1); e.Handled = true; }
@@ -1462,6 +1475,7 @@ public partial class MainWindow : Window
         timeline.Attach(_project!, _history, _engine);
         timeline.ClipPlaced += UpdateTimelineHeader; // a media-bin drop / paste may extend the timeline
         timeline.Status += SetStatus;                 // transition hints, etc. (PLAN.md step 25)
+        timeline.ClipContextMenuRequested += ShowClipContextMenu; // clip right-click menu (PLAN.md step 53)
         WireTrackRename(timeline);
         WireTitleEdit(timeline);
         UpdateRenderBar(); // initial render-bar state (a reopened project may already have valid renders, step 32)
@@ -1775,6 +1789,13 @@ public partial class MainWindow : Window
     private void RefreshClipMenu()
     {
         bool sel = _timeline?.HasSelection == true;
+        if (_clipSplitMenuItem is not null) _clipSplitMenuItem.IsEnabled = _timeline?.CanSplitAtPlayhead == true;
+        if (_clipDuplicateMenuItem is not null) _clipDuplicateMenuItem.IsEnabled = sel;
+        if (_clipEnableMenuItem is not null)
+        {
+            _clipEnableMenuItem.IsEnabled = sel;
+            _clipEnableMenuItem.IsChecked = _timeline?.SelectedIsEnabled == true;
+        }
         if (_unlinkMenuItem is not null) _unlinkMenuItem.IsEnabled = _timeline?.SelectedIsLinked == true;
         if (_nudgeLeftMenuItem is not null) _nudgeLeftMenuItem.IsEnabled = sel;
         if (_nudgeRightMenuItem is not null) _nudgeRightMenuItem.IsEnabled = sel;
@@ -1791,6 +1812,127 @@ public partial class MainWindow : Window
         if (_clipInsertFrameHoldSegmentMenuItem is not null) _clipInsertFrameHoldSegmentMenuItem.IsEnabled = canHold && !held;
         if (_clipDuplicateFrameMenuItem is not null) _clipDuplicateFrameMenuItem.IsEnabled = canHold && !held;
         if (_clipRemoveFrameMenuItem is not null) _clipRemoveFrameMenuItem.IsEnabled = canHold && !held;
+    }
+
+    /// <summary>
+    /// Builds and opens the clip right-click context menu (PLAN.md step 53), mirroring Premiere's grouping:
+    /// Cut / Copy / Paste / Duplicate · Delete / Ripple Delete · Split at Playhead · Enable / Unlink / Link ·
+    /// Speed/Duration / Frame Hold ▸ · Nest / Normalize Audio / Interpret Footage / Multicam ▸. Built
+    /// imperatively per open (the <see cref="MediaBrowserPanel"/> idiom) reusing the menu-bar handlers and the
+    /// same enablement predicates <see cref="RefreshClipMenu"/>/<see cref="RefreshEditMenu"/> use, evaluated at
+    /// build time — the menu is rebuilt on every open, so no refresh plumbing is needed. The menu is shaped by
+    /// the clip's lane kind, as Premiere shapes its clip menus: video-only items (Frame Hold ▸, Interpret
+    /// Footage, Multicam ▸) appear only on a video-track clip, and Normalize Audio only on an audio-track clip —
+    /// on a linked pair the video clip contributes no audio (its companion does), so audio items on it would be
+    /// silent no-ops. Linkedness itself never changes the item set, only what the operations act on (split /
+    /// duplicate / enable / delete take the whole group when Linked is on). Link stays visibly disabled until
+    /// multi-select lands (PLAN.md step 55, the step-16c rule). The timeline has already selected
+    /// <paramref name="clip"/> before raising the event.
+    /// </summary>
+    private void ShowClipContextMenu(Clip clip, Sprocket.Core.Model.Track track)
+    {
+        if (_timeline is not { } timeline)
+            return;
+        bool isVideoLane = track is VideoTrack;
+
+        static MenuItem Item(string header, Action action, bool enabled = true, KeyGesture? gesture = null)
+        {
+            var item = new MenuItem { Header = header, IsEnabled = enabled, InputGesture = gesture };
+            item.Click += (_, _) => action();
+            return item;
+        }
+
+        var enableItem = new MenuItem
+        {
+            Header = "_Enable",
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = timeline.SelectedIsEnabled,
+            InputGesture = KeyGesture.Parse("Shift+E"),
+        };
+        enableItem.Click += (_, _) => timeline.ToggleSelectedEnabled();
+
+        var items = new System.Collections.Generic.List<Control>
+        {
+            Item("Cu_t", timeline.CutSelected, gesture: _cutMenuItem?.InputGesture),
+            Item("_Copy", timeline.CopySelected, gesture: _copyMenuItem?.InputGesture),
+            Item("_Paste", timeline.PasteAtPlayhead, timeline.CanPaste, _pasteMenuItem?.InputGesture),
+            Item("Du_plicate", timeline.DuplicateSelected),
+            new Separator(),
+            Item("_Delete", timeline.DeleteSelected, gesture: KeyGesture.Parse("Delete")),
+            Item("_Ripple Delete", timeline.RippleDeleteSelected, gesture: KeyGesture.Parse("Shift+Delete")),
+            new Separator(),
+            Item("Spli_t at Playhead", timeline.SplitAtPlayhead, timeline.CanSplitAtPlayhead,
+                _clipSplitMenuItem?.InputGesture),
+            new Separator(),
+            enableItem,
+            Item("_Unlink", timeline.UnlinkSelected, timeline.SelectedIsLinked),
+            Item("_Link", () => { }, enabled: false), // stub until multi-select linking (PLAN.md step 55)
+            new Separator(),
+            Item("_Speed / Duration…", () => _ = ShowSpeedDialogAsync()),
+        };
+
+        if (isVideoLane)
+        {
+            // Frame hold + stop-motion frame edits (PLAN.md step 43) — the Clip-menu items' handlers and
+            // enablement. Video lanes only: a hold freezes a frame, which an audio clip doesn't have.
+            bool canHold = timeline.SelectedCanFrameHold;
+            bool held = timeline.SelectedIsHeld;
+            items.Add(new MenuItem
+            {
+                Header = "Frame _Hold",
+                ItemsSource = new[]
+                {
+                    Item("Frame Hold _Options…", () => _ = ShowFrameHoldOptionsAsync(), canHold),
+                    Item("_Add Frame Hold", timeline.AddFrameHoldAtPlayhead, canHold && !held),
+                    Item("Insert Frame Hold Se_gment", timeline.InsertFrameHoldSegmentAtPlayhead, canHold && !held),
+                    Item("_Duplicate Frame", timeline.DuplicateFrameAtPlayhead, canHold && !held),
+                    Item("Remo_ve Frame", timeline.RemoveFrameAtPlayhead, canHold && !held),
+                },
+            });
+        }
+
+        items.Add(new Separator());
+        items.Add(Item("_Nest", NestSelection));
+
+        if (isVideoLane)
+        {
+            items.Add(Item("Interpret _Footage…", InterpretSelectedClipFootage, SelectedClipVideoMedia() is not null));
+
+            // Multicam (PLAN.md step 24): Create mirrors the Clip menu; on a multicam clip the angles are listed
+            // (the active one checked) so a right-click can switch without the 1–9 keys or the Inspector.
+            var multicamItems = new System.Collections.Generic.List<MenuItem>
+            {
+                Item("Create _Multicam Source", CreateMulticamSource, timeline.CanCreateMulticam),
+            };
+            if (timeline.SelectedIsMulticam && _project is not null && clip.SourceMulticamId is { } multicamId
+                && _project.MulticamSources.Find(s => s.Id == multicamId) is { } multicamSource)
+            {
+                for (int i = 0; i < multicamSource.Angles.Count; i++)
+                {
+                    int angle = i;
+                    var angleItem = new MenuItem
+                    {
+                        Header = string.IsNullOrEmpty(multicamSource.Angles[i].Name)
+                            ? $"Angle {i + 1}"
+                            : multicamSource.Angles[i].Name,
+                        ToggleType = MenuItemToggleType.Radio,
+                        IsChecked = clip.ActiveAngle == i,
+                    };
+                    angleItem.Click += (_, _) => timeline.SwitchSelectedAngle(angle);
+                    multicamItems.Add(angleItem);
+                }
+            }
+            items.Add(new MenuItem { Header = "M_ulticam", ItemsSource = multicamItems });
+        }
+        else
+        {
+            // Audio lanes only: on a linked pair the audio companion is where gain acts — normalizing the
+            // video clip's GainDb would be a silent no-op (video-track clips contribute no audio).
+            items.Add(Item("N_ormalize Audio", NormalizeSelectedClip, SelectedClipHasAudio()));
+        }
+
+        var menu = new ContextMenu { Placement = PlacementMode.Pointer, ItemsSource = items };
+        menu.Open(timeline);
     }
 
     /// <summary>Whether the timeline selection is a clip whose source carries audio (so Clip ▸ Normalize Audio can act).</summary>

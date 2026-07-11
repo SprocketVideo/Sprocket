@@ -313,9 +313,9 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
 - **Audio extras** — convolution reverb (the Studio Reverb, the Shimmer Reverb, factory presets,
   the delay family — digital / tape / multi-tap / stereo ping-pong — the noise gate, the shelving
   EQ, and clip-audio freeze ship today).
-- **Timeline selection & clip conveniences** — a clip right-click context menu (with split at
-  playhead, duplicate, and clip enable/disable), multi-clip selection, and re-linking A/V clips
-  (unlink and linked A/V editing ship today).
+- **Timeline selection** — multi-clip selection and re-linking A/V clips (the clip right-click
+  context menu — with split at playhead, duplicate, and clip enable/disable — plus unlink and
+  linked A/V editing ship today).
 - **Windows 10 support** — nothing technically gates Windows 10 (no OS-version manifests or
   checks; builds are self-contained); what remains is smoke-testing on a real Windows 10 machine
   and updating the support claims (floor: Windows 10 64-bit, version 1809+).

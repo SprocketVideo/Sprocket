@@ -159,6 +159,10 @@ in terms an app-side committer can check against their diff.
 | Move / delete / Ripple Delete (`Delete` / `Shift+Delete`) | TimelineControl.cs:2184 | edit/editing-on-the-timeline.md#deleting-clips-and-closing-gaps | ✅ |
 | Cut / Copy / Paste clips (paste at playhead) | Sprocket.App/ClipboardOps.cs | get-started/getting-started.md#6-move-delete-and-close-gaps | 🟡 (named; paste-at-playhead behavior unexplained) |
 | Nudge clip by one frame (`Alt+←` / `Alt+→`) | MainWindow.axaml.cs:368 | edit/editing-on-the-timeline.md#nudging-with-the-keyboard | ✅ |
+| Clip right-click context menu, shaped by lane kind (common: Cut/Copy/Paste/Duplicate, Delete/Ripple Delete, Split at Playhead, Enable, Unlink, Speed, Nest; video clips add Frame Hold ▸, Interpret Footage, Multicam ▸; audio clips add Normalize Audio) | PLAN.md step 53; TimelineControl `ClipContextMenuRequested`; MainWindow.axaml.cs `ShowClipContextMenu` | — | ❌ |
+| Split at Playhead (`Ctrl+K`, Clip menu & context menu) | PLAN.md step 53; TimelineControl `SplitAtPlayhead`; ClipEdits.cs | — | ❌ |
+| Duplicate clip (Clip menu & context menu; linked pair copies under a fresh group) | PLAN.md step 53; TimelineControl `DuplicateSelected`; ClipEdits.cs | — | ❌ |
+| Enable/Disable clip (`Shift+E`, checkable Clip-menu/context item; disabled clips render nothing, draw dimmed) | PLAN.md step 53; Clip.Enabled; TimelineControl `ToggleSelectedEnabled` | — | ❌ |
 | Add video/audio tracks (+ Track) | MainWindow.axaml.cs `AddTrack` | get-started/getting-started.md#9-add-a-track | ✅ |
 | Track header toggles: Enable (eye) / Mute / Solo | TimelineControl.cs `HandleHeaderClick` | audio/audio-mixing.md#adjust-the-audio | 🟡 (M/S/eye covered; per-track *video* enable only parenthetical) |
 | Rename a track (double-click header) | TimelineControl.cs:1380 | — | ❌ |

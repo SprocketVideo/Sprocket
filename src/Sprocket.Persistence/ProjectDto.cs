@@ -198,7 +198,10 @@ internal sealed record ClipDto(
     // Additive + nullable: an unheld clip writes neither (WhenWritingNull), so pre-43 files load unheld and
     // hold-free projects serialize byte-identically.
     long? HoldAtTicks = null,
-    long? HoldDurationTicks = null);
+    long? HoldDurationTicks = null,
+    // Clip Enable toggle (PLAN.md step 53). Additive + nullable: an enabled clip writes nothing
+    // (WhenWritingNull), so pre-53 files load enabled and untouched projects serialize byte-identically.
+    bool? Enabled = null);
 
 /// <summary>A marker (PLAN.md step 20): a time, optional name/comment, colour band, and an optional span
 /// (<see cref="DurationTicks"/> &gt; 0). Colour serializes as a string enum.</summary>

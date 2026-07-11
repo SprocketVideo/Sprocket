@@ -168,6 +168,14 @@ public sealed class Clip
     }
 
     /// <summary>
+    /// Whether the clip plays (PLAN.md step 53, Premiere's Enable toggle): a disabled clip renders nothing
+    /// and contributes no audio, but keeps its place on the timeline — edit logic (trim/snap/move) still sees
+    /// it, so only the render graph consults this flag. Toggled through the command stack
+    /// (<see cref="Commands.SetPropertyCommand{T}"/>), so it is undoable like every model edit.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
     /// Identifies a linked-clip group (PLAN.md step 13, UI.md §3.2). Clips that share a non-null
     /// <see cref="LinkGroupId"/> are companion A/V — a video clip and its source's audio — and the editor
     /// moves / blades them together when "Linked" is on. <see langword="null"/> means the clip is unlinked.
@@ -259,5 +267,8 @@ public sealed class Clip
     /// </summary>
     public Clip CloneContentForSpan(Timecode sourceIn, Timecode sourceOut, Timecode timelineStart) =>
         new(Kind, MediaRefId, Generator?.Clone(), SourceSequenceId, SourceMulticamId, sourceIn, sourceOut, timelineStart)
-        { SpeedRatio = _speedRatio, ActiveAngle = ActiveAngle, GainDb = GainDb, HoldFrameAt = _holdFrameAt, HoldDuration = _holdDuration };
+        {
+            SpeedRatio = _speedRatio, ActiveAngle = ActiveAngle, GainDb = GainDb, Enabled = Enabled,
+            HoldFrameAt = _holdFrameAt, HoldDuration = _holdDuration,
+        };
 }

@@ -39,8 +39,8 @@
         </StackPanel>
 
         <!-- Inline menu bar (UI.md §2): every item bound to its command in MainWindow.WireMenu / WireCommandMenus
-             (PLAN.md step 16c). Items whose feature lands in a later step (Sequence, Clip ▸ Enable/Speed,
-             Select All) stay visibly disabled rather than silently dead. Accelerators are also handled in
+             (PLAN.md step 16c). Items whose feature lands in a later step (Select All, Clip ▸ Link)
+             stay visibly disabled rather than silently dead. Accelerators are also handled in
              OnKeyDown (the InputGesture text here is the display label). -->
         <Menu Grid.Column="1" VerticalAlignment="Center" Background="Transparent" Margin="6,0,0,0" FontSize="12">
           <MenuItem Header="_File">
@@ -84,8 +84,14 @@
             <!-- Insert generators / adjustment layer at the playhead (PLAN.md step 19); children added at runtime. -->
             <MenuItem x:Name="ClipInsertMenuItem" Header="_Insert" />
             <Separator />
-            <!-- Per-clip Enable / Speed-Duration aren't modelled yet — visibly disabled. -->
-            <MenuItem x:Name="ClipEnableMenuItem" Header="_Enable" IsEnabled="False" />
+            <!-- Split at Playhead (Ctrl+K, Premiere's Add Edit) and Duplicate (PLAN.md step 53) — also on the
+                 clip right-click context menu; every context item keeps a menu-bar home. -->
+            <MenuItem x:Name="ClipSplitAtPlayheadMenuItem" Header="Spli_t at Playhead" InputGesture="Ctrl+K" IsEnabled="False" />
+            <MenuItem x:Name="ClipDuplicateMenuItem" Header="Du_plicate" IsEnabled="False" />
+            <Separator />
+            <!-- Enable toggle (Shift+E, Premiere's convention, PLAN.md step 53): a disabled clip renders
+                 nothing and contributes no audio; checked state refreshed in RefreshClipMenu. -->
+            <MenuItem x:Name="ClipEnableMenuItem" Header="_Enable" InputGesture="Shift+E" ToggleType="CheckBox" IsEnabled="False" />
             <Separator />
             <!-- Link needs a multi-clip selection to group; Unlink works on the selected linked clip. -->
             <MenuItem x:Name="ClipLinkMenuItem" Header="_Link" IsEnabled="False" />

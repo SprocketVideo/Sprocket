@@ -301,7 +301,9 @@ public static class ProjectSerializer
             multicam ? c.SourceMulticamId?.Value : null, multicam ? c.ActiveAngle : null,
             c.GainDb != 0 ? c.GainDb : null,
             // An unheld clip writes neither hold field (WhenWritingNull) — byte-identical to pre-43 files.
-            c.HoldFrameAt?.Ticks, c.IsHeld ? c.HoldDuration.Ticks : null);
+            c.HoldFrameAt?.Ticks, c.IsHeld ? c.HoldDuration.Ticks : null,
+            // An enabled clip writes no Enabled field (WhenWritingNull) — byte-identical to pre-53 files.
+            c.Enabled ? null : false);
     }
 
     private static GeneratorDto ToDto(GeneratorSpec g)
@@ -525,6 +527,7 @@ public static class ProjectSerializer
         if (c.SpeedNum is int speedNum && c.SpeedDen is int speedDen)
             clip.SpeedRatio = new Rational(speedNum, speedDen);
         clip.GainDb = c.GainDb ?? 0; // GainDb absent ⇒ 0 dB (pre-30 files / un-gained clips)
+        clip.Enabled = c.Enabled ?? true; // Enabled absent ⇒ enabled (pre-53 files / untouched clips)
         // Hold absent ⇒ unheld (pre-43 files). Duration first so the pair is consistent the moment HoldFrameAt lands.
         if (c.HoldAtTicks is long holdAt)
         {

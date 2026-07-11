@@ -339,6 +339,8 @@ public static class StateFormatter
             obj["gain_db"] = clip.GainDb;
         if (clip.LinkGroupId is { } link)
             obj["link_group"] = link.ToString("D");
+        if (!clip.Enabled)
+            obj["enabled"] = false; // omitted for the common enabled case (PLAN.md step 53)
         if (clip.Effects.Count > 0)
         {
             obj["effects"] = new JsonArray(clip.Effects

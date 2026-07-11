@@ -83,6 +83,11 @@ public static class RenderGraph
     private static VideoLayer? ResolveClipLayer(
         Project project, Clip clip, Timecode t, double opacity, BlendMode blend, HashSet<SequenceId> path, int depth)
     {
+        // A disabled clip renders nothing (PLAN.md step 53). Checked here rather than at the track walk so a
+        // transition side resolving to a disabled clip also falls back like a missing clip (§15).
+        if (!clip.Enabled)
+            return null;
+
         Timecode sourceT = clip.MapToSource(t);
         IReadOnlyList<ResolvedEffect> effects = ResolveEffectsCore(clip, t);
         switch (clip.Kind)
@@ -237,7 +242,7 @@ public static class RenderGraph
             }
 
             Clip? clip = track.ResolveActiveClip(bufferStart);
-            if (clip is null)
+            if (clip is null || !clip.Enabled) // a disabled clip contributes no audio (PLAN.md step 53)
                 continue;
 
             // The clip-level gain (clip gain × fade, ramped) and the track fader stay split so the mixer can run

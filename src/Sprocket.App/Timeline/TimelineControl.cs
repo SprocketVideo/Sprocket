@@ -82,6 +82,10 @@ public sealed class TimelineControl : Control
     private static readonly IBrush VideoGhostFill = new ImmutableSolidColorBrush(((ISolidColorBrush)VideoFill).Color, 0.55);
     private static readonly IBrush AudioGhostFill = new ImmutableSolidColorBrush(((ISolidColorBrush)AudioFill).Color, 0.55);
 
+    // Disabled-clip shade (PLAN.md step 53): drawn over a disabled clip's body so it reads dimmed at a glance,
+    // cached like every draw-path brush so the render path never allocates.
+    private static readonly IBrush DisabledShade = new ImmutableSolidColorBrush(Colors.Black, 0.55);
+
     // Render bar (PLAN.md step 32): the classic NLE strip at the top of the ruler — green = a valid cached
     // render covers the span, red = needs render and can't fully composite live (nests, transitions),
     // yellow = un-rendered effects. In/out marks (I / O) shade their range over the ruler.
@@ -211,6 +215,15 @@ public sealed class TimelineControl : Control
     /// and cannot host a child <c>TextBox</c> itself).
     /// </summary>
     public event Action<Clip, Rect>? TitleEditRequested;
+
+    /// <summary>
+    /// Raised when a clip is right-clicked (PLAN.md step 53), after it has been selected, so the shell can build
+    /// and open the clip context menu at the pointer. The menu lives in <see cref="MainWindow"/> because its
+    /// dialog-backed items (Speed/Duration, Interpret Footage) do, and the custom-drawn timeline cannot host
+    /// child controls itself. The clip's <see cref="Track"/> rides along so the shell can shape the menu by
+    /// lane kind (video-only items like Frame Hold vs audio-only items like Normalize Audio, as Premiere does).
+    /// </summary>
+    public event Action<Clip, Track>? ClipContextMenuRequested;
 
     /// <summary>Whether edge/playhead snapping is active during drags.</summary>
     public bool Snapping { get; set; } = true;
@@ -554,6 +567,65 @@ public sealed class TimelineControl : Control
                 "Unlink", () => c.LinkGroupId, v => c.LinkGroupId = v, null))
             .ToList();
         Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Unlink clips", commands));
+    }
+
+    // ── Split at Playhead / Duplicate / Enable (PLAN.md step 53) ────────────────────────────────────
+
+    /// <summary>Whether Split at Playhead would cut: the playhead lies strictly inside the selected clip
+    /// (drives the Clip ▸ Split at Playhead / context-menu enablement).</summary>
+    public bool CanSplitAtPlayhead =>
+        _selected is { } clip && _playhead > clip.TimelineStart && _playhead < clip.TimelineEnd;
+
+    /// <summary>Whether the selected clip is enabled (drives the checkable Enable menu item). False when
+    /// nothing is selected.</summary>
+    public bool SelectedIsEnabled => _selected is { Enabled: true };
+
+    /// <summary>
+    /// Splits the selected clip at the playhead (Ctrl+K, Premiere's Add Edit): the same cut the Blade tool makes,
+    /// without the pointer — linked companions spanning the playhead split too (Linked on) and the right halves
+    /// share a fresh link group, one undo entry, the right half selected. No-ops when the playhead is on/outside
+    /// the clip's edges.
+    /// </summary>
+    public void SplitAtPlayhead()
+    {
+        if (_selected is null || _history is null || _project is null)
+            return;
+        Track? track = TrackOf(_selected);
+        if (track is null)
+            return;
+        if (ClipEdits.Split(_project.Timeline, track, _selected, _playhead, Linked) is not { } split)
+            return;
+        Execute(split.Command);
+        Select(split.Right);
+    }
+
+    /// <summary>
+    /// Duplicates the selected clip in place (PLAN.md step 53): a copy — effects and markers included — placed
+    /// butted after the original on the same track. With Linked on, companions duplicate together under a fresh
+    /// link group. One undo entry; the new copy becomes the selection.
+    /// </summary>
+    public void DuplicateSelected()
+    {
+        if (_selected is null || _history is null || _project is null)
+            return;
+        Track? track = TrackOf(_selected);
+        if (track is null)
+            return;
+        (IEditCommand command, Clip copy) = ClipEdits.Duplicate(_project.Timeline, track, _selected, Linked);
+        Execute(command);
+        Select(copy);
+    }
+
+    /// <summary>
+    /// Toggles the selected clip's Enable flag (Shift+E, PLAN.md step 53): a disabled clip renders nothing and
+    /// contributes no audio but keeps its place. With Linked on, companions toggle to the same state together —
+    /// one undo entry, matching Premiere.
+    /// </summary>
+    public void ToggleSelectedEnabled()
+    {
+        if (_selected is null || _history is null || _project is null)
+            return;
+        Execute(ClipEdits.ToggleEnabled(_project.Timeline, _selected, Linked));
     }
 
     /// <summary>
@@ -1326,6 +1398,10 @@ public sealed class TimelineControl : Control
                         DrawHoldBadge(ctx, rect);
                 }
 
+                // A disabled clip draws dimmed (PLAN.md step 53) — same body/detail, shaded to read at a glance.
+                if (!clip.Enabled)
+                    ctx.DrawRectangle(DisabledShade, null, rounded);
+
                 if (ReferenceEquals(clip, _selected))
                     ctx.DrawRectangle(null, SelectPen, rounded);
             }
@@ -1599,7 +1675,27 @@ public sealed class TimelineControl : Control
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
-        if (_project is null || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        if (_project is null)
+            return;
+
+        // Right-click on a clip body/edge: select it and ask the shell for the context menu (PLAN.md step 53) —
+        // the TitleEditRequested pattern, since this custom-drawn control can't host the menu's child controls.
+        if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
+        {
+            Point rp = e.GetPosition(this);
+            if (rp.X >= _headerWidth && rp.Y >= RulerHeight
+                && TryHitClip(rp, out Clip? rightClicked, out _) && rightClicked is not null
+                && TrackOf(rightClicked) is { } rightClickedTrack)
+            {
+                Focus();
+                Select(rightClicked);
+                ClipContextMenuRequested?.Invoke(rightClicked, rightClickedTrack);
+                e.Handled = true;
+            }
+            return;
+        }
+
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
 
         Point p = e.GetPosition(this);
@@ -2572,26 +2668,13 @@ public sealed class TimelineControl : Control
             Snapping, _playhead.Ticks, SnapTolerancePx, _pxPerSecond, _scrollX, _headerWidth);
         if (cutTicks is not { } atTicks)
             return;
-        var at = new Timecode(atTicks);
 
-        List<(Track Track, Clip Clip)> companions = Linked
-            ? _project!.Timeline.ClipsLinkedTo(clip).Where(l => l.Clip.Contains(at)).ToList()
-            : [];
-        Guid? rightGroup = (Linked && clip.LinkGroupId is not null && companions.Count > 0) ? Guid.NewGuid() : null;
-
-        var primary = new SplitClipCommand(track, clip, at, rightGroup);
-        if (companions.Count == 0)
-        {
-            Execute(primary);
-            Select(primary.RightClip);
+        // The split core (companions, fresh right-hand link group, one undo entry) is shared with Split at
+        // Playhead (PLAN.md step 53) — the Blade tool only adds the cursor/snap math above.
+        if (ClipEdits.Split(_project!.Timeline, track, clip, new Timecode(atTicks), Linked) is not { } split)
             return;
-        }
-
-        var commands = new List<IEditCommand> { primary };
-        foreach ((Track ctrack, Clip cclip) in companions)
-            commands.Add(new SplitClipCommand(ctrack, cclip, at, rightGroup));
-        Execute(new CompositeCommand("Blade linked clips", commands));
-        Select(primary.RightClip);
+        Execute(split.Command);
+        Select(split.Right);
     }
 
     private Track? TrackOf(Clip clip)

@@ -372,6 +372,26 @@ public class SprocketToolsExtendedTests
     }
 
     [Fact]
+    public async Task SetClipEnabled_Toggles_The_Linked_Pair_As_One_Undo_Entry()
+    {
+        (FakeEditorSession session, SprocketTools tools, Clip video, Clip audio) = await LinkedPair();
+        int entries = session.History.UndoCount;
+
+        await tools.SetClipEnabled(RuntimeIds.IdOf(video), false);
+        Assert.False(video.Enabled);
+        Assert.False(audio.Enabled);
+        Assert.Equal(entries + 1, session.History.UndoCount);
+
+        session.History.Undo(); // one undo restores both
+        Assert.True(video.Enabled);
+        Assert.True(audio.Enabled);
+
+        await tools.SetClipEnabled(RuntimeIds.IdOf(video), false, includeLinked: false);
+        Assert.False(video.Enabled);
+        Assert.True(audio.Enabled); // partner untouched when includeLinked is off
+    }
+
+    [Fact]
     public async Task SetClipSpeed_Retimes_The_Linked_Pair()
     {
         (FakeEditorSession _, SprocketTools tools, Clip video, Clip audio) = await LinkedPair();

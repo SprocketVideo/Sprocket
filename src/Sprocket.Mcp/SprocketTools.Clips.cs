@@ -99,6 +99,34 @@ public sealed partial class SprocketTools
             return payload.ToJsonString();
         });
 
+    // ── Enable toggle (PLAN.md step 53) ─────────────────────────────────────────────────────────────
+
+    [McpServerTool(Name = "set_clip_enabled")]
+    [Description("Enables or disables a clip (Premiere's Enable toggle): a disabled clip renders nothing and " +
+                 "contributes no audio, but keeps its place on the timeline and its effects/keyframes for " +
+                 "re-enabling. By default linked partners toggle to the same state together. One undo entry.")]
+    public Task<string> SetClipEnabled(
+        [Description("clip_id of the target clip.")] int clipId,
+        [Description("true to enable the clip, false to disable it.")] bool enabled,
+        [Description("Whether linked partner clips toggle together (default true).")] bool includeLinked = true) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            (Clip clip, Track _) = ResolveClip(api, clipId);
+            var members = new List<Clip> { clip };
+            if (includeLinked)
+                members.AddRange(api.Project.Timeline.ClipsLinkedTo(clip).Select(l => l.Clip));
+
+            string name = enabled ? "Enable clips" : "Disable clips";
+            var commands = members
+                .Select(c => (IEditCommand)SetPropertyCommand<bool>.Create(
+                    name, () => c.Enabled, v => c.Enabled = v, enabled))
+                .ToList();
+            api.History.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand(name, commands));
+            api.RefreshPreview();
+            return StateFormatter.HistoryState(api.History,
+                $"{(enabled ? "enabled" : "disabled")} {members.Count} clip(s)");
+        });
+
     // ── Link management ─────────────────────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "unlink_clip")]
