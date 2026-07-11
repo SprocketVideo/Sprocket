@@ -269,6 +269,76 @@ public static class ClipEdits
             : new CompositeCommand(trackChanged ? "Move clip to track" : "Move clips", commands);
     }
 
+    // ── Link / Unlink (PLAN.md steps 13/55) ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Whether the selection is eligible for Clip ▸ Link (Premiere's rule, PLAN.md step 55): at least two
+    /// clips still on tracks, spanning at least one video-track clip and one audio-track clip — and not
+    /// already exactly one whole link group (there Ctrl+L toggles to Unlink instead). A partial subset of
+    /// a larger group stays linkable: re-pointing it at its own fresh group is a real edit.
+    /// </summary>
+    public static bool CanLink(Timeline timeline, IEnumerable<Clip> clips)
+    {
+        List<(Track Track, Clip Clip)> members = ExpandWithLinked(timeline, clips, linked: false);
+        if (members.Count < 2)
+            return false;
+        if (!members.Any(m => m.Track is VideoTrack) || !members.Any(m => m.Track is AudioTrack))
+            return false;
+        Guid? shared = members[0].Clip.LinkGroupId;
+        return shared is null
+            || members.Any(m => m.Clip.LinkGroupId != shared)
+            || timeline.ClipsLinkedTo(members[0].Clip).Count() != members.Count - 1;
+    }
+
+    /// <summary>
+    /// Links the selected clips: one fresh shared <see cref="Clip.LinkGroupId"/> on every selected clip,
+    /// as one undo entry — the exact mirror of <see cref="Unlink"/>. Only the selected clips are
+    /// re-pointed; an unselected companion of a previously-linked member keeps its old group. Returns
+    /// <see langword="null"/> when the selection is ineligible (see <see cref="CanLink"/>).
+    /// </summary>
+    public static IEditCommand? LinkAll(Timeline timeline, IEnumerable<Clip> clips)
+    {
+        if (!CanLink(timeline, clips))
+            return null;
+        Guid group = Guid.NewGuid();
+        var commands = ExpandWithLinked(timeline, clips, linked: false)
+            .Select(m =>
+            {
+                Clip c = m.Clip;
+                return (IEditCommand)SetPropertyCommand<Guid?>.Create(
+                    "Link", () => c.LinkGroupId, v => c.LinkGroupId = v, group);
+            })
+            .ToList();
+        return new CompositeCommand("Link clips", commands);
+    }
+
+    /// <summary>
+    /// Unlinks <paramref name="clip"/> and its companions (clears the whole group's link ids) as one undo
+    /// entry (PLAN.md step 13). Returns <see langword="null"/> when the clip isn't linked.
+    /// </summary>
+    public static IEditCommand? Unlink(Timeline timeline, Clip clip)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+        ArgumentNullException.ThrowIfNull(clip);
+        if (clip.LinkGroupId is null)
+            return null;
+        var members = new List<Clip> { clip };
+        members.AddRange(timeline.ClipsLinkedTo(clip).Select(l => l.Clip));
+        var commands = members
+            .Select(c => (IEditCommand)SetPropertyCommand<Guid?>.Create(
+                "Unlink", () => c.LinkGroupId, v => c.LinkGroupId = v, null))
+            .ToList();
+        return commands.Count == 1 ? commands[0] : new CompositeCommand("Unlink clips", commands);
+    }
+
+    /// <summary>
+    /// The Ctrl+L toggle (PLAN.md step 55, the Premiere/Resolve shortcut): links the selection when
+    /// eligible, otherwise unlinks <paramref name="primary"/>'s group. Returns <see langword="null"/>
+    /// when neither applies.
+    /// </summary>
+    public static IEditCommand? ToggleLink(Timeline timeline, Clip? primary, IEnumerable<Clip> clips) =>
+        LinkAll(timeline, clips) ?? (primary is null ? null : Unlink(timeline, primary));
+
     /// <summary>
     /// Toggles <paramref name="clip"/>'s <see cref="Clip.Enabled"/> flag (Shift+E, Premiere's convention). With
     /// <paramref name="linked"/> on, companion clips are set to the same new state — the whole group toggles

@@ -567,16 +567,35 @@ public sealed class TimelineControl : Control
     /// <summary>Unlinks the selected clip and its companions (clears their link group) as one undo entry (step 13).</summary>
     public void UnlinkSelected()
     {
-        if (_selected is null || _selected.LinkGroupId is null || _history is null || _project is null)
+        if (_selected is null || _history is null || _project is null)
             return;
-        var members = new List<Clip> { _selected };
-        members.AddRange(_project.Timeline.ClipsLinkedTo(_selected).Select(l => l.Clip));
+        if (ClipEdits.Unlink(_project.Timeline, _selected) is { } command)
+            Execute(command);
+    }
 
-        var commands = members
-            .Select(c => (IEditCommand)SetPropertyCommand<Guid?>.Create(
-                "Unlink", () => c.LinkGroupId, v => c.LinkGroupId = v, null))
-            .ToList();
-        Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Unlink clips", commands));
+    /// <summary>Whether the selection can be linked — ≥2 clips spanning video and audio, not already one
+    /// whole group (drives Clip ▸ Link enablement, PLAN.md step 55).</summary>
+    public bool CanLinkSelection =>
+        _project is not null && ClipEdits.CanLink(_project.Timeline, _selection.Clips);
+
+    /// <summary>Links the selected clips under one fresh shared group as one undo entry (PLAN.md step 55).
+    /// A no-op when the selection is ineligible (see <see cref="CanLinkSelection"/>).</summary>
+    public void LinkSelected()
+    {
+        if (_history is null || _project is null)
+            return;
+        if (ClipEdits.LinkAll(_project.Timeline, _selection.Clips) is { } command)
+            Execute(command);
+    }
+
+    /// <summary>The Ctrl+L toggle (PLAN.md step 55): links an eligible selection, otherwise unlinks the
+    /// primary selected clip's group.</summary>
+    public void ToggleLinkSelected()
+    {
+        if (_history is null || _project is null)
+            return;
+        if (ClipEdits.ToggleLink(_project.Timeline, _selected, _selection.Clips) is { } command)
+            Execute(command);
     }
 
     // ── Split at Playhead / Duplicate / Enable (PLAN.md step 53) ────────────────────────────────────

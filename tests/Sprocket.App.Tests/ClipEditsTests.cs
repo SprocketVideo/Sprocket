@@ -366,4 +366,120 @@ public class ClipEditsTests
             v, video, video, v.TimelineStart.Ticks, v.SourceIn, v.SourceOut, v.TimelineStart.Ticks,
             [(a, a.TimelineStart)]));
     }
+
+    // ── Link / Unlink (PLAN.md step 55) ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void LinkAll_Sets_One_Shared_Group_Across_The_Selection_As_One_Undo_Entry()
+    {
+        Timeline timeline = LinkedPair(out _, out _, out Clip v, out Clip a);
+        v.LinkGroupId = null;
+        a.LinkGroupId = null;
+        var history = new EditHistory();
+
+        Assert.True(ClipEdits.CanLink(timeline, [v, a]));
+        history.Execute(ClipEdits.LinkAll(timeline, [v, a])!);
+
+        Assert.NotNull(v.LinkGroupId);
+        Assert.Equal(v.LinkGroupId, a.LinkGroupId);
+
+        history.Undo(); // one entry restores both
+        Assert.Null(v.LinkGroupId);
+        Assert.Null(a.LinkGroupId);
+    }
+
+    [Fact]
+    public void LinkAll_RePoints_A_Previously_Linked_Member_And_Undo_Restores_Its_Prior_Group()
+    {
+        Timeline timeline = LinkedPair(out _, out AudioTrack audio, out Clip v, out Clip a);
+        Guid originalGroup = v.LinkGroupId!.Value;
+        var b = new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.FromSeconds(8));
+        audio.Clips.Add(b);
+        var history = new EditHistory();
+
+        // Link v (already in a pair with a) to the unlinked b: only the selected clips are re-pointed.
+        history.Execute(ClipEdits.LinkAll(timeline, [v, b])!);
+
+        Assert.NotNull(v.LinkGroupId);
+        Assert.NotEqual(originalGroup, v.LinkGroupId);
+        Assert.Equal(v.LinkGroupId, b.LinkGroupId);
+        Assert.Equal(originalGroup, a.LinkGroupId); // the unselected old companion keeps its group
+
+        history.Undo(); // one entry restores each clip's prior group
+        Assert.Equal(originalGroup, v.LinkGroupId);
+        Assert.Null(b.LinkGroupId);
+        Assert.Equal(originalGroup, a.LinkGroupId);
+    }
+
+    [Fact]
+    public void CanLink_Rejects_Single_AllVideo_And_AllAudio_Selections()
+    {
+        Timeline timeline = LinkedPair(out VideoTrack video, out AudioTrack audio, out Clip v, out Clip a);
+        v.LinkGroupId = null;
+        a.LinkGroupId = null;
+        var v2 = new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.FromSeconds(8));
+        var a2 = new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.FromSeconds(8));
+        video.Clips.Add(v2);
+        audio.Clips.Add(a2);
+
+        Assert.False(ClipEdits.CanLink(timeline, [v]));       // single clip
+        Assert.False(ClipEdits.CanLink(timeline, [v, v2]));   // all-video
+        Assert.False(ClipEdits.CanLink(timeline, [a, a2]));   // all-audio
+        Assert.Null(ClipEdits.LinkAll(timeline, [v, v2]));    // the builder mirrors the predicate
+    }
+
+    [Fact]
+    public void CanLink_Rejects_A_Whole_Group_But_Allows_A_Partial_Subset()
+    {
+        Timeline timeline = LinkedPair(out _, out AudioTrack audio, out Clip v, out Clip a);
+        // The selected pair IS its whole group — Ctrl+L should toggle to Unlink, not re-link.
+        Assert.False(ClipEdits.CanLink(timeline, [v, a]));
+
+        // Grow the group to three; two of its members are a real re-link target.
+        var b = new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.FromSeconds(8))
+        { LinkGroupId = v.LinkGroupId };
+        audio.Clips.Add(b);
+        Assert.True(ClipEdits.CanLink(timeline, [v, a]));
+    }
+
+    [Fact]
+    public void Unlink_Clears_The_Whole_Group_As_One_Undo_Entry_And_Is_Null_When_Unlinked()
+    {
+        Timeline timeline = LinkedPair(out _, out _, out Clip v, out Clip a);
+        Guid originalGroup = v.LinkGroupId!.Value;
+        var history = new EditHistory();
+
+        history.Execute(ClipEdits.Unlink(timeline, v)!);
+        Assert.Null(v.LinkGroupId);
+        Assert.Null(a.LinkGroupId);
+
+        history.Undo();
+        Assert.Equal(originalGroup, v.LinkGroupId);
+        Assert.Equal(originalGroup, a.LinkGroupId);
+
+        v.LinkGroupId = null;
+        Assert.Null(ClipEdits.Unlink(timeline, v));
+    }
+
+    [Fact]
+    public void ToggleLink_Links_An_Eligible_Selection_Then_Unlinks_It()
+    {
+        Timeline timeline = LinkedPair(out _, out _, out Clip v, out Clip a);
+        v.LinkGroupId = null;
+        a.LinkGroupId = null;
+        var history = new EditHistory();
+
+        // First Ctrl+L links the unlinked V+A selection…
+        history.Execute(ClipEdits.ToggleLink(timeline, v, [v, a])!);
+        Assert.NotNull(v.LinkGroupId);
+        Assert.Equal(v.LinkGroupId, a.LinkGroupId);
+
+        // …and the second unlinks it (the selection is now exactly one whole group).
+        history.Execute(ClipEdits.ToggleLink(timeline, v, [v, a])!);
+        Assert.Null(v.LinkGroupId);
+        Assert.Null(a.LinkGroupId);
+
+        // Neither linkable nor linked → no command (e.g. a lone unlinked clip).
+        Assert.Null(ClipEdits.ToggleLink(timeline, v, [v]));
+    }
 }

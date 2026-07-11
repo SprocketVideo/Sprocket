@@ -130,7 +130,7 @@ public partial class MainWindow : Window
     // Command-menu items refreshed on submenu open (context-enabling) + the View toggles / panes.
     private MenuItem? _cutMenuItem, _copyMenuItem, _pasteMenuItem, _deleteMenuItem, _rippleDeleteMenuItem;
     private MenuItem? _selectAllMenuItem; // Edit ▸ Select All (multi-clip selection, PLAN.md step 54)
-    private MenuItem? _unlinkMenuItem, _nudgeLeftMenuItem, _nudgeRightMenuItem, _clipSpeedMenuItem;
+    private MenuItem? _linkMenuItem, _unlinkMenuItem, _nudgeLeftMenuItem, _nudgeRightMenuItem, _clipSpeedMenuItem;
     // Split at Playhead / Duplicate / Enable toggle (PLAN.md step 53)
     private MenuItem? _clipSplitMenuItem, _clipDuplicateMenuItem, _clipEnableMenuItem;
     private MenuItem? _createMulticamMenuItem; // Clip ▸ Create Multicam Source (PLAN.md step 24)
@@ -461,6 +461,8 @@ public partial class MainWindow : Window
         _clipSplitMenuItem.Click += (_, _) => _timeline?.SplitAtPlayhead();
         _clipDuplicateMenuItem.Click += (_, _) => _timeline?.DuplicateSelected();
         _clipEnableMenuItem.Click += (_, _) => _timeline?.ToggleSelectedEnabled();
+        _linkMenuItem = this.FindControl<MenuItem>("ClipLinkMenuItem")!;
+        _linkMenuItem.Click += (_, _) => _timeline?.LinkSelected();
         _unlinkMenuItem = this.FindControl<MenuItem>("ClipUnlinkMenuItem")!;
         _nudgeLeftMenuItem = this.FindControl<MenuItem>("NudgeLeftMenuItem")!;
         _nudgeRightMenuItem = this.FindControl<MenuItem>("NudgeRightMenuItem")!;
@@ -553,6 +555,8 @@ public partial class MainWindow : Window
             _pasteMenuItem.InputGesture = Cmd(Key.V);
             this.FindControl<MenuItem>("SelectAllMenuItem")!.InputGesture = Cmd(Key.A);
             _clipSplitMenuItem!.InputGesture = Cmd(Key.K); // ⌘K — Split at Playhead (Shift+E's label needs no swap)
+            _linkMenuItem!.InputGesture = Cmd(Key.L);   // ⌘L toggles Link/Unlink (PLAN.md step 55) —
+            _unlinkMenuItem!.InputGesture = Cmd(Key.L); // both items show the shared shortcut
             // Parse keeps the "," glyph — new KeyGesture(Key.OemComma, …) would render as "Cmd+OemComma".
             this.FindControl<MenuItem>("PreferencesMenuItem")!.InputGesture = KeyGesture.Parse("Cmd+,");
 
@@ -659,6 +663,9 @@ public partial class MainWindow : Window
         // Split at Playhead (Ctrl+K / ⌘K — Premiere's Add Edit) and the Enable toggle (Shift+E, Premiere's
         // convention), PLAN.md step 53. Ctrl+Shift+E (Export Queue) is handled above the text guard.
         else if (primary && e.Key == Key.K) { _timeline?.SplitAtPlayhead(); e.Handled = true; }
+        // Link/Unlink toggle (Ctrl+L / ⌘L, the Premiere/Resolve shortcut — PLAN.md step 55): links an
+        // eligible multi-selection, otherwise unlinks the selected clip's group.
+        else if (primary && e.Key == Key.L) { _timeline?.ToggleLinkSelected(); e.Handled = true; }
         else if (shift && !primary && !alt && e.Key == Key.E) { _timeline?.ToggleSelectedEnabled(); e.Handled = true; }
         else if (shift && (e.Key == Key.Delete || e.Key == Key.Back)) { _timeline?.RippleDeleteSelected(); e.Handled = true; }
         else if (e.Key == Key.Delete || e.Key == Key.Back) { _timeline?.DeleteSelected(); e.Handled = true; }
@@ -1803,6 +1810,7 @@ public partial class MainWindow : Window
             _clipEnableMenuItem.IsEnabled = sel;
             _clipEnableMenuItem.IsChecked = _timeline?.SelectedIsEnabled == true;
         }
+        if (_linkMenuItem is not null) _linkMenuItem.IsEnabled = _timeline?.CanLinkSelection == true;
         if (_unlinkMenuItem is not null) _unlinkMenuItem.IsEnabled = _timeline?.SelectedIsLinked == true;
         if (_nudgeLeftMenuItem is not null) _nudgeLeftMenuItem.IsEnabled = sel;
         if (_nudgeRightMenuItem is not null) _nudgeRightMenuItem.IsEnabled = sel;
@@ -1832,8 +1840,8 @@ public partial class MainWindow : Window
     /// Footage, Multicam ▸) appear only on a video-track clip, and Normalize Audio only on an audio-track clip —
     /// on a linked pair the video clip contributes no audio (its companion does), so audio items on it would be
     /// silent no-ops. Linkedness itself never changes the item set, only what the operations act on (split /
-    /// duplicate / enable / delete take the whole group when Linked is on). Link stays visibly disabled until
-    /// multi-select lands (PLAN.md step 55, the step-16c rule). The timeline has already selected
+    /// duplicate / enable / delete take the whole group when Linked is on). Link enables for a multi-selection
+    /// spanning video + audio (PLAN.md step 55). The timeline has already selected
     /// <paramref name="clip"/> before raising the event.
     /// </summary>
     private void ShowClipContextMenu(Clip clip, Sprocket.Core.Model.Track track)
@@ -1872,8 +1880,8 @@ public partial class MainWindow : Window
                 _clipSplitMenuItem?.InputGesture),
             new Separator(),
             enableItem,
-            Item("_Unlink", timeline.UnlinkSelected, timeline.SelectedIsLinked),
-            Item("_Link", () => { }, enabled: false), // stub until multi-select linking (PLAN.md step 55)
+            Item("_Unlink", timeline.UnlinkSelected, timeline.SelectedIsLinked, _unlinkMenuItem?.InputGesture),
+            Item("_Link", timeline.LinkSelected, timeline.CanLinkSelection, _linkMenuItem?.InputGesture),
             new Separator(),
             Item("_Speed / Duration…", () => _ = ShowSpeedDialogAsync()),
         };

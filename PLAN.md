@@ -3740,6 +3740,21 @@ Tags reference the [UI.md §4 checklist](UI.md).
       restores each clip's prior group, including previously-linked members re-linked into a new
       pair); eligibility rules (rejects all-video / all-audio / single-clip selections); `Ctrl+L`
       toggle behavior; persistence round-trip is already covered by existing `LinkGroupId` tests.
+    - **✅ DONE (App `ClipEdits` link builders (`CanLink` / `LinkAll` / `Unlink` / `ToggleLink`, the
+      step-53/54 pure-builder idiom) + `TimelineControl.CanLinkSelection`/`LinkSelected`/`ToggleLinkSelected`;
+      MainWindow `ClipLinkMenuItem` + context-menu item + `Ctrl+L` (⌘L on macOS) below the text-box guard;
+      6 new App tests; full suite 1541 green).** Landed as planned — the MCP `link_clips` tool had
+      already shipped with the step-38 tool surface, so this step was UI-only — with two notes.
+      (1) Eligibility got one refinement beyond the spec: a selection that is exactly one whole link
+      group is *not* linkable (re-linking it would be a no-op that pollutes undo), which is what makes
+      `Ctrl+L` a strict toggle on a linked pair — link an eligible V+A selection, press again to unlink;
+      a selected *subset* of a larger group stays linkable, since re-pointing it at its own fresh group
+      is a real edit. Linking re-points only the selected clips: an unselected companion of a
+      previously-linked member keeps its old group (and undo restores each clip's prior group
+      individually, per the SetProperty mirror of Unlink). (2) `TimelineControl.UnlinkSelected` was
+      refactored onto the new pure `ClipEdits.Unlink` (behavior unchanged) so Link and Unlink share one
+      headlessly-tested home; both menu items display the shared `Ctrl+L` shortcut since the key
+      dispatches by selection state.
 
 56. **Windows 10 support (verify + declare).** Promote Windows 10 to a fully supported platform
     alongside Windows 11, with a support floor of **Windows 10 64-bit, version 1809 or later**

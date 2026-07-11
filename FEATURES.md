@@ -154,13 +154,13 @@ in terms an app-side committer can check against their diff.
 | Slide tool | TimelineControl `DragKind.Slide` | edit/editing-on-the-timeline.md#slide | ✅ |
 | Hand & Zoom view tools | TimelineControl.cs | edit/editing-on-the-timeline.md#getting-around-hand-and-zoom | ✅ |
 | Snapping toggle | TimelineControl.Snapping | edit/editing-on-the-timeline.md#snapping | ✅ |
-| Linked A/V toggle + Unlink (Clip menu) | MainWindow.axaml.cs:1134; TimelineControl.cs:541 | edit/editing-on-the-timeline.md#keeping-audio-and-video-together | 🟡 (toggle documented; Clip ▸ Unlink not mentioned) |
+| Linked A/V toggle + Link / Unlink (Clip menu & context menu; `Ctrl+L` toggles by selection state — Link needs a multi-selection spanning video + audio) | MainWindow.axaml.cs:1134; TimelineControl `LinkSelected`/`UnlinkSelected`; ClipEdits.cs link builders; PLAN.md steps 13/55 | edit/editing-on-the-timeline.md#keeping-audio-and-video-together | 🟡 (toggle documented; Clip ▸ Link/Unlink not mentioned) |
 | Timeline zoom in/out/fit (`Ctrl+-`/`Ctrl+=`/`Shift+Z`) | TimelineControl `ZoomIn/Out/ToFit` | get-started/getting-started.md#2-zoom-the-timeline-in-and-out | ✅ |
 | Move / delete / Ripple Delete (`Delete` / `Shift+Delete`) | TimelineControl.cs:2184 | edit/editing-on-the-timeline.md#deleting-clips-and-closing-gaps | ✅ |
 | Cut / Copy / Paste clips (paste at playhead; a multi-clip selection pastes as a set with relative offsets preserved) | Sprocket.App/ClipboardOps.cs; PLAN.md step 54 | get-started/getting-started.md#6-move-delete-and-close-gaps | 🟡 (named; paste-at-playhead behavior unexplained) |
 | Nudge clip by one frame (`Alt+←` / `Alt+→`) | MainWindow.axaml.cs:368 | edit/editing-on-the-timeline.md#nudging-with-the-keyboard | ✅ |
 | Multi-clip selection: Ctrl-click toggles, Shift-click extends, rubber-band marquee on empty lane area, Select All (`Ctrl+A`); batch Delete / Ripple Delete / Cut / Copy / Nudge / Enable act on the set as one undo entry; a plain drag moves the set rigidly; the primary clip drives the Inspector and dialog-backed operations | PLAN.md step 54; Timeline/ClipSelection.cs; ClipEdits.cs batch builders; TimelineControl.cs | — | ❌ |
-| Clip right-click context menu, shaped by lane kind (common: Cut/Copy/Paste/Duplicate, Delete/Ripple Delete, Split at Playhead, Enable, Unlink, Speed, Nest; video clips add Frame Hold ▸, Interpret Footage, Multicam ▸; audio clips add Normalize Audio) | PLAN.md step 53; TimelineControl `ClipContextMenuRequested`; MainWindow.axaml.cs `ShowClipContextMenu` | — | ❌ |
+| Clip right-click context menu, shaped by lane kind (common: Cut/Copy/Paste/Duplicate, Delete/Ripple Delete, Split at Playhead, Enable, Unlink, Link, Speed, Nest; video clips add Frame Hold ▸, Interpret Footage, Multicam ▸; audio clips add Normalize Audio) | PLAN.md step 53; TimelineControl `ClipContextMenuRequested`; MainWindow.axaml.cs `ShowClipContextMenu` | — | ❌ |
 | Split at Playhead (`Ctrl+K`, Clip menu & context menu) | PLAN.md step 53; TimelineControl `SplitAtPlayhead`; ClipEdits.cs | — | ❌ |
 | Duplicate clip (Clip menu & context menu; linked pair copies under a fresh group) | PLAN.md step 53; TimelineControl `DuplicateSelected`; ClipEdits.cs | — | ❌ |
 | Enable/Disable clip (`Shift+E`, checkable Clip-menu/context item; disabled clips render nothing, draw dimmed) | PLAN.md step 53; Clip.Enabled; TimelineControl `ToggleSelectedEnabled` | — | ❌ |
@@ -346,7 +346,6 @@ features users can't use; recheck each audit and promote to the matrix when buil
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial) |
 | Convolution reverb | PLAN.md step 49 (Studio Reverb + audio freeze shipped in step 41; Shimmer Reverb shipped in step 50) |
 | Code-signing & macOS notarization (installers themselves shipped: Windows Setup.exe, Linux AppImage, macOS .app via scripts/release.ps1 + Velopack; alpha is unsigned) | PLAN.md step 36 (✅ done except signing/notarization, deliberately deferred) |
-| Disabled menu items: Clip ▸ Link (re-link A/V, PLAN.md step 55 — Select All and Clip ▸ Enable shipped in steps 54/53) | greyed out in MainWindow.axaml.cs `ShowClipContextMenu` |
 
 ## Not user-facing — never document
 

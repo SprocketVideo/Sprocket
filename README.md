@@ -43,7 +43,7 @@ frames never touch the managed heap per frame.
   source media is never rewritten.
 - **Full editing toolset** — multi-track timeline (filmstrips, waveforms, snapping, zoom) with
   Select / Blade / Slip / Hand / Zoom tools, ripple & roll trims, multi-clip selection (marquee,
-  Select All, batch edits), linked A/V, markers, constant-speed retime, freeze frames &
+  Select All, batch edits), linked A/V (link & unlink), markers, constant-speed retime, freeze frames &
   stop-motion frame edits (frame hold, duplicate/remove frame), nested sequences, and multicam.
 - **Image sequences & stills** — import a folder of numbered frames as one clip at a chosen frame
   rate (the stop-motion / time-lapse on-ramp) or a single still with a default duration, plus
@@ -82,8 +82,7 @@ The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step bui
 Code-signing & notarization (alpha artifacts are unsigned) · native plugin hosting — VST3/AU audio
 and OpenColorIO/OFX (the managed plugin host and built-in effects ship today) · variable/ramped
 speed & reverse retime (freeze frames ship today) · convolution reverb (Studio Reverb, Shimmer
-Reverb, and audio freeze ship today) · re-linking A/V clips (multi-clip selection, the clip
-right-click menu, and clip enable/disable ship today) · Windows 10 support (nothing gates it
+Reverb, and audio freeze ship today) · Windows 10 support (nothing gates it
 technically; verification on real Windows 10 + updated support claims remain). See the
 [Roadmap](#roadmap).
 
@@ -313,10 +312,6 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
 - **Audio extras** — convolution reverb (the Studio Reverb, the Shimmer Reverb, factory presets,
   the delay family — digital / tape / multi-tap / stereo ping-pong — the noise gate, the shelving
   EQ, and clip-audio freeze ship today).
-- **Timeline selection** — re-linking A/V clips (multi-clip selection — Ctrl/Shift-click, the
-  rubber-band marquee, Select All, and batch delete/copy/nudge/enable — plus the clip right-click
-  context menu, split at playhead, duplicate, clip enable/disable, unlink, and linked A/V editing
-  ship today).
 - **Windows 10 support** — nothing technically gates Windows 10 (no OS-version manifests or
   checks; builds are self-contained); what remains is smoke-testing on a real Windows 10 machine
   and updating the support claims (floor: Windows 10 64-bit, version 1809+).

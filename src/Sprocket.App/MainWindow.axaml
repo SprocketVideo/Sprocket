@@ -39,8 +39,8 @@
         </StackPanel>
 
         <!-- Inline menu bar (UI.md §2): every item bound to its command in MainWindow.WireMenu / WireCommandMenus
-             (PLAN.md step 16c). Items whose feature lands in a later step (Select All, Clip ▸ Link)
-             stay visibly disabled rather than silently dead. Accelerators are also handled in
+             (PLAN.md step 16c). Items whose feature lands in a later step stay visibly
+             disabled rather than silently dead. Accelerators are also handled in
              OnKeyDown (the InputGesture text here is the display label). -->
         <Menu Grid.Column="1" VerticalAlignment="Center" Background="Transparent" Margin="6,0,0,0" FontSize="12">
           <MenuItem Header="_File">
@@ -93,9 +93,11 @@
                  nothing and contributes no audio; checked state refreshed in RefreshClipMenu. -->
             <MenuItem x:Name="ClipEnableMenuItem" Header="_Enable" InputGesture="Shift+E" ToggleType="CheckBox" IsEnabled="False" />
             <Separator />
-            <!-- Link needs a multi-clip selection to group; Unlink works on the selected linked clip. -->
-            <MenuItem x:Name="ClipLinkMenuItem" Header="_Link" IsEnabled="False" />
-            <MenuItem x:Name="ClipUnlinkMenuItem" Header="_Unlink" IsEnabled="False" />
+            <!-- Link groups a multi-clip selection spanning video + audio (PLAN.md step 55); Unlink works on
+                 the selected linked clip. Ctrl+L (Premiere/Resolve) toggles between them by selection state,
+                 so both items show the shared shortcut; enablement refreshed in RefreshClipMenu. -->
+            <MenuItem x:Name="ClipLinkMenuItem" Header="_Link" InputGesture="Ctrl+L" IsEnabled="False" />
+            <MenuItem x:Name="ClipUnlinkMenuItem" Header="_Unlink" InputGesture="Ctrl+L" IsEnabled="False" />
             <Separator />
             <MenuItem x:Name="ClipSpeedMenuItem" Header="_Speed / Duration…" IsEnabled="False" /> <!-- enabled when a clip is selected -->
             <!-- Interpret Footage (PLAN.md step 42): reassign the selected clip's source frame rate. Enabled when the
