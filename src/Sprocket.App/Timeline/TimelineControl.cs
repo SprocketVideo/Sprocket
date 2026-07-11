@@ -86,6 +86,13 @@ public sealed class TimelineControl : Control
     // cached like every draw-path brush so the render path never allocates.
     private static readonly IBrush DisabledShade = new ImmutableSolidColorBrush(Colors.Black, 0.55);
 
+    // Multi-selection treatment (PLAN.md step 54): the marquee band, and the dimmer accent border non-primary
+    // members of a multi-selection draw (the primary keeps SelectPen, so it stays visually distinct). Cached
+    // like every draw-path brush so the render path never allocates.
+    private static readonly IBrush MarqueeFill = new ImmutableSolidColorBrush(Palette.Accent, 0.12);
+    private static readonly Pen MarqueePen = new(new ImmutableSolidColorBrush(Palette.Accent, 0.9), 1);
+    private static readonly Pen MultiSelectPen = new(new ImmutableSolidColorBrush(Palette.Accent, 0.55), 2);
+
     // Render bar (PLAN.md step 32): the classic NLE strip at the top of the ruler — green = a valid cached
     // render covers the span, red = needs render and can't fully composite live (nests, transitions),
     // yellow = un-rendered effects. In/out marks (I / O) shade their range over the ruler.
@@ -114,8 +121,23 @@ public sealed class TimelineControl : Control
     private double _headerWidth = DefaultHeaderWidth;
     private bool _resizingHeader;
 
+    // The multi-clip selection (PLAN.md step 54): an ordered set with a primary clip. _selected caches the
+    // last announced primary so the single-clip surface throughout this control reads it directly; every
+    // selection mutation funnels through OnSelectionMutated, which syncs the cache, raises
+    // SelectedClipChanged when the primary changed, and repaints.
+    private readonly ClipSelection _selection = new();
     private Clip? _selected;
     private bool _scrubbing;
+
+    // Rubber-band marquee state (PLAN.md step 54): a Select-tool drag on empty lane area selects every clip
+    // the band touches (live, as it moves); Ctrl/Shift at the press adds to the existing selection. A press
+    // released below the drag threshold stays a plain click — clear the selection and move the playhead.
+    private const double MarqueeDragThresholdPx = 4;
+    private bool _marquee;
+    private bool _marqueeDragged;
+    private bool _marqueeAdditive;
+    private Point _marqueeOrigin, _marqueeCurrent;
+    private List<Clip> _marqueeBase = [];
 
     // Render bar + in/out marks (PLAN.md step 32). The spans are computed by RenderBarModel (MainWindow pushes
     // fresh ones after every model change); the marks are session UI state driving Render In to Out.
@@ -195,7 +217,8 @@ public sealed class TimelineControl : Control
     // Drag-and-drop preview: the X of the drop indicator while a bin tile / effect hovers (PLAN.md step 16b).
     private double? _dropPreviewX;
 
-    /// <summary>Raised when the selected clip changes (for the Inspector / header). Null = nothing selected.</summary>
+    /// <summary>Raised when the primary selected clip changes (for the Inspector / header — the inherently
+    /// single-clip surfaces track the multi-selection's primary, PLAN.md step 54). Null = nothing selected.</summary>
     public event Action<Clip?>? SelectedClipChanged;
 
     /// <summary>Raised with a short message for the status strip (e.g. why a transition couldn't be applied).</summary>
@@ -259,7 +282,7 @@ public sealed class TimelineControl : Control
     private Cursor CursorFor(TimelineCursor kind) =>
         ToolCursors.Get(kind, TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0);
 
-    /// <summary>The currently selected clip, or null.</summary>
+    /// <summary>The primary selected clip (the anchor of a multi-selection, PLAN.md step 54), or null.</summary>
     public Clip? SelectedClip => _selected;
 
     public TimelineControl()
@@ -332,13 +355,10 @@ public sealed class TimelineControl : Control
 
     private void OnHistoryChanged()
     {
-        // A clip may have been removed by undo/redo; drop a stale selection.
-        if (_selected is not null && _project is not null
-            && !_project.Timeline.Tracks.Any(t => t.Clips.Contains(_selected)))
-        {
-            _selected = null;
-            SelectedClipChanged?.Invoke(null);
-        }
+        // Clips may have been removed by undo/redo; drop stale selection members (the primary hands off).
+        if (_selection.Count > 0 && _project is not null)
+            OnSelectionMutated(_selection.Prune(
+                c => _project.Timeline.Tracks.Any(t => t.Clips.Contains(c))));
         // Likewise drop a transition selection that undo/redo removed.
         if (_selectedTransition is not null && _project is not null
             && !_project.Timeline.Tracks.Any(t => t.Transitions.Contains(_selectedTransition)))
@@ -363,11 +383,7 @@ public sealed class TimelineControl : Control
     public void OnActiveSequenceChanged()
     {
         _scrollX = 0;
-        if (_selected is not null)
-        {
-            _selected = null;
-            SelectedClipChanged?.Invoke(null);
-        }
+        OnSelectionMutated(_selection.Clear());
         _selectedTransition = null;
         _selectedTransitionTrack = null;
         InvalidateVisual();
@@ -375,59 +391,83 @@ public sealed class TimelineControl : Control
 
     // ── Clip editing (Edit / Clip menus, PLAN.md step 16c) ──────────────────────────────────────────
 
-    // A single-clip clipboard for cut/copy/paste; the flag records whether it was copied from a video lane so a
-    // paste lands on a track of the matching kind.
-    private (Clip clip, bool isVideo)? _clipboard;
+    // The clip clipboard for cut/copy/paste — one snapshot per selected clip (PLAN.md step 54); each flag
+    // records whether it was copied from a video lane so a paste lands on a track of the matching kind.
+    private List<(Clip Snapshot, bool IsVideo)> _clipboard = [];
 
-    /// <summary>Whether a clip is selected (drives Edit ▸ Cut/Copy/Delete and Clip ▸ Nudge enablement).</summary>
-    public bool HasSelection => _selected is not null;
+    /// <summary>Whether any clip is selected (drives Edit ▸ Cut/Copy/Delete and Clip ▸ Nudge enablement).</summary>
+    public bool HasSelection => _selection.Count > 0;
 
-    /// <summary>Whether there is a clip on the clipboard to paste (drives Edit ▸ Paste enablement).</summary>
-    public bool CanPaste => _clipboard is not null;
+    /// <summary>The selected clips (insertion order). <see cref="SelectedClip"/> is the set's primary.</summary>
+    public IReadOnlyList<Clip> SelectedClips => _selection.Clips;
 
-    /// <summary>Whether the selected clip is part of a linked A/V group (drives Clip ▸ Unlink enablement).</summary>
+    /// <summary>Whether there are clips on the clipboard to paste (drives Edit ▸ Paste enablement).</summary>
+    public bool CanPaste => _clipboard.Count > 0;
+
+    /// <summary>Whether the primary selected clip is part of a linked A/V group (drives Clip ▸ Unlink enablement).</summary>
     public bool SelectedIsLinked => _selected?.LinkGroupId is not null;
 
-    /// <summary>Copies the selected clip to the clipboard (a detached deep copy, link cleared — steps 13/16c).</summary>
-    public void CopySelected()
+    /// <summary>Whether Select All has anything to select (drives Edit ▸ Select All enablement).</summary>
+    public bool CanSelectAll =>
+        _project is not null && _project.Timeline.Tracks.Any(t => t.Clips.Count > 0);
+
+    /// <summary>Selects every clip on every track (Edit ▸ Select All, Ctrl+A — PLAN.md step 54).</summary>
+    public void SelectAll()
     {
-        if (_selected is null)
+        if (_project is null)
             return;
-        _clipboard = (ClipboardOps.Copy(_selected), TrackOf(_selected) is VideoTrack);
+        OnSelectionMutated(_selection.ReplaceAll(
+            _project.Timeline.Tracks.SelectMany(t => t.Clips)));
     }
 
-    /// <summary>Copies then deletes the selected clip (and its linked companions when Linked is on).</summary>
+    /// <summary>Copies the selected clips to the clipboard (detached deep copies, links cleared — steps 13/16c;
+    /// the whole selection is snapshotted, PLAN.md step 54).</summary>
+    public void CopySelected()
+    {
+        if (_selection.Count == 0)
+            return;
+        // Primary first: PasteAll's contract is that element 0 is the primary's copy (it anchors the pasted
+        // selection), and the set's primary need not be first in insertion order (a plain press or Extend can
+        // re-anchor it). OrderByDescending is stable, so the rest keep their insertion order.
+        _clipboard = _selection.Clips
+            .OrderByDescending(c => ReferenceEquals(c, _selected))
+            .Select(c => (ClipboardOps.Copy(c), TrackOf(c) is VideoTrack))
+            .ToList();
+    }
+
+    /// <summary>Copies then deletes the selected clips (and their linked companions when Linked is on).</summary>
     public void CutSelected()
     {
-        if (_selected is null)
+        if (_selection.Count == 0)
             return;
         CopySelected();
         DeleteSelected();
     }
 
     /// <summary>
-    /// Pastes the clipboard clip at the playhead, onto the first track of the matching kind. The pasted clip is
-    /// independent (no link) and becomes the selection — one undoable <see cref="AddClipCommand"/> (step 10).
+    /// Pastes the clipboard clips at the playhead — the earliest lands there and the rest keep their relative
+    /// offsets, each onto the first track of its kind. The pasted clips are independent (no links), become the
+    /// selection, and land as one undo entry (steps 10/54).
     /// </summary>
     public void PasteAtPlayhead()
     {
-        if (_clipboard is not { } cb || _history is null || _project is null)
+        if (_clipboard.Count == 0 || _history is null || _project is null)
             return;
-        Track? target = cb.isVideo
-            ? (Track?)_project.Timeline.VideoTracks.FirstOrDefault()
-            : _project.Timeline.AudioTracks.FirstOrDefault();
-        if (target is null)
+        ClipboardOps.PasteResult? result = ClipboardOps.PasteAll(
+            _clipboard, _playhead,
+            _project.Timeline.VideoTracks.FirstOrDefault(),
+            _project.Timeline.AudioTracks.FirstOrDefault());
+        if (result is not { } paste)
             return;
 
-        Clip pasted = ClipboardOps.Paste(cb.clip, _playhead);
-        Execute(new AddClipCommand(target, pasted));
-        Select(pasted);
+        Execute(paste.Command);
+        OnSelectionMutated(_selection.ReplaceAll(paste.Pasted));
         ClipPlaced?.Invoke();
     }
 
     /// <summary>
-    /// Deletes the selected clip (and, when Linked is on, its companion A/V clips) as one undo entry, then clears
-    /// the selection.
+    /// Deletes the selected clips (and, when Linked is on, their companion A/V clips) as one undo entry, then
+    /// clears the selection.
     /// </summary>
     public void DeleteSelected()
     {
@@ -439,58 +479,28 @@ public sealed class TimelineControl : Control
             return;
         }
 
-        if (_selected is null || _history is null || _project is null)
+        if (_history is null || _project is null)
             return;
-        Track? track = TrackOf(_selected);
-        if (track is null)
+        if (ClipEdits.DeleteAll(_project.Timeline, _selection.Clips, Linked) is not { } command)
             return;
-
-        var removals = new List<IEditCommand> { new RemoveClipCommand(track, _selected) };
-        if (Linked)
-            foreach ((Track ctrack, Clip cclip) in _project.Timeline.ClipsLinkedTo(_selected))
-                removals.Add(new RemoveClipCommand(ctrack, cclip));
-
-        Execute(removals.Count == 1 ? removals[0] : new CompositeCommand("Delete clips", removals));
+        Execute(command);
         Select(null);
     }
 
     /// <summary>
-    /// Nudges the selected clip by <paramref name="frames"/> frames along the timeline (Clip ▸ Nudge Left/Right).
-    /// With Linked on the whole group shifts together; the move is clamped so no member crosses the origin. Each
-    /// press is its own undo entry.
+    /// Nudges the selected clips by <paramref name="frames"/> frames along the timeline (Clip ▸ Nudge
+    /// Left/Right). The whole selection — plus linked companions when Linked is on — shifts rigidly by one
+    /// delta, clamped so no member crosses the origin. Each press is its own undo entry.
     /// </summary>
     public void NudgeSelected(int frames)
     {
-        if (_selected is null || _history is null || _project is null || frames == 0)
+        if (_selection.Count == 0 || _history is null || _project is null || frames == 0)
             return;
         long frameTicks = FrameTicks();
         if (frameTicks <= 0)
             return;
-
-        List<Clip> linked = (Linked ? _project.Timeline.ClipsLinkedTo(_selected).Select(l => l.Clip) : [])
-            .ToList();
-        long groupMin = _selected.TimelineStart.Ticks;
-        foreach (Clip c in linked)
-            groupMin = Math.Min(groupMin, c.TimelineStart.Ticks);
-
-        long delta = ClipboardOps.ClampGroupNudge((long)frames * frameTicks, groupMin);
-        if (delta == 0)
-            return;
-
-        if (linked.Count > 0)
-        {
-            var commands = new List<IEditCommand> { Shift(_selected, delta) };
-            foreach (Clip c in linked)
-                commands.Add(Shift(c, delta));
-            Execute(new CompositeCommand("Nudge clips", commands));
-        }
-        else
-        {
-            Execute(Shift(_selected, delta));
-        }
-
-        static SetClipPlacementCommand Shift(Clip c, long delta) =>
-            new(c, c.SourceIn, c.SourceOut, new Timecode(c.TimelineStart.Ticks + delta), "Nudge clip");
+        if (ClipEdits.NudgeAll(_project.Timeline, _selection.Clips, (long)frames * frameTicks, Linked) is { } command)
+            Execute(command);
     }
 
     // ── Markers (PLAN.md step 20) ────────────────────────────────────────────────────────────────────
@@ -617,15 +627,16 @@ public sealed class TimelineControl : Control
     }
 
     /// <summary>
-    /// Toggles the selected clip's Enable flag (Shift+E, PLAN.md step 53): a disabled clip renders nothing and
-    /// contributes no audio but keeps its place. With Linked on, companions toggle to the same state together —
-    /// one undo entry, matching Premiere.
+    /// Toggles the selected clips' Enable flag (Shift+E, PLAN.md steps 53/54): a disabled clip renders nothing
+    /// and contributes no audio but keeps its place. The whole selection — plus linked companions with Linked
+    /// on — converges on the opposite of the primary's state, as one undo entry, matching Premiere.
     /// </summary>
     public void ToggleSelectedEnabled()
     {
         if (_selected is null || _history is null || _project is null)
             return;
-        Execute(ClipEdits.ToggleEnabled(_project.Timeline, _selected, Linked));
+        if (ClipEdits.ToggleEnabledAll(_project.Timeline, _selected, _selection.Clips, Linked) is { } command)
+            Execute(command);
     }
 
     /// <summary>
@@ -951,9 +962,10 @@ public sealed class TimelineControl : Control
         if (_selected is null || _history is null || _project is null)
             return null;
 
-        var clips = new List<Clip> { _selected };
-        if (Linked)
-            clips.AddRange(_project.Timeline.ClipsLinkedTo(_selected).Select(l => l.Clip));
+        // The whole multi-selection nests (PLAN.md step 54) — plus, while Linked, every member's companions.
+        List<Clip> clips = ClipEdits.ExpandWithLinked(_project.Timeline, _selection.Clips, Linked)
+            .Select(m => m.Clip)
+            .ToList();
 
         string name = SequenceNaming.NextUnique(_project, "Nested Sequence");
         if (SequenceNesting.CreateNest(_project, _project.ActiveSequence, clips, name) is not { } nest)
@@ -1141,6 +1153,7 @@ public sealed class TimelineControl : Control
         DrawPlayhead(ctx, size);
         DrawDropPreview(ctx, size);
         DrawMovePreview(ctx, size);
+        DrawMarquee(ctx, size);
     }
 
     // Sequence markers on the ruler (PLAN.md step 20): a coloured flag in the ruler with a faint line down the
@@ -1402,8 +1415,10 @@ public sealed class TimelineControl : Control
                 if (!clip.Enabled)
                     ctx.DrawRectangle(DisabledShade, null, rounded);
 
-                if (ReferenceEquals(clip, _selected))
-                    ctx.DrawRectangle(null, SelectPen, rounded);
+                // Every selection member draws the accent border; the primary's is full-strength so it stays
+                // visually distinct in a multi-selection (PLAN.md step 54).
+                if (_selection.Contains(clip))
+                    ctx.DrawRectangle(null, ReferenceEquals(clip, _selected) ? SelectPen : MultiSelectPen, rounded);
             }
         }
     }
@@ -1688,7 +1703,12 @@ public sealed class TimelineControl : Control
                 && TrackOf(rightClicked) is { } rightClickedTrack)
             {
                 Focus();
-                Select(rightClicked);
+                // Right-clicking a member of a multi-selection keeps the set (so the menu's batch operations
+                // act on it, PLAN.md step 54) and re-anchors the primary; otherwise it replaces the selection.
+                if (_selection.Contains(rightClicked))
+                    OnSelectionMutated(_selection.SetPrimary(rightClicked));
+                else
+                    Select(rightClicked);
                 ClipContextMenuRequested?.Invoke(rightClicked, rightClickedTrack);
                 e.Handled = true;
             }
@@ -1776,14 +1796,37 @@ public sealed class TimelineControl : Control
                 return;
             }
 
-            Select(clip);
             // Fade handles / opacity rubber-band (PLAN.md step 39) win over move/trim in the top handle band
-            // and on the envelope line.
+            // and on the envelope line — checked before the multi-select gestures so Ctrl+click on the band
+            // keeps adding a fade point (its pre-54 meaning) rather than toggling membership.
             if (_activeTool == EditTool.Select && TryBeginFadeGesture(clip, p, e.KeyModifiers))
             {
+                Select(clip);
                 e.Pointer.Capture(this);
                 return;
             }
+
+            // Multi-select gestures (PLAN.md step 54, Select tool): Ctrl-click toggles membership, Shift-click
+            // extends — both only alter the selection (no drag begins).
+            if (_activeTool == EditTool.Select && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                OnSelectionMutated(_selection.Toggle(clip));
+                return;
+            }
+            if (_activeTool == EditTool.Select && e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                OnSelectionMutated(_selection.Extend(clip));
+                return;
+            }
+
+            // A plain press on a member of a multi-selection keeps the set (the drag below moves it rigidly)
+            // and re-anchors the primary; releasing without movement collapses to just this clip (Premiere's
+            // convention, handled in CommitMovePreview). Any other plain press replaces the selection.
+            if (_selection.Count > 1 && _selection.Contains(clip))
+                OnSelectionMutated(_selection.SetPrimary(clip));
+            else
+                Select(clip);
+
             // Ripple and Roll act on an edge; a click on the clip body just selects.
             if (_activeTool is EditTool.Ripple or EditTool.Roll && mode == ClipDragMode.Move)
                 return;
@@ -1797,11 +1840,67 @@ public sealed class TimelineControl : Control
             return;
         }
 
-        // Empty lane area → move the playhead and clear selection.
+        // Empty lane area. With the Select tool a drag becomes the rubber-band marquee (PLAN.md step 54) —
+        // the selection updates live as the band moves, additively with Ctrl/Shift held — while a plain click
+        // (released under the drag threshold) keeps today's behavior: clear the selection, move the playhead.
+        if (_activeTool == EditTool.Select)
+        {
+            _marquee = true;
+            _marqueeDragged = false;
+            _marqueeAdditive = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+            _marqueeOrigin = _marqueeCurrent = p;
+            _marqueeBase = _marqueeAdditive ? [.. _selection.Clips] : [];
+            e.Pointer.Capture(this);
+            return;
+        }
+
+        // Other tools: move the playhead and clear the selection.
         Select(null);
         _scrubbing = true;
         e.Pointer.Capture(this);
         SeekToX(p.X);
+    }
+
+    // Updates the live marquee selection (PLAN.md step 54): every clip the band touches — lanes from the
+    // band's vertical extent, clips by tick-span overlap (both pure, TimelineMath) — plus the additive base
+    // captured at the press. The band's on-screen rect is drawn by DrawMarquee.
+    private void UpdateMarquee(Point p)
+    {
+        _marqueeCurrent = p;
+        if (!_marqueeDragged
+            && Math.Abs(p.X - _marqueeOrigin.X) < MarqueeDragThresholdPx
+            && Math.Abs(p.Y - _marqueeOrigin.Y) < MarqueeDragThresholdPx)
+            return;
+        _marqueeDragged = true;
+
+        List<(Track track, bool isVideo)> lanes = Lanes();
+        (int first, int last) = TimelineMath.MarqueeLaneRange(
+            _marqueeOrigin.Y, p.Y, RulerHeight, TrackHeight + TrackGap, TrackHeight, lanes.Count);
+        long t0 = TimelineMath.TicksAtX(Math.Min(_marqueeOrigin.X, p.X), _pxPerSecond, _scrollX, _headerWidth);
+        long t1 = TimelineMath.TicksAtX(Math.Max(_marqueeOrigin.X, p.X), _pxPerSecond, _scrollX, _headerWidth);
+
+        // Hash-set membership keeps the per-pointer-move rebuild O(n) on clip-heavy timelines.
+        var hits = new List<Clip>(_marqueeBase);
+        var seen = new HashSet<Clip>(_marqueeBase, ReferenceEqualityComparer.Instance);
+        for (int i = first; i <= last; i++)
+            foreach (Clip c in lanes[i].track.Clips)
+                if (TimelineMath.MarqueeHitsSpan(t0, t1, c.TimelineStart.Ticks, c.TimelineEnd.Ticks) && seen.Add(c))
+                    hits.Add(c);
+
+        OnSelectionMutated(_selection.ReplaceAll(hits));
+        InvalidateVisual(); // the band rect moved even when the selection didn't change
+    }
+
+    // The marquee band rect while a lane-area drag is in flight (PLAN.md step 54).
+    private void DrawMarquee(DrawingContext ctx, Size size)
+    {
+        if (!_marquee || !_marqueeDragged)
+            return;
+        using var _ = ctx.PushClip(new Rect(_headerWidth, RulerHeight, size.Width - _headerWidth, size.Height - RulerHeight));
+        var rect = new Rect(
+            new Point(Math.Min(_marqueeOrigin.X, _marqueeCurrent.X), Math.Min(_marqueeOrigin.Y, _marqueeCurrent.Y)),
+            new Point(Math.Max(_marqueeOrigin.X, _marqueeCurrent.X), Math.Max(_marqueeOrigin.Y, _marqueeCurrent.Y)));
+        ctx.DrawRectangle(MarqueeFill, MarqueePen, rect);
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -1819,6 +1918,11 @@ public sealed class TimelineControl : Control
         if (_scrubbing)
         {
             SeekToX(p.X);
+            return;
+        }
+        if (_marquee)
+        {
+            UpdateMarquee(p);
             return;
         }
         if (_panning)
@@ -1902,6 +2006,21 @@ public sealed class TimelineControl : Control
         _scrubbing = false;
         _panning = false;
         _resizingHeader = false;
+        if (_marquee)
+        {
+            // A press that never crossed the drag threshold is a plain click on empty lane area: clear the
+            // selection and move the playhead (the pre-54 behavior). With Ctrl/Shift held the click is a
+            // no-op — an additive gesture that selected nothing shouldn't destroy the selection.
+            if (!_marqueeDragged && !_marqueeAdditive)
+            {
+                Select(null);
+                SeekToX(_marqueeOrigin.X);
+            }
+            _marquee = false;
+            _marqueeDragged = false;
+            _marqueeBase = [];
+            InvalidateVisual();
+        }
         if (_dragClip is not null)
         {
             if (_movePreview)
@@ -2068,9 +2187,18 @@ public sealed class TimelineControl : Control
         _movePreview = false;
         _dragKind = DragKind.None;
 
-        // Capture linked companions for a linked move so the whole group shifts by one locked delta.
-        _dragLinked = (Linked && _activeTool == EditTool.Select ? _project!.Timeline.ClipsLinkedTo(clip) : [])
-            .Select(l => (l.Clip, l.Clip.TimelineStart)).ToList();
+        // Capture the other clips a Select-tool move shifts with the primary: the rest of a multi-selection
+        // (the set moves rigidly, PLAN.md step 54) plus, with Linked on, every member's linked companions —
+        // deduplicated, so the whole group shifts by one locked delta.
+        _dragLinked = _activeTool == EditTool.Select
+            ? ClipEdits.ExpandWithLinked(
+                    _project!.Timeline,
+                    _selection.Contains(clip) ? _selection.Clips : [clip],
+                    Linked)
+                .Where(m => !ReferenceEquals(m.Clip, clip))
+                .Select(m => (m.Clip, m.Clip.TimelineStart))
+                .ToList()
+            : [];
         _dragGroupMinStart = _dragOrigStart.Ticks;
         foreach ((Clip _, Timecode origStart) in _dragLinked)
             _dragGroupMinStart = Math.Min(_dragGroupMinStart, origStart.Ticks);
@@ -2227,7 +2355,8 @@ public sealed class TimelineControl : Control
     //  • Alt-copy → add an independent duplicate on the target track (original untouched);
     //  • cross-track move → MoveClipToTrackCommand;
     //  • same-track move → SetClipPlacementCommand;
-    //  • linked companions shift in time only (they keep their own track), wrapped in a CompositeCommand.
+    //  • the other moved clips — multi-selection members and linked companions alike (PLAN.md step 54) —
+    //    shift in time only (they keep their own track), wrapped in a CompositeCommand (ClipEdits.MoveSet).
     private void CommitMovePreview()
     {
         if (_dragClip is null || _dragSourceTrack is null)
@@ -2237,7 +2366,6 @@ public sealed class TimelineControl : Control
         Track src = _dragSourceTrack;
         Track dst = _movePreviewTrack ?? src;
         long newStart = _movePreviewStart;
-        long actualDelta = newStart - _dragOrigStart.Ticks;
 
         if (_movePreviewCopy)
         {
@@ -2248,25 +2376,19 @@ public sealed class TimelineControl : Control
             return;
         }
 
-        bool trackChanged = !ReferenceEquals(dst, src);
-        if (!trackChanged && actualDelta == 0)
-            return; // pure click / no movement
-
-        var commands = new List<IEditCommand>
+        if (ClipEdits.MoveSet(clip, src, dst, newStart,
+                _dragOrigIn, _dragOrigOut, _dragOrigStart.Ticks, _dragLinked) is not { } command)
         {
-            trackChanged
-                ? new MoveClipToTrackCommand(src, dst, clip, new Timecode(newStart))
-                : new SetClipPlacementCommand(clip, _dragOrigIn, _dragOrigOut, new Timecode(newStart), "Move clip"),
-        };
-        if (actualDelta != 0)
-            foreach ((Clip companion, Timecode origStart) in _dragLinked)
-                commands.Add(new SetClipPlacementCommand(
-                    companion, companion.SourceIn, companion.SourceOut, new Timecode(origStart.Ticks + actualDelta), "Move clip"));
+            // Pure click, no movement: a plain press on a member of a multi-selection kept the set for the
+            // drag — releasing without moving collapses the selection to just that clip (Premiere's
+            // convention, PLAN.md step 54).
+            if (_selection.Count > 1)
+                Select(clip);
+            return;
+        }
 
-        Execute(commands.Count == 1
-            ? commands[0]
-            : new CompositeCommand(trackChanged ? "Move clip to track" : "Move linked clips", commands));
-        if (trackChanged)
+        Execute(command);
+        if (!ReferenceEquals(dst, src))
             ClipPlaced?.Invoke();
     }
 
@@ -2616,36 +2738,17 @@ public sealed class TimelineControl : Control
     }
 
     /// <summary>
-    /// Ripple-deletes the selected clip (Premiere/Resolve's Shift+Delete): removes it and shifts every later clip
-    /// on its track left by its duration so the gap closes. With Linked on, its companion A/V clips are removed and
-    /// their tracks rippled too — all one undo entry (PLAN.md step 22).
+    /// Ripple-deletes the selected clips (Premiere/Resolve's Shift+Delete): removes each and shifts later clips
+    /// on its track left so the gaps close (cumulatively when several selected clips share a track). With Linked
+    /// on, companion A/V clips are removed and their tracks rippled too — all one undo entry (steps 22/54).
     /// </summary>
     public void RippleDeleteSelected()
     {
-        if (_selected is null || _history is null || _project is null)
+        if (_selection.Count == 0 || _history is null || _project is null)
             return;
-
-        var removed = new List<Clip> { _selected };
-        if (Linked)
-            removed.AddRange(_project.Timeline.ClipsLinkedTo(_selected).Select(l => l.Clip));
-
-        var commands = new List<IEditCommand>();
-        foreach (Clip c in removed)
-        {
-            Track? track = TrackOf(c);
-            if (track is null)
-                continue;
-            long shift = -c.Duration.Ticks;
-            Timecode end = c.TimelineEnd;
-            commands.Add(new RemoveClipCommand(track, c));
-            foreach (Clip d in track.Clips)
-                if (!removed.Contains(d) && d.TimelineStart >= end)
-                    commands.Add(new SetClipPlacementCommand(
-                        d, d.SourceIn, d.SourceOut, new Timecode(d.TimelineStart.Ticks + shift), "Ripple"));
-        }
-        if (commands.Count == 0)
+        if (ClipEdits.RippleDeleteAll(_project.Timeline, _selection.Clips, Linked) is not { } command)
             return;
-        Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Ripple delete", commands));
+        Execute(command);
         Select(null);
     }
 
@@ -2876,20 +2979,28 @@ public sealed class TimelineControl : Control
 
     private void Execute(IEditCommand command) => _history!.Execute(command); // re-render happens via Changed
 
-    private void Select(Clip? clip)
+    /// <summary>Replaces the selection with <paramref name="clip"/> (null clears it) — the plain-click rule.
+    /// Multi-membership gestures (Ctrl/Shift-click, marquee, Select All) call the <see cref="ClipSelection"/>
+    /// mutators directly and funnel through <see cref="OnSelectionMutated"/> like this does.</summary>
+    private void Select(Clip? clip) => OnSelectionMutated(_selection.Replace(clip));
+
+    /// <summary>
+    /// The single sink every selection mutation flows through (PLAN.md step 54): syncs the cached primary
+    /// (<see cref="_selected"/>), raises <see cref="SelectedClipChanged"/> when the primary changed, clears a
+    /// transition selection when clips are selected (the two are mutually exclusive), and repaints.
+    /// </summary>
+    private void OnSelectionMutated(bool changed)
     {
-        bool changed = false;
-        // Selecting a clip clears any transition selection (the two are mutually exclusive).
-        if (clip is not null && _selectedTransition is not null)
+        if (_selection.Primary is not null && _selectedTransition is not null)
         {
             _selectedTransition = null;
             _selectedTransitionTrack = null;
             changed = true;
         }
-        if (!ReferenceEquals(clip, _selected))
+        if (!ReferenceEquals(_selection.Primary, _selected))
         {
-            _selected = clip;
-            SelectedClipChanged?.Invoke(clip);
+            _selected = _selection.Primary;
+            SelectedClipChanged?.Invoke(_selected);
             changed = true;
         }
         if (changed)
@@ -2899,11 +3010,8 @@ public sealed class TimelineControl : Control
     /// <summary>Selects a transition (clearing any clip selection), or clears the transition selection when null.</summary>
     private void SelectTransition(Transition? transition, Track? track)
     {
-        if (transition is not null && _selected is not null)
-        {
-            _selected = null;
-            SelectedClipChanged?.Invoke(null);
-        }
+        if (transition is not null)
+            OnSelectionMutated(_selection.Clear());
         _selectedTransition = transition;
         _selectedTransitionTrack = transition is null ? null : track;
         InvalidateVisual();

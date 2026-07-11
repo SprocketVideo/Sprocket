@@ -128,6 +128,7 @@ public partial class MainWindow : Window
 
     // Command-menu items refreshed on submenu open (context-enabling) + the View toggles / panes.
     private MenuItem? _cutMenuItem, _copyMenuItem, _pasteMenuItem, _deleteMenuItem, _rippleDeleteMenuItem;
+    private MenuItem? _selectAllMenuItem; // Edit ▸ Select All (multi-clip selection, PLAN.md step 54)
     private MenuItem? _unlinkMenuItem, _nudgeLeftMenuItem, _nudgeRightMenuItem, _clipSpeedMenuItem;
     // Split at Playhead / Duplicate / Enable toggle (PLAN.md step 53)
     private MenuItem? _clipSplitMenuItem, _clipDuplicateMenuItem, _clipEnableMenuItem;
@@ -448,6 +449,8 @@ public partial class MainWindow : Window
         _pasteMenuItem.Click += (_, _) => _timeline?.PasteAtPlayhead();
         _deleteMenuItem.Click += (_, _) => _timeline?.DeleteSelected();
         _rippleDeleteMenuItem.Click += (_, _) => _timeline?.RippleDeleteSelected();
+        _selectAllMenuItem = this.FindControl<MenuItem>("SelectAllMenuItem")!;
+        _selectAllMenuItem.Click += (_, _) => _timeline?.SelectAll();
         this.FindControl<MenuItem>("EditMenu")!.SubmenuOpened += (_, _) => RefreshEditMenu();
 
         // ── Clip ──
@@ -650,6 +653,8 @@ public partial class MainWindow : Window
         if (primary && e.Key == Key.X) { _timeline?.CutSelected(); e.Handled = true; }
         else if (primary && e.Key == Key.C) { _timeline?.CopySelected(); e.Handled = true; }
         else if (primary && e.Key == Key.V) { _timeline?.PasteAtPlayhead(); e.Handled = true; }
+        // Select All (PLAN.md step 54) — below the text guard so a focused text box keeps its native Ctrl+A.
+        else if (primary && e.Key == Key.A) { _timeline?.SelectAll(); e.Handled = true; }
         // Split at Playhead (Ctrl+K / ⌘K — Premiere's Add Edit) and the Enable toggle (Shift+E, Premiere's
         // convention), PLAN.md step 53. Ctrl+Shift+E (Export Queue) is handled above the text guard.
         else if (primary && e.Key == Key.K) { _timeline?.SplitAtPlayhead(); e.Handled = true; }
@@ -1784,6 +1789,7 @@ public partial class MainWindow : Window
         if (_pasteMenuItem is not null) _pasteMenuItem.IsEnabled = _timeline?.CanPaste == true;
         if (_deleteMenuItem is not null) _deleteMenuItem.IsEnabled = sel;
         if (_rippleDeleteMenuItem is not null) _rippleDeleteMenuItem.IsEnabled = sel;
+        if (_selectAllMenuItem is not null) _selectAllMenuItem.IsEnabled = _timeline?.CanSelectAll == true;
     }
 
     private void RefreshClipMenu()

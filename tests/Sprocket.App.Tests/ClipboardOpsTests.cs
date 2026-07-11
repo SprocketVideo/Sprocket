@@ -140,4 +140,53 @@ public class ClipboardOpsTests
     {
         Assert.Equal(expected, ClipboardOps.ClampGroupNudge(delta, groupMin));
     }
+
+    // ── Multi-clip paste (PLAN.md step 54) ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void PasteAll_Anchors_The_Earliest_Snapshot_And_Keeps_Relative_Offsets()
+    {
+        var video = new Sprocket.Core.Model.VideoTrack();
+        var audio = new Sprocket.Core.Model.AudioTrack();
+        var history = new Sprocket.Core.Commands.EditHistory();
+        Clip a = MakeClip(startSeconds: 2); // the earliest — lands at the playhead
+        Clip b = MakeClip(startSeconds: 5); // +3 s offset preserved
+
+        ClipboardOps.PasteResult? result = ClipboardOps.PasteAll(
+            [(ClipboardOps.Copy(a), true), (ClipboardOps.Copy(b), false)],
+            Timecode.FromSeconds(10), video, audio);
+
+        Assert.NotNull(result);
+        history.Execute(result.Value.Command);
+        Assert.Single(video.Clips);
+        Assert.Single(audio.Clips); // each snapshot lands on the track of its kind
+        Assert.Equal(Timecode.FromSeconds(10), video.Clips[0].TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(13), audio.Clips[0].TimelineStart);
+        Assert.Same(result.Value.Primary, video.Clips[0]); // the first snapshot's copy anchors the selection
+
+        history.Undo(); // one entry removes the whole paste
+        Assert.Empty(video.Clips);
+        Assert.Empty(audio.Clips);
+    }
+
+    [Fact]
+    public void PasteAll_Skips_Snapshots_Without_A_Target_Track_Kind()
+    {
+        var video = new Sprocket.Core.Model.VideoTrack();
+        var history = new Sprocket.Core.Commands.EditHistory();
+
+        // No audio track: the audio snapshot is skipped, the video one still pastes.
+        ClipboardOps.PasteResult? result = ClipboardOps.PasteAll(
+            [(ClipboardOps.Copy(MakeClip(2)), false), (ClipboardOps.Copy(MakeClip(5)), true)],
+            Timecode.FromSeconds(10), video, audioTarget: null);
+        Assert.NotNull(result);
+        history.Execute(result.Value.Command);
+        Assert.Single(video.Clips);
+        // The skipped snapshot doesn't anchor the offsets — the placeable one lands at the playhead.
+        Assert.Equal(Timecode.FromSeconds(10), video.Clips[0].TimelineStart);
+
+        // Nothing placeable at all → null.
+        Assert.Null(ClipboardOps.PasteAll(
+            [(ClipboardOps.Copy(MakeClip(2)), false)], Timecode.FromSeconds(10), video, audioTarget: null));
+    }
 }

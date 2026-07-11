@@ -301,6 +301,45 @@ public static class TimelineMath
     }
 
     /// <summary>
+    /// The inclusive lane-index range a marquee band spanning <paramref name="y0"/>–<paramref name="y1"/>
+    /// (either order) touches (PLAN.md step 54): a lane is included only when the band overlaps its
+    /// <paramref name="laneHeight"/>-tall track body, not the gap below it. Returns an empty range
+    /// (<c>First &gt; Last</c>) when the band lies entirely above the ruler, in gaps, or past the last lane.
+    /// </summary>
+    public static (int First, int Last) MarqueeLaneRange(
+        double y0, double y1, double rulerHeight, double laneStride, double laneHeight, int laneCount)
+    {
+        if (laneCount <= 0 || laneStride <= 0 || laneHeight <= 0)
+            return (0, -1);
+        double top = Math.Max(Math.Min(y0, y1), rulerHeight);
+        double bottom = Math.Max(y0, y1);
+        if (bottom <= rulerHeight)
+            return (0, -1);
+
+        int first = (int)((top - rulerHeight) / laneStride);
+        // The band's top may sit in the gap below lane `first`'s body — the next lane is the first touched.
+        if (top - (rulerHeight + first * laneStride) >= laneHeight)
+            first++;
+        int last = (int)((bottom - rulerHeight) / laneStride);
+        // The band's bottom must reach past the lane's top edge to touch it (an exact-top graze counts).
+        first = Math.Max(0, first);
+        last = Math.Min(laneCount - 1, last);
+        return first <= last ? (first, last) : (0, -1);
+    }
+
+    /// <summary>
+    /// Whether a marquee band's tick span <c>[bandStart, bandEnd)</c> overlaps a clip's
+    /// <c>[clipStart, clipEnd)</c> (PLAN.md step 54). Strict overlap: a band that only grazes a clip's edge
+    /// (or a zero-width band) selects nothing.
+    /// </summary>
+    public static bool MarqueeHitsSpan(long bandStart, long bandEnd, long clipStart, long clipEnd)
+    {
+        long b0 = Math.Min(bandStart, bandEnd);
+        long b1 = Math.Max(bandStart, bandEnd);
+        return b0 < b1 && b0 < clipEnd && b1 > clipStart;
+    }
+
+    /// <summary>
     /// Classifies a pointer against a clip's fade handles (PLAN.md step 39): the handles live in a band of
     /// <paramref name="handleBand"/> px along the clip's top edge, at <paramref name="fadeInX"/> /
     /// <paramref name="fadeOutX"/> (the inner ends of the fade ramps — the top corners when the fades are

@@ -299,4 +299,46 @@ public class TimelineMathTests
         Assert.Null(TimelineMath.BladeCutTicks(x, start, end, snapping: true, playheadTicks: start,
             snapTolerancePx: 8, pxPerSecond: 80, scrollX: 0, headerWidth: Header));
     }
+
+    // ── Marquee hit math (PLAN.md step 54) ──────────────────────────────────────────────────────────
+    // The control's lane geometry: RulerHeight 26, TrackHeight 46, TrackGap 4 → stride 50.
+
+    [Fact]
+    public void MarqueeLaneRange_Spans_The_Touched_Lanes_In_Either_Drag_Direction()
+    {
+        // Lane 0 body: 26–72; lane 1 body: 76–122; lane 2 body: 126–172.
+        Assert.Equal((0, 1), TimelineMath.MarqueeLaneRange(30, 80, 26, 50, 46, 3));
+        Assert.Equal((0, 1), TimelineMath.MarqueeLaneRange(80, 30, 26, 50, 46, 3)); // upward drag
+        Assert.Equal((1, 1), TimelineMath.MarqueeLaneRange(80, 100, 26, 50, 46, 3));
+        Assert.Equal((0, 2), TimelineMath.MarqueeLaneRange(26, 172, 26, 50, 46, 3));
+    }
+
+    [Fact]
+    public void MarqueeLaneRange_Skips_A_Lane_Whose_Body_The_Band_Never_Touches()
+    {
+        // The band starts in the gap below lane 0 (72–76) — lane 0's body is untouched.
+        Assert.Equal((1, 1), TimelineMath.MarqueeLaneRange(73, 100, 26, 50, 46, 3));
+    }
+
+    [Fact]
+    public void MarqueeLaneRange_Clamps_To_The_Ruler_And_The_Last_Lane()
+    {
+        // A band that starts over the ruler clamps to lane 0; one past the last lane clamps to it.
+        Assert.Equal((0, 0), TimelineMath.MarqueeLaneRange(5, 40, 26, 50, 46, 3));
+        Assert.Equal((2, 2), TimelineMath.MarqueeLaneRange(160, 900, 26, 50, 46, 3));
+        // Entirely above the ruler / no lanes → empty range.
+        Assert.True(TimelineMath.MarqueeLaneRange(2, 20, 26, 50, 46, 3) is (int f1, int l1) && f1 > l1);
+        Assert.True(TimelineMath.MarqueeLaneRange(30, 80, 26, 50, 46, 0) is (int f2, int l2) && f2 > l2);
+    }
+
+    [Fact]
+    public void MarqueeHitsSpan_Requires_Strict_Overlap()
+    {
+        long s2 = Timecode.FromSeconds(2).Ticks, s5 = Timecode.FromSeconds(5).Ticks;
+        Assert.True(TimelineMath.MarqueeHitsSpan(s2, s5, Timecode.FromSeconds(4).Ticks, Timecode.FromSeconds(9).Ticks));
+        Assert.True(TimelineMath.MarqueeHitsSpan(s5, s2, Timecode.FromSeconds(4).Ticks, Timecode.FromSeconds(9).Ticks)); // either order
+        Assert.False(TimelineMath.MarqueeHitsSpan(s2, s5, s5, Timecode.FromSeconds(9).Ticks)); // edge graze
+        Assert.False(TimelineMath.MarqueeHitsSpan(s2, s2, Timecode.Zero.Ticks, s5));           // zero-width band
+        Assert.False(TimelineMath.MarqueeHitsSpan(s2, s5, Timecode.FromSeconds(6).Ticks, Timecode.FromSeconds(9).Ticks));
+    }
 }

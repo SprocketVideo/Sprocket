@@ -72,8 +72,8 @@
             <MenuItem x:Name="DeleteMenuItem" Header="_Delete" InputGesture="Delete" IsEnabled="False" />
             <MenuItem x:Name="RippleDeleteMenuItem" Header="_Ripple Delete" InputGesture="Shift+Delete" IsEnabled="False" />
             <Separator />
-            <!-- Select All needs multi-clip selection (not yet modelled) — stays disabled. -->
-            <MenuItem x:Name="SelectAllMenuItem" Header="Select _All" InputGesture="Ctrl+A" IsEnabled="False" />
+            <!-- Select All (multi-clip selection, PLAN.md step 54); enablement refreshed on submenu open. -->
+            <MenuItem x:Name="SelectAllMenuItem" Header="Select _All" InputGesture="Ctrl+A" />
             <Separator />
             <!-- Application-level (user-scoped) settings (PLAN.md step 38) — Edit ▸ Preferences with Ctrl+,
                  matches the Premiere/Resolve convention on Windows/Linux. The gesture is handled in OnKeyDown;

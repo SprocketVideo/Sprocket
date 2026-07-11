@@ -3696,6 +3696,35 @@ Tags reference the [UI.md §4 checklist](UI.md).
     - **Tests.** Selection-set semantics (toggle/extend/clear, primary tracking); marquee hit math
       in `TimelineMath` (pure); batch delete/copy/nudge/enable as a single undo entry; Select All;
       multi-clip drag placement.
+    - **✅ DONE (App `Timeline/ClipSelection.cs` (new, the set + primary) + `TimelineMath` marquee hit
+      math + `ClipEdits` batch builders + `ClipboardOps.PasteAll` + `TimelineControl` gestures/drawing;
+      MainWindow Select All wiring, menu + Ctrl+A below the text-box guard; 21 new App tests; full suite
+      1535 green).** Landed as planned with three notes. (1) The selection set is a pure `ClipSelection`
+      class (ordered members + primary, with the toggle/extend/prune primary hand-off rules), and the
+      batch operations are pure `ClipEdits` builders (`ExpandWithLinked` dedups selection ∪ linked
+      companions; `DeleteAll` / `RippleDeleteAll` / `NudgeAll` / `ToggleEnabledAll` / `MoveSet`, one
+      composite each) plus `ClipboardOps.PasteAll` — the `ClipboardOps` idiom, so all of it is headlessly
+      tested. Batch ripple delete gives each survivor its TOTAL shift across every removed upstream clip
+      on its track (per-removal absolute placements would clobber one another when two selected clips
+      share a track). (2) Gesture details: Ctrl+click on the opacity rubber-band keeps its step-39 meaning
+      (add a fade point) — the fade-gesture hit test runs before the membership toggle; a plain press on a
+      multi-selected member keeps the set, re-anchors the primary, and collapses to just that clip on a
+      release without movement (Premiere's rule); the lane-area marquee replaces drag-scrub for the
+      Select tool only (a sub-threshold click still clears the selection and moves the playhead; other
+      tools keep the old behavior; Ctrl/Shift makes the marquee additive), matching Premiere's lane-area
+      marquee. (3) A multi-clip move shifts every member rigidly in time on its own track while the
+      dragged clip may change lanes — the convention linked companions already used — and Alt-copy still
+      duplicates just the primary. Cut/Copy snapshots exactly the selected clips (linked companions are
+      not implicitly copied — unchanged from 16c) and pasted clips stay link-free (the step-13/16c
+      convention); the pasted set becomes the selection, with the clipboard ordered primary-first so the
+      paste re-anchors on the copy of the clip the user had anchored (the primary need not be first in
+      insertion order after a re-anchor). Enable/Disable converges a mixed selection on the primary's
+      new state (the step-53 linked-pair rule, applied set-wide). Nest — enabled by the now-wider
+      `HasSelection` — was extended to nest the whole selection set (not just the primary), since a
+      menu item enabled by a multi-selection acting on one member would silently drop the rest;
+      Speed/Duration and the other dialog-backed operations stay primary-only per this step's spec.
+      Selection membership and the batch expansions use hash-set dedup so a Select All-sized set and the
+      per-pointer-move marquee rebuild stay O(n) on clip-heavy timelines.
 55. **Link clips (re-link A/V).** Unlink shipped with linked A/V (step 13/16c) but re-linking never
     did — `ClipLinkMenuItem` has sat stubbed-disabled since 16c, because linking has no natural
     single-clip trigger: in every leading editor you select a video clip and an audio clip, then

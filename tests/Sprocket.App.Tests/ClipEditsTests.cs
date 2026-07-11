@@ -202,4 +202,168 @@ public class ClipEditsTests
         Assert.False(v.Enabled);
         Assert.True(a.Enabled);
     }
+
+    // ── Batch operations over the multi-selection (PLAN.md step 54) ─────────────────────────────────
+
+    private static Clip AddClip(Track track, double startSeconds, double durationSeconds = 2)
+    {
+        var clip = new Clip(
+            MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(durationSeconds),
+            Timecode.FromSeconds(startSeconds));
+        track.Clips.Add(clip);
+        return clip;
+    }
+
+    [Fact]
+    public void ExpandWithLinked_Dedupes_A_Wholly_Selected_Linked_Pair()
+    {
+        Timeline timeline = LinkedPair(out VideoTrack video, out AudioTrack audio, out Clip v, out Clip a);
+
+        var members = ClipEdits.ExpandWithLinked(timeline, [v, a], linked: true);
+
+        Assert.Equal(2, members.Count); // v + a once each, not four entries
+        Assert.Contains(members, m => ReferenceEquals(m.Clip, v) && ReferenceEquals(m.Track, video));
+        Assert.Contains(members, m => ReferenceEquals(m.Clip, a) && ReferenceEquals(m.Track, audio));
+
+        Assert.Single(ClipEdits.ExpandWithLinked(timeline, [v], linked: false)); // no expansion when Linked is off
+    }
+
+    [Fact]
+    public void DeleteAll_Removes_The_Selection_Plus_Companions_As_One_Undo_Entry()
+    {
+        Timeline timeline = LinkedPair(out VideoTrack video, out AudioTrack audio, out Clip v, out _);
+        Clip lone = AddClip(video, 8);
+        var history = new EditHistory();
+
+        history.Execute(ClipEdits.DeleteAll(timeline, [v, lone], linked: true)!);
+        Assert.Empty(video.Clips);
+        Assert.Empty(audio.Clips); // v's linked companion went too
+
+        history.Undo(); // one entry restores everything
+        Assert.Equal(2, video.Clips.Count);
+        Assert.Single(audio.Clips);
+    }
+
+    [Fact]
+    public void RippleDeleteAll_Closes_Both_Gaps_For_A_Downstream_Survivor()
+    {
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var video = new VideoTrack();
+        timeline.Tracks.Add(video);
+        Clip first = AddClip(video, 0, 2);
+        Clip second = AddClip(video, 3, 2);
+        Clip survivor = AddClip(video, 6, 2);
+        var history = new EditHistory();
+
+        history.Execute(ClipEdits.RippleDeleteAll(timeline, [first, second], linked: true)!);
+
+        Assert.Single(video.Clips);
+        // The survivor shifts by the COMBINED removed duration (2 s + 2 s), not just the nearer gap's.
+        Assert.Equal(Timecode.FromSeconds(2), survivor.TimelineStart);
+
+        history.Undo(); // one entry restores removals and placement
+        Assert.Equal(3, video.Clips.Count);
+        Assert.Equal(Timecode.FromSeconds(6), survivor.TimelineStart);
+    }
+
+    [Fact]
+    public void NudgeAll_Shifts_The_Set_Rigidly_And_Clamps_At_The_Origin()
+    {
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var video = new VideoTrack();
+        timeline.Tracks.Add(video);
+        Clip early = AddClip(video, 1);
+        Clip late = AddClip(video, 5);
+        var history = new EditHistory();
+        long twoSeconds = Timecode.FromSeconds(2).Ticks;
+
+        // A −2 s nudge is clamped to −1 s (the earliest member would cross the origin); both shift by the
+        // same clamped delta as one undo entry.
+        history.Execute(ClipEdits.NudgeAll(timeline, [early, late], -twoSeconds, linked: true)!);
+        Assert.Equal(Timecode.Zero, early.TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(4), late.TimelineStart);
+
+        history.Undo();
+        Assert.Equal(Timecode.FromSeconds(1), early.TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(5), late.TimelineStart);
+
+        // Already at the origin: the clamp leaves nothing to move — no command at all.
+        early.TimelineStart = Timecode.Zero;
+        Assert.Null(ClipEdits.NudgeAll(timeline, [early, late], -twoSeconds, linked: true));
+    }
+
+    [Fact]
+    public void ToggleEnabledAll_Converges_A_Mixed_Selection_On_The_Primary_Target()
+    {
+        Timeline timeline = LinkedPair(out VideoTrack video, out _, out Clip v, out Clip a);
+        Clip lone = AddClip(video, 8);
+        lone.Enabled = false; // mixed: primary v enabled, lone disabled
+        var history = new EditHistory();
+
+        history.Execute(ClipEdits.ToggleEnabledAll(timeline, v, [v, lone], linked: true)!);
+        Assert.False(v.Enabled);
+        Assert.False(a.Enabled);    // linked companion follows
+        Assert.False(lone.Enabled); // set to the target, not flipped back on
+
+        history.Undo(); // one entry restores each member's prior state
+        Assert.True(v.Enabled);
+        Assert.True(a.Enabled);
+        Assert.False(lone.Enabled);
+    }
+
+    [Fact]
+    public void MoveSet_Shifts_Every_Member_Rigidly_As_One_Undo_Entry()
+    {
+        Timeline timeline = LinkedPair(out VideoTrack video, out AudioTrack audio, out Clip v, out Clip a);
+        _ = timeline;
+        var history = new EditHistory();
+        long newStart = Timecode.FromSeconds(5).Ticks; // v moves 2 s → 5 s: delta +3 s
+
+        IEditCommand? command = ClipEdits.MoveSet(
+            v, video, video, newStart, v.SourceIn, v.SourceOut, v.TimelineStart.Ticks,
+            [(a, a.TimelineStart)]);
+        Assert.NotNull(command);
+        history.Execute(command);
+
+        Assert.Equal(Timecode.FromSeconds(5), v.TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(5), a.TimelineStart); // the companion shifted by the same delta
+
+        history.Undo();
+        Assert.Equal(Timecode.FromSeconds(2), v.TimelineStart);
+        Assert.Equal(Timecode.FromSeconds(2), a.TimelineStart);
+    }
+
+    [Fact]
+    public void MoveSet_Moves_The_Primary_Across_Tracks_And_Others_In_Time_Only()
+    {
+        Timeline timeline = LinkedPair(out VideoTrack video, out AudioTrack audio, out Clip v, out Clip a);
+        var upper = new VideoTrack();
+        timeline.Tracks.Add(upper);
+        var history = new EditHistory();
+        long newStart = Timecode.FromSeconds(3).Ticks;
+
+        history.Execute(ClipEdits.MoveSet(
+            v, video, upper, newStart, v.SourceIn, v.SourceOut, v.TimelineStart.Ticks,
+            [(a, a.TimelineStart)])!);
+
+        Assert.Empty(video.Clips);
+        Assert.Contains(v, upper.Clips);                        // the primary changed lanes
+        Assert.Equal(Timecode.FromSeconds(3), v.TimelineStart);
+        Assert.Contains(a, audio.Clips);                        // the companion kept its own track
+        Assert.Equal(Timecode.FromSeconds(3), a.TimelineStart);
+
+        history.Undo();
+        Assert.Contains(v, video.Clips);
+        Assert.Equal(Timecode.FromSeconds(2), a.TimelineStart);
+    }
+
+    [Fact]
+    public void MoveSet_Is_Null_For_A_Pure_Click()
+    {
+        Timeline timeline = LinkedPair(out VideoTrack video, out _, out Clip v, out Clip a);
+        _ = timeline;
+        Assert.Null(ClipEdits.MoveSet(
+            v, video, video, v.TimelineStart.Ticks, v.SourceIn, v.SourceOut, v.TimelineStart.Ticks,
+            [(a, a.TimelineStart)]));
+    }
 }

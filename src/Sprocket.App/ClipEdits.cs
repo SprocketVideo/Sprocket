@@ -89,6 +89,186 @@ public static class ClipEdits
         return (commands.Count == 1 ? commands[0] : new CompositeCommand("Duplicate clips", commands), primaryCopy!);
     }
 
+    // ── Batch operations over the multi-selection (PLAN.md step 54) ─────────────────────────────────
+
+    /// <summary>
+    /// Expands a selection into the full operation target: every selected clip plus, with
+    /// <paramref name="linked"/> on, each one's linked companions — deduplicated (a linked pair that is
+    /// wholly selected expands to itself, not to four entries) and paired with its track. Selection order is
+    /// preserved; clips no longer on any track are dropped. The shared first step of every batch builder.
+    /// </summary>
+    public static List<(Track Track, Clip Clip)> ExpandWithLinked(
+        Timeline timeline, IEnumerable<Clip> clips, bool linked)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+        ArgumentNullException.ThrowIfNull(clips);
+
+        // One up-front clip→track map + hash-set dedupe keep a Select All-sized expansion O(total clips).
+        var trackOf = new Dictionary<Clip, Track>(ReferenceEqualityComparer.Instance);
+        foreach (Track t in timeline.Tracks)
+            foreach (Clip c in t.Clips)
+                trackOf[c] = t;
+
+        var seen = new HashSet<Clip>(ReferenceEqualityComparer.Instance);
+        var members = new List<(Track Track, Clip Clip)>();
+        foreach (Clip c in clips)
+        {
+            if (!trackOf.TryGetValue(c, out Track? track) || !seen.Add(c))
+                continue;
+            members.Add((track, c));
+            if (!linked)
+                continue;
+            foreach ((Track ctrack, Clip cclip) in timeline.ClipsLinkedTo(c))
+                if (seen.Add(cclip))
+                    members.Add((ctrack, cclip));
+        }
+        return members;
+    }
+
+    /// <summary>
+    /// Deletes every selected clip (plus linked companions with <paramref name="linked"/> on) as one undo
+    /// entry. Returns <see langword="null"/> when nothing resolves to a track (a no-op).
+    /// </summary>
+    public static IEditCommand? DeleteAll(Timeline timeline, IEnumerable<Clip> clips, bool linked)
+    {
+        List<(Track Track, Clip Clip)> members = ExpandWithLinked(timeline, clips, linked);
+        if (members.Count == 0)
+            return null;
+        var commands = members
+            .Select(m => (IEditCommand)new RemoveClipCommand(m.Track, m.Clip))
+            .ToList();
+        return commands.Count == 1 ? commands[0] : new CompositeCommand("Delete clips", commands);
+    }
+
+    /// <summary>
+    /// Ripple-deletes every selected clip (plus linked companions with <paramref name="linked"/> on) as one
+    /// undo entry: each removed clip's gap closes on its own track, and a surviving clip downstream of several
+    /// removals shifts by their combined duration (the shifts are cumulative, so a track with two selected
+    /// clips closes both gaps exactly). Returns <see langword="null"/> when nothing resolves to a track.
+    /// </summary>
+    public static IEditCommand? RippleDeleteAll(Timeline timeline, IEnumerable<Clip> clips, bool linked)
+    {
+        List<(Track Track, Clip Clip)> members = ExpandWithLinked(timeline, clips, linked);
+        if (members.Count == 0)
+            return null;
+
+        var commands = new List<IEditCommand>();
+        foreach ((Track track, Clip clip) in members)
+            commands.Add(new RemoveClipCommand(track, clip));
+
+        // One placement command per survivor, carrying its TOTAL shift — sequential per-removal shifts with
+        // absolute targets would clobber one another when two removed clips sit upstream of the same survivor.
+        foreach (Track track in timeline.Tracks)
+        {
+            List<Clip> removedHere = members.Where(m => ReferenceEquals(m.Track, track)).Select(m => m.Clip).ToList();
+            if (removedHere.Count == 0)
+                continue;
+            var removedSet = new HashSet<Clip>(removedHere, ReferenceEqualityComparer.Instance);
+            foreach (Clip survivor in track.Clips)
+            {
+                if (removedSet.Contains(survivor))
+                    continue;
+                long shift = removedHere
+                    .Where(r => r.TimelineEnd <= survivor.TimelineStart)
+                    .Sum(r => r.Duration.Ticks);
+                if (shift > 0)
+                    commands.Add(new SetClipPlacementCommand(
+                        survivor, survivor.SourceIn, survivor.SourceOut,
+                        new Timecode(survivor.TimelineStart.Ticks - shift), "Ripple"));
+            }
+        }
+        return commands.Count == 1 ? commands[0] : new CompositeCommand("Ripple delete", commands);
+    }
+
+    /// <summary>
+    /// Nudges every selected clip (plus linked companions with <paramref name="linked"/> on) by
+    /// <paramref name="deltaTicks"/>, group-clamped so no member crosses the timeline origin — the whole set
+    /// shifts rigidly by one delta, as one undo entry. Returns <see langword="null"/> when the clamp leaves
+    /// nothing to move.
+    /// </summary>
+    public static IEditCommand? NudgeAll(Timeline timeline, IEnumerable<Clip> clips, long deltaTicks, bool linked)
+    {
+        List<(Track Track, Clip Clip)> members = ExpandWithLinked(timeline, clips, linked);
+        if (members.Count == 0)
+            return null;
+
+        long groupMin = members.Min(m => m.Clip.TimelineStart.Ticks);
+        long delta = ClipboardOps.ClampGroupNudge(deltaTicks, groupMin);
+        if (delta == 0)
+            return null;
+
+        var commands = members
+            .Select(m => (IEditCommand)new SetClipPlacementCommand(
+                m.Clip, m.Clip.SourceIn, m.Clip.SourceOut,
+                new Timecode(m.Clip.TimelineStart.Ticks + delta), "Nudge clip"))
+            .ToList();
+        return commands.Count == 1 ? commands[0] : new CompositeCommand("Nudge clips", commands);
+    }
+
+    /// <summary>
+    /// Sets every selected clip (plus linked companions with <paramref name="linked"/> on) to the opposite of
+    /// <paramref name="primary"/>'s <see cref="Clip.Enabled"/> state — a mixed selection converges on the
+    /// primary's new state rather than each member flipping independently, matching Premiere — as one undo
+    /// entry. Returns <see langword="null"/> when nothing resolves to a track.
+    /// </summary>
+    public static IEditCommand? ToggleEnabledAll(Timeline timeline, Clip primary, IEnumerable<Clip> clips, bool linked)
+    {
+        ArgumentNullException.ThrowIfNull(primary);
+        List<(Track Track, Clip Clip)> members = ExpandWithLinked(timeline, clips, linked);
+        if (members.Count == 0)
+            return null;
+
+        bool target = !primary.Enabled;
+        string name = target ? "Enable clips" : "Disable clips";
+        var commands = members
+            .Select(m =>
+            {
+                Clip c = m.Clip;
+                return (IEditCommand)SetPropertyCommand<bool>.Create(
+                    name, () => c.Enabled, v => c.Enabled = v, target);
+            })
+            .ToList();
+        return commands.Count == 1 ? commands[0] : new CompositeCommand(name, commands);
+    }
+
+    /// <summary>
+    /// The one-undo-entry commit of a completed move drag (PLAN.md steps 16e/54): the primary lands at
+    /// <paramref name="newStartTicks"/> — on <paramref name="dst"/> when the drag crossed lanes — and every
+    /// other moved clip (multi-selection members and linked companions alike) shifts rigidly by the same
+    /// delta on its own track. Returns <see langword="null"/> for a pure click (no movement, no track change).
+    /// </summary>
+    public static IEditCommand? MoveSet(
+        Clip primary, Track src, Track dst, long newStartTicks,
+        Timecode origIn, Timecode origOut, long origStartTicks,
+        IReadOnlyList<(Clip Clip, Timecode OrigStart)> others)
+    {
+        ArgumentNullException.ThrowIfNull(primary);
+        ArgumentNullException.ThrowIfNull(src);
+        ArgumentNullException.ThrowIfNull(dst);
+        ArgumentNullException.ThrowIfNull(others);
+
+        bool trackChanged = !ReferenceEquals(dst, src);
+        long delta = newStartTicks - origStartTicks;
+        if (!trackChanged && delta == 0)
+            return null;
+
+        var commands = new List<IEditCommand>
+        {
+            trackChanged
+                ? new MoveClipToTrackCommand(src, dst, primary, new Timecode(newStartTicks))
+                : new SetClipPlacementCommand(primary, origIn, origOut, new Timecode(newStartTicks), "Move clip"),
+        };
+        if (delta != 0)
+            foreach ((Clip other, Timecode origStart) in others)
+                commands.Add(new SetClipPlacementCommand(
+                    other, other.SourceIn, other.SourceOut,
+                    new Timecode(origStart.Ticks + delta), "Move clip"));
+
+        return commands.Count == 1
+            ? commands[0]
+            : new CompositeCommand(trackChanged ? "Move clip to track" : "Move clips", commands);
+    }
+
     /// <summary>
     /// Toggles <paramref name="clip"/>'s <see cref="Clip.Enabled"/> flag (Shift+E, Premiere's convention). With
     /// <paramref name="linked"/> on, companion clips are set to the same new state — the whole group toggles

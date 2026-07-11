@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 
@@ -50,6 +53,44 @@ public static class ClipboardOps
         foreach (EffectInstance e in snapshot.Effects)
             copy.Effects.Add(e.CloneShifted(shift));
         return copy;
+    }
+
+    /// <summary>The one-undo-entry paste command for a multi-clip clipboard, plus the pasted clips (the first
+    /// — the copy of the clipboard's primary — becomes the selection).</summary>
+    public readonly record struct PasteResult(IEditCommand Command, Clip Primary, IReadOnlyList<Clip> Pasted);
+
+    /// <summary>
+    /// Pastes a multi-clip clipboard at timeline time <paramref name="at"/> (PLAN.md step 54): the earliest
+    /// snapshot lands at <paramref name="at"/> and the rest keep their relative offsets, video snapshots on
+    /// <paramref name="videoTarget"/> and audio on <paramref name="audioTarget"/> — the single-clip
+    /// paste-at-playhead convention (step 16c) applied to the set. Snapshots whose target track kind is
+    /// missing are skipped; returns <see langword="null"/> when nothing can be placed. Effects are re-cloned
+    /// per paste via <see cref="Paste"/>, so repeated pastes stay independent.
+    /// </summary>
+    public static PasteResult? PasteAll(
+        IReadOnlyList<(Clip Snapshot, bool IsVideo)> clipboard, Timecode at,
+        Track? videoTarget, Track? audioTarget)
+    {
+        ArgumentNullException.ThrowIfNull(clipboard);
+        var placeable = clipboard
+            .Where(e => (e.IsVideo ? videoTarget : audioTarget) is not null)
+            .ToList();
+        if (placeable.Count == 0)
+            return null;
+
+        long minStart = placeable.Min(e => e.Snapshot.TimelineStart.Ticks);
+        long anchor = Math.Max(0, at.Ticks);
+
+        var commands = new List<IEditCommand>();
+        var pasted = new List<Clip>();
+        foreach ((Clip snapshot, bool isVideo) in placeable)
+        {
+            Clip copy = Paste(snapshot, new Timecode(anchor + (snapshot.TimelineStart.Ticks - minStart)));
+            commands.Add(new AddClipCommand(isVideo ? videoTarget! : audioTarget!, copy));
+            pasted.Add(copy);
+        }
+        IEditCommand command = commands.Count == 1 ? commands[0] : new CompositeCommand("Paste clips", commands);
+        return new PasteResult(command, pasted[0], pasted);
     }
 
     /// <summary>
