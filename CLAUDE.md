@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Sprocket — a cross-platform (Windows 11, Linux, macOS) non-destructive video editor in C# / .NET 10.
+Sprocket — a cross-platform (Windows 10 & 11, Linux, macOS) non-destructive video editor in C# / .NET 10.
 The work is structured around a set of documents that must stay authoritative; read them before
 making non-trivial changes:
 

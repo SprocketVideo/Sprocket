@@ -313,7 +313,7 @@ jobs:
             ''
             '| Your system | Download |'
             '|---|---|'
-            "| **Windows 11** (most PCs) | **[Sprocket Setup — x64]($base/Sprocket-win-x64-Setup.exe)** &middot; [ARM64]($base/Sprocket-win-arm64-Setup.exe) |"
+            "| **Windows 10 / 11** (most PCs) | **[Sprocket Setup — x64]($base/Sprocket-win-x64-Setup.exe)** &middot; [ARM64]($base/Sprocket-win-arm64-Setup.exe) |"
             "| **Linux** | **[Sprocket AppImage — x64]($base/Sprocket-linux-x64.AppImage)** (arm64: portable zip under Assets) |"
             "| **macOS** — Apple Silicon (M1 and later) | **[Sprocket — arm64]($base/Sprocket-osx-arm64-Portable.zip)** |"
             "| **macOS** — Intel | **[Sprocket — x64]($base/Sprocket-osx-x64-Portable.zip)** |"

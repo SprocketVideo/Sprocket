@@ -16,7 +16,7 @@
 **Download:** [latest release](https://github.com/SprocketVideo/Sprocket/releases/latest) ([install instructions](#installing-sprocket))
 **Docs:** <https://sprocketvideo.org/docs> 
 
-Sprocket runs on Windows 11, Linux, and macOS from a single managed codebase. It pairs a pure-data
+Sprocket runs on Windows 10 & 11, Linux, and macOS from a single managed codebase. It pairs a pure-data
 timeline model with GPU compositing (SkiaSharp) and library-level FFmpeg decode/encode, so C# acts
 purely as an orchestrator while the pixel-heavy work happens on the GPU and in native code — decoded
 frames never touch the managed heap per frame.
@@ -82,9 +82,7 @@ The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step bui
 Code-signing & notarization (alpha artifacts are unsigned) · native plugin hosting — VST3/AU audio
 and OpenColorIO/OFX (the managed plugin host and built-in effects ship today) · variable/ramped
 speed & reverse retime (freeze frames ship today) · convolution reverb (Studio Reverb, Shimmer
-Reverb, and audio freeze ship today) · Windows 10 support (nothing gates it
-technically; verification on real Windows 10 + updated support claims remain). See the
-[Roadmap](#roadmap).
+Reverb, and audio freeze ship today). See the [Roadmap](#roadmap).
 
 ---
 
@@ -109,7 +107,7 @@ warning — the release notes on every release walk through it.
 
 | OS | Runtime IDs | Status |
 |---|---|---|
-| **Windows 11** | `win-x64`, `win-arm64` | Primary development platform; installer + portable zip; FFmpeg 8 natives bundled. |
+| **Windows 10 & 11** | `win-x64`, `win-arm64` | Primary development platform (Windows 11); Windows 10 supported from 64-bit version 1809+; installer + portable zip; FFmpeg 8 natives bundled. |
 | **Linux** | `linux-x64`, `linux-arm64` | Render path verified byte-identical to Windows (headless); AppImage (`x64`) + portable zips. |
 | **macOS** | `osx-x64`, `osx-arm64` | Same managed code; `.app` bundle per arch, built on macOS CI runners with FFmpeg 8 bundled (unsigned during the alpha). |
 
@@ -312,9 +310,6 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
 - **Audio extras** — convolution reverb (the Studio Reverb, the Shimmer Reverb, factory presets,
   the delay family — digital / tape / multi-tap / stereo ping-pong — the noise gate, the shelving
   EQ, and clip-audio freeze ship today).
-- **Windows 10 support** — nothing technically gates Windows 10 (no OS-version manifests or
-  checks; builds are self-contained); what remains is smoke-testing on a real Windows 10 machine
-  and updating the support claims (floor: Windows 10 64-bit, version 1809+).
 
 ---
 

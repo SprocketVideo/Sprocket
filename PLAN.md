@@ -5,7 +5,7 @@
 
 ## Context
 
-Greenfield project (empty repo). The goal is a cross-platform (Windows 11 + Linux + macOS)
+Greenfield project (empty repo). The goal is a cross-platform (Windows 10 & 11 + Linux + macOS)
 non-destructive video editor in C# / .NET 10 with multiple video & audio tracks,
 hardware-accelerated decode/encode, GPU effects (brightness/color/contrast), fades,
 audio volume mixing, and an eventual plugin system, leveraging OSS (FFmpeg, Skia) for
@@ -28,7 +28,8 @@ compute" pattern.
   (mandatory for hardware accel: D3D11VA/CUDA/QSV on Windows, VAAPI/CUDA on Linux, VideoToolbox
   on macOS). **No C++/CLI** — native wrapping must be plain P/Invoke against a C ABI so one
   managed codebase serves all three OSes; only the bundled native libraries differ per RID.
-- **Three target OSes: Windows 11, Linux, macOS** (`win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`).
+- **Three target OSes: Windows 10 & 11 (floor: Windows 10 64-bit, version 1809+ — step 56), Linux, macOS**
+  (`win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`).
   The managed assemblies are identical everywhere; FFmpeg 8 is bundled per-RID (`.dll`/`.so`/`.dylib`,
   see [ARCHITECTURE §11](ARCHITECTURE.md)) since the hand-rolled binding ships no FFmpeg runtime NuGet
   for any RID. macOS ships as a signed/notarized `.app` bundle (build order step 36).
@@ -109,7 +110,7 @@ opacity/gain ramp over a time range (video alpha via shader; audio gain in the m
 
 ## Vertical-slice milestone (definition of done)
 
-End-to-end on **all three** of Windows 11, Linux, and macOS (the slice is developed on Windows;
+End-to-end on **all three** of Windows (10 & 11), Linux, and macOS (the slice is developed on Windows;
 Linux and macOS rest on bundling the native libs + on-device verification — see step 1 and step 36):
 1. Create a project; add 1 video track + 1 audio track.
 2. Import a media file (`MediaSource` opens it via FFmpeg, reports duration/streams).
@@ -3792,6 +3793,16 @@ Tags reference the [UI.md §4 checklist](UI.md).
     - **Tests.** No automated tests (no code change). Acceptance = the Windows 10 VM smoke
       checklist passes on a release build, and `grep -ri "windows 11"` across the three repos
       shows only intentional remnants (e.g. "primary testing is on Windows 11").
+    - **🟡 DECLARATION DONE (2026-07-11); VM smoke verification pending.** The full copy sweep
+      landed across all three repos: this repo (`README.md` intro + platform table + Planned/Roadmap,
+      `RELEASE_NOTES.md` header / bug-report OS line / testing note, `BRIEF.md`, `ARCHITECTURE.md` §1,
+      `CLAUDE.md`, this file's Context/Decisions/Verification sections, the `release.yml` download
+      table, and a new `FEATURES.md` platform-support row, ❌ undocumented), the website OS-grid card,
+      and a new "System requirements" section in the docs getting-started page. As planned, no code
+      changed (re-confirmed: no `<supportedOS>` GUIDs, no `SupportedOSPlatformVersion`, no
+      version-gated code paths). **Remaining:** create the Windows 10 22H2 VM and run the manual
+      smoke checklist above on a release build; redeploy the docs site (`deploy.ps1`) and regenerate
+      the PDF manual; flip the FEATURES.md row when the docs section is audited.
 
 **Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
 program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a

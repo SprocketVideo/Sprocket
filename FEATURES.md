@@ -86,6 +86,7 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
+| Supported platforms (Windows 10 & 11 — Win10 floor 64-bit, version 1809+ — Linux, macOS; self-contained builds, no .NET/FFmpeg install) | README.md platform table; PLAN.md step 56 | get-started/getting-started.md#system-requirements | ✅ |
 | Main screen layout (menu bar, toolbar, panels, timeline, status bar) | UI.md §3; Sprocket.App/MainWindow.axaml | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Frameless window chrome (drag, double-click maximize, caption buttons) | MainWindow.axaml.cs `WireWindowChrome` | — | ❌ |
 | Full-screen window (View ▸ Full Screen; `F11`, `⌃⌘F` on macOS; `Esc` exits; title bar/menu stays visible; never persisted across launches) | MainWindow.axaml.cs `ToggleWindowFullScreen` | — | ❌ |

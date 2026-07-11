@@ -16,7 +16,7 @@
 
 # Sprocket — Alpha
 
-Sprocket is a cross-platform (Windows 11 · Linux · macOS), non-destructive video editor built on
+Sprocket is a cross-platform (Windows 10 & 11 · Linux · macOS), non-destructive video editor built on
 .NET 10, FFmpeg 8, and Skia. This is an **early alpha**: the editing core is real and end-to-end, but
 some of the feature set is still in progress and the cross-platform builds have had limited on-device
 testing. Expect rough edges.
@@ -36,7 +36,7 @@ To help us reproduce it fast, please include what you can:
 
 - **What you did** — the steps leading up to it.
 - **What happened** vs. **what you expected**.
-- **Your OS** (Windows 11 / Linux / macOS) and which download you used (e.g. the Windows installer,
+- **Your OS** (Windows 10 / 11 / Linux / macOS) and which download you used (e.g. the Windows installer,
   the AppImage, or a portable zip).
 - **The version** — shown in the release title above and under **Help ▸ About** in the app.
 - A screenshot, the media file, or the `.sprocket.json` project if it's relevant.
@@ -102,9 +102,10 @@ macOS builds is experimental; if an update fails, just download the new zip.
 
 ## ⚠️ Known limitations & platform notes
 
-- **Primary testing is on Windows 11.** Linux and macOS run the *identical* managed code, but
-  windowed-GPU and on-device verification there is still in progress — treat those builds as
-  experimental.
+- **Primary testing is on Windows 11.** Windows 10 (64-bit, version 1809 or later) is supported;
+  its coverage is a manual smoke checklist rather than CI (GitHub Actions has no Windows 10
+  runners). Linux and macOS run the *identical* managed code, but windowed-GPU and on-device
+  verification there is still in progress — treat those builds as experimental.
 - The windowed GPU preview and audio output are display/device-bound and rest on manual verification.
 - The bundled FFmpeg is a **GPL build** (it provides the H.264/H.265 export encoders); its
   corresponding source is linked in

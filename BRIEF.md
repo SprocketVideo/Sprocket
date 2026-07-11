@@ -1,4 +1,4 @@
-A cross-platform video editor using .NET 10 and C# that runs on Windows 11, Linux, and macOS.
+A cross-platform video editor using .NET 10 and C# that runs on Windows 10 & 11, Linux, and macOS.
 Features:
 - multiple video tracks
 - multiple audio tracks

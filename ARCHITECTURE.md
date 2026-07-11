@@ -19,7 +19,7 @@
 3. **Non-destructive by construction.** Source media is read-only. An edit changes the
    *description* of how to reconstruct a frame, never the source. A frame at timeline time
    `t` is computed on demand from the project graph.
-4. **One managed codebase, three OSes (Windows 11, Linux, macOS).** Platform differences (audio
+4. **One managed codebase, three OSes (Windows 10 & 11, Linux, macOS).** Platform differences (audio
    backend, hardware-accel device, file dialogs, native-lib packaging) sit behind C# interfaces
    selected at runtime. **No C++/CLI** — all native interop is P/Invoke against a C ABI, so the
    same managed assemblies run on all three; only the bundled native libraries differ per
