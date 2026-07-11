@@ -47,9 +47,10 @@ the roadmap.
 
 ## Installing it
 
-Every download is self-contained — no .NET install or system FFmpeg is required. **The alpha builds
-are not code-signed yet**, so each OS shows a one-time warning the first time you run them; the steps
-below get you past it. Installed builds (Windows installer, Linux AppImage, macOS app) check for
+**Use the Download table at the top of this release to grab the one file for your OS**, then follow
+the matching first-launch step below. Every download is self-contained — no .NET install or system
+FFmpeg is required. **The alpha builds are not code-signed yet**, so each OS shows a one-time warning
+the first time you run them; the steps below get you past it. Installed builds (Windows installer, Linux AppImage, macOS app) check for
 updates on launch and can update themselves in place — you install once.
 
 ### 🪟 Windows

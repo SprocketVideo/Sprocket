@@ -291,13 +291,39 @@ jobs:
         with:
           path: artifacts
 
-      # Release body: auto "What's changed since <prev tag>" overview + the evergreen
-      # RELEASE_NOTES.md preamble (bug reporting, running the app, known limitations).
+      # Release body: a per-OS download table pinned at the very top (so users click the one file
+      # they need instead of scanning the ~25-asset list) + auto "What's changed since <prev tag>"
+      # overview + the evergreen RELEASE_NOTES.md preamble (bug reporting, running the app, known
+      # limitations). The table links this tag's installer assets by their stable, version-less
+      # names (Setup.exe / AppImage / macOS -Portable.zip); the .nupkg + releases.*.json feed files
+      # and portable zips stay under Assets for the in-app updater / advanced use.
       - name: Assemble release notes
         shell: pwsh
         run: |
           ./scripts/changelog.ps1 -Tag '${{ github.ref_name }}' -OutFile overview.md
+          $base = '${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}'
+          # Built as a string array (not a here-string): a PowerShell here-string's column-0 content
+          # lines would escape this YAML `run: |` block scalar.
+          $dl = @(
+            '## ⬇️ Download'
+            ''
+            'Pick the one file for your system and run it. Everything else under **Assets** (the .nupkg'
+            'and releases feed files, and the portable zips) is used by the in-app updater or for'
+            'advanced / portable use — you don''t need it.'
+            ''
+            '| Your system | Download |'
+            '|---|---|'
+            "| **Windows 11** (most PCs) | **[Sprocket Setup — x64]($base/Sprocket-win-x64-Setup.exe)** &middot; [ARM64]($base/Sprocket-win-arm64-Setup.exe) |"
+            "| **Linux** | **[Sprocket AppImage — x64]($base/Sprocket-linux-x64.AppImage)** (arm64: portable zip under Assets) |"
+            "| **macOS** — Apple Silicon (M1 and later) | **[Sprocket — arm64]($base/Sprocket-osx-arm64-Portable.zip)** |"
+            "| **macOS** — Intel | **[Sprocket — x64]($base/Sprocket-osx-x64-Portable.zip)** |"
+            ''
+            '> [!NOTE]'
+            '> These are **alpha, unsigned** builds, so each OS shows a one-time warning the first time'
+            '> you run it. See **Installing it** below for the exact click or command to get past it.'
+          )
           $parts = @()
+          $parts += ($dl -join "`n")
           $overview = (Get-Content overview.md -Raw -ErrorAction SilentlyContinue)
           if ($overview) { $parts += $overview.TrimEnd() }
           $parts += (Get-Content RELEASE_NOTES.md -Raw).TrimEnd()
