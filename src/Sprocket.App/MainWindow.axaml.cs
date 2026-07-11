@@ -57,6 +57,7 @@ public partial class MainWindow : Window
     private Mixer.MixerView? _mixer; // audio mixer hosted in the Project panel's Audio tab (PLAN.md step 30)
     private InspectorPanel? _inspector;
     private TimelineControl? _timeline;
+    private ContextMenu? _clipContextMenu; // the open clip right-click menu — closed before showing another (only one at a time)
     private Clip? _selectedClip; // the timeline selection (keyframe navigation targets its keyframes, step 16d)
 
     // Inline track-rename editor (overlaid on the timeline): the TextBox and the track being renamed.
@@ -1937,7 +1938,12 @@ public partial class MainWindow : Window
             items.Add(Item("N_ormalize Audio", NormalizeSelectedClip, SelectedClipHasAudio()));
         }
 
+        // This menu is opened detached (not set as a control's ContextMenu property), so Avalonia won't
+        // auto-close a previous one — close it ourselves so repeated right-clicks never stack menus.
+        _clipContextMenu?.Close();
         var menu = new ContextMenu { Placement = PlacementMode.Pointer, ItemsSource = items };
+        menu.Closed += (_, _) => { if (ReferenceEquals(_clipContextMenu, menu)) _clipContextMenu = null; };
+        _clipContextMenu = menu;
         menu.Open(timeline);
     }
 
