@@ -165,7 +165,7 @@ internal static class ToolCursors
     // ── Glyphs (24×24 logical canvas) ────────────────────────────────────────────────────────────────
 
     // Trim / ripple: a side-specific bracket ([ opens right at the clip's start, ] opens left at its end)
-    // over a double-headed horizontal arrow — the trim-cursor family shared by Premiere/Resolve/FCP.
+    // over a double-headed horizontal arrow — the trim-cursor family shared by professional NLEs.
     private static void DrawBracketWithArrows(DrawingContext ctx, Color color, bool opensRight)
     {
         double spine = opensRight ? 9 : 15;

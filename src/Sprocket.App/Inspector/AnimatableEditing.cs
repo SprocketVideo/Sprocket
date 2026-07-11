@@ -180,7 +180,7 @@ public static class AnimatableEditing
 
     /// <summary>
     /// Cycles the keyframe at <paramref name="time"/> through the interpolation modes
-    /// (Hold → Linear → Ease In → Ease Out → Ease In/Out → Hold), the Premiere-parity successor to the
+    /// (Hold → Linear → Ease In → Ease Out → Ease In/Out → Hold), the professional-NLE-parity successor to the
     /// step-16b Hold↔Linear toggle (PLAN.md step 16d). A no-op when no keyframe sits there.
     /// </summary>
     public static AnimatableValue CycleInterpolation(AnimatableValue current, Timecode time)

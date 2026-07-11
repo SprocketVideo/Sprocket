@@ -1420,8 +1420,8 @@ public sealed class SetTransitionWindowCommand : EditCommand
 }
 
 /// <summary>
-/// Reinterprets a source's frame rate (PLAN.md step 42, Premiere's "Interpret Footage ▸ Assume this frame
-/// rate"): rewrites the media's <see cref="ProbedMediaInfo.FrameRate"/> and <see cref="ProbedMediaInfo.Duration"/>
+/// Reinterprets a source's frame rate (PLAN.md step 42, the "Interpret Footage ▸ Assume this frame
+/// rate" feature found in leading editors): rewrites the media's <see cref="ProbedMediaInfo.FrameRate"/> and <see cref="ProbedMediaInfo.Duration"/>
 /// and rescales every referencing clip's <see cref="Clip.SourceIn"/>/<see cref="Clip.SourceOut"/> by
 /// <c>oldFps / newFps</c> (exact <see cref="Timecode.Scale"/> math), so the same <em>frames</em> stay selected
 /// and each clip's timeline duration stretches/squeezes accordingly. Works on any video media — for an image

@@ -12,7 +12,7 @@ public enum ClipKind
     Generator,
 
     /// <summary>An adjustment layer: no content of its own; its effect stack applies to the composite of every
-    /// track beneath it for its time span (ARCHITECTURE.md §5, modelled like Premiere).</summary>
+    /// track beneath it for its time span (ARCHITECTURE.md §5, modelled like leading editors' adjustment layers).</summary>
     Adjustment,
 
     /// <summary>A nested sequence / compound clip: the clip's content is another <see cref="Sequence"/> rendered
@@ -168,7 +168,7 @@ public sealed class Clip
     }
 
     /// <summary>
-    /// Whether the clip plays (PLAN.md step 53, Premiere's Enable toggle): a disabled clip renders nothing
+    /// Whether the clip plays (PLAN.md step 53, the Enable toggle found in leading editors): a disabled clip renders nothing
     /// and contributes no audio, but keeps its place on the timeline — edit logic (trim/snap/move) still sees
     /// it, so only the render graph consults this flag. Toggled through the command stack
     /// (<see cref="Commands.SetPropertyCommand{T}"/>), so it is undoable like every model edit.
@@ -191,7 +191,7 @@ public sealed class Clip
     /// speed 0, so the <see cref="SpeedRatio"/> &gt; 0 invariant and the derived-duration formula stay intact:
     /// a held clip simply <em>ignores</em> its speed ratio (the defined precedence), and
     /// <see cref="SourceIn"/>/<see cref="SourceOut"/> are retained untouched for exact un-hold. Video holds
-    /// only — a linked audio companion clip keeps playing normally, matching Premiere.
+    /// only — a linked audio companion clip keeps playing normally, matching the convention in leading editors.
     /// </summary>
     public Timecode? HoldFrameAt
     {

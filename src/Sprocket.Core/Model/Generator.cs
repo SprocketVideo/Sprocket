@@ -113,7 +113,7 @@ public static class GeneratorParamNames
     public const string FontSize2 = "fontSize2";
 
     // ── Scroll (Roll / Crawl — PLAN.md step 40). Scrolling is a property of the title driven by the clip's
-    // local progress (duration sets the speed — the Resolve/FCP model), not hand-keyframed Transform moves.
+    // local progress (duration sets the speed — the model leading editors use), not hand-keyframed Transform moves.
 
     /// <summary>Scroll mode: <c>none</c> (default) / <c>roll</c> (bottom→top) / <c>crawl</c> (right→left). A string entry.</summary>
     public const string ScrollMode = "scrollMode";
@@ -125,7 +125,7 @@ public static class GeneratorParamNames
     public const string ScrollEaseOut = "scrollEaseOut";
 
     /// <summary>Start/end fully off-screen: <c>"true"</c> (default when absent) / <c>"false"</c> — when false the
-    /// scroll starts/ends at the block's resting position (the Premiere start/end off-screen options). A string entry.</summary>
+    /// scroll starts/ends at the block's resting position (the start/end off-screen options found in leading editors). A string entry.</summary>
     public const string ScrollOffscreen = "scrollOffscreen";
 
     /// <summary>Typewriter reveal: the fraction of characters drawn, 0–1. Absent = 1 (all). Keyframe 0→1 for the

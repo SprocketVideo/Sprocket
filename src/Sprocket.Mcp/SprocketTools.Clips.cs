@@ -102,7 +102,7 @@ public sealed partial class SprocketTools
     // ── Enable toggle (PLAN.md step 53) ─────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "set_clip_enabled")]
-    [Description("Enables or disables a clip (Premiere's Enable toggle): a disabled clip renders nothing and " +
+    [Description("Enables or disables a clip (the standard Enable-toggle convention): a disabled clip renders nothing and " +
                  "contributes no audio, but keeps its place on the timeline and its effects/keyframes for " +
                  "re-enabling. By default linked partners toggle to the same state together. One undo entry.")]
     public Task<string> SetClipEnabled(

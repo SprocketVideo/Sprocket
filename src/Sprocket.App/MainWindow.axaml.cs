@@ -120,7 +120,7 @@ public partial class MainWindow : Window
     private WindowState _stateBeforeFullScreen = WindowState.Normal; // restored when leaving View ▸ Full Screen
 
     // Full-screen preview (View ▸ Full Screen Preview, Ctrl+F): the shared PreviewSurface is reparented into the
-    // window-covering FullscreenPreviewHost overlay while the window goes fullscreen (Resolve's Full Screen Viewer).
+    // window-covering FullscreenPreviewHost overlay while the window goes fullscreen (the full-screen viewer convention in leading editors).
     private Panel? _fullscreenPreviewHost;
     private Panel? _previewHome; // the monitor DockPanel the surface is re-docked into on exit
     private bool _previewFullscreen;
@@ -605,7 +605,7 @@ public partial class MainWindow : Window
         bool meta = e.KeyModifiers.HasFlag(KeyModifiers.Meta);
         bool isMac = OperatingSystem.IsMacOS();
         // The platform's primary shortcut modifier: ⌘ on macOS (Ctrl deliberately does NOT alias it there —
-        // the Final Cut / Premiere / Resolve convention), Ctrl on Windows/Linux.
+        // the convention in leading editors), Ctrl on Windows/Linux.
         bool primary = isMac ? meta : ctrl;
 
         // ── Global accelerators (work regardless of focus) ──
@@ -621,7 +621,7 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
-        // Full-screen preview: Ctrl+F (⌘F on macOS) — Resolve's Full Screen Viewer. ⌃⌘F returned above.
+        // Full-screen preview: Ctrl+F (⌘F on macOS) — the full-screen viewer convention in leading editors. ⌃⌘F returned above.
         if (primary && e.Key == Key.F)
         {
             ToggleFullscreenPreview();
@@ -642,9 +642,9 @@ public partial class MainWindow : Window
         if (primary && e.Key == Key.Z) { _history.Undo(); e.Handled = true; return; }
         // Ctrl+Y redo is the Windows/Linux alias only; macOS redo is ⌘⇧Z alone.
         if (!isMac && ctrl && e.Key == Key.Y) { _history.Redo(); e.Handled = true; return; }
-        // Jump to the previous marker (Premiere's Ctrl+Shift+M). Add (M) / next (Shift+M) are below the text guard.
+        // Jump to the previous marker (Ctrl+Shift+M, the convention in leading editors). Add (M) / next (Shift+M) are below the text guard.
         if (primary && shift && e.Key == Key.M) { JumpToMarker(-1); e.Handled = true; return; }
-        // Timeline zoom (Resolve/FCP convention). Ctrl++/Ctrl+- are safe with a focused text field; the bare
+        // Timeline zoom (the convention in professional NLEs). Ctrl++/Ctrl+- are safe with a focused text field; the bare
         // Shift+Z "zoom to fit" is gated below the text-box guard. OemPlus/OemMinus are the main-row =/- keys;
         // Add/Subtract are the numpad equivalents.
         if (primary && (e.Key == Key.OemPlus || e.Key == Key.Add)) { _timeline?.ZoomIn(); e.Handled = true; return; }
@@ -660,10 +660,10 @@ public partial class MainWindow : Window
         else if (primary && e.Key == Key.V) { _timeline?.PasteAtPlayhead(); e.Handled = true; }
         // Select All (PLAN.md step 54) — below the text guard so a focused text box keeps its native Ctrl+A.
         else if (primary && e.Key == Key.A) { _timeline?.SelectAll(); e.Handled = true; }
-        // Split at Playhead (Ctrl+K / ⌘K — Premiere's Add Edit) and the Enable toggle (Shift+E, Premiere's
-        // convention), PLAN.md step 53. Ctrl+Shift+E (Export Queue) is handled above the text guard.
+        // Split at Playhead (Ctrl+K / ⌘K — the Add Edit command in leading editors) and the Enable toggle (Shift+E,
+        // the convention in leading editors), PLAN.md step 53. Ctrl+Shift+E (Export Queue) is handled above the text guard.
         else if (primary && e.Key == Key.K) { _timeline?.SplitAtPlayhead(); e.Handled = true; }
-        // Link/Unlink toggle (Ctrl+L / ⌘L, the Premiere/Resolve shortcut — PLAN.md step 55): links an
+        // Link/Unlink toggle (Ctrl+L / ⌘L, the shortcut used by leading editors — PLAN.md step 55): links an
         // eligible multi-selection, otherwise unlinks the selected clip's group.
         else if (primary && e.Key == Key.L) { _timeline?.ToggleLinkSelected(); e.Handled = true; }
         else if (shift && !primary && !alt && e.Key == Key.E) { _timeline?.ToggleSelectedEnabled(); e.Handled = true; }
@@ -672,13 +672,13 @@ public partial class MainWindow : Window
         else if (alt && e.Key == Key.Left) { _timeline?.NudgeSelected(-1); e.Handled = true; }
         else if (alt && e.Key == Key.Right) { _timeline?.NudgeSelected(+1); e.Handled = true; }
         // Multicam angle switching (PLAN.md step 24): 1–9 cut the selected multicam clip to that angle at the
-        // playhead — the Premiere/Resolve convention. Only swallow the digit when a multicam clip is selected.
+        // playhead — the convention in leading editors. Only swallow the digit when a multicam clip is selected.
         else if (!primary && !ctrl && !alt && TryAngleKey(e.Key, out int angle) && _timeline?.SelectedIsMulticam == true)
         {
             _timeline.SwitchSelectedAngle(angle);
             e.Handled = true;
         }
-        // Jump-to-previous/next-keyframe of the selected clip (Premiere uses [ / ], step 16d).
+        // Jump-to-previous/next-keyframe of the selected clip (leading editors use [ / ], step 16d).
         else if (e.Key == Key.OemOpenBrackets) { JumpToKeyframe(-1); e.Handled = true; }
         else if (e.Key == Key.OemCloseBrackets) { JumpToKeyframe(+1); e.Handled = true; }
         // Markers (PLAN.md step 20): add at the playhead (M), jump to the next (Shift+M; previous is Ctrl+Shift+M).
@@ -1304,7 +1304,7 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>View ▸ Full Screen Preview (Ctrl+F; ⌘F on macOS — Resolve's Full Screen Viewer): the picture
+    /// <summary>View ▸ Full Screen Preview (Ctrl+F; ⌘F on macOS — the full-screen viewer convention in leading editors): the picture
     /// takes over the whole screen while the transport keys (Space, I/O, arrows…) stay live. Esc or Ctrl+F exits.</summary>
     private void ToggleFullscreenPreview()
     {
@@ -1318,7 +1318,7 @@ public partial class MainWindow : Window
     /// Reparents the shared <see cref="PreviewSurface"/> into the window-covering overlay and takes the window
     /// fullscreen. Single-window by design: one compositor → one GRContext lease path (ARCHITECTURE.md §10), and
     /// the window-level OnKeyDown keeps every transport shortcut working with no rewiring. Deliberate departure
-    /// from Resolve/Premiere: no second-monitor clean-feed output (that needs a second window — future work).
+    /// from leading editors: no second-monitor clean-feed output (that needs a second window — future work).
     /// </summary>
     private void EnterFullscreenPreview()
     {
@@ -1335,7 +1335,7 @@ public partial class MainWindow : Window
         _fullscreenPreviewHost.Children.Add(_preview);
 
         _zoomBeforeFullscreenPreview = _preview.Zoom;
-        _preview.Zoom = MonitorZoom.Fit; // the overlay always fits the screen (the Resolve behavior)
+        _preview.Zoom = MonitorZoom.Fit; // the overlay always fits the screen (the convention in leading editors)
         _preview.Scopes = null;          // don't pay per-frame scope sampling for the hidden panel
 
         _fullscreenPreviewHost.IsVisible = true;
@@ -1830,13 +1830,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Builds and opens the clip right-click context menu (PLAN.md step 53), mirroring Premiere's grouping:
+    /// Builds and opens the clip right-click context menu (PLAN.md step 53), mirroring the grouping used by leading editors:
     /// Cut / Copy / Paste / Duplicate · Delete / Ripple Delete · Split at Playhead · Enable / Unlink / Link ·
     /// Speed/Duration / Frame Hold ▸ · Nest / Normalize Audio / Interpret Footage / Multicam ▸. Built
     /// imperatively per open (the <see cref="MediaBrowserPanel"/> idiom) reusing the menu-bar handlers and the
     /// same enablement predicates <see cref="RefreshClipMenu"/>/<see cref="RefreshEditMenu"/> use, evaluated at
     /// build time — the menu is rebuilt on every open, so no refresh plumbing is needed. The menu is shaped by
-    /// the clip's lane kind, as Premiere shapes its clip menus: video-only items (Frame Hold ▸, Interpret
+    /// the clip's lane kind, as leading editors shape their clip menus: video-only items (Frame Hold ▸, Interpret
     /// Footage, Multicam ▸) appear only on a video-track clip, and Normalize Audio only on an audio-track clip —
     /// on a linked pair the video clip contributes no audio (its companion does), so audio items on it would be
     /// silent no-ops. Linkedness itself never changes the item set, only what the operations act on (split /
@@ -2045,7 +2045,7 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Clip ▸ Frame Hold Options (PLAN.md step 43, Premiere naming): freeze the whole selected clip on
+    /// <summary>Clip ▸ Frame Hold Options (PLAN.md step 43, naming used by leading editors): freeze the whole selected clip on
     /// one source frame — at its in point, the playhead frame, or an explicit source time — or release the hold.
     /// The clip's timeline span never changes; un-holding restores normal playback exactly.</summary>
     private async Task ShowFrameHoldOptionsAsync()
@@ -2200,8 +2200,8 @@ public partial class MainWindow : Window
     // ── Sequences: multiple sequences + nested/compound clips (PLAN.md step 23) ─────────────────────
 
     /// <summary>Sequence ▸ New Sequence: creates a fresh empty sequence (one video + one audio track, the active
-    /// sequence's render format) through the command stack and opens it. Mirrors Premiere's File ▸ New ▸ Sequence,
-    /// which makes the new sequence the active one.</summary>
+    /// sequence's render format) through the command stack and opens it. Mirrors the File ▸ New ▸ Sequence command
+    /// in leading editors, which makes the new sequence the active one.</summary>
     private void NewSequence()
     {
         if (_project is null)
@@ -3388,7 +3388,7 @@ public partial class MainWindow : Window
     private enum InterchangeKind { Edl, FinalCutXml }
 
     /// <summary>
-    /// File ▸ Export Interchange ▸ EDL / Final Cut XML (PLAN.md step 28): writes the active sequence to an
+    /// File ▸ Export Interchange ▸ EDL / XML Interchange (PLAN.md step 28): writes the active sequence to an
     /// interchange format for round-tripping cuts with other NLEs. Interchange is a pure model→format mapping (no
     /// FFmpeg / in-process muxer), so — unlike the video export — it needn't quiesce the playback pipeline. Anything
     /// the format can't carry is reported back to the user rather than silently dropped.

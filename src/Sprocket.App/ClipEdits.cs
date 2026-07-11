@@ -208,7 +208,7 @@ public static class ClipEdits
     /// <summary>
     /// Sets every selected clip (plus linked companions with <paramref name="linked"/> on) to the opposite of
     /// <paramref name="primary"/>'s <see cref="Clip.Enabled"/> state — a mixed selection converges on the
-    /// primary's new state rather than each member flipping independently, matching Premiere — as one undo
+    /// primary's new state rather than each member flipping independently, matching leading editors — as one undo
     /// entry. Returns <see langword="null"/> when nothing resolves to a track.
     /// </summary>
     public static IEditCommand? ToggleEnabledAll(Timeline timeline, Clip primary, IEnumerable<Clip> clips, bool linked)
@@ -272,7 +272,7 @@ public static class ClipEdits
     // ── Link / Unlink (PLAN.md steps 13/55) ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Whether the selection is eligible for Clip ▸ Link (Premiere's rule, PLAN.md step 55): at least two
+    /// Whether the selection is eligible for Clip ▸ Link (the rule used by leading editors, PLAN.md step 55): at least two
     /// clips still on tracks, spanning at least one video-track clip and one audio-track clip — and not
     /// already exactly one whole link group (there Ctrl+L toggles to Unlink instead). A partial subset of
     /// a larger group stays linkable: re-pointing it at its own fresh group is a real edit.
@@ -332,7 +332,7 @@ public static class ClipEdits
     }
 
     /// <summary>
-    /// The Ctrl+L toggle (PLAN.md step 55, the Premiere/Resolve shortcut): links the selection when
+    /// The Ctrl+L toggle (PLAN.md step 55, the shortcut used by leading editors): links the selection when
     /// eligible, otherwise unlinks <paramref name="primary"/>'s group. Returns <see langword="null"/>
     /// when neither applies.
     /// </summary>
@@ -340,7 +340,7 @@ public static class ClipEdits
         LinkAll(timeline, clips) ?? (primary is null ? null : Unlink(timeline, primary));
 
     /// <summary>
-    /// Toggles <paramref name="clip"/>'s <see cref="Clip.Enabled"/> flag (Shift+E, Premiere's convention). With
+    /// Toggles <paramref name="clip"/>'s <see cref="Clip.Enabled"/> flag (Shift+E, the convention in leading editors). With
     /// <paramref name="linked"/> on, companion clips are set to the same new state — the whole group toggles
     /// together rather than each member flipping independently — as one undo entry.
     /// </summary>

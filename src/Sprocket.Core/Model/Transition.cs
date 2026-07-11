@@ -23,7 +23,7 @@ public static class TransitionTypeIds
 
 /// <summary>
 /// Where a transition sits relative to the cut between its two clips (PLAN.md step 25), mirroring the
-/// Premiere/Resolve alignment options. The cut is the edit point where the outgoing clip ends and the
+/// alignment options found in leading editors. The cut is the edit point where the outgoing clip ends and the
 /// incoming clip begins; the transition window extends over the clips' <em>handles</em> (the trimmed-off
 /// source beyond each edge) so both clips are visible while it plays.
 /// </summary>

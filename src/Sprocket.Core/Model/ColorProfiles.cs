@@ -94,7 +94,7 @@ public static class ColorProfiles
     /// Pure string policy so it is testable without FFmpeg. Detection is conservative — DJI does not tag a
     /// distinctive transfer characteristic, so the signal is metadata values naming the profile; when it
     /// misses, the user tags the clip manually via the Inspector's input-transform control (the same
-    /// fallback Resolve/Premiere rely on, which have no auto-detect at all).
+    /// fallback professional NLEs rely on, which have no auto-detect at all).
     /// </summary>
     public static string DetectDjiLog(IEnumerable<KeyValuePair<string, string>> metadata)
     {

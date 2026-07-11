@@ -518,7 +518,7 @@ directory and preferred when present; missing media loads offline rather than fa
   not the shared project.*
 - ***Interchange (`Sprocket.Persistence.Interchange`).*** *A pure model↔format mapper: **CMX3600 EDL** export
   (`EdlExporter` + `SmpteTimecode`, drop-frame aware) and **Final Cut Pro 7 XML** (`xmeml`) export+import round-trip
-  (`FinalCutXmlInterchange`) — the lingua franca Premiere/Resolve/FCP7 read. Whatever a format can't carry (effects,
+  (`FinalCutXmlInterchange`) — the lingua franca leading editors read. Whatever a format can't carry (effects,
   transitions, retimes, track mix, generated/nested/multicam clips, source tech metadata) is **reported** via an
   `InterchangeReport`, never silently dropped. Modern Apple FCPXML v1.x is a noted later addition on the same seam.*
 

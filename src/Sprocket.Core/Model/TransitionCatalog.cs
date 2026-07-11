@@ -41,7 +41,7 @@ public sealed record TransitionDescriptor(
 public static class TransitionCatalog
 {
     /// <summary>The default transition duration a freshly-applied transition gets — one second, the common NLE
-    /// default (Premiere ships ~1 s; Resolve ~1 s). Snapped to whole frames by the editor when applied.</summary>
+    /// default (leading editors ship ~1 s). Snapped to whole frames by the editor when applied.</summary>
     public static Timecode DefaultDuration { get; } = Timecode.FromSeconds(1.0);
 
     /// <summary>The transition applied by the default "Apply Transition" gesture (cross dissolve, the NLE default).</summary>

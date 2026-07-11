@@ -10,7 +10,7 @@ using Sprocket.Core.Timing;
 namespace Sprocket.App;
 
 /// <summary>
-/// "Interpret Footage" (PLAN.md step 42, Premiere's "Assume this frame rate"): pick a new frame rate to
+/// "Interpret Footage" (PLAN.md step 42, the "Assume this frame rate" convention other editors use): pick a new frame rate to
 /// reinterpret a source at. The same frames stay selected — clip timeline durations stretch/squeeze — so this is
 /// the frame-rate re-time for image sequences and the whole-clip "shoot on twos" lever. Offers the common
 /// broadcast rates plus the source's current rate, defaulting to the current rate.

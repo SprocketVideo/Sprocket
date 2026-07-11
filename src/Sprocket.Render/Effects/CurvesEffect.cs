@@ -11,7 +11,7 @@ namespace Sprocket.Render.Effects;
 /// and keyframe model already handle (a freeform point-list curve editor is a UI follow-up, not a new
 /// render seam). Offsets are interpolated with a Catmull-Rom spline, so a single moved point bends the
 /// curve smoothly. Master applies first, then the channel curves — matching how RGB + channel curves
-/// stack in Premiere / Resolve. Display-referred, premultiplied-safe, registry path (PLAN.md step 33).
+/// stack in professional color-grading tools. Display-referred, premultiplied-safe, registry path (PLAN.md step 33).
 /// </summary>
 public sealed class CurvesEffect : IVideoEffect
 {

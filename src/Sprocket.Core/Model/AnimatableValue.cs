@@ -5,7 +5,7 @@ namespace Sprocket.Core.Model;
 /// <summary>
 /// How a keyframe's value blends across the segment that <em>leaves</em> it toward the next keyframe
 /// (ARCHITECTURE.md §9). Beyond the original <see cref="Hold"/>/<see cref="Linear"/> the enum gains the
-/// eased modes that bring keyframing to Adobe-Premiere parity (PLAN.md step 16d) — additive, so old
+/// eased modes that bring keyframing to parity with leading NLEs (PLAN.md step 16d) — additive, so old
 /// projects (which only stored Hold/Linear) load unchanged. The eased modes shape the segment's
 /// velocity curve; the labels follow the NLE convention of naming the gentle end:
 /// <see cref="EaseOut"/> eases the <em>departure</em> from this keyframe, <see cref="EaseIn"/> eases the

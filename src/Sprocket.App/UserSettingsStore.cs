@@ -25,7 +25,7 @@ namespace Sprocket.App;
 /// <param name="UpdateDismissedTag">The release version the user dismissed ("Skip This Version") — the
 /// badge stays hidden for exactly that version, so a result never nags across startups.</param>
 /// <param name="StillImageDefaultSeconds">Default on-timeline duration for a newly imported still image, in
-/// seconds (PLAN.md step 42; Premiere's default is 5 s). A still's media headroom is unbounded, so this is only
+/// seconds (PLAN.md step 42; the industry-convention default is 5 s). A still's media headroom is unbounded, so this is only
 /// the initial drop length.</param>
 public sealed record UserSettings(
     string ExportTitle = "",

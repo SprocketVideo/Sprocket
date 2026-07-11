@@ -113,8 +113,8 @@ public static class FadeOps
     /// <summary>
     /// The keyframe times a rubber-band grab at <paramref name="timeTicks"/> takes hold of: the single nearest
     /// keyframe when one sits within <paramref name="toleranceTicks"/> (point editing — e.g. right after a
-    /// Ctrl+click added one), otherwise the two keyframes bounding the grabbed segment (the Premiere band-drag
-    /// convention: pulling between two points moves the whole segment). Empty for a constant envelope — the
+    /// Ctrl+click added one), otherwise the two keyframes bounding the grabbed segment (the band-drag
+    /// convention leading editors use: pulling between two points moves the whole segment). Empty for a constant envelope — the
     /// caller then drags the flat level instead.
     /// </summary>
     public static IReadOnlyList<long> GrabKeyframes(AnimatableValue? opacity, long timeTicks, long toleranceTicks)

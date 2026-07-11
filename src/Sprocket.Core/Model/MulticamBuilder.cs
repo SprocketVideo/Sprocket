@@ -4,8 +4,8 @@ using Sprocket.Core.Timing;
 namespace Sprocket.Core.Model;
 
 /// <summary>
-/// Builds the "create a multicam source from a set of clips" edit (PLAN.md step 24, the Premiere "Create
-/// Multi-Camera Source Sequence" gesture): the chosen clips become the angles of a new synced
+/// Builds the "create a multicam source from a set of clips" edit (PLAN.md step 24, the "Create
+/// Multi-Camera Source Sequence" gesture found in leading editors): the chosen clips become the angles of a new synced
 /// <see cref="MulticamSource"/>, and a single (linked video + audio) <see cref="ClipKind.Multicam"/> clip
 /// replaces them on the parent timeline. The whole thing is one undoable <see cref="CompositeCommand"/>. Pure
 /// model reasoning, so it is tested headlessly even though the "which clips" comes from the (UI-bound) timeline,

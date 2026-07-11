@@ -19,7 +19,7 @@ public readonly record struct ImageSequenceInfo(string Pattern, int StartNumber,
 /// Pure, IO-light detection of a numbered image sequence from one picked file (PLAN.md step 42). Given a picked
 /// file and its sibling file names, it finds the contiguous run of same-named, same-padded, consecutively-numbered
 /// frames containing the picked file — refusing gaps and mixed zero-padding (the run stops at the first
-/// discontinuity), matching the Premiere/Resolve "detect image sequence" behaviour. The core overload takes the
+/// discontinuity), matching the "detect image sequence" behaviour common to leading editors. The core overload takes the
 /// sibling names as data so it is headlessly testable; a convenience overload reads the directory.
 /// </summary>
 public static partial class ImageSequenceDetection

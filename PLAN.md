@@ -485,7 +485,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
       - **Zoom + scroll:** magnifier −/+ buttons (with `Ctrl+-`/`Ctrl+=` tooltips), the **Ctrl+wheel** and
         **Zoom-tool** click, and **`Ctrl+-`/`Ctrl+=`** keys all zoom (anchored so the tick under the
         cursor/playhead stays put, 8–600 px/s); the wheel scrolls horizontally, clamped to content. A
-        **`TimelineControl.ZoomToFit`** (View ▸ Zoom to Fit, **`Shift+Z`** — the Resolve/FCP convention) frames
+        **`TimelineControl.ZoomToFit`** (View ▸ Zoom to Fit, **`Shift+Z`** — the convention in leading editors) frames
         the whole sequence to the viewport width and scrolls back to the start. (Menu items for plain
         Zoom In/Out carry no `InputGesture` label because Avalonia renders `=`/`-` as their raw `OemPlus`/
         `OemMinus` enum names; the clean shortcut text lives in the buttons' tooltips.)
@@ -688,7 +688,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         to Hold). Zero persistence impact (descriptor metadata is never serialized). Tests: Core catalog-kind
         invariants, App parse/Hold-editing, MCP kind emission + coercion — all green.
       - **✅ FOLLOW-ON (2026-07-07): Color Wheels trackballs.** The step-34 Color Wheels section replaced its
-        twelve stacked sliders with **three Resolve-style wheels** (Lift / Gamma / Gain side by side): a hue
+        twelve stacked sliders with **three professional-style color wheels** (Lift / Gamma / Gain side by side): a hue
         disc + draggable puck per wheel (drag to tint, **Shift = 0.1× fine**, **double-click recentres**), the
         master slider beneath each, and the R/G/B rows in a collapsed **Channels** expander so all twelve
         params stay individually keyframeable. Pure `ColorWheelMath` maps puck ↔ zero-sum R/G/B tint on
@@ -829,7 +829,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     Lands on the existing `AnimatableValue` + `SetEffectParameterCommand` + `AnimatableEditing` seam —
     the per-keyframe `Interpolation` enum just gains the new modes (additive, no redesign),
     [ARCHITECTURE §9](ARCHITECTURE.md). **Terminology:** keep "keyframe" for animation (the
-    Premiere/After Effects convention, and already the model term); to remove the only clash, refer to
+    convention shared by leading editors and After Effects, and already the model term); to remove the only clash, refer to
     the unrelated **codec** sense (the GOP I-frame `MediaSource` seeks to, step 3) as **"I-frame"** in
     code and docs from here on — no rename of the animation concept is needed.
     - **✅ DONE — temporal interpolation + keyframe ops + navigation (`Sprocket.Core/Model/{AnimatableValue,
@@ -913,7 +913,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
     drags **vertically across tracks**, not only horizontally along time. **Alt/Option-drag copies** (drops a
     duplicate on the target track, original untouched); **Shift-drag locks the horizontal position** to the
     origin time (change track only); the modifiers stack (Alt+Shift = copy at the same time). Matches the NLE
-    convention (Premiere/Resolve/FCP use Alt/Option to duplicate; Shift-lock matches Resolve), leaving Ctrl/Cmd
+    convention (leading editors use Alt/Option to duplicate; Shift-lock matches that same convention), leaving Ctrl/Cmd
     free for a future insert edit. Lands on existing seams ([ARCHITECTURE §17](ARCHITECTURE.md)) with no model
     redesign.
     - **✅ DONE (`Sprocket.Core/Commands/ModelCommands.cs` + `Sprocket.App/Timeline/{TimelineMath,ClipPlacement,
@@ -1092,7 +1092,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         generic `Render<TImage>` executor draws a generator via a new `IVideoCompositor.CreateGeneratorFrame` seam
         and realises an **adjustment** by snapshotting the composite drawn so far, folding the layer's effects over
         it, and blending the graded result back — so at full opacity it replaces, and below it cross-fades original
-        vs. grade (the Premiere semantic). `RenderGraph.ResolveGenerator` is public for the preview.
+        vs. grade (the standard NLE semantic). `RenderGraph.ResolveGenerator` is public for the preview.
       - **Render layer:** `SkiaEffectPipeline` factored its per-layer draw into `DrawImageLayer` (image → effect
         chain → composite) and added `DrawGenerator` (renders the matte / centred SkSL-free text into an offscreen
         surface, then runs the same effect chain) and `DrawAdjustment` (snapshots the surface region — mapped
@@ -1124,14 +1124,14 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
 Steps 1–19 are complete: the vertical slice plus the full editing shell, timeline, inspector,
 keyframes, monitors, proxies, and **generators + adjustment layers (step 19)**. With the render,
 playback, export, proxy, keyframe, and color/audio **seams** all proven, the largest remaining gap
-versus Premiere, Resolve, and Final Cut is **not** rendering or core extensibility — Sprocket already
+versus leading professional NLEs is **not** rendering or core extensibility — Sprocket already
 has the right seams for those. The real gap is **editorial workflow completeness**: the everyday-cutting
 features that make the editor feel professional rather than unfinished. The post-19 order below is
 reprioritized around that gap.
 
 The **must-have-for-1.0** additions (mainstream pro-NLE baseline) are: **retime/speed controls**,
 **markers/comments**, **ripple/roll trim modes**, **autosave/crash recovery**, **batch relink +
-offline recovery**, **interchange** (EDL at minimum, then FCPXML/XML), **batch export + review
+offline recovery**, **interchange** (EDL at minimum, then XML-based interchange formats), **batch export + review
 outputs** (queued exports, burn-ins, handles), **loudness metering/normalization**, and **multicam +
 clip sync**. Real-time collaboration, hosted review systems, and advanced AI tooling are
 **product-platform expansions, not core-editor 1.0 parity**, and stay out of the 1.0 set.
@@ -1285,7 +1285,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
     - **✅ DONE (`Sprocket.Core/Commands/ModelCommands.cs` + `Sprocket.App/Timeline/{TimelineMath,TimelineControl}`
       + `MainWindow.axaml`/`.cs`; 15 new tests — Core +8, App +7, all green).** All three trim modes (plus ripple
       delete) land on the existing clip / command / time model with no redesign (ARCHITECTURE.md §17). Each is a
-      pure, undoable timeline operation; the tool palette now carries the full Premiere/Resolve/FCP trim toolset
+      pure, undoable timeline operation; the tool palette now carries the full professional-NLE trim toolset
       (**Select · Blade · Ripple · Roll · Slip · Slide · Hand · Zoom**, [UI.md §3.2](UI.md)). Delivered:
       - **Three Core commands (step 10).** `RippleTrimCommand` — trims one edge (the clip's `TimelineStart` stays
         fixed for *both* edges) and shifts a captured downstream set by the duration change; re-derives each
@@ -1293,7 +1293,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         `RollEditCommand` — moves the shared cut between two adjacent clips (left out + right in/start together),
         keeping their combined span and everything downstream fixed. `SlideClipCommand` — moves a clip while its
         (optional) prev/next neighbours absorb it; the slid clip's source window is untouched. All three coalesce
-        per gesture (one undo entry) and revert exactly. **Ripple delete** (Shift+Delete, the Premiere/Resolve
+        per gesture (one undo entry) and revert exactly. **Ripple delete** (Shift+Delete, the leading-editor
         convention; Edit ▸ Ripple Delete) composes `RemoveClipCommand` + downstream `SetClipPlacementCommand`s into
         one `CompositeCommand`.
       - **Pure clamping (App `TimelineMath`, mirroring the step-12 split).** `ClampRollDelta` / `ClampSlideDelta`
@@ -1330,7 +1330,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         additive when picked up).
 23. **Sequences (nesting / compound clips).** Generalise the project's single `Timeline` to
     **multiple named sequences**, and let a whole sequence be **placed inside another sequence as a
-    clip** (Premiere "nested sequence" / Final Cut "compound clip"). To the render graph a
+    clip** (what leading editors call a "nested sequence" or "compound clip"). To the render graph a
     nested-sequence clip is just another `IFrameSource` / `IPcmReader` that renders the child sequence's
     timeline at the requested time — the graph already turns a (timeline, t) into a frame
     ([ARCHITECTURE §5](ARCHITECTURE.md), [§17](ARCHITECTURE.md)) — so **edit operations apply to the
@@ -1360,7 +1360,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         active sequence** so the whole render/playback/export/App stack addresses it unchanged — multiple sequences
         are purely additive. `Clip` gains `ClipKind.Sequence` + `SourceSequenceId` and a `CreateSequenceClip`
         factory. `SequenceGraph` is the pure cycle/reachability reasoning (`WouldCreateCycle`, `MaxNestingDepth = 16`);
-        `SequenceNesting.CreateNest` builds the Premiere "Nest" / FCP "compound clip" edit (selection → new child
+        `SequenceNesting.CreateNest` builds the "Nest" / "compound clip" edit familiar from leading editors (selection → new child
         sequence, one linked V+A nested clip replaces it in the parent) as a single undoable `CompositeCommand`.
         `AddSequenceCommand` / `RemoveSequenceCommand` (step 10); switching the *active* sequence is navigation, not
         a command (so undo never strips it — the App self-heals if a sequence-add is undone).
@@ -1491,7 +1491,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
       `Sprocket.App/{DragFormats,MediaBrowser/MediaBrowserPanel,Timeline/TimelineControl,MainWindow}`; 26 new tests —
       Core +15, Render +7, Export +1, Persistence +3). Transitions land on the existing render-graph seam exactly as
       ARCHITECTURE §17 anticipates ("transitions extend clip resolution in the render graph"), following the
-      Premiere/Resolve convention. Delivered:
+      convention used by leading editors. Delivered:
       - **Model (Core, §4).** A `Transition` is a non-destructive overlay on a `Track` (`Track.Transitions`) anchored
         at a cut: `{ TransitionTypeId, CutPoint, Duration, Alignment, Parameters }`, with the window derived from the
         alignment (`CenterOnCut` default / `EndAtCut` / `StartAtCut`) and a `ProgressAt(t)` ramp 0→1. It does **not**
@@ -1543,8 +1543,8 @@ Tags reference the [UI.md §4 checklist](UI.md).
     - **✅ DONE (`Sprocket.Core/Model/MediaRef` + `Sprocket.Media/{Native/LibAv,Native/AvStructs,VideoFrame,MediaSource}`
       + `Sprocket.Render/SkiaEffectPipeline` + `Sprocket.Playback/PlaybackEngine` + `Sprocket.Export/VideoExporter` +
       `Sprocket.App/{PreviewSurface,MediaBrowser/MediaBadges}` + persistence; 6 new tests — Render +3, Media +1, App +2).
-      Alpha media now composites over the layers beneath it in both preview and export, following the Premiere/Resolve
-      convention (ProRes 4444 / QuickTime Animation logos). **Key finding:** the decode path already carried alpha —
+      Alpha media now composites over the layers beneath it in both preview and export, following the convention
+      used by leading editors (ProRes 4444 / QuickTime Animation logos). **Key finding:** the decode path already carried alpha —
       swscale normalises every source into the pooled `AV_PIX_FMT_RGBA` buffer preserving the alpha channel (§11) — but
       the Skia compositor wrapped every frame as `SKAlphaType.Opaque`, discarding it. This lands entirely on existing
       seams (§17); no render-graph redesign. Delivered:
@@ -1643,12 +1643,12 @@ Tags reference the [UI.md §4 checklist](UI.md).
         selection is the seam it will use, but export stays software/deterministic for now; and any HDR tone-map
         (the `IsHdr` flag is informational until the later color step). Full suite: **547 tests green** (Core 209,
         Media 30, Render 33, Audio 21, Playback 52, Export 26, Persistence 40, App 136).
-28. **Interchange & relink workflow (EDL / FCPXML / XML, batch relink, collab-ready format).** Pulled
+28. **Interchange & relink workflow (EDL / XML interchange formats, batch relink, collab-ready format).** Pulled
     earlier than the specialized finishing work because it becomes necessary the moment projects leave
     the original machine or asset paths change. Three strands, all additive on the persistence and
     media-pool seams:
     - **Interchange export / import.** At minimum **EDL** (CMX3600) export of the active sequence; then
-      **FCPXML / Final Cut XML** and Premiere / Resolve **XML** for round-tripping cuts (clips, in/out,
+      **XML-based interchange formats used by leading editors** for round-tripping cuts (clips, in/out,
       track layout, basic transitions) with other NLEs. A pure mapper between the `Project` / `Sequence`
       model and each interchange format (Core / Persistence), tested against known fixtures; lossy fields
       are reported, not silently dropped.
@@ -1691,7 +1691,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         export (`EdlExporter` over a pure, drop-frame-aware `SmpteTimecode` — verified against the reference DF algorithm)
         flattening the active sequence to a record-ordered, numbered event list (one video track + up to 4 audio
         channels, `* FROM CLIP NAME` comments, valid cuts); and **Final Cut Pro 7 XML** (`xmeml` v5) **export + import
-        round-trip** (`FinalCutXmlInterchange` — the lingua franca Premiere / Resolve / FCP7 read): sequence rate (NTSC
+        round-trip** (`FinalCutXmlInterchange` — the lingua franca leading editors read): sequence rate (NTSC
         `timebase`+`ntsc`) / resolution / name, video+audio track layout, each clip's record placement + source in/out,
         and source `<file>` references (id + `pathurl`, defined once then referenced by id). Everything a format can't
         carry (effects, transitions, retimes, track opacity/blend/gain/mute/solo, generated/nested/multicam clips,
@@ -1714,8 +1714,8 @@ Tags reference the [UI.md §4 checklist](UI.md).
         `SPROCKET_APP_SECONDS=5` smoke launch starts the shell with the new menu items wired and tears down cleanly
         (exit 0). Full suite: **597 tests green** (Core 209, Media 30, Render 33, Audio 21, Playback 52, Export 26,
         Persistence 90, App 136).
-      - **Deferred (noted, same seam):** **modern Apple FCPXML v1.x** (the newer `fcpxml` DTD — `xmeml` already gives
-        Premiere/Resolve/FCP7 round-trip); a richer **relink preview dialog** (per-file candidate override — the matcher
+      - **Deferred (noted, same seam):** **the newer Apple XML interchange format (v1.x)** (its DTD supersedes
+        `xmeml`, which already gives leading editors round-trip compatibility); a richer **relink preview dialog** (per-file candidate override — the matcher
         already reports ambiguous/unmatched, and the App confirms the plan before applying); and **EDL dissolves** (a
         transition currently exports as a plain cut + a lossy warning).
 29. **Export queue, burn-ins, handles & presets + status-bar telemetry.** Standard delivery workflow on
@@ -1793,7 +1793,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
       touch the preview hot path or allocate pixels (§1):
       - **Burn-in model (Core).** `BurnIn(Field, Position, Text?)` is pure delivery data that flows with
         `ExportOptions` through the queue. `BurnInField` = Timecode / ClipName / Text (watermark); `BurnInPosition`
-        is a nine-point alignment grid (matching Resolve/Premiere). `BurnInResolver` turns a burn-in + timeline time
+        is a nine-point alignment grid (matching the convention in leading editors). `BurnInResolver` turns a burn-in + timeline time
         into the string to draw — timecode via the shared `SmpteTimecode`, or the **topmost content clip's** name
         (media file name / nested-sequence name / generator label; adjustment layers skipped, a gap → ""). Resolution
         is pure model so it is unit-tested headlessly. **`SmpteTimecode` moved from `Persistence.Interchange` into
@@ -1898,7 +1898,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
       `ExportSettingsDialog`; 16 new tests — Media 30 → 34, Export 65 → 77; full suite 668 → 684). The last of the five
       strands. **Deliberate departure from the literal wording** ("add hardware `ExportVideoCodec` options"): rather than
       exploding the codec enum into per-vendor values, hardware is modelled as an acceleration preference *orthogonal* to
-      the codec — the way Premiere ("Software/Hardware Encoding") and Resolve (encoder picker) present it — so H.264/HEVC/
+      the codec — the way leading editors present it (an explicit software/hardware toggle, or an encoder picker) — so H.264/HEVC/
       AV1/… each gain GPU encoding without a combinatorial enum, and the deterministic software encoder stays the delivery
       default. All the strand's deliverables land on the existing `MediaEncoder` "select encoders by name" seam (§11):
       - **Probe + automatic software fallback (Media).** `VideoEncoderSettings.HardwareCandidates` is an ordered chain of
@@ -2140,7 +2140,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         on the outstanding list above; `Sprocket.App/Mixer/{AudioChainTarget,MixerView}` +
         `Inspector/InspectorPanel` + `EffectRelevance.ForAudioChain` + MainWindow wiring; 15 new tests —
         App `AudioChainTargetTests` +14, `EffectRelevanceTests` +1; full suite 1340 green, 0 warnings, smoke
-        launch OK.)** Follows the Premiere Audio Track Mixer convention (per-strip insert slots; deep editing
+        launch OK.)** Follows the leading-editor audio track mixer convention (per-strip insert slots; deep editing
         elsewhere): every mixer channel strip, a new **Sequence Bus** pseudo-strip, and the master panel carry
         an **Inserts** block — "+" flyout of the catalog's audio effects (`AddChainEffectCommand`), per-insert
         enable LED (`SetEffectEnabledCommand`), remove (`RemoveChainEffectCommand`), and Move Up / Down
@@ -2228,7 +2228,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         clear, drawn as a shaded ruler range — session UI state, cleared on sequence switch). Sequence menu:
         **Render In to Out** (marks, else the whole sequence), **Render Selection**, **Render Audio**, and
         **Delete Render Files…** — which shows the cache's **current disk footprint** in the menu item and the
-        confirm dialog (a small deliberate addition beyond the step text, matching Premiere/Resolve cache UI).
+        confirm dialog (a small deliberate addition beyond the step text, matching leading editors' cache UI).
         Renders run like export: quiesce every in-process decode pipeline (`SuspendAsync` — the ProxyTranscoder
         muxer hazard), background task + cancellable progress dialog, resume; the committed segment plays back on
         the next pump and re-rendering an unchanged range short-circuits ("already rendered").
@@ -2298,8 +2298,8 @@ Tags reference the [UI.md §4 checklist](UI.md).
       - **White Balance** (`builtin.whitebalance`): temp/tint gains in linear light (Lumetri's ±100
         slider convention), luma-normalised so the correction is chromatic-only.
       - **Color Wheels** (`builtin.colorwheels`): lift/gamma/gain × (master + R/G/B) with the standard
-        video LGG transfer — lift pivots on white, gain on black, gamma a mids power curve (Resolve
-        wheel semantics).
+        video LGG transfer — lift pivots on white, gain on black, gamma a mids power curve (the
+        color-wheel semantics standard in leading editors).
       - **Curves** (`builtin.curves`): RGB master + per-channel red/green/blue **parametric** curves —
         five points (blacks/shadows/mids/highlights/whites at fixed inputs) offsetting the identity,
         Catmull-Rom interpolated in the shader. Deliberate departure: the parametric (Lightroom-style)
@@ -2417,7 +2417,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         when undeclared) and scans the merged container+stream metadata dictionary for a DJI log profile —
         five additive `ProbedMediaInfo` fields incl. `DetectedColorProfile`. Detection policy is the pure
         `ColorProfiles.DetectDjiLog` in Core (normalised "dlog"/"dlogm" substring match over tag values,
-        most-specific wins) — conservative by design; Resolve/Premiere have no auto-detect at all, so the
+        most-specific wins) — conservative by design; leading editors have no auto-detect at all, so the
         manual tag remains the professional-parity fallback. Metadata dict is consumed at probe time, not
         stored (keeps `ProbedMediaInfo` record equality; nothing needed it persisted).
       - **Effect.** `builtin.colortransform` (catalog: "Input Color Transform", Color category; one numeric
@@ -2583,8 +2583,8 @@ Tags reference the [UI.md §4 checklist](UI.md).
 39. **Fade handles & opacity rubber-band (on-timeline fade editing + visualization).** Make a clip's
     fade in/out directly **visible and editable on the timeline**, so a fade is never an invisible
     surprise — the lesson from the Alt-copy "second clip plays black" bug (fixed 2026-06-30): the clip
-    carried a keyframed fade with nothing on the timeline to show it. Follows the Premiere/Resolve
-    convention. This lands on **existing seams**, not a new model — the fade is already the keyframed
+    carried a keyframed fade with nothing on the timeline to show it. Follows the convention in
+    leading editors. This lands on **existing seams**, not a new model — the fade is already the keyframed
     `EffectTypeIds.Fade` / `EffectParamNames.Opacity` `AnimatableValue` that drives both video alpha
     (shader, step 7) and audio gain (mixer, [§6](ARCHITECTURE.md)); this step is a timeline affordance over it.
     Pieces:
@@ -2640,7 +2640,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
 
 40. **Rich text & titles (styling, lower thirds, rolling credits).** Grow the step-19 minimal Title
     generator (single-line centred text, one fill colour, animatable size) into a professional titles
-    toolset, following the Premiere/Resolve/Final Cut convention — a title is a **generator clip on its
+    toolset, following the convention in leading editors — a title is a **generator clip on its
     own track**, edited in place and in the Inspector. Lands entirely on existing seams
     ([ARCHITECTURE §17](ARCHITECTURE.md)): a title is already a `ClipKind.Generator` on the
     `GeneratorCatalog`, so this adds generator types, string / animatable params, and Render layout with
@@ -2675,11 +2675,11 @@ Tags reference the [UI.md §4 checklist](UI.md).
       (credits), and **Crawl** (ticker) — each a generator descriptor with defaults, listed in the Project
       bin / **Clip ▸ Insert** menu like current generators.
     - **Rolling credits (Roll) & Crawl — a *property of the title*, duration-driven.** Following the
-      industry norm (Premiere's **Roll / Crawl** options, Resolve's **Scroll** title, Final Cut's **Scroll**
-      behaviour), scrolling is a **scroll mode on the generator**, *not* a hand-keyframed Transform. A
+      industry norm (leading editors' **Roll / Crawl / Scroll** title options), scrolling is a **scroll mode
+      on the generator**, *not* a hand-keyframed Transform. A
       `scrollMode` (None / Roll-up / Crawl-left) param, with **clip duration setting the speed** (longer
-      clip ⇒ slower — the Resolve / FCP model) plus optional **ease-in / out** and **start / end off-screen**
-      (the Premiere options). The generator computes the offset from its **clip-local progress**, so it
+      clip ⇒ slower — the model used by leading editors) plus optional **ease-in / out** and **start / end off-screen**
+      (options also found in leading editors). The generator computes the offset from its **clip-local progress**, so it
       stays a pure, deterministic function of (project, t) ([ARCHITECTURE §5](ARCHITECTURE.md)) with **no
       fragile absolute-timeline keyframes** (cf. the step-39 keyframe-rebasing caveat). **Small additive
       Core change:** pass the clip's local elapsed time + duration (or a normalised progress) into
@@ -2736,7 +2736,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         clip duration sets the speed, the motion survives trim/move, and no absolute-time keyframes are
         involved (the step-39 caveat). `scrollMode` = roll (bottom→top) / crawl (right→left, flattened to
         one line) with **ease-in/out** (`TitleScroll.Eased` — smoothstep / p² / 1−(1−p)²) and
-        **start/end off-screen** toggles (off = rest at the block's position, the Premiere options).
+        **start/end off-screen** toggles (off = rest at the block's position, options also found in leading editors).
       - **Templates (`GeneratorCatalog`):** **Lower Third** (name+role over a translucent bar, left-aligned,
         anchored lower-left), **Credits Roll**, and **Crawl** — distinct ids (`builtin.gen.lowerthird`/
         `.roll`/`.crawl`) sharing the Title render path via `GeneratorTypeIds.IsTitle`, so the browser/
@@ -2881,7 +2881,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
 
 42. **Image-sequence & still import (stop-motion tier 1).** Import a folder of numbered stills as one
     video clip at a user-chosen frame rate, plus single-still import with a configurable default
-    duration — the Premiere/Resolve stop-motion on-ramp (and the same feature unlocks time-lapse and
+    duration — the stop-motion on-ramp leading editors provide (and the same feature unlocks time-lapse and
     VFX frame-run workflows). Lands on the existing import → probe → `MediaRef` → feed-factory seams
     (§11, §17); the render graph and export need no new machinery because a sequence decodes like any
     other video once FFmpeg's `image2` demuxer opens it.
@@ -2890,7 +2890,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
       `SequenceStartNumber`, and `SequenceFrameCount`. The intrinsic fps stays in `Info.FrameRate`
       (single source of truth — no second fps field) and `Info.Duration = FrameCount / fps`. A still
       probes as `Kind = Still` with `Info.Duration` set from the new **still-image default duration**
-      preference at import (5 s, the Premiere default), but its media headroom is **unbounded**: the
+      preference at import (5 s, a common default in leading editors), but its media headroom is **unbounded**: the
       trim/drop clamps that read `media.Info.Duration` (`TimelineControl`, `TimelineMath`) treat still
       media as infinite, so a still clip extends freely like a step-19 generator. Core stays pure data —
       pattern strings and counts only, no IO.
@@ -2910,17 +2910,17 @@ Tags reference the [UI.md §4 checklist](UI.md).
       *.tga *.webp *.dpx`); `MediaImport` grows a pure, headless-tested **sequence-detection helper**
       (given one picked file, find the contiguous numbered sibling run → pattern + start + count,
       refusing gaps/mixed padding). When a run is detected, an import dialog offers **Import as image
-      sequence** (the Premiere-checkbox convention; a deliberate departure from Resolve's silent
+      sequence** (a checkbox convention seen in leading editors; a deliberate departure from other editors' silent
       auto-grouping so a deliberate single-still import stays one click) with an fps combo
       (12 / 15 / 24 stop-motion presets + the project rate; **default = project timeline fps** —
-      departs from Premiere's global "Indeterminate Media Timebase" preference in favour of a
+      departs from the global "Indeterminate Media Timebase"-style preference some leading editors use, in favour of a
       per-import choice). Preferences gains **Still image default duration** (5 s). Media-bin badges
       for sequences ("SEQ · 240 frames @ 12") and stills.
     - **Interpret Footage (fps reassignment).** A `ReinterpretFootageCommand` (step 10) rewrites the
       media's `Info.FrameRate`/`Duration` **and rescales every referencing clip's
       `SourceIn`/`SourceOut` by oldFps/newFps** (exact `Timecode.Scale(Rational)`, Int128 math) so the
-      same *frames* stay selected and clip timeline durations stretch accordingly — Premiere-consistent
-      "Interpret Footage ▸ Assume this frame rate". One undo entry (clip rescales + media rewrite in a
+      same *frames* stay selected and clip timeline durations stretch accordingly — consistent with
+      leading editors' "Interpret Footage ▸ Assume this frame rate". One undo entry (clip rescales + media rewrite in a
       `CompositeCommand`); entry points: media-bin context menu + Clip menu. Works on any video media,
       not just sequences (it is also the whole-clip "shoot on twos" lever for step 43).
     - **Persistence (§12).** Additive nullable `MediaRefDto` fields (`kind`, `sequencePattern`,
@@ -2965,7 +2965,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         opens sequences via `image2`, never seeks past a still's one frame).
       - **Import & UI:** picker **Images** filter (`png/jpg/jpeg/tif/tiff/bmp/tga/webp/dpx`; EXR excluded); pure
         headless `ImageSequenceDetection` (contiguous run → pattern/start/count, refusing gaps + mixed padding, last
-        digit-run = frame number); a Premiere-style **Import as image sequence** dialog with an fps combo
+        digit-run = frame number); an **Import as image sequence** dialog (the convention in leading editors) with an fps combo
         (12/15/24 + project rate, default = project rate); stills import at the **Still image default duration**
         preference (5 s, unbounded headroom like a generator); media-bin badges (`SEQ · N frames @ fps` / `STILL`).
       - **Interpret Footage (§10 command):** `ReinterpretFootageCommand.ForMedia` rewrites the media rate/duration
@@ -2993,9 +2993,9 @@ Tags reference the [UI.md §4 checklist](UI.md).
       Precedence is defined: a held clip ignores its speed ratio. Blade split copies the hold
       (`CloneContentForSpan`); trimming a held clip edits `HoldDuration` with no media clamp (like
       generators/stills); slip on a held clip moves `HoldFrameAt`. Video holds only — linked audio
-      keeps playing normally, matching Premiere.
+      keeps playing normally, matching leading editors.
     - **Commands & UI.** `SetClipHoldCommand` (apply/revert/coalesce, one undo entry). Menu surface
-      follows Premiere naming: **Clip ▸ Frame Hold Options…** (hold the whole clip at In Point /
+      follows leading-editor naming: **Clip ▸ Frame Hold Options…** (hold the whole clip at In Point /
       Playhead / a source timecode), **Add Frame Hold** (split at the playhead; the right-hand part
       becomes a freeze of the playhead frame), and **Insert Frame Hold Segment** (insert a 2 s freeze
       at the playhead and ripple downstream) — the latter two are `CompositeCommand`s over the existing
@@ -3043,15 +3043,15 @@ Tags reference the [UI.md §4 checklist](UI.md).
       - **Commands (§ step 10):** `SetClipHoldCommand` (hold/un-hold/retarget, coalescing),
         `TrimHeldClipCommand` (start+duration, no media clamp, coalescing), `ShiftClipsCommand` (the pure
         downstream-move half of a ripple), and the `FrameHoldEdits` builders — `AddFrameHold` (split at
-        playhead, freeze the right half, no ripple), `InsertFrameHoldSegment` (2 s freeze + ripple, Premiere
-        default), `DuplicateFrame` / `RemoveFrame` (exact source-frame grid via `Rational`/`Int128` math,
+        playhead, freeze the right half, no ripple), `InsertFrameHoldSegment` (2 s freeze + ripple, the
+        leading-editor default), `DuplicateFrame` / `RemoveFrame` (exact source-frame grid via `Rational`/`Int128` math,
         `SourceFrameSpan`, ±1-frame ripple; tested at 12, 24, and 30000/1001 fps) — each one
         `CompositeCommand` = one undo entry, downstream sets captured by the caller like `RippleTrimCommand`.
       - **UI (App):** Clip ▸ **Frame Hold Options…** (hold at In Point / Playhead / source time, or release —
         `FrameHoldOptionsDialog`), **Add Frame Hold**, **Insert Frame Hold Segment**, **Duplicate Frame**,
-        **Remove Frame** (no default shortcuts — Premiere ships none; Remove Frame stays distinct from
+        **Remove Frame** (no default shortcuts — leading editors ship none; Remove Frame stays distinct from
         Shift+Delete ripple delete). Video-track clips with frame content only (media/nested/multicam;
-        generators animate by local progress); linked audio keeps playing, matching Premiere — Add/Insert split
+        generators animate by local progress); linked audio keeps playing, matching leading editors — Add/Insert split
         companions spanning the cut, frame-edit ripples shift **every** track downstream so A/V sync holds.
         Held-clip gestures: trim edits `HoldDuration` (no media clamp, like generators/stills), slip moves
         `HoldFrameAt`, ripple/roll/slide abort on held edges (their source-trim math doesn't apply); clip body
@@ -3061,7 +3061,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         already-presented source time (a held span's constant map, scrub ticks in a freeze) skips the
         re-seek/re-decode entirely; the presented-target latch is invalidated on feed rebuild/clear.
       - **Persistence (§12):** additive nullable `ClipDto.holdAtTicks`/`holdDurationTicks`
-        (`WhenWritingNull`) — unheld clips serialize byte-identically, no schema bump; EDL/FCP-XML interchange
+        (`WhenWritingNull`) — unheld clips serialize byte-identically, no schema bump; EDL/XML interchange
         counts a "frame hold dropped/not exported" warning (their events derive source span from record span).
       - **Deliberate departures:** whole-clip on-twos stays Interpret Footage at half rate (step 42), not
         Dragonframe X-sheet editing; Duplicate/Remove Frame are disabled on an already-held clip (no frame grid
@@ -3071,7 +3071,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
     the active sequence's master mix without rendering or muxing a video stream. This is a later
     delivery feature, not part of the completed step-27 container/video/audio matrix: that step writes
     audio codecs inside movie containers, while this one exports sound as the product. Follow the
-    Premiere / Resolve / Final Cut convention — an **Audio only** export format or mode with common
+    convention in leading editors — an **Audio only** export format or mode with common
     audio targets such as **WAV/PCM, FLAC, MP3, AAC/M4A, and Opus** where the bundled FFmpeg build
     supports them — rather than forcing users through a dummy video export.
     - **Export model.** Extend `ExportOptions` / `ExportFormat` with a delivery kind or equivalent
@@ -3594,23 +3594,23 @@ Tags reference the [UI.md §4 checklist](UI.md).
       profile entry (display name notes the alias) rather than a separate id, since Leica licenses
       the identical curve.
 53. **Clip right-click context menu (+ Split at Playhead, Duplicate, Enable/Disable clip).** Every
-    leading editor (Premiere, Resolve, FCP) puts the standard clip operations on a right-click menu
+    leading editor puts the standard clip operations on a right-click menu
     on the clip itself; Sprocket's are reachable only from the menu bar and keyboard (step 16c).
     Nearly everything the menu needs **already exists** as an undoable public `TimelineControl`
     method — `CutSelected`/`CopySelected`/`PasteAtPlayhead`, `DeleteSelected`,
     `RippleDeleteSelected`, `UnlinkSelected`, `SetSelectedClipSpeed` (step 21), the frame-hold
     family (step 43), `NestSelection` (step 23), `SwitchSelectedAngle` (step 24), Normalize Audio
     (step 30), Interpret Footage (step 42) — so most of this step is wiring, plus three genuinely
-    new operations. Menu contents mirror Premiere's grouping: Cut / Copy / Paste / **Duplicate** ·
-    Delete / Ripple Delete · **Split at Playhead** (`Ctrl+K`, Premiere's Add Edit shortcut) ·
-    **Enable** (checkable, `Shift+E`, Premiere's convention) / Unlink / Link (stays visibly
+    new operations. Menu contents mirror the grouping used by leading editors: Cut / Copy / Paste / **Duplicate** ·
+    Delete / Ripple Delete · **Split at Playhead** (`Ctrl+K`, the Add Edit shortcut used in leading editors) ·
+    **Enable** (checkable, `Shift+E`, the convention in leading editors) / Unlink / Link (stays visibly
     disabled until step 55, per the step-16c "wired or visibly disabled, never silently dead"
     rule) · Speed/Duration… / Frame Hold ▸ · Nest / Normalize Audio / Interpret Footage… /
-    Multicam ▸. Deliberate departures: Nudge stays keyboard/menu-bar-only (Premiere doesn't put
+    Multicam ▸. Deliberate departures: Nudge stays keyboard/menu-bar-only (leading editors don't put
     nudge in the context menu); Rename / label color omitted (no model support yet).
     - **Core (`Sprocket.Core/Model/Clip.cs`, `Rendering/RenderGraph.cs`).** The step's only model
       change: `Clip.Enabled { get; set; } = true` — a disabled clip renders nothing and
-      contributes no audio, like Premiere's Enable toggle — copied by `CloneContentForSpan` so
+      contributes no audio, like the Enable toggle in leading editors — copied by `CloneContentForSpan` so
       blade/duplicate/paste preserve it. Toggled through the existing generic
       `SetPropertyCommand<bool>` (step 10; no new command class — the same pattern `UnlinkSelected`
       uses for `LinkGroupId`). `RenderGraph` skips disabled clips in `ResolveClipLayer` (which
@@ -3633,7 +3633,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
       `BladeClip`, which keeps only the cursor/snap math; `DuplicateSelected()` — a copy placed at
       the original's `TimelineEnd` on the same track, linked companions duplicated together under
       a fresh `LinkGroupId`, one undo entry; `ToggleSelectedEnabled()` — linked companions toggle
-      together when Linked is on, matching Premiere. Disabled clips draw dimmed in `DrawClips`.
+      together when Linked is on, matching leading editors. Disabled clips draw dimmed in `DrawClips`.
       Wire the stubbed `ClipEnableMenuItem` (checkable, reflecting `SelectedIsEnabled` in
       `RefreshClipMenu`); add **Clip ▸ Split at Playhead** and **Clip ▸ Duplicate** so every
       context item has a menu-bar home; `Ctrl+K` / `Shift+E` land in the central `OnKeyDown`
@@ -3669,7 +3669,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
       lists a multicam clip's angles (active one checked) under Multicam ▸, since the menu is
       rebuilt per open anyway. Enable state is hashed for the render cache for free — the hash
       already covers the clip DTO, which gained the `Enabled` field. The menu is shaped by the
-      clip's lane kind, as Premiere shapes its clip menus (the event carries the hit clip's
+      clip's lane kind, as leading editors shape their clip menus (the event carries the hit clip's
       `Track`): video-only items (Frame Hold ▸, Interpret Footage…, Multicam ▸) appear only on a
       video-track clip, Normalize Audio only on an audio-track clip — on a linked pair the video
       clip contributes no audio (its companion does), so Normalize on it would silently set a
@@ -3686,7 +3686,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
       already exists as `DragKind.Band` for the opacity rubber-band — the lane-area marquee is a
       new drag kind with pure hit math in `TimelineMath`, headlessly testable). Plain click keeps
       today's behavior (select one, clear the rest). Mixed video+audio selections are allowed
-      (like Premiere). Multi-selected clips all draw with the selection treatment; the primary is
+      (as in leading editors). Multi-selected clips all draw with the selection treatment; the primary is
       visually distinct.
     - **Operation surface.** The `SelectedXxx` predicate surface generalizes: batch-capable
       operations — Delete, Ripple Delete, Cut/Copy, Nudge, Enable/Disable (step 53) — act on the
@@ -3709,10 +3709,10 @@ Tags reference the [UI.md §4 checklist](UI.md).
       share a track). (2) Gesture details: Ctrl+click on the opacity rubber-band keeps its step-39 meaning
       (add a fade point) — the fade-gesture hit test runs before the membership toggle; a plain press on a
       multi-selected member keeps the set, re-anchors the primary, and collapses to just that clip on a
-      release without movement (Premiere's rule); the lane-area marquee replaces drag-scrub for the
+      release without movement (the rule in leading editors); the lane-area marquee replaces drag-scrub for the
       Select tool only (a sub-threshold click still clears the selection and moves the playhead; other
-      tools keep the old behavior; Ctrl/Shift makes the marquee additive), matching Premiere's lane-area
-      marquee. (3) A multi-clip move shifts every member rigidly in time on its own track while the
+      tools keep the old behavior; Ctrl/Shift makes the marquee additive), matching the lane-area
+      marquee convention in leading editors. (3) A multi-clip move shifts every member rigidly in time on its own track while the
       dragged clip may change lanes — the convention linked companions already used — and Alt-copy still
       duplicates just the primary. Cut/Copy snapshots exactly the selected clips (linked companions are
       not implicitly copied — unchanged from 16c) and pasted clips stay link-free (the step-13/16c
@@ -3729,11 +3729,11 @@ Tags reference the [UI.md §4 checklist](UI.md).
     did — `ClipLinkMenuItem` has sat stubbed-disabled since 16c, because linking has no natural
     single-clip trigger: in every leading editor you select a video clip and an audio clip, then
     Link. **Depends on step 54 (multi-select).** With a multi-selection of ≥2 clips spanning at
-    least one video and one audio clip (Premiere's eligibility rule), set a fresh shared
+    least one video and one audio clip (the eligibility rule used in leading editors), set a fresh shared
     `LinkGroupId` on every selected clip via the existing `SetPropertyCommand<Guid?>` under one
     `CompositeCommand` — the exact mirror of `UnlinkSelected`; **no Core change** (the model,
     persistence, and every linked-aware edit already key off `LinkGroupId`, step 13). Wire
-    `ClipLinkMenuItem` and the step-53 context-menu item; `Ctrl+L` (Premiere/Resolve's shortcut)
+    `ClipLinkMenuItem` and the step-53 context-menu item; `Ctrl+L` (the shortcut used by leading editors)
     toggles Link/Unlink by selection state. MCP: `link_clips(clip_ids)` alongside the existing
     unlink surface.
     - **Tests.** Link sets one shared group across the selection in a single undo entry (undo
@@ -3759,7 +3759,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
 56. **Windows 10 support (verify + declare).** Promote Windows 10 to a fully supported platform
     alongside Windows 11, with a support floor of **Windows 10 64-bit, version 1809 or later**
     (x64 / arm64) — .NET 10's oldest supported Windows 10 baseline (covers LTSC 2019), and in line
-    with leading editors (Resolve requires Win10 1903+; Premiere requires 22H2). Deliberate nuance:
+    with leading editors, whose Windows requirements range from Win10 1903 through 22H2. Deliberate nuance:
     consumer Windows 10 editions are past Microsoft end-of-support (Oct 2025), so Sprocket supports
     the OS on a "runs and is tested" basis, not an implied-OS-security basis. **No code changes are
     expected** — an audit (recorded here so nobody hunts for a gate later) found nothing that blocks
@@ -3822,8 +3822,8 @@ looks, and creative `.cube` LUTs sampled through step 37's packed-LUT stage (no 
 machinery). The scope guard: the looks browser lists tier 2 only — camera-conversion transforms
 (D-Log→Rec.709 et al.) never appear as looks (that would duplicate steps 37/52 and invite double
 application), and looks are authored/applied against normalized Rec.709 footage,
-never raw log. This mirrors Premiere (Input LUT vs. Creative Look), Final Cut (Camera LUT vs.
-Custom LUT effect), and Resolve (input color space vs. node LUTs / PowerGrades).
+never raw log. This mirrors how leading editors separate camera-conversion transforms from creative
+looks (e.g., input LUT vs. creative look, or input color space vs. node LUTs/power grades).
 
 Open product questions (e.g. the mockup's user-avatar / account affordance, full panel docking)
 are tracked in [UI.md §5](UI.md).

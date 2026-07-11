@@ -23,7 +23,7 @@ public sealed record RenderManifestDto(int Version, List<RenderSegmentRecord> Se
 
 /// <summary>
 /// The on-disk half of the preview render cache (ARCHITECTURE.md §20, PLAN.md step 32): a cache directory
-/// <b>beside the project</b> (the NLE convention — Premiere's "Preview Files" folder) holding the rendered
+/// <b>beside the project</b> (the NLE convention — a "Preview Files"-style folder) holding the rendered
 /// intermediates plus a manifest of what ranges they cover. Everything here is local, regenerable, and safely
 /// discardable: deleting the directory only forces re-rendering. Untitled projects fall back to a per-user dir
 /// (the proxy store family); <c>SPROCKET_RENDER_CACHE_DIR</c> overrides both (tests / portable installs).

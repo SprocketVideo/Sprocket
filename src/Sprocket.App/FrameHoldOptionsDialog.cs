@@ -12,7 +12,7 @@ namespace Sprocket.App;
 internal sealed record FrameHoldOptionsResult(bool Hold, Timecode HoldAt);
 
 /// <summary>
-/// "Frame Hold Options" (PLAN.md step 43, Premiere naming): freeze the whole selected clip on a single source
+/// "Frame Hold Options" (PLAN.md step 43, the naming other editors use): freeze the whole selected clip on a single source
 /// frame — at its in point, the frame under the playhead, or an explicit source time — or release the hold.
 /// The clip's timeline span is unchanged either way; un-holding restores normal playback exactly (the source
 /// span and speed are retained under the hold).
@@ -29,7 +29,7 @@ internal static class FrameHoldOptionsDialog
     public static Task<FrameHoldOptionsResult?> Show(
         Window owner, string clipName, bool isHeld, Timecode? currentHoldAt, Timecode inPoint, Timecode? playheadSource)
     {
-        // Opening the dialog is the intent to hold (matching Premiere), so the box starts checked either way;
+        // Opening the dialog is the intent to hold (matching leading editors), so the box starts checked either way;
         // unchecking it on a held clip releases the hold.
         var hold = new CheckBox
         {

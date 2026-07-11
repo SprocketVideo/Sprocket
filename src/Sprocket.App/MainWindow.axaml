@@ -76,7 +76,7 @@
             <MenuItem x:Name="SelectAllMenuItem" Header="Select _All" InputGesture="Ctrl+A" />
             <Separator />
             <!-- Application-level (user-scoped) settings (PLAN.md step 38) — Edit ▸ Preferences with Ctrl+,
-                 matches the Premiere/Resolve convention on Windows/Linux. The gesture is handled in OnKeyDown;
+                 matches the convention in leading editors on Windows/Linux. The gesture is handled in OnKeyDown;
                  the text here is the display label (OemComma would render as "Ctrl+OemComma"). -->
             <MenuItem x:Name="PreferencesMenuItem" Header="Pre_ferences…" InputGesture="Ctrl+," />
           </MenuItem>
@@ -84,17 +84,17 @@
             <!-- Insert generators / adjustment layer at the playhead (PLAN.md step 19); children added at runtime. -->
             <MenuItem x:Name="ClipInsertMenuItem" Header="_Insert" />
             <Separator />
-            <!-- Split at Playhead (Ctrl+K, Premiere's Add Edit) and Duplicate (PLAN.md step 53) — also on the
+            <!-- Split at Playhead (Ctrl+K, the Add Edit command in leading editors) and Duplicate (PLAN.md step 53) — also on the
                  clip right-click context menu; every context item keeps a menu-bar home. -->
             <MenuItem x:Name="ClipSplitAtPlayheadMenuItem" Header="Spli_t at Playhead" InputGesture="Ctrl+K" IsEnabled="False" />
             <MenuItem x:Name="ClipDuplicateMenuItem" Header="Du_plicate" IsEnabled="False" />
             <Separator />
-            <!-- Enable toggle (Shift+E, Premiere's convention, PLAN.md step 53): a disabled clip renders
+            <!-- Enable toggle (Shift+E, the convention in leading editors, PLAN.md step 53): a disabled clip renders
                  nothing and contributes no audio; checked state refreshed in RefreshClipMenu. -->
             <MenuItem x:Name="ClipEnableMenuItem" Header="_Enable" InputGesture="Shift+E" ToggleType="CheckBox" IsEnabled="False" />
             <Separator />
             <!-- Link groups a multi-clip selection spanning video + audio (PLAN.md step 55); Unlink works on
-                 the selected linked clip. Ctrl+L (Premiere/Resolve) toggles between them by selection state,
+                 the selected linked clip. Ctrl+L (as in leading editors) toggles between them by selection state,
                  so both items show the shared shortcut; enablement refreshed in RefreshClipMenu. -->
             <MenuItem x:Name="ClipLinkMenuItem" Header="_Link" InputGesture="Ctrl+L" IsEnabled="False" />
             <MenuItem x:Name="ClipUnlinkMenuItem" Header="_Unlink" InputGesture="Ctrl+L" IsEnabled="False" />
@@ -105,7 +105,7 @@
             <MenuItem x:Name="ClipInterpretFootageMenuItem" Header="Interpret _Footage…" IsEnabled="False" />
 
             <Separator />
-            <!-- Frame hold + stop-motion frame edits (PLAN.md step 43), Premiere naming. Options… holds/unholds the
+            <!-- Frame hold + stop-motion frame edits (PLAN.md step 43), naming used by leading editors. Options… holds/unholds the
                  whole selected video clip; Add Frame Hold splits at the playhead and freezes the right half; Insert
                  Frame Hold Segment inserts a 2 s freeze at the playhead and ripples downstream. Duplicate/Remove
                  Frame edit one source frame on the exact frame grid and ripple ±1 frame. -->

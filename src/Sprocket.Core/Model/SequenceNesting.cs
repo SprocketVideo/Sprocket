@@ -4,8 +4,8 @@ using Sprocket.Core.Timing;
 namespace Sprocket.Core.Model;
 
 /// <summary>
-/// Builds the "nest selected clips into a new sequence" edit (PLAN.md step 23, the Premiere "nest" / Final Cut
-/// "compound clip" gesture): the selected clips move into a brand-new child <see cref="Sequence"/>, and the
+/// Builds the "nest selected clips into a new sequence" edit (PLAN.md step 23, the "nest" / "compound clip"
+/// gesture leading editors use): the selected clips move into a brand-new child <see cref="Sequence"/>, and the
 /// parent gets a single nested-sequence clip in their place (a linked video + audio pair when the selection spans
 /// both). The whole thing is one undoable <see cref="CompositeCommand"/>. Pure model reasoning, so it is tested
 /// headlessly even though the "what is selected" comes from the (UI-bound) timeline.

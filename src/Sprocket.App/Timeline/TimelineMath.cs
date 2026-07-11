@@ -10,7 +10,7 @@ namespace Sprocket.App;
 /// downstream; <see cref="Roll"/> rolls the cut between two adjacent clips; <see cref="Slip"/> shifts a clip's
 /// source in/out without moving it; <see cref="Slide"/> moves a clip while its neighbours absorb the change;
 /// <see cref="Hand"/> pans the view and <see cref="Zoom"/> zooms it (view-only). The trim family
-/// (Ripple/Roll/Slip/Slide) mirrors the Premiere/Resolve/FCP toolset.
+/// (Ripple/Roll/Slip/Slide) mirrors the toolset found in professional NLEs.
 /// </summary>
 public enum EditTool
 {

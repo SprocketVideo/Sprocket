@@ -244,7 +244,7 @@ public sealed class TimelineControl : Control
     /// and open the clip context menu at the pointer. The menu lives in <see cref="MainWindow"/> because its
     /// dialog-backed items (Speed/Duration, Interpret Footage) do, and the custom-drawn timeline cannot host
     /// child controls itself. The clip's <see cref="Track"/> rides along so the shell can shape the menu by
-    /// lane kind (video-only items like Frame Hold vs audio-only items like Normalize Audio, as Premiere does).
+    /// lane kind (video-only items like Frame Hold vs audio-only items like Normalize Audio, as leading editors do).
     /// </summary>
     public event Action<Clip, Track>? ClipContextMenuRequested;
 
@@ -334,7 +334,7 @@ public sealed class TimelineControl : Control
 
     /// <summary>
     /// Zooms so the whole sequence fits the viewport width and scrolls back to the start (View ▸ Zoom to Fit,
-    /// Shift+Z) — the Resolve/FCP "frame the timeline" command. No-op on an empty timeline or before layout.
+    /// Shift+Z) — the "frame the timeline" command found in professional NLEs. No-op on an empty timeline or before layout.
     /// </summary>
     public void ZoomToFit()
     {
@@ -544,7 +544,7 @@ public sealed class TimelineControl : Control
     public static IBrush MarkerHighlightBrush(MarkerColor color) => MarkerHighlights[color];
 
     /// <summary>
-    /// Adds a sequence marker at the playhead (the Premiere 'M' convention), undoable through the command stack.
+    /// Adds a sequence marker at the playhead (the 'M' convention used by leading editors), undoable through the command stack.
     /// Returns the new marker (so the caller can offer to name it) or <see langword="null"/> when not ready.
     /// </summary>
     public Marker? AddMarkerAtPlayhead()
@@ -610,7 +610,7 @@ public sealed class TimelineControl : Control
     public bool SelectedIsEnabled => _selected is { Enabled: true };
 
     /// <summary>
-    /// Splits the selected clip at the playhead (Ctrl+K, Premiere's Add Edit): the same cut the Blade tool makes,
+    /// Splits the selected clip at the playhead (Ctrl+K, the Add Edit command in leading editors): the same cut the Blade tool makes,
     /// without the pointer — linked companions spanning the playhead split too (Linked on) and the right halves
     /// share a fresh link group, one undo entry, the right half selected. No-ops when the playhead is on/outside
     /// the clip's edges.
@@ -648,7 +648,7 @@ public sealed class TimelineControl : Control
     /// <summary>
     /// Toggles the selected clips' Enable flag (Shift+E, PLAN.md steps 53/54): a disabled clip renders nothing
     /// and contributes no audio but keeps its place. The whole selection — plus linked companions with Linked
-    /// on — converges on the opposite of the primary's state, as one undo entry, matching Premiere.
+    /// on — converges on the opposite of the primary's state, as one undo entry, matching leading editors.
     /// </summary>
     public void ToggleSelectedEnabled()
     {
@@ -681,12 +681,12 @@ public sealed class TimelineControl : Control
 
     // ── Frame hold + stop-motion frame edits (PLAN.md step 43) ──────────────────────────────────────
 
-    /// <summary>Premiere's Insert Frame Hold Segment inserts a 2-second freeze; kept as the convention.</summary>
+    /// <summary>Leading editors' Insert Frame Hold Segment inserts a 2-second freeze; kept as the convention.</summary>
     private static readonly Timecode HoldSegmentDuration = Timecode.FromSeconds(2);
 
     /// <summary>Whether the selection can carry a frame hold: a clip with frame content (media / nested sequence /
     /// multicam — a generator animates by local progress, not source time) on a video track. Video holds only —
-    /// linked audio keeps playing normally, matching Premiere (PLAN.md step 43).</summary>
+    /// linked audio keeps playing normally, matching leading editors (PLAN.md step 43).</summary>
     public bool SelectedCanFrameHold => _selected is { } clip && CanFrameHold(clip);
 
     /// <summary>Whether the selected clip is currently a frame hold (for the menu/dialog state).</summary>
@@ -722,7 +722,7 @@ public sealed class TimelineControl : Control
     }
 
     /// <summary>
-    /// Clip ▸ Add Frame Hold (Premiere naming): splits the selected clip at the playhead and freezes the right
+    /// Clip ▸ Add Frame Hold (naming used by leading editors): splits the selected clip at the playhead and freezes the right
     /// half at the playhead frame — playback runs to the playhead and holds. The clip's span is unchanged (no
     /// ripple). With Linked on, companion clips spanning the cut are split too (the audio keeps playing across
     /// both halves); at the clip's very start the whole clip is held instead. One undo entry.
@@ -762,7 +762,7 @@ public sealed class TimelineControl : Control
     }
 
     /// <summary>
-    /// Clip ▸ Insert Frame Hold Segment (Premiere naming): inserts a 2-second freeze of the playhead frame into
+    /// Clip ▸ Insert Frame Hold Segment (naming used by leading editors): inserts a 2-second freeze of the playhead frame into
     /// the selected clip and ripples everything at/after the playhead — on every track, so A/V sync holds —
     /// right by the same amount. With Linked on, companions spanning the playhead are split with it. One undo
     /// entry; the new freeze segment is selected.
@@ -971,7 +971,7 @@ public sealed class TimelineControl : Control
 
     /// <summary>
     /// Nests the current selection — and, while <see cref="Linked"/>, its linked companion clips — into a new
-    /// child sequence (PLAN.md step 23, the Premiere "Nest" / Final Cut "compound clip" gesture): the selected
+    /// child sequence (PLAN.md step 23, the "Nest" / "compound clip" gesture found in leading editors): the selected
     /// clips move into a fresh sequence and one nested-sequence clip replaces them in the active sequence, as a
     /// single undoable edit. The replacement clip becomes the selection. Returns the new child sequence (so the
     /// shell can offer to open it), or <see langword="null"/> when there is no selection to nest.
@@ -1005,8 +1005,8 @@ public sealed class TimelineControl : Control
 
     /// <summary>
     /// Creates a synced multicam source from the stacked camera angles (the first clip on each video track) and
-    /// replaces them with a single multicam clip (PLAN.md step 24, the Premiere "Create Multi-Camera Source"
-    /// gesture). The angles are synced by their current placement; switch angles later with the number keys or the
+    /// replaces them with a single multicam clip (PLAN.md step 24, the "Create Multi-Camera Source" gesture found
+    /// in leading editors). The angles are synced by their current placement; switch angles later with the number keys or the
     /// Inspector. One undoable edit; the new multicam clip becomes the selection. Returns the source name, or
     /// <see langword="null"/> when there are fewer than two angle tracks.
     /// </summary>
@@ -1342,7 +1342,7 @@ public sealed class TimelineControl : Control
     }
 
     // The in/out range (I / O keys, PLAN.md step 32): a light shade across the ruler between the marks, with an
-    // accent tick at each set mark — the Premiere work-area idiom, scoping Render In to Out.
+    // accent tick at each set mark — the work-area idiom found in leading editors, scoping Render In to Out.
     private void DrawInOutRange(DrawingContext ctx, Size size)
     {
         if (_markIn is null && _markOut is null)
@@ -1690,7 +1690,7 @@ public sealed class TimelineControl : Control
     }
 
     // The Blade tool's cut-line preview: a thin vertical line at the exact (snapped) position the next click
-    // would split — the FCP-skimmer / Resolve blade-line convention. Full lane height so the cut point can be
+    // would split — the skimmer / blade-line convention found in professional NLEs. Full lane height so the cut point can be
     // judged against clips on every track; visually lighter than the playhead so the two never read as one.
     private static readonly Pen BladePreviewPen = new(new ImmutableSolidColorBrush(Colors.White, 0.7), 1);
 
@@ -1839,8 +1839,8 @@ public sealed class TimelineControl : Control
             }
 
             // A plain press on a member of a multi-selection keeps the set (the drag below moves it rigidly)
-            // and re-anchors the primary; releasing without movement collapses to just this clip (Premiere's
-            // convention, handled in CommitMovePreview). Any other plain press replaces the selection.
+            // and re-anchors the primary; releasing without movement collapses to just this clip (the
+            // convention in leading editors, handled in CommitMovePreview). Any other plain press replaces the selection.
             if (_selection.Count > 1 && _selection.Contains(clip))
                 OnSelectionMutated(_selection.SetPrimary(clip));
             else
@@ -2399,8 +2399,8 @@ public sealed class TimelineControl : Control
                 _dragOrigIn, _dragOrigOut, _dragOrigStart.Ticks, _dragLinked) is not { } command)
         {
             // Pure click, no movement: a plain press on a member of a multi-selection kept the set for the
-            // drag — releasing without moving collapses the selection to just that clip (Premiere's
-            // convention, PLAN.md step 54).
+            // drag — releasing without moving collapses the selection to just that clip (the
+            // convention in leading editors, PLAN.md step 54).
             if (_selection.Count > 1)
                 Select(clip);
             return;
@@ -2757,7 +2757,7 @@ public sealed class TimelineControl : Control
     }
 
     /// <summary>
-    /// Ripple-deletes the selected clips (Premiere/Resolve's Shift+Delete): removes each and shifts later clips
+    /// Ripple-deletes the selected clips (Shift+Delete, as in leading editors): removes each and shifts later clips
     /// on its track left so the gaps close (cumulatively when several selected clips share a track). With Linked
     /// on, companion A/V clips are removed and their tracks rippled too — all one undo entry (steps 22/54).
     /// </summary>

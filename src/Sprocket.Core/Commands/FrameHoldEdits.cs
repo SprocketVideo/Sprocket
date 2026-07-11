@@ -44,10 +44,10 @@ public static class FrameHoldEdits
     }
 
     /// <summary>
-    /// <b>Add Frame Hold</b> (Premiere naming): splits <paramref name="clip"/> at the playhead and freezes the
+    /// <b>Add Frame Hold</b> (the naming used in leading editors): splits <paramref name="clip"/> at the playhead and freezes the
     /// right half at the playhead's source frame — playback runs normally up to <paramref name="at"/> and holds
     /// that frame for the rest of the clip's span. The clip's overall span is unchanged (no ripple), so linked
-    /// audio stays aligned and keeps playing, matching Premiere. <paramref name="rightLinkGroup"/> is the fresh
+    /// audio stays aligned and keeps playing, matching the convention in leading editors. <paramref name="rightLinkGroup"/> is the fresh
     /// group a linked blade gives the right-hand halves (see <see cref="SplitClipCommand"/>).
     /// <paramref name="at"/> must lie strictly inside the clip (at the very start, hold the whole clip via
     /// <see cref="SetClipHoldCommand"/> / Frame Hold Options instead).
@@ -67,7 +67,7 @@ public static class FrameHoldEdits
     }
 
     /// <summary>
-    /// <b>Insert Frame Hold Segment</b> (Premiere naming): splits <paramref name="clip"/> at the playhead (when
+    /// <b>Insert Frame Hold Segment</b> (the naming used in leading editors): splits <paramref name="clip"/> at the playhead (when
     /// strictly inside), inserts a <paramref name="holdDuration"/>-long freeze of the playhead's source frame,
     /// and ripples downstream by the same amount. <paramref name="downstream"/> is every clip that must shift
     /// right — clips starting at/after <paramref name="at"/> on the affected tracks (companion audio included),

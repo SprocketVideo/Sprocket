@@ -7,7 +7,7 @@ namespace Sprocket.App;
 
 /// <summary>
 /// Generates fresh, unique sequence display names (PLAN.md step 23). Mirrors the convention in leading editors
-/// (Premiere's "Sequence 01" on create, "Nested Sequence 01" on nest): pick the first <c>"{prefix} N"</c> that is
+/// ("Sequence 01" on create, "Nested Sequence 01" on nest): pick the first <c>"{prefix} N"</c> that is
 /// not already taken, case-insensitively. Pure naming policy, so it sits in the App alongside the menu wiring.
 /// </summary>
 public static class SequenceNaming

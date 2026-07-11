@@ -25,7 +25,8 @@ internal static class MediaImport
         public bool Succeeded => Media is not null;
     }
 
-    /// <summary>The Premiere-default on-timeline duration for a newly imported still (PLAN.md step 42), used when
+    /// <summary>The default on-timeline duration for a newly imported still, matching the convention used by
+    /// other editors (PLAN.md step 42), used when
     /// no per-project preference is supplied (MCP / CLI import).</summary>
     public static readonly Timecode DefaultStillDuration = Timecode.FromSeconds(5);
 

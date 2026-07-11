@@ -23,8 +23,8 @@ namespace Sprocket.App.Mixer;
 /// meters), a channel strip per audio track (gain fader, pan/balance, mute, solo), and loudness-normalization to a
 /// chosen target at track and master scope. Every edit routes through the <see cref="EditHistory"/> so it is
 /// undoable; the meters poll the audio engine's <see cref="AudioEngine.CurrentLoudness"/> only while this tab is on
-/// screen. Each strip also carries its <b>insert chain</b> (PLAN.md step 31, the Premiere Audio Track Mixer
-/// convention): the track's pre-fader inserts, plus a Sequence Bus strip and the master panel's inserts —
+/// screen. Each strip also carries its <b>insert chain</b> (PLAN.md step 31, the channel-strip insert
+/// convention professional audio mixers use): the track's pre-fader inserts, plus a Sequence Bus strip and the master panel's inserts —
 /// add / enable / reorder / remove here, deep parameter editing in the Inspector via
 /// <see cref="InspectChainRequested"/>.
 /// </summary>
@@ -359,7 +359,7 @@ public sealed class MixerView : UserControl
     // ── insert chains (PLAN.md step 31) ────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// A strip's insert-chain block, following the Premiere Audio Track Mixer's per-strip effect slots: an
+    /// A strip's insert-chain block, following the standard audio-mixer per-strip effect-slot convention: an
     /// "Inserts" header with a "+" flyout of the catalog's audio effects, then one compact row per effect —
     /// enable LED, name (click opens the chain in the Inspector for parameter editing), and remove. Reorder
     /// via the row's context menu (Move Up / Move Down, the step-51 fallback affordance). All edits are

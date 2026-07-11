@@ -11,7 +11,7 @@ namespace Sprocket.App;
 
 /// <summary>How the user chose to import a detected numbered image run (PLAN.md step 42).</summary>
 /// <param name="AsSequence">True to import as one image-sequence clip; false to import the picked file as a
-/// single still instead (the Premiere "Import as image sequence" checkbox, unchecked).</param>
+/// single still instead (the "Import as image sequence" checkbox convention, unchecked).</param>
 /// <param name="FrameRate">The frame rate for the sequence (ignored when <see cref="AsSequence"/> is false).</param>
 public readonly record struct SequenceImportChoice(bool AsSequence, Rational FrameRate);
 

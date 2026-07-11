@@ -24,7 +24,7 @@ public enum ExportAudioFormat { WavPcm, Flac, Mp3, Aac, Opus }
 public enum ExportQuality { High, Medium, Low }
 
 /// <summary>How the exported video stream is encoded (PLAN.md step 29). Orthogonal to the codec, matching how
-/// leading NLEs (Premiere's "Software / Hardware Encoding", Resolve's encoder picker) present it.</summary>
+/// leading NLEs (a "Software / Hardware Encoding" toggle, or an encoder picker) present it.</summary>
 public enum ExportAcceleration
 {
     /// <summary>Encode with the deterministic software encoder (libx264/libx265/SVT-AV1/…). The default: final

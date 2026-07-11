@@ -5,7 +5,7 @@ namespace Sprocket.Core.Model;
 
 /// <summary>
 /// What one export burn-in line displays (PLAN.md step 29). A burn-in is delivery metadata baked onto the exported
-/// frame — the standard set every NLE offers (Premiere's Timecode/Name overlays, Resolve's data burn-in): the
+/// frame — the standard set every NLE offers (timecode/name overlays, data burn-ins): the
 /// running timecode, the topmost clip's name, or a fixed watermark string.
 /// </summary>
 public enum BurnInField
@@ -22,7 +22,7 @@ public enum BurnInField
 
 /// <summary>
 /// Where a burn-in sits on the frame: a nine-point alignment grid, matching the alignment picker professional
-/// tools expose for data burn-ins (Resolve/Premiere). The renderer insets each anchor by a small margin so text
+/// tools expose for data burn-ins. The renderer insets each anchor by a small margin so text
 /// never touches the frame edge.
 /// </summary>
 public enum BurnInPosition

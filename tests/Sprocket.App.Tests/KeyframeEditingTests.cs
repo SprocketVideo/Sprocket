@@ -79,7 +79,7 @@ public class KeyframeEditingTests
         Assert.Equal(0.5, back.Evaluate(Timecode.FromSeconds(0.5)), 3); // linear again → halfway
     }
 
-    // ── Premiere-parity keyframe ops (PLAN.md step 16d) ─────────────────────────────────────────────────
+    // ── Keyframe parity with leading editors (PLAN.md step 16d) ────────────────────────────────────────
 
     [Fact]
     public void CycleInterpolation_Walks_Through_Every_Mode_And_Wraps()

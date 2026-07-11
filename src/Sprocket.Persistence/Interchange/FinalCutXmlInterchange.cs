@@ -9,7 +9,7 @@ public sealed record InterchangeImport(Project Project, InterchangeReport Report
 
 /// <summary>
 /// Round-trips the active sequence through <b>Final Cut Pro 7 XML</b> (<c>xmeml</c>, version 5) — the lingua franca
-/// that Premiere Pro, DaVinci Resolve, and Final Cut 7 all read and write (PLAN.md step 28). It carries the cut:
+/// that leading editors all read and write (PLAN.md step 28). It carries the cut:
 /// sequence name / rate / resolution, the video and audio track layout, each clip's record placement and source
 /// in/out, and the source file references (id + path). Richer model state (effects, transitions, retimes, track mix,
 /// generated / nested / multicam clips, and source technical metadata) has no xmeml representation and is
