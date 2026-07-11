@@ -8,11 +8,11 @@
 # runner (the only way to produce the macOS .app at all) and assembles the release. This script then
 # watches that run.
 #
-#   pwsh scripts/gh-release.ps1                      # bump patch, tag v<ver>-alpha.1, push, watch CI
+#   pwsh scripts/gh-release.ps1                      # bump patch, tag v<ver>-alpha, push, watch CI
 #   pwsh scripts/gh-release.ps1 -DryRun              # show every step without changing git or GitHub
 #   pwsh scripts/gh-release.ps1 -NoBump              # release the current Directory.Build.props version as-is
-#   pwsh scripts/gh-release.ps1 -Tag v0.2.0-alpha.1  # use an exact git tag / release name
-#   pwsh scripts/gh-release.ps1 -PreReleaseLabel beta.2          # tag v<ver>-beta.2
+#   pwsh scripts/gh-release.ps1 -Tag v0.2.0-alpha    # use an exact git tag / release name
+#   pwsh scripts/gh-release.ps1 -PreReleaseLabel beta            # tag v<ver>-beta
 #   pwsh scripts/gh-release.ps1 -NotPreRelease      # a full release: no suffix, not marked prerelease
 #
 # Release notes: the CI release job builds the body — an auto "What's changed since <prev tag>"
@@ -22,7 +22,7 @@
 #
 # Versioning: the X.Y.Z version lives in Directory.Build.props (<VersionPrefix>) as the single source
 # of truth; CI verifies the tag matches it before building. The GIT TAG carries the prerelease suffix
-# (e.g. v0.1.55-alpha.1); CI stamps that suffix into the binaries' InformationalVersion.
+# (e.g. v0.1.64-alpha); CI stamps that suffix into the binaries' InformationalVersion.
 #
 # Local builds are still possible without CI: scripts/release.ps1 does everything for the RIDs the
 # host can build (macOS Velopack packs require a Mac).
@@ -35,8 +35,8 @@ param(
     # "v<version>-<PreReleaseLabel>".
     [string] $Tag,
 
-    # Prerelease suffix used when -Tag is not given (e.g. alpha.1, beta.2, rc.1).
-    [string] $PreReleaseLabel = 'alpha.1',
+    # Prerelease suffix used when -Tag is not given (e.g. alpha, beta, rc.1).
+    [string] $PreReleaseLabel = 'alpha',
 
     # Release the current Directory.Build.props version without bumping the patch.
     [switch] $NoBump,

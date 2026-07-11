@@ -66,7 +66,7 @@ param(
     # is NOT bumped or rewritten. When omitted, the patch number in Directory.Build.props is bumped.
     [string] $Version,
 
-    # Optional prerelease suffix (e.g. alpha.1, beta.2, rc.1). When given it is appended to the
+    # Optional prerelease suffix (e.g. alpha, beta, rc.1). When given it is appended to the
     # published version as "<version>-<suffix>" so it flows into the assembly's InformationalVersion
     # (and thus the in-app About box) and the artifact names. It is NOT written to
     # Directory.Build.props — only stamped into the published build.

@@ -48,7 +48,7 @@ body:
     attributes:
       label: Sprocket version
       description: You'll find this under Help ▸ About Sprocket.
-      placeholder: "e.g. 0.1.62-alpha.1"
+      placeholder: "e.g. 0.1.64-alpha"
     validations:
       required: true
   - type: dropdown

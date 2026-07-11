@@ -46,7 +46,7 @@ internal sealed class UpdateService
     private readonly UpdateManager? _manager; // null = not a Velopack install; self-update unavailable
     private UpdateInfo? _update;              // the pending update CheckAsync found, fed to Download/Apply
 
-    /// <summary>Version string of the newer release found ("0.1.55-alpha.1"), or <see langword="null"/>
+    /// <summary>Version string of the newer release found ("0.1.64-alpha"), or <see langword="null"/>
     /// when up to date, disabled, not installed, or never checked.</summary>
     public string? AvailableVersion { get; private set; }
 

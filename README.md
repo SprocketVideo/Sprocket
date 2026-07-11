@@ -173,7 +173,7 @@ native OS runner (the only way to produce the macOS `.app`), smoke-tests each ar
 publishes the GitHub release with everything attached.
 
 ```powershell
-# Bump patch, tag v<ver>-alpha.1, push, watch CI build + publish the release
+# Bump patch, tag v<ver>-alpha, push, watch CI build + publish the release
 pwsh scripts/gh-release.ps1
 
 # Preview all steps without touching git/GitHub
@@ -203,7 +203,7 @@ pwsh scripts/release.ps1 -Rids win-x64 -NoZip -NoReadyToRun
 | `-Rids <list>` | RIDs to build (default: `win-x64 win-arm64 linux-x64 linux-arm64 osx-x64 osx-arm64`). |
 | `-Package <list>` | Artifact kinds per RID: `zip` (default) and/or `velopack`. |
 | `-Version <v>` | Exact version to publish (default: bump the patch in `Directory.Build.props`). |
-| `-VersionSuffix <s>` | Prerelease suffix (e.g. `alpha.1`) stamped into the build + artifact names. |
+| `-VersionSuffix <s>` | Prerelease suffix (e.g. `alpha`) stamped into the build + artifact names. |
 | `-Configuration` | Build configuration (default `Release`). |
 | `-OutDir <dir>` | Output directory (default `dist`). |
 | `-NoBump` | Publish the current version without bumping. |

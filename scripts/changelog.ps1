@@ -9,7 +9,7 @@
 # output when there is nothing to report), or writes to -OutFile.
 #
 #   pwsh scripts/changelog.ps1                        # overview for HEAD since the last v* tag
-#   pwsh scripts/changelog.ps1 -Tag v0.1.55-alpha.1   # overview for a tag since its predecessor
+#   pwsh scripts/changelog.ps1 -Tag v0.1.64-alpha     # overview for a tag since its predecessor
 #   pwsh scripts/changelog.ps1 -OutFile overview.md
 #
 # Needs full git history (CI: actions/checkout with fetch-depth: 0) so the previous tag is visible.
