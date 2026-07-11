@@ -82,7 +82,8 @@ The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step bui
 Code-signing & notarization (alpha artifacts are unsigned) · native plugin hosting — VST3/AU audio
 and OpenColorIO/OFX (the managed plugin host and built-in effects ship today) · variable/ramped
 speed & reverse retime (freeze frames ship today) · convolution reverb (Studio Reverb, Shimmer
-Reverb, and audio freeze ship today). See the [Roadmap](#roadmap).
+Reverb, and audio freeze ship today) · timeline selection & clip conveniences — clip right-click
+menu, clip enable/disable, multi-select, re-link A/V. See the [Roadmap](#roadmap).
 
 ---
 
@@ -310,6 +311,9 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
 - **Audio extras** — convolution reverb (the Studio Reverb, the Shimmer Reverb, factory presets,
   the delay family — digital / tape / multi-tap / stereo ping-pong — the noise gate, the shelving
   EQ, and clip-audio freeze ship today).
+- **Timeline selection & clip conveniences** — a clip right-click context menu (with split at
+  playhead, duplicate, and clip enable/disable), multi-clip selection, and re-linking A/V clips
+  (unlink and linked A/V editing ship today).
 
 ---
 

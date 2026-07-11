@@ -3593,6 +3593,101 @@ Tags reference the [UI.md §4 checklist](UI.md).
       real-world footage surfaces a discrepancy. Leica L-Log is served by the same `PanasonicVLog`
       profile entry (display name notes the alias) rather than a separate id, since Leica licenses
       the identical curve.
+53. **Clip right-click context menu (+ Split at Playhead, Duplicate, Enable/Disable clip).** Every
+    leading editor (Premiere, Resolve, FCP) puts the standard clip operations on a right-click menu
+    on the clip itself; Sprocket's are reachable only from the menu bar and keyboard (step 16c).
+    Nearly everything the menu needs **already exists** as an undoable public `TimelineControl`
+    method — `CutSelected`/`CopySelected`/`PasteAtPlayhead`, `DeleteSelected`,
+    `RippleDeleteSelected`, `UnlinkSelected`, `SetSelectedClipSpeed` (step 21), the frame-hold
+    family (step 43), `NestSelection` (step 23), `SwitchSelectedAngle` (step 24), Normalize Audio
+    (step 30), Interpret Footage (step 42) — so most of this step is wiring, plus three genuinely
+    new operations. Menu contents mirror Premiere's grouping: Cut / Copy / Paste / **Duplicate** ·
+    Delete / Ripple Delete · **Split at Playhead** (`Ctrl+K`, Premiere's Add Edit shortcut) ·
+    **Enable** (checkable, `Shift+E`, Premiere's convention) / Unlink / Link (stays visibly
+    disabled until step 55, per the step-16c "wired or visibly disabled, never silently dead"
+    rule) · Speed/Duration… / Frame Hold ▸ · Nest / Normalize Audio / Interpret Footage… /
+    Multicam ▸. Deliberate departures: Nudge stays keyboard/menu-bar-only (Premiere doesn't put
+    nudge in the context menu); Rename / label color omitted (no model support yet).
+    - **Core (`Sprocket.Core/Model/Clip.cs`, `Rendering/RenderGraph.cs`).** The step's only model
+      change: `Clip.Enabled { get; set; } = true` — a disabled clip renders nothing and
+      contributes no audio, like Premiere's Enable toggle — copied by `CloneContentForSpan` so
+      blade/duplicate/paste preserve it. Toggled through the existing generic
+      `SetPropertyCommand<bool>` (step 10; no new command class — the same pattern `UnlinkSelected`
+      uses for `LinkGroupId`). `RenderGraph` skips disabled clips in `ResolveClipLayer` (which
+      also covers a transition side resolving to a disabled clip — it falls back like a missing
+      clip, §15) and in the audio planner's per-track clip resolution. `Track.ResolveActiveClip`
+      is deliberately **unchanged** so trim/snap/edit logic still sees disabled clips.
+    - **Persistence.** A `bool? Enabled = null` clip-DTO field (absent ⇒ true — the same
+      absent-means-default idiom as `GainDb`, so pre-53 files load unchanged); include the field in
+      `RenderCacheHasher` so toggling invalidates cached renders (step 32).
+    - **UI (`Sprocket.App/Timeline/TimelineControl.cs`, `MainWindow.axaml{,.cs}`).** A
+      right-button branch in `OnPointerPressed` before the left-button guard: hit-test with the
+      existing `TryHitClip`, `Select(clip)`, then raise a `ClipContextMenuRequested` event (the
+      `TitleEditRequested` pattern — the custom-drawn control can't host child controls, and the
+      dialog-backed items live in MainWindow). MainWindow builds the `ContextMenu` imperatively
+      per the established `MediaBrowserPanel` idiom, reusing the menu-bar items' handlers and the
+      `RefreshClipMenu`/`RefreshEditMenu` enablement predicates at build time (the menu is rebuilt
+      per open, so no refresh plumbing). New `TimelineControl` methods: `SplitAtPlayhead()` —
+      extract the split core (`SplitAt(track, clip, at)`: companion collection, fresh right-hand
+      link group, one `CompositeCommand`, select the right half) out of the pointer-driven
+      `BladeClip`, which keeps only the cursor/snap math; `DuplicateSelected()` — a copy placed at
+      the original's `TimelineEnd` on the same track, linked companions duplicated together under
+      a fresh `LinkGroupId`, one undo entry; `ToggleSelectedEnabled()` — linked companions toggle
+      together when Linked is on, matching Premiere. Disabled clips draw dimmed in `DrawClips`.
+      Wire the stubbed `ClipEnableMenuItem` (checkable, reflecting `SelectedIsEnabled` in
+      `RefreshClipMenu`); add **Clip ▸ Split at Playhead** and **Clip ▸ Duplicate** so every
+      context item has a menu-bar home; `Ctrl+K` / `Shift+E` land in the central `OnKeyDown`
+      (menu `InputGesture` strings are display-only, per step 16c).
+    - **MCP.** `split_clip(clip_id, at)`, `duplicate_clip(clip_id)`,
+      `set_clip_enabled(clip_id, enabled)` in `Sprocket.Mcp/SprocketTools.Clips.cs`, routed
+      through `EditHistory` like the existing clip tools so AI edits stay undoable by
+      construction.
+    - **Tests.** Core — `Enabled` defaults true, `CloneContentForSpan` copies it,
+      `PlanVideoFrame` yields no layer for a disabled clip (and a transition with a disabled side
+      falls back per §15), `PlanAudioBuffer` skips it, the toggle undoes/redoes. Persistence —
+      `Enabled=false` round-trips, a pre-53 file (field absent) loads enabled, the render-cache
+      hash changes on toggle. App (headless) — `SplitAtPlayhead` splits at the playhead and
+      no-ops at an edge/outside the clip, linked companions split together into a fresh
+      right-hand group; `DuplicateSelected` places at `TimelineEnd`, duplicates a linked pair
+      under a fresh group, one undo entry; `ToggleSelectedEnabled` toggles linked pairs together.
+      Mcp — tool-surface + one behavioral test per new tool. On completion, add FEATURES.md rows
+      (❌ undocumented) for the context menu, Split at Playhead, Duplicate, and Enable/Disable.
+54. **Multi-clip selection.** Selection is a single field today (`TimelineControl._selected`), which
+    blocks Link (step 55), keeps **Edit ▸ Select All** deliberately disabled (step 16c), and rules
+    out the batch operations every leading editor supports (delete/copy/nudge several clips at
+    once). The selection model becomes a **set with a primary clip**: the existing single-clip
+    `SelectedClip` surface is preserved as the primary, so the Inspector, Source monitor, and
+    keyframe navigation (steps 16/16d/17) — all inherently single-clip — keep working unchanged.
+    - **Selection gestures.** Ctrl-click toggles membership; Shift-click extends; a **rubber-band
+      marquee** drag on empty lane area selects every clip it touches (the band-drag state machine
+      already exists as `DragKind.Band` for the opacity rubber-band — the lane-area marquee is a
+      new drag kind with pure hit math in `TimelineMath`, headlessly testable). Plain click keeps
+      today's behavior (select one, clear the rest). Mixed video+audio selections are allowed
+      (like Premiere). Multi-selected clips all draw with the selection treatment; the primary is
+      visually distinct.
+    - **Operation surface.** The `SelectedXxx` predicate surface generalizes: batch-capable
+      operations — Delete, Ripple Delete, Cut/Copy, Nudge, Enable/Disable (step 53) — act on the
+      whole set as one `CompositeCommand` (one undo entry); dialog-backed operations
+      (Speed/Duration, Interpret Footage) act on the primary. Multi-clip **move drag** moves the
+      set rigidly (group-clamped like linked nudge, step 16c). Enable **Select All**.
+    - **Tests.** Selection-set semantics (toggle/extend/clear, primary tracking); marquee hit math
+      in `TimelineMath` (pure); batch delete/copy/nudge/enable as a single undo entry; Select All;
+      multi-clip drag placement.
+55. **Link clips (re-link A/V).** Unlink shipped with linked A/V (step 13/16c) but re-linking never
+    did — `ClipLinkMenuItem` has sat stubbed-disabled since 16c, because linking has no natural
+    single-clip trigger: in every leading editor you select a video clip and an audio clip, then
+    Link. **Depends on step 54 (multi-select).** With a multi-selection of ≥2 clips spanning at
+    least one video and one audio clip (Premiere's eligibility rule), set a fresh shared
+    `LinkGroupId` on every selected clip via the existing `SetPropertyCommand<Guid?>` under one
+    `CompositeCommand` — the exact mirror of `UnlinkSelected`; **no Core change** (the model,
+    persistence, and every linked-aware edit already key off `LinkGroupId`, step 13). Wire
+    `ClipLinkMenuItem` and the step-53 context-menu item; `Ctrl+L` (Premiere/Resolve's shortcut)
+    toggles Link/Unlink by selection state. MCP: `link_clips(clip_ids)` alongside the existing
+    unlink surface.
+    - **Tests.** Link sets one shared group across the selection in a single undo entry (undo
+      restores each clip's prior group, including previously-linked members re-linked into a new
+      pair); eligibility rules (rejects all-video / all-audio / single-clip selections); `Ctrl+L`
+      toggle behavior; persistence round-trip is already covered by existing `LinkGroupId` tests.
 
 **Future step (unscheduled): live stop-motion capture.** A capture mode — live camera feed in the
 program monitor, onion-skin ghosting of the last captured frame(s), a capture button appending a
