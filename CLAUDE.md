@@ -12,6 +12,8 @@ making non-trivial changes:
 - [ARCHITECTURE.md](ARCHITECTURE.md) — the detailed technical design the implementation must conform to (the *how/why*). Sections are referenced throughout the code as `§N`.
 - [PLAN.md](PLAN.md) — feasibility analysis and the numbered build order, with a ✅ status note recorded inline on each completed step. **When you complete a build-order step, update its PLAN.md entry** the same way existing steps are annotated.
 - [UI.md](UI.md) — the target UI mockup and the features it implies.
+- [STYLE_GUIDE.md](STYLE_GUIDE.md) — the palette tokens and surface rules (dialog/popup
+  backgrounds, borders, accent, contrast floors); new dialogs and popups must conform.
 - [FEATURES.md](FEATURES.md) — the user-facing feature inventory and documentation-coverage
   matrix (drives the user docs in `../sprocket-docs`). **When a user-facing feature ships or
   changes behavior, add or amend its row in the same change** (new features start ❌ undocumented).

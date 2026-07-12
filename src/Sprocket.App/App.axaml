@@ -56,6 +56,57 @@
          by a render transform, not a smaller control. Shrinking this one resource thins the hover/drag thumb
          everywhere in the shell, matching the compact density of the other Fluent metric overrides above. -->
     <x:Double x:Key="ScrollBarSize">8</x:Double>
+
+    <!-- Popup surfaces (STYLE_GUIDE.md): every menu/flyout/dropdown/tooltip uses WindowBg + an Edge
+         border so popups match the hand-built dialog windows instead of Fluent's lighter ~#2C2C2C
+         defaults. Fluent has no ContextMenu-specific brush keys — ContextMenu, MenuFlyout, and the
+         menu-bar MenuItem dropdowns all consume the MenuFlyoutPresenter*/MenuFlyoutItem* keys below. -->
+    <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="{x:Static app:Palette.WindowBg}" />
+    <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="{x:Static app:Palette.Edge}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="{x:Static app:Palette.Text}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundDisabled" Color="{x:Static app:Palette.FaintText}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="{x:Static app:Palette.Accent}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="White" />
+    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="{x:Static app:Palette.AccentHover}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="White" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevron" Color="{x:Static app:Palette.MutedText}" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPointerOver" Color="White" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForeground" Color="{x:Static app:Palette.MutedText}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPointerOver" Color="White" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundDisabled" Color="{x:Static app:Palette.FaintText}" />
+
+    <!-- Plain Flyout (the timeline Fit-zoom flyout). -->
+    <SolidColorBrush x:Key="FlyoutPresenterBackground" Color="{x:Static app:Palette.WindowBg}" />
+    <SolidColorBrush x:Key="FlyoutBorderThemeBrush" Color="{x:Static app:Palette.Edge}" />
+
+    <!-- ComboBox dropdowns (export/sequence/import dialogs, inspector, mixer). -->
+    <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="{x:Static app:Palette.WindowBg}" />
+    <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="{x:Static app:Palette.Edge}" />
+    <SolidColorBrush x:Key="ComboBoxItemForeground" Color="{x:Static app:Palette.Text}" />
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver" Color="{x:Static app:Palette.Accent}" />
+    <SolidColorBrush x:Key="ComboBoxItemForegroundPointerOver" Color="White" />
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="{x:Static app:Palette.Accent}" />
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelected" Color="White" />
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="{x:Static app:Palette.AccentHover}" />
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPointerOver" Color="White" />
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed" Color="{x:Static app:Palette.AccentHover}" />
+    <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPressed" Color="White" />
+
+    <!-- ToolTips. -->
+    <SolidColorBrush x:Key="ToolTipBackground" Color="{x:Static app:Palette.WindowBg}" />
+    <SolidColorBrush x:Key="ToolTipBorderBrush" Color="{x:Static app:Palette.Edge}" />
+    <SolidColorBrush x:Key="ToolTipForeground" Color="{x:Static app:Palette.Text}" />
+
+    <!-- FluentTheme seeds SystemAccentColor from the OS (Windows-blue on Windows), which leaks into
+         ComboBox selection, CheckBoxes, Slider fills, and text selection. Pin the whole ramp to the
+         Sprocket indigo so accent-tinted Fluent states match Palette.Accent everywhere. -->
+    <Color x:Key="SystemAccentColor">#6C5CE7</Color>
+    <Color x:Key="SystemAccentColorDark1">#5B4BD6</Color>
+    <Color x:Key="SystemAccentColorDark2">#4A3AC5</Color>
+    <Color x:Key="SystemAccentColorDark3">#3929B4</Color>
+    <Color x:Key="SystemAccentColorLight1">#7D6EF0</Color>
+    <Color x:Key="SystemAccentColorLight2">#8E80F9</Color>
+    <Color x:Key="SystemAccentColorLight3">#9F92FF</Color>
   </Application.Resources>
 
   <Application.Styles>

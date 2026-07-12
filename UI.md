@@ -15,6 +15,7 @@ north-star layout; the vertical slice implements a subset of it without changing
 ## 1. Design language
 
 - **Dark theme**, near-black panels (`#12141a`-ish) with subtly lighter raised surfaces.
+  The normative token values and per-surface usage rules live in [STYLE_GUIDE.md](STYLE_GUIDE.md).
 - **Single accent**: an indigo/violet (`#6c5ce7`-ish) used for the active tool, primary
   buttons (Export), selection highlights, slider fills, and the playhead.
 - **Custom window chrome** (frameless): the app draws its own title bar with the menu bar
