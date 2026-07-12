@@ -12,7 +12,7 @@
     builds stay deterministic.
   -->
   <PropertyGroup>
-    <VersionPrefix>0.1.69</VersionPrefix>
+    <VersionPrefix>0.1.70</VersionPrefix>
     <Product>Sprocket</Product>
   </PropertyGroup>
 
