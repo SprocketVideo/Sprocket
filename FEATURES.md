@@ -82,7 +82,8 @@ in terms an app-side committer can check against their diff.
 | media/importing-media.md | §2 (Importing media & the Project panel) | the import formats/picker, media-bin tiles/badges/search, Project-panel tabs, still/sequence/alpha import, or the Interpret Footage dialog change | 5227505 | ✅ current |
 | media/log-footage.md | §2 (Working with log & camera footage) | Input Color Transform, the camera LUT set, or ACES Filmic change | 438f6e2 | ✅ current |
 | audio/audio-mixing.md | §5 (track mute/solo, the Fade effect) | per-track audio controls or the Fade effect change | 92226ec | ✅ current |
-| export/exporting.md | §6 (Export Settings) | the Export Settings dialog or its defaults change | 92226ec | ✅ current |
+| export/exporting.md | §6 (Export Settings; format matrix; audio-only; presets; burn-ins; handles; encoding; color; metadata; progress/reveal) | the Export Settings dialog, its defaults, the format/codec matrix, the built-in preset list, or the audio-only formats change | 48acaf5 | ✅ current (expanded to the full dialog: format+codec reference, range, quality/encoding, resolution/fps, burn-ins+positions, handles, color, metadata, presets, progress; screenshot regenerated) |
+| export/export-queue-and-interchange.md | §6 (Export Queue; EDL/Final Cut XML interchange) | the Export Queue window controls/statuses, or the interchange formats/warnings change | 48acaf5 | ✅ current (new guide) |
 | ai/ai-control.md | §8 (+ §9 Preferences MCP settings, §4 effect tags) | the MCP tool surface, Preferences AI section, setup command, status-bar indicator, or effect-tag UI changes | c86c921 | ✅ current |
 
 ## 1. Get started
@@ -265,18 +266,18 @@ in terms an app-side committer can check against their diff.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Export Settings dialog (`Ctrl+E`): container/codec/quality/resolution/frame rate | Dialogs.cs `ExportSettingsDialog` | export/exporting.md#export-your-finished-video | ✅ |
-| Format matrix: MP4/MOV/MKV/WebM/AVI/TS × H.264/HEVC/AV1/VP9/MPEG-2/ProRes × AAC/MP3/PCM/FLAC/AC-3/Opus | Sprocket.Export/ExportFormat.cs | — | ❌ (needs a reference table) |
-| Audio-only export (master mix, no video): WAV/PCM, FLAC, MP3, AAC/M4A, Opus | Sprocket.Export/ExportFormat.cs `ExportAudioFormat`; VideoExporter.cs `ExportAudioOnly` | — | ❌ |
-| Delivery presets (built-in + save your own) | ExportPresetStore.cs; UserExportPresets.cs | export/exporting.md#export-your-finished-video | 🟡 (mentioned; built-in preset list undocumented) |
-| Burn-ins (timecode / clip name / watermark, 9-point position) | Dialogs.cs:593 | export/exporting.md#export-your-finished-video | 🟡 (position options undocumented) |
-| Handles (extra frames around an in/out range) | Dialogs.cs:609 | export/exporting.md#export-your-finished-video | 🟡 (named in screenshot; unexplained — depends on undocumented in/out marks) |
-| Hardware vs software encoding choice | Dialogs.cs `ExportSettingsDialog` (Encoding picker); Sprocket.Media/MediaEncoder.cs `VideoEncoderSettings.HardwareCandidates`; PLAN.md step 29 | — | ❌ |
-| Export color handling (bake log transform vs pass-through) | Dialogs.cs:618 | — | ❌ |
-| Export metadata tags (title/author/copyright/comment) | Dialogs.cs:622 | — | ❌ |
-| Export progress, cancel, reveal in folder | Dialogs.cs `ExportProgressDialog` | — | ❌ |
-| Export Queue (`Ctrl+Shift+E`): batch jobs, per-job progress | Sprocket.App/ExportQueueWindow.cs | — | ❌ |
-| Interchange export: EDL (CMX3600), Final Cut XML (+ warnings) | MainWindow.axaml.cs `ExportInterchangeAsync` | — | ❌ |
-| Export in-to-out range only (Range selector in the Export Settings dialog: Entire sequence / In/Out range, defaulting to the marked range when marks are set; applies to single export and queued jobs) | Dialogs.cs `ExportSettingsDialog` Range picker; MainWindow.axaml.cs `MarkedExportRange` | — | ❌ |
+| Format matrix: MP4/MOV/MKV/WebM/AVI/TS × H.264/HEVC/AV1/VP9/MPEG-2/ProRes × AAC/MP3/PCM/FLAC/AC-3/Opus | Sprocket.Export/ExportFormat.cs | export/exporting.md#format-reference | ✅ (reference tables for container×codec + audio-only formats) |
+| Audio-only export (master mix, no video): WAV/PCM, FLAC, MP3, AAC/M4A, Opus | Sprocket.Export/ExportFormat.cs `ExportAudioFormat`; VideoExporter.cs `ExportAudioOnly` | export/exporting.md#export-the-audio-only | ✅ |
+| Delivery presets (built-in + save your own) | ExportPresetStore.cs; UserExportPresets.cs | export/exporting.md#save-and-reuse-presets | ✅ (built-in preset list + Save Preset flow) |
+| Burn-ins (timecode / clip name / watermark, 9-point position) | Dialogs.cs:593 | export/exporting.md#add-burn-ins | ✅ (all three fields + nine positions) |
+| Handles (extra frames around an in/out range) | Dialogs.cs:609 | export/exporting.md#add-handles | ✅ |
+| Hardware vs software encoding choice | Dialogs.cs `ExportSettingsDialog` (Encoding picker); Sprocket.Media/MediaEncoder.cs `VideoEncoderSettings.HardwareCandidates`; PLAN.md step 29 | export/exporting.md#set-the-quality-and-encoding | ✅ |
+| Export color handling (bake log transform vs pass-through) | Dialogs.cs:618 | export/exporting.md#choose-how-color-is-handled | ✅ |
+| Export metadata tags (title/author/copyright/comment) | Dialogs.cs:622 | export/exporting.md#add-file-details-metadata | ✅ |
+| Export progress, cancel, reveal in folder | Dialogs.cs `ExportProgressDialog` | export/exporting.md#while-it-exports | ✅ |
+| Export Queue (`Ctrl+Shift+E`): batch jobs, per-job progress | Sprocket.App/ExportQueueWindow.cs | export/export-queue-and-interchange.md#export-several-files-at-once | ✅ |
+| Interchange export: EDL (CMX3600), Final Cut XML (+ warnings) | MainWindow.axaml.cs `ExportInterchangeAsync` | export/export-queue-and-interchange.md#hand-your-edit-to-another-editor | ✅ |
+| Export in-to-out range only (Range selector in the Export Settings dialog: Entire sequence / In/Out range, defaulting to the marked range when marks are set; applies to single export and queued jobs) | Dialogs.cs `ExportSettingsDialog` Range picker; MainWindow.axaml.cs `MarkedExportRange` | export/exporting.md#export-just-part-of-the-timeline | ✅ |
 
 ## 7. Playback & performance
 
