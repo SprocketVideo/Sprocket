@@ -71,7 +71,8 @@ in terms an app-side committer can check against their diff.
 | get-started/getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 92226ec | ✅ current |
 | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 487ace6 | ✅ current (macOS ⌘ note added, links to the full reference) |
 | get-started/keyboard-shortcuts.md (full page) | §9; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | 487ace6 | ✅ current |
-| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 5227505 | ✅ current (added the Importing and organizing media guide) |
+| get-started/projects-and-saving.md | §1 (Projects & saving); §9 (Autosave interval) | New/Open/Save/Save As, the discard-changes prompt, autosave + crash recovery, the autosave interval preference, or Relink Media change | 777f288 | ✅ current |
+| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 777f288 | ✅ current (added the Projects and saving guide) |
 | edit/editing-on-the-timeline.md | §3 (Timeline editing; Clips: speed / frame hold / frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 487ace6 | ✅ current (expanded: multi-select, cut/copy/paste, split/duplicate/enable, right-click menu, track rename/resize, on-clip fade handles, per-tool cursors) |
 | edit/marks-and-markers.md | §3 (Markers; In/Out marks; Play In to Out) | the Markers panel, in/out mark keys/overlay, or Play In to Out change | 487ace6 | ✅ current |
 | edit/titles-and-generators.md | §3 (Titles, generators & layers) | the Clip ▸ Insert generator set, the title Inspector sections, or adjustment-layer placement change | 487ace6 | ✅ current |
@@ -115,10 +116,10 @@ in terms an app-side committer can check against their diff.
 | Open Project (`Ctrl+O`) | MainWindow.axaml.cs `OpenProjectAsync` | get-started/getting-started.md#open-something-to-work-with | ✅ |
 | Open Sample Project | MainWindow.axaml.cs `OpenSampleProject` | get-started/getting-started.md#open-something-to-work-with | ✅ |
 | Save / Save As (`Ctrl+S` / `Ctrl+Shift+S`) | MainWindow.axaml.cs `Save`/`SaveAsAsync` | get-started/getting-started.md#11-save-your-project | ✅ |
-| Discard-changes confirmation when dirty | MainWindow.axaml.cs `ConfirmDiscardIfDirty` | — | 🟡 (implied, never stated) |
-| Autosave + crash recovery (recover-newer-autosave prompt) | Sprocket.App/AutosaveService.cs; `ShouldRecoverAsync` | — | ❌ |
-| Relink Media (folder pick, match preview) | MainWindow.axaml.cs `RelinkMediaAsync` | get-started/getting-started.md#11-save-your-project | 🟡 (one-line mention; no walkthrough) |
-| Undo / Redo with named steps (`Ctrl+Z` / `Ctrl+Shift+Z`, `⌘Z` / `⌘⇧Z` on macOS; `Ctrl+Y` alias on Windows/Linux only) | UI.md; MainWindow.axaml.cs:322 | get-started/getting-started.md#10-undo-and-redo | ✅ (`Ctrl+Y` alias undocumented) |
+| Discard-changes confirmation when dirty | MainWindow.axaml.cs `ConfirmDiscardIfDirty` | get-started/projects-and-saving.md#the-unsaved-changes-safety-check | ✅ |
+| Autosave + crash recovery (recover-newer-autosave prompt) | Sprocket.App/AutosaveService.cs; `ShouldRecoverAsync` | get-started/projects-and-saving.md#autosave-and-crash-recovery | ✅ |
+| Relink Media (folder pick, match preview) | MainWindow.axaml.cs `RelinkMediaAsync` | get-started/projects-and-saving.md#relink-moved-or-missing-media | ✅ |
+| Undo / Redo with named steps (`Ctrl+Z` / `Ctrl+Shift+Z`, `⌘Z` / `⌘⇧Z` on macOS; `Ctrl+Y` alias on Windows/Linux only) | UI.md; MainWindow.axaml.cs:322 | get-started/getting-started.md#10-undo-and-redo | ✅ (`Ctrl+Y` alias in the shortcut reference) |
 
 ## 2. Import & organize media
 
@@ -126,8 +127,8 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Import Media (`Ctrl+I`, file picker) | MainWindow.axaml.cs `ImportDialogAsync` | get-started/getting-started.md#open-something-to-work-with | ✅ |
-| Drag-and-drop files from OS to import | MainWindow.axaml.cs:795 | get-started/getting-started.md#open-something-to-work-with | ✅ |
+| Import Media (`Ctrl+I`, file picker) | MainWindow.axaml.cs `ImportDialogAsync` | media/importing-media.md#import-media-into-your-project | ✅ (also in the getting-started quick path at #open-something-to-work-with) |
+| Drag-and-drop files from OS to import | MainWindow.axaml.cs:795 | media/importing-media.md#import-media-into-your-project | ✅ |
 | Supported import formats (16 video + 11 audio + 9 image extensions) | MainWindow.axaml.cs `VideoFileType`/`AudioFileType`/`ImageFileType` | media/importing-media.md#supported-file-formats | ✅ |
 | Media bin: thumbnails, waveforms, format/duration badges | Sprocket.App/MediaBrowser/MediaBrowserPanel.cs | media/importing-media.md#reading-the-media-bin | ✅ |
 | Media bin search/filter | MediaBrowser/MediaSearch.cs | media/importing-media.md#finding-media-in-the-bin | ✅ |
@@ -334,7 +335,7 @@ Preferences or an "advanced" page.
 | Preferences dialog (`Ctrl+,`) | Sprocket.App/PreferencesDialog.cs | — | ❌ |
 | Cache management (clear proxy / render caches) | PreferencesDialog.cs | — | ❌ |
 | Export metadata defaults | PreferencesDialog.cs | — | ❌ |
-| Autosave interval | PreferencesDialog.cs | — | ❌ |
+| Autosave interval | PreferencesDialog.cs | get-started/projects-and-saving.md#change-how-often-sprocket-autosaves | ✅ |
 | Update check settings (enable/disable) | PreferencesDialog.cs; Sprocket.App/UpdateService.cs | — | ❌ |
 | AI control (MCP) settings | PreferencesDialog.cs | ai/ai-control.md#turn-on-ai-control | ✅ |
 
