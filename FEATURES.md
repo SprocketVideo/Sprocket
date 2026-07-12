@@ -69,10 +69,13 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|---|
 | get-started/getting-started.md (whole guide) | §§1–4, 6–7 (everyday subset) | a *common-task* workflow changes, or a new feature belongs in the everyday path | 92226ec | ✅ current |
 | get-started/getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 92226ec | ✅ current |
-| get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 92226ec | 🟡 stale (macOS now uses ⌘ as the primary modifier; table shows Ctrl only) |
-| Keyboard shortcut reference (full page) | §9; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | — | ❌ missing |
-| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 92226ec | ✅ current |
-| edit/editing-on-the-timeline.md | §3 (Timeline editing; Clips: speed / frame hold / frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 438f6e2 | ✅ current |
+| get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 487ace6 | ✅ current (macOS ⌘ note added, links to the full reference) |
+| get-started/keyboard-shortcuts.md (full page) | §9; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | 487ace6 | ✅ current |
+| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 487ace6 | ✅ current (added the three new Edit guides) |
+| edit/editing-on-the-timeline.md | §3 (Timeline editing; Clips: speed / frame hold / frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 487ace6 | ✅ current (expanded: multi-select, cut/copy/paste, split/duplicate/enable, right-click menu, track rename/resize, on-clip fade handles, per-tool cursors) |
+| edit/marks-and-markers.md | §3 (Markers; In/Out marks; Play In to Out) | the Markers panel, in/out mark keys/overlay, or Play In to Out change | 487ace6 | ✅ current |
+| edit/titles-and-generators.md | §3 (Titles, generators & layers) | the Clip ▸ Insert generator set, the title Inspector sections, or adjustment-layer placement change | 487ace6 | ✅ current |
+| edit/multicam-and-sequences.md | §3 (Multicam & sequences) | multicam creation/angle-switching, the Sequence menu (New/Open/Settings), or nesting change | 487ace6 | ✅ current |
 | effects-color/effects.md | §4 (Effects & the effect stack) | the everyday effects, the Effects menu, or the Inspector effect UI change | 92226ec | ✅ current |
 | effects-color/color-grading.md | §4 (Color grading & scopes) | grading effects, scopes, or wheel UI change | 438f6e2 | ✅ current |
 | media/log-footage.md | §2 (Working with log & camera footage) | Input Color Transform, the camera LUT set, or ACES Filmic change | 438f6e2 | ✅ current |
@@ -146,34 +149,34 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Select tool — move & edge-trim (side-specific trim cursor on edge hover) | UI.md §3.2; TimelineControl.cs; TimelineMath.HoverCursor | edit/editing-on-the-timeline.md#select--move-and-trim | 🟡 (trim documented; hover cursor not mentioned) |
-| Blade tool — split clips (hover cut-line preview) | TimelineControl.cs `BladeClip` / `DrawBladePreview` | get-started/getting-started.md#5-split-a-clip-with-the-blade | 🟡 (split documented; cut-line preview not mentioned) |
-| Per-tool custom cursors (trim/ripple brackets, roll, slip/slide, razor, hand, magnifier) | ToolCursors.cs; TimelineMath.HoverCursor | — | ❌ |
+| Select tool — move & edge-trim (side-specific trim cursor on edge hover) | UI.md §3.2; TimelineControl.cs; TimelineMath.HoverCursor | edit/editing-on-the-timeline.md#select--move-and-trim | ✅ (hover trim cursor covered in #the-editing-tools) |
+| Blade tool — split clips (hover cut-line preview) | TimelineControl.cs `BladeClip` / `DrawBladePreview` | get-started/getting-started.md#5-split-a-clip-with-the-blade; edit/editing-on-the-timeline.md#the-editing-tools | ✅ (split in getting-started; cut-line preview noted in #the-editing-tools) |
+| Per-tool custom cursors (trim/ripple brackets, roll, slip/slide, razor, hand, magnifier) | ToolCursors.cs; TimelineMath.HoverCursor | edit/editing-on-the-timeline.md#the-editing-tools | ✅ |
 | Ripple tool | PLAN.md step 22; TimelineControl `DragKind.Ripple` | edit/editing-on-the-timeline.md#ripple | ✅ |
 | Roll tool | TimelineControl `DragKind.Roll` | edit/editing-on-the-timeline.md#roll | ✅ |
 | Slip tool | TimelineControl `DragKind.Slip` | edit/editing-on-the-timeline.md#slip | ✅ |
 | Slide tool | TimelineControl `DragKind.Slide` | edit/editing-on-the-timeline.md#slide | ✅ |
 | Hand & Zoom view tools | TimelineControl.cs | edit/editing-on-the-timeline.md#getting-around-hand-and-zoom | ✅ |
 | Snapping toggle | TimelineControl.Snapping | edit/editing-on-the-timeline.md#snapping | ✅ |
-| Linked A/V toggle + Link / Unlink (Clip menu & context menu; `Ctrl+L` toggles by selection state — Link needs a multi-selection spanning video + audio) | MainWindow.axaml.cs:1134; TimelineControl `LinkSelected`/`UnlinkSelected`; ClipEdits.cs link builders; PLAN.md steps 13/55 | edit/editing-on-the-timeline.md#keeping-audio-and-video-together | 🟡 (toggle documented; Clip ▸ Link/Unlink not mentioned) |
+| Linked A/V toggle + Link / Unlink (Clip menu & context menu; `Ctrl+L` toggles by selection state — Link needs a multi-selection spanning video + audio) | MainWindow.axaml.cs:1134; TimelineControl `LinkSelected`/`UnlinkSelected`; ClipEdits.cs link builders; PLAN.md steps 13/55 | edit/editing-on-the-timeline.md#keeping-audio-and-video-together | ✅ |
 | Timeline zoom in/out/fit (`Ctrl+-`/`Ctrl+=`/`Shift+Z`) | TimelineControl `ZoomIn/Out/ToFit` | get-started/getting-started.md#2-zoom-the-timeline-in-and-out | ✅ |
 | Move / delete / Ripple Delete (`Delete` / `Shift+Delete`) | TimelineControl.cs:2184 | edit/editing-on-the-timeline.md#deleting-clips-and-closing-gaps | ✅ |
-| Cut / Copy / Paste clips (paste at playhead; a multi-clip selection pastes as a set with relative offsets preserved) | Sprocket.App/ClipboardOps.cs; PLAN.md step 54 | get-started/getting-started.md#6-move-delete-and-close-gaps | 🟡 (named; paste-at-playhead behavior unexplained) |
+| Cut / Copy / Paste clips (paste at playhead; a multi-clip selection pastes as a set with relative offsets preserved) | Sprocket.App/ClipboardOps.cs; PLAN.md step 54 | edit/editing-on-the-timeline.md#cut-copy-and-paste | ✅ |
 | Nudge clip by one frame (`Alt+←` / `Alt+→`) | MainWindow.axaml.cs:368 | edit/editing-on-the-timeline.md#nudging-with-the-keyboard | ✅ |
-| Multi-clip selection: Ctrl-click toggles, Shift-click extends, rubber-band marquee on empty lane area, Select All (`Ctrl+A`); batch Delete / Ripple Delete / Cut / Copy / Nudge / Enable act on the set as one undo entry; a plain drag moves the set rigidly; the primary clip drives the Inspector and dialog-backed operations | PLAN.md step 54; Timeline/ClipSelection.cs; ClipEdits.cs batch builders; TimelineControl.cs | — | ❌ |
-| Clip right-click context menu, shaped by lane kind (common: Cut/Copy/Paste/Duplicate, Delete/Ripple Delete, Split at Playhead, Enable, Unlink, Link, Speed, Nest; video clips add Frame Hold ▸, Interpret Footage, Multicam ▸; audio clips add Normalize Audio) | PLAN.md step 53; TimelineControl `ClipContextMenuRequested`; MainWindow.axaml.cs `ShowClipContextMenu` | — | ❌ |
-| Split at Playhead (`Ctrl+K`, Clip menu & context menu) | PLAN.md step 53; TimelineControl `SplitAtPlayhead`; ClipEdits.cs | — | ❌ |
-| Duplicate clip (Clip menu & context menu; linked pair copies under a fresh group) | PLAN.md step 53; TimelineControl `DuplicateSelected`; ClipEdits.cs | — | ❌ |
-| Enable/Disable clip (`Shift+E`, checkable Clip-menu/context item; disabled clips render nothing, draw dimmed) | PLAN.md step 53; Clip.Enabled; TimelineControl `ToggleSelectedEnabled` | — | ❌ |
+| Multi-clip selection: Ctrl-click toggles, Shift-click extends, rubber-band marquee on empty lane area, Select All (`Ctrl+A`); batch Delete / Ripple Delete / Cut / Copy / Nudge / Enable act on the set as one undo entry; a plain drag moves the set rigidly; the primary clip drives the Inspector and dialog-backed operations | PLAN.md step 54; Timeline/ClipSelection.cs; ClipEdits.cs batch builders; TimelineControl.cs | edit/editing-on-the-timeline.md#selecting-several-clips-at-once | ✅ |
+| Clip right-click context menu, shaped by lane kind (common: Cut/Copy/Paste/Duplicate, Delete/Ripple Delete, Split at Playhead, Enable, Unlink, Link, Speed, Nest; video clips add Frame Hold ▸, Interpret Footage, Multicam ▸; audio clips add Normalize Audio) | PLAN.md step 53; TimelineControl `ClipContextMenuRequested`; MainWindow.axaml.cs `ShowClipContextMenu` | edit/editing-on-the-timeline.md#the-right-click-menu | ✅ |
+| Split at Playhead (`Ctrl+K`, Clip menu & context menu) | PLAN.md step 53; TimelineControl `SplitAtPlayhead`; ClipEdits.cs | edit/editing-on-the-timeline.md#splitting-a-clip-at-the-playhead | ✅ |
+| Duplicate clip (Clip menu & context menu; linked pair copies under a fresh group) | PLAN.md step 53; TimelineControl `DuplicateSelected`; ClipEdits.cs | edit/editing-on-the-timeline.md#duplicating-a-clip | ✅ |
+| Enable/Disable clip (`Shift+E`, checkable Clip-menu/context item; disabled clips render nothing, draw dimmed) | PLAN.md step 53; Clip.Enabled; TimelineControl `ToggleSelectedEnabled` | edit/editing-on-the-timeline.md#turning-a-clip-off-without-deleting-it | ✅ |
 | Add video/audio tracks (+ Track) | MainWindow.axaml.cs `AddTrack` | get-started/getting-started.md#9-add-a-track | ✅ |
 | Track header toggles: Enable (eye) / Mute / Solo | TimelineControl.cs `HandleHeaderClick` | audio/audio-mixing.md#adjust-the-audio | 🟡 (M/S/eye covered; per-track *video* enable only parenthetical) |
-| Rename a track (double-click header) | TimelineControl.cs:1380 | — | ❌ |
-| Resize track-header column | TimelineControl.cs:1371 | — | ❌ |
-| Fade handles & opacity rubber-band on clips | PLAN.md step 39; TimelineControl.cs:40–99 | — | ❌ (guides only teach the Fade *effect*) |
+| Rename a track (double-click header) | TimelineControl.cs:1380 | edit/editing-on-the-timeline.md#renaming-and-resizing-tracks | ✅ |
+| Resize track-header column | TimelineControl.cs:1371 | edit/editing-on-the-timeline.md#renaming-and-resizing-tracks | ✅ |
+| Fade handles & opacity rubber-band on clips | PLAN.md step 39; TimelineControl.cs:40–99 | edit/editing-on-the-timeline.md#fading-a-clip-in-or-out | ✅ |
 | Clip filmstrip & waveform thumbnails | TimelineControl.cs:1257 | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
-| Markers: add (`M`), navigate (`Shift+M`/`Ctrl+Shift+M`), Markers panel | MainWindow.axaml.cs `AddMarker`, `BuildMarkersPanel` | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | 🟡 (add-marker shortcut + a teaser; no guide section) |
-| In/Out marks: set (`I`/`O`), clear (`Alt+I`/`Alt+O`), range overlay | MainWindow.axaml.cs `SetMarkAtPlayhead` | — | ❌ |
-| Play In to Out (`Ctrl+Shift+Space`, Sequence menu): plays only the marked range, stops at the out mark, replays from the in mark; plain Space stays unconstrained | PlaybackEngine `PlayInToOut`; MainWindow.axaml.cs `PlayInToOut` | — | ❌ |
+| Markers: add (`M`), navigate (`Shift+M`/`Ctrl+Shift+M`), Markers panel | MainWindow.axaml.cs `AddMarker`, `BuildMarkersPanel` | edit/marks-and-markers.md#markers | ✅ (add/navigate + the Markers panel; panel supports add/seek/remove only) |
+| In/Out marks: set (`I`/`O`), clear (`Alt+I`/`Alt+O`), range overlay | MainWindow.axaml.cs `SetMarkAtPlayhead` | edit/marks-and-markers.md#in-and-out-marks | ✅ |
+| Play In to Out (`Ctrl+Shift+Space`, Sequence menu): plays only the marked range, stops at the out mark, replays from the in mark; plain Space stays unconstrained | PlaybackEngine `PlayInToOut`; MainWindow.axaml.cs `PlayInToOut` | edit/marks-and-markers.md#play-just-the-marked-range | ✅ |
 
 ### Clips: speed, freeze frames & stop motion
 
@@ -187,18 +190,18 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Insert generators: Title, Lower Third, Credits Roll, Crawl, Color Matte | Sprocket.Core/Model/GeneratorCatalog.cs | — | ❌ |
-| Edit title text inline (double-click title clip) | TimelineControl.cs:1432 | — | ❌ |
-| Rich text & titles (styling, lower thirds, credits) | PLAN.md step 40; Sprocket.Render/{TitleRenderer,TitleFonts}.cs; Sprocket.Core/Model/{Generator,GeneratorCatalog}.cs | — | ❌ |
-| Adjustment layers | MainWindow.axaml.cs:390; PLAN.md step 19 | — | ❌ |
+| Insert generators: Title, Lower Third, Credits Roll, Crawl, Color Matte | Sprocket.Core/Model/GeneratorCatalog.cs | edit/titles-and-generators.md#adding-a-title-or-other-generator | ✅ |
+| Edit title text inline (double-click title clip) | TimelineControl.cs:1432 | edit/titles-and-generators.md#editing-a-titles-text | ✅ |
+| Rich text & titles (styling, lower thirds, credits) | PLAN.md step 40; Sprocket.Render/{TitleRenderer,TitleFonts}.cs; Sprocket.Core/Model/{Generator,GeneratorCatalog}.cs | edit/titles-and-generators.md#styling-a-title-in-the-inspector | ✅ |
+| Adjustment layers | MainWindow.axaml.cs:390; PLAN.md step 19 | edit/titles-and-generators.md#adjustment-layers | ✅ |
 
 ### Multicam & sequences
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Multicam: Create Multicam Source + angle switch (`1`–`9`) | MainWindow.axaml.cs `CreateMulticamSource`; PLAN.md step 24 | — | ❌ |
-| Multiple sequences: New / Open / Sequence Settings (rename) | MainWindow.axaml.cs `NewSequence`, `SwitchToSequence` | — | ❌ |
-| Nest selection into a sequence (compound clips; the whole multi-clip selection nests) | MainWindow.axaml.cs `NestSelection`; PLAN.md steps 23, 54 | — | ❌ |
+| Multicam: Create Multicam Source + angle switch (`1`–`9`) | MainWindow.axaml.cs `CreateMulticamSource`; PLAN.md step 24 | edit/multicam-and-sequences.md#cutting-between-camera-angles-multicam | ✅ (angle-buttons Inspector shot deferred — sample project has one video clip) |
+| Multiple sequences: New / Open / Sequence Settings (rename) | MainWindow.axaml.cs `NewSequence`, `SwitchToSequence` | edit/multicam-and-sequences.md#working-with-more-than-one-sequence | ✅ |
+| Nest selection into a sequence (compound clips; the whole multi-clip selection nests) | MainWindow.axaml.cs `NestSelection`; PLAN.md steps 23, 54 | edit/multicam-and-sequences.md#nesting-clips-into-a-sequence | ✅ |
 
 ## 4. Effects & color
 
@@ -242,7 +245,7 @@ in terms an app-side committer can check against their diff.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Track mute / solo | TimelineControl.cs headers | audio/audio-mixing.md#adjust-the-audio | ✅ |
-| Audio fades (Fade effect; fade handles on clips) | EffectCatalog.cs; TimelineControl fade handles | audio/audio-mixing.md#adjust-the-audio | 🟡 (effect covered; on-clip handles not) |
+| Audio fades (Fade effect; fade handles on clips) | EffectCatalog.cs; TimelineControl fade handles | audio/audio-mixing.md#adjust-the-audio; edit/editing-on-the-timeline.md#fading-a-clip-in-or-out | ✅ (Fade effect in audio-mixing; on-clip fade handles in editing-on-the-timeline) |
 | Mixer (Audio tab): per-track gain/pan/mute/solo, master strip | Sprocket.App/Mixer/MixerView.cs | — | ❌ |
 | Mixer insert chains: track / Sequence Bus / Master inserts (add, enable LED, remove, Move Up/Down; click an insert to edit its parameters/keyframes in the Inspector) | MixerView.cs `BuildInsertsBlock`; Mixer/AudioChainTarget.cs; InspectorPanel.cs `SetSelectedChain`; PLAN.md step 31 follow-on | — | ❌ |
 | Loudness meters (LUFS + true peak, EBU R128) | Sprocket.Audio/Loudness/*.cs | — | ❌ |
@@ -321,7 +324,7 @@ Preferences or an "advanced" page.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Complete shortcut reference (on macOS the primary modifier is `⌘` wherever Windows/Linux use `Ctrl`; Ctrl does not alias it there; `⌘Q` quits; `Ctrl+Y` redo is Windows/Linux-only) | MainWindow.axaml.cs `OnKeyDown` key handlers; menu InputGestures (macOS gestures swapped in `WireCommandMenus`) | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | 🟡 (a "worth knowing" table exists; full reference page missing — code is the only complete source, incl. `I`/`O`, `[`/`]`, `1`–`9`, `Shift+M`, `Ctrl+Y`, `Ctrl+Shift+E`, `Ctrl+,`, `F11`/`⌃⌘F`, `Ctrl+F`/`⌘F`, `Esc`) |
+| Complete shortcut reference (on macOS the primary modifier is `⌘` wherever Windows/Linux use `Ctrl`; Ctrl does not alias it there; `⌘Q` quits; `Ctrl+Y` redo is Windows/Linux-only) | MainWindow.axaml.cs `OnKeyDown` key handlers; menu InputGestures (macOS gestures swapped in `WireCommandMenus`) | get-started/keyboard-shortcuts.md | ✅ (full reference page grouped by task, with macOS differences; getting-started keeps the curated teaser) |
 
 ### Preferences
 
