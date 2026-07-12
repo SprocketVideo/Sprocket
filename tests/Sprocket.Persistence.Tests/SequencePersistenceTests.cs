@@ -92,3 +92,65 @@ public class SequencePersistenceTests
         Assert.Contains("\"sourceSequenceId\"", json);
     }
 }
+
+/// <summary>
+/// Portrait/social sequence formats and the per-clip conform mode round-trip additively: any width × height
+/// persists through the existing ResolutionDto, and a clip's Fill conform writes a nullable field that Fit
+/// clips omit — so untouched projects serialize byte-identically and older files load as Fit.
+/// </summary>
+public class ConformPersistenceTests
+{
+    private static Project RoundTrip(Project project)
+        => ProjectSerializer.Deserialize(ProjectSerializer.Serialize(project));
+
+    private static Project PortraitProjectWithClip(out Clip clip)
+    {
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1080, 1920), 48000);
+        var project = new Project(timeline);
+        var track = new VideoTrack { Name = "V1" };
+        clip = new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.Zero);
+        track.Clips.Add(clip);
+        timeline.Tracks.Add(track);
+        return project;
+    }
+
+    [Fact]
+    public void Portrait_Resolution_Round_Trips()
+    {
+        Project loaded = RoundTrip(PortraitProjectWithClip(out _));
+        Assert.Equal(new Resolution(1080, 1920), loaded.Timeline.Resolution);
+    }
+
+    [Fact]
+    public void Fill_Conform_Round_Trips()
+    {
+        Project project = PortraitProjectWithClip(out Clip clip);
+        clip.ConformMode = ClipConformMode.Fill;
+        Project loaded = RoundTrip(project);
+        Clip restored = Assert.Single(Assert.IsType<VideoTrack>(loaded.Timeline.Tracks[0]).Clips);
+        Assert.Equal(ClipConformMode.Fill, restored.ConformMode);
+    }
+
+    [Fact]
+    public void Fit_Conform_Writes_No_Field_And_Loads_As_Fit()
+    {
+        Project project = PortraitProjectWithClip(out _);
+        string json = ProjectSerializer.Serialize(project);
+        Assert.DoesNotContain("conformMode", json, StringComparison.OrdinalIgnoreCase);
+
+        Clip restored = Assert.Single(
+            Assert.IsType<VideoTrack>(ProjectSerializer.Deserialize(json).Timeline.Tracks[0]).Clips);
+        Assert.Equal(ClipConformMode.Fit, restored.ConformMode);
+    }
+
+    [Fact]
+    public void Fit_Project_Serializes_Byte_Identically_After_A_Fill_Round_Trip_Reset()
+    {
+        // Setting Fill and back to Fit must leave no wire-format residue.
+        Project project = PortraitProjectWithClip(out Clip clip);
+        string before = ProjectSerializer.Serialize(project);
+        clip.ConformMode = ClipConformMode.Fill;
+        clip.ConformMode = ClipConformMode.Fit;
+        Assert.Equal(before, ProjectSerializer.Serialize(project));
+    }
+}

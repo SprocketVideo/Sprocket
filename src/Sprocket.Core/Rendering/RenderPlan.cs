@@ -83,6 +83,11 @@ public enum LayerKind
 /// PLAN.md step 25): produce each side's frame, blend them per the transition, then composite the result with this
 /// layer's <see cref="Opacity"/>/<see cref="BlendMode"/> (the track's). The transition layer's own
 /// <see cref="MediaRefId"/>/<see cref="SourceTime"/>/<see cref="Effects"/> are unused.</param>
+/// <param name="ConformMode">The clip's framing policy for a content/canvas aspect mismatch
+/// (<see cref="ClipConformMode.Fit"/> letterboxes, <see cref="ClipConformMode.Fill"/> centre-crops). Resolved
+/// from <see cref="Clip.ConformMode"/>; the render layer applies it against the content's <em>actual</em>
+/// dimensions when it computes the layer's destination rectangle — the plan stays pure data with no knowledge
+/// of frame sizes (proxies and relinked media can differ from probed dimensions).</param>
 public sealed record VideoLayer(
     MediaRefId MediaRefId,
     Timecode SourceTime,
@@ -92,7 +97,8 @@ public sealed record VideoLayer(
     LayerKind Kind = LayerKind.Media,
     ResolvedGenerator? Generator = null,
     VideoFramePlan? NestedPlan = null,
-    ResolvedTransition? Transition = null);
+    ResolvedTransition? Transition = null,
+    ClipConformMode ConformMode = ClipConformMode.Fit);
 
 /// <summary>
 /// A transition resolved at a frame's time (PLAN.md step 25): which two clips to blend (<see cref="From"/> outgoing,

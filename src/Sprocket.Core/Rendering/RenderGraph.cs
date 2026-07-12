@@ -104,7 +104,8 @@ public static class RenderGraph
                 // A valid, in-bounds, non-cyclic nested sequence carries its resolved child plan; a missing /
                 // cyclic / too-deep reference contributes nothing (renders as empty, like an offline source §15).
                 return PlanNestedVideo(project, clip, sourceT, path, depth) is { } nested
-                    ? new VideoLayer(default, sourceT, effects, opacity, blend, LayerKind.Sequence, NestedPlan: nested)
+                    ? new VideoLayer(default, sourceT, effects, opacity, blend, LayerKind.Sequence, NestedPlan: nested,
+                        ConformMode: clip.ConformMode)
                     : null;
 
             case ClipKind.Multicam:
@@ -112,11 +113,12 @@ public static class RenderGraph
                 // — so multicam rides the media seam, no recursion needed. A missing source or a stale angle index
                 // contributes nothing (renders as empty, §15).
                 return ResolveMulticamAngle(project, clip) is { } angle
-                    ? new VideoLayer(angle.MediaRefId, ClipSync.AngleSourceTime(angle, sourceT), effects, opacity, blend)
+                    ? new VideoLayer(angle.MediaRefId, ClipSync.AngleSourceTime(angle, sourceT), effects, opacity, blend,
+                        ConformMode: clip.ConformMode)
                     : null;
 
             default:
-                return new VideoLayer(clip.MediaRefId, sourceT, effects, opacity, blend);
+                return new VideoLayer(clip.MediaRefId, sourceT, effects, opacity, blend, ConformMode: clip.ConformMode);
         }
     }
 

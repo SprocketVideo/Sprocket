@@ -201,7 +201,11 @@ internal sealed record ClipDto(
     long? HoldDurationTicks = null,
     // Clip Enable toggle (PLAN.md step 53). Additive + nullable: an enabled clip writes nothing
     // (WhenWritingNull), so pre-53 files load enabled and untouched projects serialize byte-identically.
-    bool? Enabled = null);
+    bool? Enabled = null,
+    // Conform mode — the clip's Fit/Fill framing policy for a content/canvas aspect mismatch. Additive +
+    // nullable: a Fit (default) clip writes nothing (WhenWritingNull), so earlier files load as Fit and
+    // fill-free projects serialize byte-identically.
+    ClipConformMode? ConformMode = null);
 
 /// <summary>A marker (PLAN.md step 20): a time, optional name/comment, colour band, and an optional span
 /// (<see cref="DurationTicks"/> &gt; 0). Colour serializes as a string enum.</summary>

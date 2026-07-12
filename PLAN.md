@@ -1400,9 +1400,11 @@ Tags reference the [UI.md §4 checklist](UI.md).
         cleanly (exit 0). *Also fixed in passing:* a pre-existing stray-paren syntax error in
         `Sprocket.App/MediaBootstrap.cs` (the App had not been compiled since it was introduced).
       - **Deferred (noted, on the same seam):** **live nested-sequence compositing in the Program monitor** (the
-        render cache, step 32 — preview shows a placeholder today; export + open-the-child render fully); a
-        **retimed** nested clip's audio at non-1× speed; and **sequence-format editing** (Settings shows format
-        read-only — a format change would re-scale every clip's geometry).
+        render cache, step 32 — preview shows a placeholder today; export + open-the-child render fully); and a
+        **retimed** nested clip's audio at non-1× speed. *(Sequence-format editing, originally deferred here, has
+        since shipped: Sequence Settings edits the frame size undoably — presets incl. portrait/square + Custom —
+        New Sequence opens the same format picker, and per-clip **conform** (Fit/Fill) plus the Inspector Framing
+        section handle mismatched-resolution media; frame rate / sample rate remain read-only.)*
 24. **Multicam editing & clip sync.** Synced multi-angle editing — a major omission for interview,
     live-event, documentary, and studio / YouTube workflows — placed immediately after sequences because
     synced source groups and nested editorial structure (step 23) now exist to build on:

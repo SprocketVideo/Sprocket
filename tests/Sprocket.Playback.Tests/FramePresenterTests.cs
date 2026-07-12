@@ -50,6 +50,57 @@ public class FramePresenterTests
     }
 
     [Fact]
+    public void Fill_Covers_Bounds_And_Centres_The_Overflow()
+    {
+        // 16:9 frame filling a 100×100 square → full height, width overflows and centres (crop left/right).
+        SKRect fill = FramePresenter.ComputeFillRect(SKRect.Create(0, 0, 100, 100), 1920, 1080);
+        Assert.Equal(100f, fill.Height, 3);
+        Assert.Equal(1920f / 1080f * 100f, fill.Width, 3);
+        Assert.Equal(0f, fill.Top, 3);
+        Assert.Equal((100f - fill.Width) / 2f, fill.Left, 3);
+        Assert.True(fill.Left <= 0 && fill.Right >= 100 && fill.Top <= 0 && fill.Bottom >= 100);
+    }
+
+    [Fact]
+    public void Fill_Of_A_Landscape_Frame_In_A_Portrait_Bounds_Crops_Width()
+    {
+        // 1920×1080 into a 1080×1920 canvas → full 1920 height, ~3413 wide, centred (the social-portrait case).
+        SKRect fill = FramePresenter.ComputeFillRect(SKRect.Create(0, 0, 1080, 1920), 1920, 1080);
+        Assert.Equal(1920f, fill.Height, 3);
+        Assert.Equal(1920f / 1080f * 1920f, fill.Width, 2);
+        Assert.Equal((1080f - fill.Width) / 2f, fill.Left, 2);
+    }
+
+    [Fact]
+    public void Fill_Equals_Fit_When_Aspects_Match()
+    {
+        SKRect bounds = SKRect.Create(0, 0, 640, 360);
+        Assert.Equal(
+            FramePresenter.ComputeFitRect(bounds, 1920, 1080),
+            FramePresenter.ComputeFillRect(bounds, 1920, 1080));
+    }
+
+    [Theory]
+    [InlineData(0, 100, 1920, 1080)]   // zero-width bounds
+    [InlineData(100, 100, 1920, 0)]    // zero-height frame
+    public void Fill_Returns_Empty_For_Degenerate_Inputs(float boundsW, float boundsH, int frameW, int frameH)
+    {
+        Assert.Equal(SKRect.Empty, FramePresenter.ComputeFillRect(SKRect.Create(0, 0, boundsW, boundsH), frameW, frameH));
+    }
+
+    [Fact]
+    public void Conform_Rect_Dispatches_On_Mode()
+    {
+        SKRect bounds = SKRect.Create(0, 0, 100, 100);
+        Assert.Equal(
+            FramePresenter.ComputeFitRect(bounds, 1920, 1080),
+            FramePresenter.ComputeConformRect(bounds, 1920, 1080, Sprocket.Core.Model.ClipConformMode.Fit));
+        Assert.Equal(
+            FramePresenter.ComputeFillRect(bounds, 1920, 1080),
+            FramePresenter.ComputeConformRect(bounds, 1920, 1080, Sprocket.Core.Model.ClipConformMode.Fill));
+    }
+
+    [Fact]
     public void Zoom_Fit_Matches_ComputeFitRect()
     {
         SKRect bounds = SKRect.Create(0, 0, 640, 480);

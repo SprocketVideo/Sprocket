@@ -222,6 +222,12 @@ public sealed class InspectorPanel : UserControl
         if (_clip.Kind == ClipKind.Multicam)
             _body.Children.Add(BuildMulticamSection(_clip));
 
+        // Framing (conform + transform shortcuts) applies to clips that present video content into the
+        // sequence canvas — media on a video track, nested sequences, multicam. Generators/adjustments
+        // render at sequence size, and audio clips have no picture, so neither gets the section.
+        if (IsVideoPresentation(_clip))
+            _body.Children.Add(BuildFramingSection(_clip));
+
         // Title-family generator clips get the TEXT sections (PLAN.md step 40): content + typography,
         // styling (stroke/shadow/box), and scroll/animate — every attribute editable post-hoc.
         if (_clip.Kind == ClipKind.Generator && _clip.Generator is { } gen && GeneratorTypeIds.IsTitle(gen.GeneratorTypeId))
@@ -787,6 +793,151 @@ public sealed class InspectorPanel : UserControl
 
         button.Flyout = new MenuFlyout { ItemsSource = items };
         return button;
+    }
+
+    /// <summary>Whether the clip presents video content that is conformed into the sequence canvas: a media
+    /// clip sitting on a video track (a linked audio companion shares its MediaRefId, so the track decides),
+    /// a nested sequence, or a multicam clip.</summary>
+    private bool IsVideoPresentation(Clip clip) =>
+        clip.Kind is ClipKind.Sequence or ClipKind.Multicam
+        || (clip.Kind == ClipKind.Media && _project!.Timeline.VideoTracks.Any(t => t.Clips.Contains(clip)));
+
+    /// <summary>
+    /// The Framing section for video clips: the Conform policy (Fit letterboxes / Fill centre-crops — Resolve's
+    /// mismatched-resolution Input Scaling, per clip) plus shortcut buttons over the Transform effect —
+    /// Center (position → 0,0), Fill Height (scale so the picture spans the canvas height), and Reset Framing
+    /// (remove the Transform effect). Conform is a clip property edited through
+    /// <see cref="SetPropertyCommand{T}"/>; the buttons reuse the Transform add-then-set composite of
+    /// <see cref="ApplyTransformPreset"/>, so every action is one undo entry.
+    /// </summary>
+    private Control BuildFramingSection(Clip clip)
+    {
+        var rows = new StackPanel { Spacing = 6, Margin = new Avalonia.Thickness(4, 4, 4, 4) };
+
+        var conformBox = new ComboBox
+        {
+            ItemsSource = new List<string> { "Fit", "Fill" },
+            SelectedIndex = clip.ConformMode == ClipConformMode.Fill ? 1 : 0,
+            FontSize = 11,
+            MinHeight = 24,
+            Width = 170,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        conformBox.SelectionChanged += (_, _) =>
+        {
+            if (_suppress || conformBox.SelectedIndex < 0)
+                return;
+            ClipConformMode mode = conformBox.SelectedIndex == 1 ? ClipConformMode.Fill : ClipConformMode.Fit;
+            if (mode == clip.ConformMode)
+                return;
+            ExecuteEdit(SetPropertyCommand<ClipConformMode>.Create(
+                "Set conform mode", () => clip.ConformMode, v => clip.ConformMode = v, mode), coalescing: false);
+        };
+        _valueRefreshers.Add(() =>
+        {
+            _suppress = true;
+            conformBox.SelectedIndex = clip.ConformMode == ClipConformMode.Fill ? 1 : 0;
+            _suppress = false;
+        });
+        rows.Children.Add(LabeledRow("Conform", conformBox,
+            "How mismatched-resolution media fills the frame — Fit letterboxes, Fill crops."));
+
+        Button MakeButton(string label, string? tip = null)
+        {
+            var b = new Button
+            {
+                Content = label,
+                FontSize = 11,
+                Padding = new Avalonia.Thickness(10, 3),
+                Background = RaisedBg,
+                Foreground = TextBrush,
+            };
+            if (tip is not null)
+                ToolTip.SetTip(b, tip);
+            return b;
+        }
+
+        EffectInstance? Transform() => clip.Effects.FirstOrDefault(e => e.EffectTypeId == EffectTypeIds.Transform);
+
+        Button center = MakeButton("Center", "Reset the Transform position to the frame centre.");
+        center.Click += (_, _) =>
+        {
+            if (Transform() is not { } transform)
+                return; // no Transform → already centred
+            ExecuteEdit(new CompositeCommand("Center clip",
+            [
+                new SetEffectParameterCommand(transform, EffectParamNames.PositionX, AnimatableValue.Constant(0)),
+                new SetEffectParameterCommand(transform, EffectParamNames.PositionY, AnimatableValue.Constant(0)),
+            ]), coalescing: false);
+        };
+
+        Button fillHeight = MakeButton("Fill Height", "Scale so the picture spans the full frame height.");
+        fillHeight.Click += (_, _) =>
+        {
+            if (_project is null
+                || SourceDimensions(clip) is not { } dims
+                || FramingOps.FillHeightScale(_project.Timeline.Resolution, dims.W, dims.H, clip.ConformMode) is not { } scale)
+                return; // unknown/offline dimensions — nothing sensible to compute
+            var value = AnimatableValue.Constant(scale);
+            if (Transform() is { } transform)
+            {
+                ExecuteEdit(new SetEffectParameterCommand(transform, EffectParamNames.Scale, value), coalescing: false);
+                return;
+            }
+            var created = new EffectInstance(EffectTypeIds.Transform);
+            ExecuteEdit(new CompositeCommand("Fill height",
+            [
+                new AddEffectCommand(clip, created),
+                new SetEffectParameterCommand(created, EffectParamNames.Scale, value),
+            ]), coalescing: false);
+        };
+
+        Button reset = MakeButton("Reset Framing", "Remove the Transform effect (conform mode is kept).");
+        reset.Click += (_, _) =>
+        {
+            if (Transform() is { } transform)
+                ExecuteEdit(new RemoveEffectCommand(clip, transform), coalescing: false);
+        };
+
+        rows.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children = { center, fillHeight, reset },
+        });
+
+        return Section("Framing", rows, expanded: true);
+    }
+
+    /// <summary>The pixel dimensions of the clip's presented content, or <see langword="null"/> when unknown
+    /// (offline media, missing references): probed media size for media clips, the child sequence's canvas
+    /// for nested clips, the active angle's probed media size for multicam.</summary>
+    private (int W, int H)? SourceDimensions(Clip clip)
+    {
+        switch (clip.Kind)
+        {
+            case ClipKind.Media:
+                return _project!.MediaPool.Get(clip.MediaRefId) is { Info: { HasVideo: true, Width: > 0, Height: > 0 } info }
+                    ? (info.Width, info.Height)
+                    : null;
+
+            case ClipKind.Sequence:
+                return clip.SourceSequenceId is { } sid && _project!.GetSequence(sid) is { } child
+                    ? (child.Timeline.Resolution.Width, child.Timeline.Resolution.Height)
+                    : null;
+
+            case ClipKind.Multicam:
+                if (clip.SourceMulticamId is not { } mid || _project!.GetMulticam(mid) is not { } source
+                    || clip.ActiveAngle < 0 || clip.ActiveAngle >= source.Angles.Count)
+                    return null;
+                return _project.MediaPool.Get(source.Angles[clip.ActiveAngle].MediaRefId)
+                        is { Info: { HasVideo: true, Width: > 0, Height: > 0 } angleInfo }
+                    ? (angleInfo.Width, angleInfo.Height)
+                    : null;
+
+            default:
+                return null;
+        }
     }
 
     /// <summary>Authors an entrance keyframe pair on the clip's Transform effect, adding the effect first when

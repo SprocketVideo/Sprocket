@@ -303,7 +303,9 @@ public static class ProjectSerializer
             // An unheld clip writes neither hold field (WhenWritingNull) — byte-identical to pre-43 files.
             c.HoldFrameAt?.Ticks, c.IsHeld ? c.HoldDuration.Ticks : null,
             // An enabled clip writes no Enabled field (WhenWritingNull) — byte-identical to pre-53 files.
-            c.Enabled ? null : false);
+            c.Enabled ? null : false,
+            // A Fit (default) clip writes no ConformMode field (WhenWritingNull) — byte-identical to earlier files.
+            c.ConformMode == ClipConformMode.Fit ? null : c.ConformMode);
     }
 
     private static GeneratorDto ToDto(GeneratorSpec g)
@@ -528,6 +530,7 @@ public static class ProjectSerializer
             clip.SpeedRatio = new Rational(speedNum, speedDen);
         clip.GainDb = c.GainDb ?? 0; // GainDb absent ⇒ 0 dB (pre-30 files / un-gained clips)
         clip.Enabled = c.Enabled ?? true; // Enabled absent ⇒ enabled (pre-53 files / untouched clips)
+        clip.ConformMode = c.ConformMode ?? ClipConformMode.Fit; // ConformMode absent ⇒ Fit (earlier files / untouched clips)
         // Hold absent ⇒ unheld (pre-43 files). Duration first so the pair is consistent the moment HoldFrameAt lands.
         if (c.HoldAtTicks is long holdAt)
         {

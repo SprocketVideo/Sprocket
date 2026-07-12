@@ -570,7 +570,7 @@ public partial class MainWindow : Window
         this.FindControl<MenuItem>("ViewMenu")!.SubmenuOpened += (_, _) => RefreshViewMenu();
 
         // ── Sequence (multiple sequences + nested/compound clips, PLAN.md step 23) ──
-        this.FindControl<MenuItem>("NewSequenceMenuItem")!.Click += (_, _) => NewSequence();
+        this.FindControl<MenuItem>("NewSequenceMenuItem")!.Click += async (_, _) => await NewSequenceAsync();
         this.FindControl<MenuItem>("SequenceSettingsMenuItem")!.Click += async (_, _) => await ShowSequenceSettingsAsync();
         _nestMenuItem = this.FindControl<MenuItem>("NestMenuItem")!;
         _nestMenuItem.Click += (_, _) => NestSelection();
@@ -2184,6 +2184,20 @@ public partial class MainWindow : Window
         if (_project is { } project && !project.Sequences.Contains(project.ActiveSequence) && project.Sequences.Count > 0)
             SwitchToSequence(project.Sequences[^1]);
 
+        // A Sequence Settings frame-size edit (and its undo/redo) changes the active sequence's resolution without
+        // switching sequences, so reconcile the Program monitor here rather than only at Apply time — this one spot
+        // keeps Apply, Undo, and Redo all consistent. The repaint below (InvalidateVisual) shows the new canvas.
+        if (_project is { } p && _program is { } program)
+        {
+            Resolution res = p.ActiveSequence.Timeline.Resolution;
+            if (program.FrameWidth != res.Width || program.FrameHeight != res.Height)
+            {
+                program.SetFrameSize(res.Width, res.Height);
+                if (_active is not null && ReferenceEquals(_active, program))
+                    _preview?.SetFrameSize(res.Width, res.Height);
+            }
+        }
+
         _undoMenuItem!.IsEnabled = _history.CanUndo;
         _redoMenuItem!.IsEnabled = _history.CanRedo;
         _undoMenuItem.Header = _history.CanUndo ? $"_Undo {_history.UndoLabel}" : "_Undo";
@@ -2215,19 +2229,28 @@ public partial class MainWindow : Window
 
     // ── Sequences: multiple sequences + nested/compound clips (PLAN.md step 23) ─────────────────────
 
-    /// <summary>Sequence ▸ New Sequence: creates a fresh empty sequence (one video + one audio track, the active
-    /// sequence's render format) through the command stack and opens it. Mirrors the File ▸ New ▸ Sequence command
-    /// in leading editors, which makes the new sequence the active one.</summary>
-    private void NewSequence()
+    /// <summary>Sequence ▸ New Sequence: opens the format picker (name + frame-size presets incl. portrait,
+    /// seeded from the active sequence; frame rate / sample rate are cloned), then creates the fresh empty
+    /// sequence (one video + one audio track) through the command stack and opens it. Mirrors the File ▸ New ▸
+    /// Sequence dialog flow in leading editors, which makes the new sequence the active one.</summary>
+    private async Task NewSequenceAsync()
     {
         if (_project is null)
             return;
 
         Timeline current = _project.Timeline;
-        var timeline = new Timeline(current.FrameRate, current.Resolution, current.SampleRate);
+        string suggested = SequenceNaming.NextUnique(_project, "Sequence");
+        if (await SequenceSettingsDialog.ShowNew(this, suggested, current) is not { } result)
+            return;
+
+        var timeline = new Timeline(current.FrameRate, result.Resolution, current.SampleRate);
         timeline.Tracks.Add(new VideoTrack { Name = "V1" });
         timeline.Tracks.Add(new AudioTrack { Name = "A1" });
-        var sequence = new Sequence(SequenceId.New(), SequenceNaming.NextUnique(_project, "Sequence"), timeline);
+        // The dialog's suggested name is unique, but the user can type anything — re-uniquify a clash.
+        string name = _project.Sequences.Any(s => string.Equals(s.Name, result.Name, StringComparison.OrdinalIgnoreCase))
+            ? SequenceNaming.NextUnique(_project, result.Name)
+            : result.Name;
+        var sequence = new Sequence(SequenceId.New(), name, timeline);
 
         _history.Execute(new AddSequenceCommand(_project, sequence));
         SwitchToSequence(sequence);
@@ -2611,22 +2634,23 @@ public partial class MainWindow : Window
         _ => $"{bytes} B",
     };
 
-    /// <summary>Sequence ▸ Settings: shows the active sequence's render format and lets the user rename it
-    /// (undoable). The format is fixed after creation in this build (a format change would re-scale every clip's
-    /// geometry), so it is shown read-only — matching how most editors gate sequence-settings changes.</summary>
+    /// <summary>Sequence ▸ Settings: edits the active sequence's name and frame size (Premiere's Sequence ▸
+    /// Sequence Settings). One dialog Apply is one undo entry (<see cref="SequenceSettingsOps.BuildCommand"/>
+    /// wraps a combined name + format change in a composite); the Program monitor follows the new frame size
+    /// through the history-Changed reconciliation, so undo/redo re-size it too.</summary>
     private async Task ShowSequenceSettingsAsync()
     {
         if (_project is null)
             return;
 
         Sequence active = _project.ActiveSequence;
-        if (await SequenceSettingsDialog.Show(this, active) is not { } newName || newName == active.Name)
+        if (await SequenceSettingsDialog.ShowSettings(this, active) is not { } result
+            || SequenceSettingsOps.BuildCommand(active, result.Name, result.Resolution) is not { } command)
             return;
 
-        _history.Execute(SetPropertyCommand<string>.Create(
-            "Rename sequence", () => active.Name, v => active.Name = v, newName));
+        _history.Execute(command);
         UpdateSequenceBadge();
-        SetStatus($"Renamed sequence to {newName}");
+        SetStatus($"Sequence settings applied — {active.Name}, {active.Timeline.Resolution.Width}×{active.Timeline.Resolution.Height}");
     }
 
     // ── Import ──────────────────────────────────────────────────────────────────────────────────────

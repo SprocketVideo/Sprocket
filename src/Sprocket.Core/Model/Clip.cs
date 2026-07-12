@@ -28,6 +28,21 @@ public enum ClipKind
 }
 
 /// <summary>
+/// How a clip's content is conformed to the sequence frame when their aspect ratios differ — the editorial
+/// framing policy (Resolve's timeline "Input Scaling" mismatched-resolution options; Premiere's Set to Frame
+/// Size). The conform picks the clip's base destination rectangle on the canvas; the Transform effect remains
+/// the manual reframing override applied on top of it.
+/// </summary>
+public enum ClipConformMode
+{
+    /// <summary>Scale to fit entirely inside the frame, letterboxing/pillarboxing the remainder (the default).</summary>
+    Fit,
+
+    /// <summary>Scale to cover the whole frame, cropping the overflow (centre crop).</summary>
+    Fill,
+}
+
+/// <summary>
 /// A non-destructive placement of a portion of a source on a track (ARCHITECTURE.md §4).
 /// The source bytes are never modified: trimming edits <see cref="SourceIn"/>/<see cref="SourceOut"/>,
 /// moving edits <see cref="TimelineStart"/>, and effects are an additive ordered list. The frame at
@@ -226,6 +241,16 @@ public sealed class Clip
     /// <summary>Whether the clip is a frame hold (<see cref="HoldFrameAt"/> is set, PLAN.md step 43).</summary>
     public bool IsHeld => _holdFrameAt is not null;
 
+    /// <summary>
+    /// How this clip's content conforms to the sequence frame when their aspect ratios differ
+    /// (<see cref="ClipConformMode.Fit"/> letterboxes — the default and the historical behaviour;
+    /// <see cref="ClipConformMode.Fill"/> centre-crops). Consulted by the render layer when it computes the
+    /// clip's base destination rectangle; the Transform effect composes on top. Video presentation only —
+    /// audio and adjustment/generator clips (which render at sequence size) ignore it. Toggled through the
+    /// command stack (<see cref="Commands.SetPropertyCommand{T}"/>), so it is undoable like every model edit.
+    /// </summary>
+    public ClipConformMode ConformMode { get; set; }
+
     /// <summary>Ordered effect stack, applied bottom→top (ARCHITECTURE.md §5d).</summary>
     public List<EffectInstance> Effects { get; } = new();
 
@@ -269,6 +294,6 @@ public sealed class Clip
         new(Kind, MediaRefId, Generator?.Clone(), SourceSequenceId, SourceMulticamId, sourceIn, sourceOut, timelineStart)
         {
             SpeedRatio = _speedRatio, ActiveAngle = ActiveAngle, GainDb = GainDb, Enabled = Enabled,
-            HoldFrameAt = _holdFrameAt, HoldDuration = _holdDuration,
+            HoldFrameAt = _holdFrameAt, HoldDuration = _holdDuration, ConformMode = ConformMode,
         };
 }

@@ -203,7 +203,10 @@ in terms an app-side committer can check against their diff.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Multicam: Create Multicam Source + angle switch (`1`–`9`) | MainWindow.axaml.cs `CreateMulticamSource`; PLAN.md step 24 | edit/multicam-and-sequences.md#cutting-between-camera-angles-multicam | ✅ (angle-buttons Inspector shot deferred — sample project has one video clip) |
-| Multiple sequences: New / Open / Sequence Settings (rename) | MainWindow.axaml.cs `NewSequence`, `SwitchToSequence` | edit/multicam-and-sequences.md#working-with-more-than-one-sequence | ✅ |
+| Multiple sequences: New / Open / Sequence Settings (rename + editable frame size) | MainWindow.axaml.cs `NewSequenceAsync`, `SwitchToSequence`, `ShowSequenceSettingsAsync`; Dialogs.cs `SequenceSettingsDialog` | edit/multicam-and-sequences.md#working-with-more-than-one-sequence | 🟡 (docs predate the editable frame size; New Sequence now opens the format picker) |
+| Sequence format presets incl. portrait/square (1080×1920, 1080×1350, 1080×1080, 2160×3840 + Custom) in New Sequence / Sequence Settings | Sprocket.App/SequenceFormatPresets.cs; Dialogs.cs `SequenceSettingsDialog` | — | ❌ |
+| Per-clip conform mode: Fit (letterbox) / Fill (centre-crop) for mismatched-resolution media | Sprocket.Core/Model/Clip.cs `ConformMode`; Sprocket.Render/FramePresenter.cs `ComputeFillRect` | — | ❌ |
+| Inspector Framing section: Conform dropdown + Center / Fill Height / Reset Framing buttons | InspectorPanel.cs `BuildFramingSection`; Sprocket.App/FramingOps.cs | — | ❌ |
 | Nest selection into a sequence (compound clips; the whole multi-clip selection nests) | MainWindow.axaml.cs `NestSelection`; PLAN.md steps 23, 54 | edit/multicam-and-sequences.md#nesting-clips-into-a-sequence | ✅ |
 
 ## 4. Effects & color
@@ -266,6 +269,7 @@ in terms an app-side committer can check against their diff.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Export Settings dialog (`Ctrl+E`): container/codec/rate control/resolution/frame rate | Dialogs.cs `ExportSettingsDialog` | export/exporting.md#export-your-finished-video | 🟡 (docs describe the former High/Medium/Low quality picker; update for the rate-control modes) |
+| Portrait/square export resolution overrides (2160×3840, 1080×1920, 720×1280, 1080×1350, 1080×1080) with an orientation-aware 4K cap | Dialogs.cs `ExportSettingsDialog` `Resolutions`; VideoExporter.cs `ComputeExportResolution` | — | ❌ |
 | Rate control: Constant quality (CRF slider on the codec's own scale + plain-language readout) or Target bitrate (Mbps + optional max, resolution-scaled default) | Dialogs.cs `ExportSettingsDialog` (Rate control picker); Sprocket.Export/ExportFormat.cs `ExportRateControl`/`CrfFor`/`DefaultTargetBitrate`; VideoExporter.cs `ExportOptions` | — | ❌ |
 | Format matrix: MP4/MOV/MKV/WebM/AVI/TS × H.264/HEVC/AV1/VP9/MPEG-2/ProRes × AAC/MP3/PCM/FLAC/AC-3/Opus | Sprocket.Export/ExportFormat.cs | export/exporting.md#format-reference | ✅ (reference tables for container×codec + audio-only formats) |
 | Audio-only export (master mix, no video): WAV/PCM, FLAC, MP3, AAC/M4A, Opus | Sprocket.Export/ExportFormat.cs `ExportAudioFormat`; VideoExporter.cs `ExportAudioOnly` | export/exporting.md#export-the-audio-only | ✅ |

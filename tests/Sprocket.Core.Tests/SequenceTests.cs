@@ -447,3 +447,62 @@ public class SequenceNestingTests
         Assert.Equal(Timecode.FromSeconds(1), childLayer.SourceTime);
     }
 }
+
+/// <summary>
+/// Editable sequence format: <see cref="Timeline.Resolution"/> is plain mutable model data edited through
+/// <see cref="SetPropertyCommand{T}"/> like any other property, so a Sequence Settings frame-size change is
+/// undoable (and, grouped with a rename in a <see cref="CompositeCommand"/>, one undo entry).
+/// </summary>
+public class SequenceFormatEditTests
+{
+    [Fact]
+    public void Resolution_Edit_Applies_And_Reverts()
+    {
+        var project = new Project();
+        Timeline timeline = project.Timeline;
+        var history = new EditHistory();
+
+        history.Execute(SetPropertyCommand<Resolution>.Create(
+            "Change sequence format", () => timeline.Resolution, v => timeline.Resolution = v,
+            new Resolution(1080, 1920)));
+        Assert.Equal(new Resolution(1080, 1920), timeline.Resolution);
+
+        history.Undo();
+        Assert.Equal(new Resolution(1920, 1080), timeline.Resolution);
+        history.Redo();
+        Assert.Equal(new Resolution(1080, 1920), timeline.Resolution);
+    }
+
+    [Fact]
+    public void Name_And_Resolution_Group_As_One_Undo_Entry()
+    {
+        var project = new Project();
+        Sequence sequence = project.ActiveSequence;
+        Timeline timeline = sequence.Timeline;
+        string oldName = sequence.Name;
+        var history = new EditHistory();
+
+        history.Execute(new CompositeCommand("Sequence settings",
+        [
+            SetPropertyCommand<string>.Create("Rename sequence", () => sequence.Name, v => sequence.Name = v, "Vertical Cut"),
+            SetPropertyCommand<Resolution>.Create("Change sequence format",
+                () => timeline.Resolution, v => timeline.Resolution = v, new Resolution(1080, 1350)),
+        ]));
+        Assert.Equal("Vertical Cut", sequence.Name);
+        Assert.Equal(new Resolution(1080, 1350), timeline.Resolution);
+
+        history.Undo(); // one undo restores both
+        Assert.Equal(oldName, sequence.Name);
+        Assert.Equal(new Resolution(1920, 1080), timeline.Resolution);
+        Assert.False(history.CanUndo);
+    }
+
+    [Fact]
+    public void Render_Plan_Follows_The_Edited_Resolution()
+    {
+        var project = new Project();
+        project.Timeline.Resolution = new Resolution(1080, 1920);
+        VideoFramePlan plan = RenderGraph.PlanVideoFrame(project, Timecode.Zero);
+        Assert.Equal(new Resolution(1080, 1920), plan.Resolution);
+    }
+}

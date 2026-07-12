@@ -45,6 +45,9 @@ frames never touch the managed heap per frame.
   Select / Blade / Slip / Hand / Zoom tools, ripple & roll trims, multi-clip selection (marquee,
   Select All, batch edits), linked A/V (link & unlink), markers, constant-speed retime, freeze frames &
   stop-motion frame edits (frame hold, duplicate/remove frame), nested sequences, and multicam.
+- **Any sequence format, incl. portrait/social** — editable sequence frame size with presets
+  (16:9, 9:16, 4:5, square, 4K) or custom sizes, per-clip Fit/Fill conform for mismatched-resolution
+  media, Inspector framing shortcuts, and matching portrait export presets.
 - **Image sequences & stills** — import a folder of numbered frames as one clip at a chosen frame
   rate (the stop-motion / time-lapse on-ramp) or a single still with a default duration, plus
   Interpret Footage to reassign a source's frame rate.

@@ -38,6 +38,9 @@ public enum PlaybackState
 /// sequence resolution.</param>
 /// <param name="HasAlpha">Whether this media layer's pixels carry a straight alpha channel (PLAN.md step 26); the
 /// preview composites it premultiplied over the layers beneath when set. Meaningful only for <see cref="LayerKind.Media"/>.</param>
+/// <param name="ConformMode">The clip's framing policy for a frame/canvas aspect mismatch (Fit letterboxes,
+/// Fill centre-crops) — the preview picks the layer's destination rectangle with it, mirroring the export path.
+/// Meaningful only for <see cref="LayerKind.Media"/> (synthetic layers render at sequence size).</param>
 public readonly record struct PresentedVideoLayer(
     nint Pixels,
     int RowBytes,
@@ -49,7 +52,8 @@ public readonly record struct PresentedVideoLayer(
     BlendMode BlendMode,
     LayerKind Kind = LayerKind.Media,
     ResolvedGenerator? Generator = null,
-    bool HasAlpha = false);
+    bool HasAlpha = false,
+    ClipConformMode ConformMode = ClipConformMode.Fit);
 
 /// <summary>
 /// A snapshot of the single (top-most) presented frame — the back-compatible view for a one-layer consumer.
@@ -494,7 +498,8 @@ public sealed class PlaybackEngine : IAsyncDisposable
                         if (FindPlayer(track)?.Current is { } frame)
                             layers.Add(new PresentedVideoLayer(
                                 frame.Pixels, frame.RowBytes, frame.Width, frame.Height, frame.Pts,
-                                effects, track.Opacity, track.BlendMode, HasAlpha: frame.HasAlpha));
+                                effects, track.Opacity, track.BlendMode, HasAlpha: frame.HasAlpha,
+                                ConformMode: clip.ConformMode));
                         break;
                 }
             }

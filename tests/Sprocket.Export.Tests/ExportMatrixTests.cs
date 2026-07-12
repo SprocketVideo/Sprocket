@@ -105,12 +105,18 @@ public sealed class ExportMatrixTests
     [InlineData(7680, 4320, 3840, 2160)]   // 8K → scaled down to fit 4K, aspect preserved
     [InlineData(3840, 2400, 3456, 2160)]   // taller than 16:9 → height-limited (3840*2160/2400 = 3456)
     [InlineData(321, 241, 320, 240)]       // sub-4K odd size → rounded down to even, not scaled
+    [InlineData(2160, 3840, 2160, 3840)]   // 4K Portrait: the cap is orientation-aware — unchanged
+    [InlineData(1080, 1920, 1080, 1920)]   // 1080p Portrait: unchanged
+    [InlineData(4320, 7680, 2160, 3840)]   // 8K portrait → scaled to the rotated 4K frame
+    [InlineData(3000, 3000, 2160, 2160)]   // over-cap square → short edge limited to 2160
     public void ComputeExportResolution_CapsAt4KPreservingAspectAndEvenness(int w, int h, int expW, int expH)
     {
         (int width, int height) = VideoExporter.ComputeExportResolution(w, h);
         Assert.Equal(expW, width);
         Assert.Equal(expH, height);
-        Assert.True(width <= VideoExporter.MaxExportWidth && height <= VideoExporter.MaxExportHeight);
+        // The 4K cap is orientation-aware: long edge ≤ MaxExportWidth, short edge ≤ MaxExportHeight.
+        Assert.True(Math.Max(width, height) <= VideoExporter.MaxExportWidth
+            && Math.Min(width, height) <= VideoExporter.MaxExportHeight);
         Assert.True((width & 1) == 0 && (height & 1) == 0, "capped dimensions must be even");
     }
 

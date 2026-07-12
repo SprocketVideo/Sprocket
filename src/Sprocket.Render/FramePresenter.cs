@@ -1,4 +1,5 @@
 using SkiaSharp;
+using Sprocket.Core.Model;
 
 namespace Sprocket.Render;
 
@@ -82,6 +83,37 @@ public static class FramePresenter
         float y = bounds.Top + (bounds.Height - h) / 2f;
         return SKRect.Create(x, y, w, h);
     }
+
+    /// <summary>
+    /// Computes the smallest rectangle of aspect ratio <paramref name="width"/>:<paramref name="height"/>
+    /// that covers all of <paramref name="bounds"/>, centred (the "fill"/centre-crop rectangle — the overflow
+    /// hangs outside the bounds, so the caller clips the draw to <paramref name="bounds"/>). The complement of
+    /// <see cref="ComputeFitRect"/>, selected per clip by <see cref="ClipConformMode"/>. Pure —
+    /// exposed so the scaling math is unit-testable without a canvas.
+    /// </summary>
+    public static SKRect ComputeFillRect(SKRect bounds, int width, int height)
+    {
+        if (width <= 0 || height <= 0 || bounds.Width <= 0 || bounds.Height <= 0)
+            return SKRect.Empty;
+
+        float scale = Math.Max(bounds.Width / width, bounds.Height / height);
+        float w = width * scale;
+        float h = height * scale;
+        float x = bounds.Left + (bounds.Width - w) / 2f;
+        float y = bounds.Top + (bounds.Height - h) / 2f;
+        return SKRect.Create(x, y, w, h);
+    }
+
+    /// <summary>
+    /// The clip's base destination rectangle under its conform policy (PLAN.md step 23 follow-up):
+    /// <see cref="ClipConformMode.Fit"/> letterboxes (<see cref="ComputeFitRect"/>),
+    /// <see cref="ClipConformMode.Fill"/> centre-crops (<see cref="ComputeFillRect"/> — the caller
+    /// must clip the draw to <paramref name="bounds"/> since the rect overflows them).
+    /// </summary>
+    public static SKRect ComputeConformRect(SKRect bounds, int width, int height, ClipConformMode mode) =>
+        mode == ClipConformMode.Fill
+            ? ComputeFillRect(bounds, width, height)
+            : ComputeFitRect(bounds, width, height);
 
     /// <summary>
     /// The centred destination rectangle for a <paramref name="width"/>×<paramref name="height"/> frame at the

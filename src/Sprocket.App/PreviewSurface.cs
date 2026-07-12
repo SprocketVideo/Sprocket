@@ -196,10 +196,23 @@ public sealed class PreviewSurface : Control
                                 break;
 
                             case LayerKind.Media:
+                            {
+                                // Conform the frame into the sequence canvas per the clip's Fit/Fill policy —
+                                // exactly what the export path does — instead of stretching it to the canvas
+                                // rect; mismatched-aspect media letterboxes (Fit) or centre-crops (Fill) in
+                                // preview just as it will in the delivered file. Fill overflows the canvas, so
+                                // clip the draw to it (allocation-free save/restore).
+                                SKRect mediaDest = haveFrame
+                                    ? FramePresenter.ComputeConformRect(frameRect, l.Width, l.Height, l.ConformMode)
+                                    : dest;
+                                bool crop = haveFrame && l.ConformMode == ClipConformMode.Fill;
+                                if (crop) { canvas.Save(); canvas.ClipRect(frameRect); }
                                 _pipeline.DrawLayer(
-                                    canvas, dest, l.Pixels, l.RowBytes, l.Width, l.Height,
+                                    canvas, mediaDest, l.Pixels, l.RowBytes, l.Width, l.Height,
                                     l.Effects, l.Opacity, ToBlendMode(l.BlendMode), l.HasAlpha);
+                                if (crop) canvas.Restore();
                                 break;
+                            }
 
                             case LayerKind.Sequence:
                                 // Placeholder for a nested-sequence clip: live preview compositing of the child is

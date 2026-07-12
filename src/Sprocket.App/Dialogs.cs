@@ -479,29 +479,81 @@ internal static class SpeedDialog
 }
 
 /// <summary>
-/// The Sequence ▸ Settings dialog (PLAN.md step 23): shows the sequence's render format (read-only — a format
-/// change would re-scale every clip, deferred) and lets the user rename it. Returns the trimmed new name on Apply,
-/// or <see langword="null"/> on cancel / no change. The undoable rename itself is applied by the caller.
+/// The sequence-format dialog (PLAN.md step 23): name plus frame size, the latter picked from the preset list in
+/// <see cref="SequenceFormatPresets"/> (landscape + portrait/square social formats) or entered as a custom
+/// width × height — the Sequence ▸ Settings surface (<see cref="ShowSettings"/>) and the New Sequence format
+/// picker (<see cref="ShowNew"/>) share the same form, like the shared settings panel behind Premiere's New
+/// Sequence / Sequence Settings dialogs. Frame rate and sample rate remain read-only (changing them re-times
+/// every clip; deferred). Returns the chosen name + resolution on accept, or <see langword="null"/> on cancel;
+/// the undoable application is the caller's job (via <see cref="SequenceSettingsOps"/>).
 /// </summary>
 internal static class SequenceSettingsDialog
 {
-    public static Task<string?> Show(Window owner, Sequence sequence)
+    /// <summary>What the dialog returns: the (trimmed, non-empty) sequence name and the chosen frame size.</summary>
+    internal sealed record Result(string Name, Resolution Resolution);
+
+    /// <summary>Sequence ▸ Settings: edit the active sequence's name + frame size.</summary>
+    public static Task<Result?> ShowSettings(Window owner, Sequence sequence) =>
+        Show(owner, "Sequence Settings", "Apply", sequence.Name, sequence.Timeline);
+
+    /// <summary>Sequence ▸ New Sequence: pick the new sequence's name + format, seeded from the active one.</summary>
+    public static Task<Result?> ShowNew(Window owner, string suggestedName, Timeline seedFormat) =>
+        Show(owner, "New Sequence", "Create", suggestedName, seedFormat);
+
+    private static Task<Result?> Show(Window owner, string title, string acceptLabel, string name, Timeline format)
     {
-        var nameBox = new TextBox
+        TextBox MakeBox(string text) => new()
         {
-            Text = sequence.Name,
+            Text = text,
             Foreground = Palette.TextBrush,
             Background = Palette.PanelBgBrush,
             VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var nameBox = MakeBox(name);
+        var widthBox = MakeBox(format.Resolution.Width.ToString());
+        var heightBox = MakeBox(format.Resolution.Height.ToString());
+
+        var presetBox = new ComboBox
+        {
+            ItemsSource = SequenceFormatPresets.Presets.Select(p => p.Label).ToList(),
+            SelectedIndex = SequenceFormatPresets.IndexOf(format.Resolution),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            FontSize = 12,
         };
 
-        Timeline t = sequence.Timeline;
-        double fps = t.FrameRate.Den > 0 ? (double)t.FrameRate.Num / t.FrameRate.Den : 0;
-        string format = $"{t.Resolution.Width}×{t.Resolution.Height}  ·  {fps:0.##} fps  ·  {t.SampleRate / 1000.0:0.#} kHz";
+        // Preset ↔ width/height boxes, two-way: picking a preset fills the boxes; hand-editing a box snaps the
+        // preset to Custom (the export dialog's preset-box convention). The guard stops the programmatic fill
+        // from bouncing the combo back to Custom.
+        bool applyingPreset = false;
+        presetBox.SelectionChanged += (_, _) =>
+        {
+            if (SequenceFormatPresets.Presets[Math.Max(0, presetBox.SelectedIndex)].Value is not { } preset)
+                return;
+            applyingPreset = true;
+            widthBox.Text = preset.Width.ToString();
+            heightBox.Text = preset.Height.ToString();
+            applyingPreset = false;
+        };
+        void SnapToCustom(object? _, EventArgs __)
+        {
+            if (!applyingPreset
+                && SequenceFormatPresets.TryParse(widthBox.Text, heightBox.Text, out Resolution typed))
+                presetBox.SelectedIndex = SequenceFormatPresets.IndexOf(typed);
+            else if (!applyingPreset)
+                presetBox.SelectedIndex = SequenceFormatPresets.CustomIndex;
+        }
+        widthBox.TextChanged += SnapToCustom;
+        heightBox.TextChanged += SnapToCustom;
+
+        double fps = format.FrameRate.Den > 0 ? (double)format.FrameRate.Num / format.FrameRate.Den : 0;
+        string fixedFormat = $"{fps:0.##} fps  ·  {format.SampleRate / 1000.0:0.#} kHz  (fixed)";
 
         var apply = new Button
         {
-            Content = "Apply",
+            Content = acceptLabel,
             Padding = new Thickness(16, 5),
             Foreground = Brushes.White,
             Background = Palette.AccentBrush,
@@ -516,12 +568,28 @@ internal static class SequenceSettingsDialog
             CornerRadius = new CornerRadius(5),
         };
 
+        var sizeGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,12,*") };
+        var widthCol = new StackPanel
+        {
+            Spacing = 3,
+            Children = { new TextBlock { Text = "Width", Foreground = Palette.MutedTextBrush, FontSize = 12 }, widthBox },
+        };
+        var heightCol = new StackPanel
+        {
+            Spacing = 3,
+            Children = { new TextBlock { Text = "Height", Foreground = Palette.MutedTextBrush, FontSize = 12 }, heightBox },
+        };
+        widthCol.SetValue(Grid.ColumnProperty, 0);
+        heightCol.SetValue(Grid.ColumnProperty, 2);
+        sizeGrid.Children.Add(widthCol);
+        sizeGrid.Children.Add(heightCol);
+
         var dialog = new Window
         {
-            Title = "Sequence Settings",
+            Title = title,
             Icon = AppIcon.Window,
             Width = 380,
-            Height = 220,
+            Height = 330,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
@@ -546,8 +614,10 @@ internal static class SequenceSettingsDialog
                         {
                             new TextBlock { Text = "Name", Foreground = Palette.MutedTextBrush, FontSize = 12 },
                             nameBox,
-                            new TextBlock { Text = "Format", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 10, 0, 0) },
-                            new TextBlock { Text = format, Foreground = Palette.TextBrush, FontSize = 13 },
+                            new TextBlock { Text = "Frame size", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 10, 0, 0) },
+                            presetBox,
+                            sizeGrid,
+                            new TextBlock { Text = fixedFormat, Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 10, 0, 0) },
                         },
                     },
                 },
@@ -557,13 +627,19 @@ internal static class SequenceSettingsDialog
         void Accept()
         {
             string trimmed = (nameBox.Text ?? string.Empty).Trim();
-            dialog.Close(string.IsNullOrEmpty(trimmed) ? null : trimmed);
+            if (trimmed.Length == 0
+                || !SequenceFormatPresets.TryParse(widthBox.Text, heightBox.Text, out Resolution resolution))
+                return; // incomplete/invalid — keep the dialog open, like the export dialog's guarded Export button
+            dialog.Close(new Result(trimmed, resolution));
         }
         apply.Click += (_, _) => Accept();
         cancel.Click += (_, _) => dialog.Close(null);
-        nameBox.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) Accept(); };
+        void AcceptOnEnter(object? _, Avalonia.Input.KeyEventArgs e) { if (e.Key == Avalonia.Input.Key.Enter) Accept(); }
+        nameBox.KeyDown += AcceptOnEnter;
+        widthBox.KeyDown += AcceptOnEnter;
+        heightBox.KeyDown += AcceptOnEnter;
 
-        return dialog.ShowDialog<string?>(owner);
+        return dialog.ShowDialog<Result?>(owner);
     }
 }
 
@@ -596,6 +672,11 @@ internal static class ExportSettingsDialog
         ("1920 × 1080 (1080p)", new Resolution(1920, 1080)),
         ("1280 × 720 (720p)", new Resolution(1280, 720)),
         ("854 × 480 (480p)", new Resolution(854, 480)),
+        ("2160 × 3840 (4K Portrait)", new Resolution(2160, 3840)),
+        ("1080 × 1920 (1080p Portrait)", new Resolution(1080, 1920)),
+        ("720 × 1280 (720p Portrait)", new Resolution(720, 1280)),
+        ("1080 × 1350 (4:5 Portrait)", new Resolution(1080, 1350)),
+        ("1080 × 1080 (Square)", new Resolution(1080, 1080)),
     ];
 
     private static readonly (string Label, Rational? Value)[] FrameRates =

@@ -468,3 +468,86 @@ public class LoudnessNormalizationTests
         Assert.Equal(-1.0, gain, 6);
     }
 }
+
+/// <summary>
+/// The clip's Fit/Fill conform policy rides the plan (<see cref="VideoLayer.ConformMode"/>): resolved from
+/// <see cref="Clip.ConformMode"/> for content layers, defaulting to Fit everywhere else, so the render layer
+/// can pick the destination rectangle without the plan knowing frame sizes.
+/// </summary>
+public class RenderGraphConformTests
+{
+    private static Project ProjectWithVideoClip(out VideoTrack track, out Clip clip)
+    {
+        var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1080, 1920), 48000));
+        track = new VideoTrack();
+        clip = new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.Zero);
+        track.Clips.Add(clip);
+        project.Timeline.Tracks.Add(track);
+        return project;
+    }
+
+    [Fact]
+    public void Media_Layer_Defaults_To_Fit()
+    {
+        Project project = ProjectWithVideoClip(out _, out _);
+        VideoLayer layer = Assert.Single(RenderGraph.PlanVideoFrame(project, Timecode.FromSeconds(1)).Layers);
+        Assert.Equal(ClipConformMode.Fit, layer.ConformMode);
+    }
+
+    [Fact]
+    public void Media_Layer_Carries_The_Clips_Fill_Mode()
+    {
+        Project project = ProjectWithVideoClip(out _, out Clip clip);
+        clip.ConformMode = ClipConformMode.Fill;
+        VideoLayer layer = Assert.Single(RenderGraph.PlanVideoFrame(project, Timecode.FromSeconds(1)).Layers);
+        Assert.Equal(ClipConformMode.Fill, layer.ConformMode);
+    }
+
+    [Fact]
+    public void Transition_Sides_Each_Carry_Their_Own_Clips_Mode()
+    {
+        Project project = ProjectWithVideoClip(out VideoTrack track, out Clip a);
+        a.ConformMode = ClipConformMode.Fill;
+        var b = new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.FromSeconds(4));
+        track.Clips.Add(b);
+        track.Transitions.Add(new Transition(TransitionTypeIds.CrossDissolve, Timecode.FromSeconds(4), Timecode.FromSeconds(2)));
+
+        VideoLayer layer = Assert.Single(RenderGraph.PlanVideoFrame(project, Timecode.FromSeconds(4)).Layers);
+        Assert.Equal(LayerKind.Transition, layer.Kind);
+        Assert.Equal(ClipConformMode.Fill, layer.Transition!.From.ConformMode);
+        Assert.Equal(ClipConformMode.Fit, layer.Transition!.To.ConformMode);
+    }
+
+    [Fact]
+    public void Nested_Sequence_Layer_Carries_The_Nesting_Clips_Mode()
+    {
+        var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1080, 1920), 48000));
+        var child = new Sequence(SequenceId.New(), "Child",
+            new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));
+        var childTrack = new VideoTrack();
+        childTrack.Clips.Add(new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.Zero));
+        child.Timeline.Tracks.Add(childTrack);
+        project.Sequences.Add(child);
+
+        var track = new VideoTrack();
+        Clip nest = Clip.CreateSequenceClip(child.Id, Timecode.FromSeconds(4), Timecode.Zero);
+        nest.ConformMode = ClipConformMode.Fill;
+        track.Clips.Add(nest);
+        project.Timeline.Tracks.Add(track);
+
+        VideoLayer layer = Assert.Single(RenderGraph.PlanVideoFrame(project, Timecode.FromSeconds(1)).Layers);
+        Assert.Equal(LayerKind.Sequence, layer.Kind);
+        Assert.Equal(ClipConformMode.Fill, layer.ConformMode);
+    }
+
+    [Fact]
+    public void Clone_For_Span_Copies_The_Conform_Mode()
+    {
+        var clip = new Clip(MediaRefId.New(), Timecode.Zero, Timecode.FromSeconds(4), Timecode.Zero)
+        {
+            ConformMode = ClipConformMode.Fill,
+        };
+        Clip half = clip.CloneContentForSpan(Timecode.FromSeconds(2), Timecode.FromSeconds(4), Timecode.FromSeconds(2));
+        Assert.Equal(ClipConformMode.Fill, half.ConformMode);
+    }
+}

@@ -433,3 +433,60 @@ public sealed class SkiaEffectPipelineTests
         return readback.GetPixel(Size / 2, Size / 2).Red;
     }
 }
+
+/// <summary>
+/// Pixel tests for the per-clip conform policy at the render seam: the caller picks the destination
+/// rectangle with <see cref="FramePresenter.ComputeConformRect"/> (clipping Fill's overflow to the frame,
+/// exactly as the export path and preview do) and the pipeline draws into it — Fit leaves letterbox bars
+/// over the background, Fill centre-crops with no bars.
+/// </summary>
+public sealed class ConformRenderTests
+{
+    private const int Canvas = 8;
+
+    private static SKBitmap WideSource()
+    {
+        // 8×4 (2:1) white source into an 8×8 (1:1) canvas: Fit letterboxes above/below, Fill crops the sides.
+        var bmp = new SKBitmap(new SKImageInfo(8, 4, SKColorType.Rgba8888, SKAlphaType.Opaque));
+        bmp.Erase(SKColors.White);
+        return bmp;
+    }
+
+    private static SKBitmap RenderConformed(ClipConformMode mode)
+    {
+        using var pipeline = new SkiaEffectPipeline();
+        using SKBitmap src = WideSource();
+        using SKSurface surface = SKSurface.Create(new SKImageInfo(Canvas, Canvas, SKColorType.Rgba8888, SKAlphaType.Premul));
+        SKCanvas canvas = surface.Canvas;
+        canvas.Clear(SKColors.Black);
+
+        SKRect bounds = SKRect.Create(Canvas, Canvas);
+        SKRect dest = FramePresenter.ComputeConformRect(bounds, src.Width, src.Height, mode);
+        bool clip = mode == ClipConformMode.Fill;
+        if (clip) { canvas.Save(); canvas.ClipRect(bounds); }
+        pipeline.DrawLayer(canvas, dest, src.GetPixels(), src.RowBytes, src.Width, src.Height, []);
+        if (clip) canvas.Restore();
+
+        canvas.Flush();
+        using SKImage image = surface.Snapshot();
+        return SKBitmap.FromImage(image);
+    }
+
+    [Fact]
+    public void Fit_Letterboxes_The_Mismatched_Aspect()
+    {
+        using SKBitmap result = RenderConformed(ClipConformMode.Fit);
+        Assert.Equal(0, result.GetPixel(Canvas / 2, 0).Red);              // top bar = background
+        Assert.Equal(0, result.GetPixel(Canvas / 2, Canvas - 1).Red);     // bottom bar = background
+        Assert.True(result.GetPixel(Canvas / 2, Canvas / 2).Red > 250);   // centre = picture
+    }
+
+    [Fact]
+    public void Fill_Covers_The_Frame_With_No_Bars()
+    {
+        using SKBitmap result = RenderConformed(ClipConformMode.Fill);
+        for (int y = 0; y < Canvas; y += Canvas - 1)
+            for (int x = 0; x < Canvas; x += Canvas - 1)
+                Assert.True(result.GetPixel(x, y).Red > 250, $"corner ({x},{y}) should be picture, not letterbox");
+    }
+}

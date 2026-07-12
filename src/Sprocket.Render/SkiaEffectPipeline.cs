@@ -482,10 +482,12 @@ half4 main(float2 coord) {
 
         byte alpha = (byte)Math.Clamp(opacity * 255.0, 0, 255);
 
-        // Each side is letterboxed into the full frame independently (so differently-sized clips both fit), then
-        // the transition shader operates over the whole frame; Decal tiling makes a letterbox surround transparent.
-        SKRect fromDest = FramePresenter.ComputeFitRect(bounds, from.Width, from.Height);
-        SKRect toDest = FramePresenter.ComputeFitRect(bounds, to.Width, to.Height);
+        // Each side is conformed into the full frame independently under its own clip's Fit/Fill policy (so
+        // differently-sized clips both frame as they do outside the transition), then the transition shader
+        // operates over the whole frame; Decal tiling makes a letterbox surround transparent, and a fill rect's
+        // overflow is cropped by the bounds-sized draw below.
+        SKRect fromDest = FramePresenter.ComputeConformRect(bounds, from.Width, from.Height, transition.From.ConformMode);
+        SKRect toDest = FramePresenter.ComputeConformRect(bounds, to.Width, to.Height, transition.To.ConformMode);
 
         _scratch.Clear();
         SKShader fromShader = BuildChainShader(from, fromDest, fromEffects, forceDecal: true);

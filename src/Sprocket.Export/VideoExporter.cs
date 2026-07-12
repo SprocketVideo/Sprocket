@@ -438,26 +438,35 @@ public static class VideoExporter
         }
     }
 
-    /// <summary>4K delivery cap (PLAN.md step 27): DCI-4K width (UHD 3840 fits) and 4K height. An export-side
-    /// limit only — import, the timeline, and the sequence canvas are unrestricted.</summary>
+    /// <summary>4K delivery cap (PLAN.md step 27): DCI-4K on the long edge (UHD 3840 fits) and 4K frame height on
+    /// the short edge, applied orientation-agnostically — a portrait 2160×3840 delivery is as legitimate as its
+    /// landscape rotation and passes the cap unscaled. An export-side limit only — import, the timeline, and the
+    /// sequence canvas are unrestricted.</summary>
     public const int MaxExportWidth = 4096;
+
+    /// <inheritdoc cref="MaxExportWidth"/>
     public const int MaxExportHeight = 2160;
 
     /// <summary>Computes the encoded resolution for a sequence of <paramref name="width"/>×<paramref name="height"/>:
-    /// scaled down (preserving aspect) to fit within the 4K cap when larger, then rounded down to even so a 4:2:0
-    /// codec accepts it. Sequences at or below 4K encode at their exact even size. Exposed so the UI can show the
-    /// resolution an export will actually produce.</summary>
+    /// scaled down (preserving aspect) to fit within the 4K cap when larger — the cap is orientation-aware (long
+    /// edge ≤ <see cref="MaxExportWidth"/>, short edge ≤ <see cref="MaxExportHeight"/>), so portrait sequences cap
+    /// at the rotated 4K frame — then rounded down to even so a 4:2:0 codec accepts it. Sequences at or below 4K
+    /// encode at their exact even size. Exposed so the UI can show the resolution an export will actually produce.</summary>
     public static (int width, int height) ComputeExportResolution(int width, int height)
     {
         if (width <= 0 || height <= 0)
             return (0, 0);
 
-        double scale = Math.Min(1.0, Math.Min((double)MaxExportWidth / width, (double)MaxExportHeight / height));
+        int longEdge = Math.Max(width, height);
+        int shortEdge = Math.Min(width, height);
+        double scale = Math.Min(1.0,
+            Math.Min((double)MaxExportWidth / longEdge, (double)MaxExportHeight / shortEdge));
         int w = (int)Math.Round(width * scale);
         int h = (int)Math.Round(height * scale);
-        // Clamp against the cap (rounding can nudge to cap+1) then force even.
-        w = Math.Min(w, MaxExportWidth) & ~1;
-        h = Math.Min(h, MaxExportHeight) & ~1;
+        // Clamp against the (orientation-aware) cap — rounding can nudge to cap+1 — then force even.
+        (int maxW, int maxH) = width >= height ? (MaxExportWidth, MaxExportHeight) : (MaxExportHeight, MaxExportWidth);
+        w = Math.Min(w, maxW) & ~1;
+        h = Math.Min(h, maxH) & ~1;
         return (w, h);
     }
 
@@ -543,8 +552,11 @@ public static class VideoExporter
                         break;
                     using (nestedImage)
                     {
-                        SKRect dest = FramePresenter.ComputeFitRect(bounds, nestedImage.Width, nestedImage.Height);
+                        SKRect dest = FramePresenter.ComputeConformRect(bounds, nestedImage.Width, nestedImage.Height, layer.ConformMode);
+                        bool clip = layer.ConformMode == ClipConformMode.Fill; // a fill rect overflows the frame — crop it
+                        if (clip) { canvas.Save(); canvas.ClipRect(bounds); }
                         pipeline.DrawImageLayer(canvas, dest, nestedImage, layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode));
+                        if (clip) canvas.Restore();
                     }
                     break;
                 }
@@ -565,12 +577,12 @@ public static class VideoExporter
                             break;
                         if (fromImg is null)
                         {
-                            DrawSide(canvas, bounds, toImg!, tr.To.Effects, pipeline, layer.Opacity, blend);
+                            DrawSide(canvas, bounds, toImg!, tr.To, pipeline, layer.Opacity, blend);
                             break;
                         }
                         if (toImg is null)
                         {
-                            DrawSide(canvas, bounds, fromImg, tr.From.Effects, pipeline, layer.Opacity, blend);
+                            DrawSide(canvas, bounds, fromImg, tr.From, pipeline, layer.Opacity, blend);
                             break;
                         }
                         pipeline.DrawTransition(
@@ -591,10 +603,13 @@ public static class VideoExporter
                     if (frame is null)
                         continue;
 
-                    SKRect dest = FramePresenter.ComputeFitRect(bounds, frame.Width, frame.Height);
+                    SKRect dest = FramePresenter.ComputeConformRect(bounds, frame.Width, frame.Height, layer.ConformMode);
+                    bool clip = layer.ConformMode == ClipConformMode.Fill; // a fill rect overflows the frame — crop it
+                    if (clip) { canvas.Save(); canvas.ClipRect(bounds); }
                     pipeline.DrawLayer(
                         canvas, dest, frame.Pixels, frame.RowBytes, frame.Width, frame.Height,
                         layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode), frame.HasAlpha);
+                    if (clip) canvas.Restore();
                     break;
                 }
             }
@@ -646,14 +661,17 @@ public static class VideoExporter
         }
     }
 
-    /// <summary>Composites one transition side's image on its own (fit-letterboxed) — the graceful path when the
-    /// other side produced no pixels.</summary>
+    /// <summary>Composites one transition side's image on its own (under the side clip's conform policy) — the
+    /// graceful path when the other side produced no pixels.</summary>
     private static void DrawSide(
-        SKCanvas canvas, SKRect bounds, SKImage image, IReadOnlyList<ResolvedEffect> effects,
+        SKCanvas canvas, SKRect bounds, SKImage image, VideoLayer side,
         SkiaEffectPipeline pipeline, double opacity, SKBlendMode blend)
     {
-        SKRect dest = FramePresenter.ComputeFitRect(bounds, image.Width, image.Height);
-        pipeline.DrawImageLayer(canvas, dest, image, effects, opacity, blend);
+        SKRect dest = FramePresenter.ComputeConformRect(bounds, image.Width, image.Height, side.ConformMode);
+        bool clip = side.ConformMode == ClipConformMode.Fill; // a fill rect overflows the frame — crop it
+        if (clip) { canvas.Save(); canvas.ClipRect(bounds); }
+        pipeline.DrawImageLayer(canvas, dest, image, side.Effects, opacity, blend);
+        if (clip) canvas.Restore();
     }
 
     /// <summary>Renders a nested sequence's plan to a transparent offscreen <see cref="SKImage"/> at the child
