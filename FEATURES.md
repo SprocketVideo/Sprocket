@@ -71,13 +71,14 @@ in terms an app-side committer can check against their diff.
 | get-started/getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 92226ec | ✅ current |
 | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 487ace6 | ✅ current (macOS ⌘ note added, links to the full reference) |
 | get-started/keyboard-shortcuts.md (full page) | §9; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | 487ace6 | ✅ current |
-| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 487ace6 | ✅ current (added the three new Edit guides) |
+| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 5227505 | ✅ current (added the Importing and organizing media guide) |
 | edit/editing-on-the-timeline.md | §3 (Timeline editing; Clips: speed / frame hold / frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 487ace6 | ✅ current (expanded: multi-select, cut/copy/paste, split/duplicate/enable, right-click menu, track rename/resize, on-clip fade handles, per-tool cursors) |
 | edit/marks-and-markers.md | §3 (Markers; In/Out marks; Play In to Out) | the Markers panel, in/out mark keys/overlay, or Play In to Out change | 487ace6 | ✅ current |
 | edit/titles-and-generators.md | §3 (Titles, generators & layers) | the Clip ▸ Insert generator set, the title Inspector sections, or adjustment-layer placement change | 487ace6 | ✅ current |
 | edit/multicam-and-sequences.md | §3 (Multicam & sequences) | multicam creation/angle-switching, the Sequence menu (New/Open/Settings), or nesting change | 487ace6 | ✅ current |
 | effects-color/effects.md | §4 (Effects & the effect stack) | the everyday effects, the Effects menu, or the Inspector effect UI change | 92226ec | ✅ current |
 | effects-color/color-grading.md | §4 (Color grading & scopes) | grading effects, scopes, or wheel UI change | 438f6e2 | ✅ current |
+| media/importing-media.md | §2 (Importing media & the Project panel) | the import formats/picker, media-bin tiles/badges/search, Project-panel tabs, still/sequence/alpha import, or the Interpret Footage dialog change | 5227505 | ✅ current |
 | media/log-footage.md | §2 (Working with log & camera footage) | Input Color Transform, the camera LUT set, or ACES Filmic change | 438f6e2 | ✅ current |
 | audio/audio-mixing.md | §5 (track mute/solo, the Fade effect) | per-track audio controls or the Fade effect change | 92226ec | ✅ current |
 | export/exporting.md | §6 (Export Settings) | the Export Settings dialog or its defaults change | 92226ec | ✅ current |
@@ -127,15 +128,15 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|
 | Import Media (`Ctrl+I`, file picker) | MainWindow.axaml.cs `ImportDialogAsync` | get-started/getting-started.md#open-something-to-work-with | ✅ |
 | Drag-and-drop files from OS to import | MainWindow.axaml.cs:795 | get-started/getting-started.md#open-something-to-work-with | ✅ |
-| Supported import formats (16 video + 11 audio + 9 image extensions) | MainWindow.axaml.cs `VideoFileType`/`AudioFileType`/`ImageFileType` | — | ❌ (needs a reference list) |
-| Media bin: thumbnails, waveforms, format/duration badges | Sprocket.App/MediaBrowser/MediaBrowserPanel.cs | get-started/getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
-| Media bin search/filter | MediaBrowser/MediaSearch.cs | — | ❌ |
-| Project panel tabs: Media / Effects / Transitions / Audio | MediaBrowserPanel.cs:77 | get-started/getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (tabs named; Effects/Transitions/Audio tabs never shown in use) |
-| Drag media from bin onto timeline tracks | TimelineControl.cs `OnDrop` | get-started/getting-started.md#open-something-to-work-with | 🟡 (tip only) |
-| Alpha-channel media import & compositing | PLAN.md step 26; Sprocket.Render/SkiaEffectPipeline.cs (premultiplied-alpha compositing); MediaBrowser/MediaBadges.cs | — | ❌ |
-| Image-sequence import (numbered stills → one clip, fps choice) | PLAN.md step 42; ImageSequenceDetection.cs, ImageSequenceImportDialog.cs, MediaImport.cs | — | ❌ |
-| Still-image import (single image, default duration preference) | PLAN.md step 42; MediaImport.cs, PreferencesDialog.cs | — | ❌ |
-| Interpret Footage (reassign frame rate; media-bin & Clip menu) | PLAN.md step 42; ReinterpretFootageCommand, InterpretFootageDialog.cs | — | ❌ |
+| Supported import formats (16 video + 11 audio + 9 image extensions) | MainWindow.axaml.cs `VideoFileType`/`AudioFileType`/`ImageFileType` | media/importing-media.md#supported-file-formats | ✅ |
+| Media bin: thumbnails, waveforms, format/duration badges | Sprocket.App/MediaBrowser/MediaBrowserPanel.cs | media/importing-media.md#reading-the-media-bin | ✅ |
+| Media bin search/filter | MediaBrowser/MediaSearch.cs | media/importing-media.md#finding-media-in-the-bin | ✅ |
+| Project panel tabs: Media / Effects / Transitions / Audio | MediaBrowserPanel.cs:77 | media/importing-media.md#the-project-panel | ✅ |
+| Drag media from bin onto timeline tracks | TimelineControl.cs `OnDrop` | media/importing-media.md#putting-media-on-the-timeline | ✅ |
+| Alpha-channel media import & compositing | PLAN.md step 26; Sprocket.Render/SkiaEffectPipeline.cs (premultiplied-alpha compositing); MediaBrowser/MediaBadges.cs | media/importing-media.md#transparent-alpha-media | ✅ (Alpha badge + compositing on an upper track; the premultiplied render path itself stays internal) |
+| Image-sequence import (numbered stills → one clip, fps choice) | PLAN.md step 42; ImageSequenceDetection.cs, ImageSequenceImportDialog.cs, MediaImport.cs | media/importing-media.md#image-sequences | ✅ |
+| Still-image import (single image, default duration preference) | PLAN.md step 42; MediaImport.cs, PreferencesDialog.cs | media/importing-media.md#still-images | ✅ |
+| Interpret Footage (reassign frame rate; media-bin & Clip menu) | PLAN.md step 42; ReinterpretFootageCommand, InterpretFootageDialog.cs | media/importing-media.md#interpret-footage-changing-a-clips-frame-rate | ✅ |
 
 ### Working with log & camera footage
 
