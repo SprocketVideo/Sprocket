@@ -28,6 +28,10 @@ internal interface IMonitor
     Timecode Duration { get; }
     PlaybackState State { get; }
 
+    /// <summary>The monitor's frame rate (timeline rate / probed source rate), for snapping transport
+    /// scrubs to frame boundaries. <see cref="Rational.Zero"/> when nothing is loaded (snap is a no-op).</summary>
+    Rational FrameRate { get; }
+
     void Play();
     void Pause();
     void TogglePlayPause();
@@ -73,6 +77,7 @@ internal sealed class ProgramMonitor : IMonitor
     public Timecode Position => _engine.Position;
     public Timecode Duration => _engine.Duration;
     public PlaybackState State => _engine.State;
+    public Rational FrameRate => _engine.FrameRate;
 
     public void Play() => _engine.Play();
     public void Pause() => _engine.Pause();
@@ -118,6 +123,7 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
     public Timecode Position => _engine?.Position ?? Timecode.Zero;
     public Timecode Duration => _engine?.Duration ?? Timecode.Zero;
     public PlaybackState State => _engine?.State ?? PlaybackState.Stopped;
+    public Rational FrameRate => _engine?.FrameRate ?? Rational.Zero;
 
     public event Action<Timecode>? PositionChanged;
     public event Action<PlaybackState>? StateChanged;

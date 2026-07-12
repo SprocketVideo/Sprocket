@@ -287,7 +287,7 @@ in terms an app-side committer can check against their diff.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Transport: play/pause (`Space`), jump start/end, frame step | MainWindow.axaml.cs:899–903 | get-started/getting-started.md#1-play-and-preview-your-video | ✅ |
-| Scrubber + timeline-ruler scrubbing | MainWindow.axaml.cs:910; TimelineControl.cs:1406 | get-started/getting-started.md#1-play-and-preview-your-video | ✅ |
+| Scrubber + timeline-ruler scrubbing (frame-snapped; the playhead tracks the pointer immediately, one seek per frame crossed) | MainWindow.axaml.cs:910; TimelineControl.cs:1406 | get-started/getting-started.md#1-play-and-preview-your-video | ✅ |
 | Source monitor (preview a bin clip; Program/Source tabs) | Sprocket.App/Monitors.cs; `WireMonitorTabs` | — | ❌ (guides only cover Program) |
 | Preview zoom: Fit / 50 / 100 / 200% | MainWindow.axaml.cs `WireZoomAndGuides` | get-started/getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
 | Guides overlay (safe areas / framing grid) | PreviewSurface.ShowGuides | get-started/getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |

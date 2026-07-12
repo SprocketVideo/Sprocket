@@ -74,6 +74,55 @@ public class TimecodeTests
         Assert.Equal(9, (frame10 - new Timecode(1)).ToFrameIndex(fps));
     }
 
+    [Theory]
+    [InlineData(24, 1)]
+    [InlineData(25, 1)]
+    [InlineData(30, 1)]
+    [InlineData(24000, 1001)]
+    [InlineData(30000, 1001)]
+    [InlineData(60000, 1001)]
+    public void SnapToFrame_Is_Identity_On_A_Frame_Boundary(int num, int den)
+    {
+        var fps = new Rational(num, den);
+        Timecode boundary = Timecode.FromFrames(1234, fps);
+        Assert.Equal(boundary, boundary.SnapToFrame(fps));
+    }
+
+    [Theory]
+    [InlineData(24, 1)]
+    [InlineData(30, 1)]
+    [InlineData(30000, 1001)]
+    [InlineData(60000, 1001)]
+    public void SnapToFrame_Floors_Mid_Frame_Ticks_To_The_Frame_Start(int num, int den)
+    {
+        var fps = new Rational(num, den);
+        Timecode start = Timecode.FromFrames(500, fps);
+        Timecode next = Timecode.FromFrames(501, fps);
+
+        // Anywhere inside the frame — including one tick before the next boundary — snaps back to its start.
+        Assert.Equal(start, (start + new Timecode(1)).SnapToFrame(fps));
+        Assert.Equal(start, (next - new Timecode(1)).SnapToFrame(fps));
+        Assert.Equal(500, (next - new Timecode(1)).SnapToFrame(fps).ToFrameIndex(fps));
+    }
+
+    [Fact]
+    public void SnapToFrame_Is_Exact_Hours_Into_An_Ntsc_Timeline()
+    {
+        var fps = new Rational(30000, 1001);
+        long frame = 3 * 60 * 60 * 30; // ≈3 hours in — where double-seconds math would have drifted
+        Timecode deep = Timecode.FromFrames(frame, fps) + new Timecode(1);
+        Assert.Equal(Timecode.FromFrames(frame, fps), deep.SnapToFrame(fps));
+        Assert.Equal(frame, deep.SnapToFrame(fps).ToFrameIndex(fps));
+    }
+
+    [Fact]
+    public void SnapToFrame_With_A_Non_Positive_Rate_Is_Identity()
+    {
+        var t = new Timecode(123457);
+        Assert.Equal(t, t.SnapToFrame(Rational.Zero));
+        Assert.Equal(t, t.SnapToFrame(new Rational(-30, 1)));
+    }
+
     [Fact]
     public void Sample_RoundTrip_Is_Stable()
     {

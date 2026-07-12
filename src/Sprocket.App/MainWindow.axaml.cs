@@ -80,6 +80,7 @@ public partial class MainWindow : Window
     private TextBlock? _positionText, _durationText;
 
     private bool _suppressSeek;        // guards programmatic scrubber updates from re-triggering a seek
+    private long _lastScrubberSeekFrame = -1; // last frame-snapped scrubber seek, so same-frame drags don't re-seek
     private bool _exporting;
     private bool _rendering;           // a preview render is in flight (same quiesce discipline as export, PLAN.md step 32)
     private RenderCache.RenderCacheService? _renderCache; // the session's preview render cache (PLAN.md step 32)
@@ -1211,7 +1212,16 @@ public partial class MainWindow : Window
         {
             if (_suppressSeek)
                 return;
-            _active!.SeekTo(new Timecode((long)e.NewValue));
+            // Snap to a frame boundary and skip same-frame repeats, so a drag issues one seek per frame
+            // crossed instead of a sub-frame-unique seek per pixel (which would defeat the engine's
+            // repeat-frame fast path and force a full decode per pointer move).
+            Rational fps = _active!.FrameRate;
+            Timecode t = new Timecode((long)e.NewValue).SnapToFrame(fps);
+            long frame = fps.Num > 0 ? t.ToFrameIndex(fps) : t.Ticks;
+            if (frame == _lastScrubberSeekFrame)
+                return;
+            _lastScrubberSeekFrame = frame;
+            _active.SeekTo(t);
         };
 
         // Both monitors report position/state; the readouts update only for the active one. The Inspector tracks
@@ -1261,6 +1271,7 @@ public partial class MainWindow : Window
                 _inspector?.OnPlayheadMoved(); // animated parameter values track the Program playhead
             if (!ReferenceEquals(_active, monitor))
                 return;
+            _lastScrubberSeekFrame = -1; // position moved (playback/echo) — don't skip a drag back to the old frame
             _suppressSeek = true;
             _scrubber!.Value = Math.Clamp(pos.Ticks, 0, _scrubber.Maximum);
             _suppressSeek = false;
@@ -1466,6 +1477,7 @@ public partial class MainWindow : Window
     private void RefreshTransportForActive()
     {
         IMonitor m = _active!;
+        _lastScrubberSeekFrame = -1; // a newly-active monitor's first scrubber seek must always go through
         _suppressSeek = true;
         _scrubber!.Maximum = Math.Max(1, m.Duration.Ticks);
         _scrubber.Value = Math.Clamp(m.Position.Ticks, 0, _scrubber.Maximum);

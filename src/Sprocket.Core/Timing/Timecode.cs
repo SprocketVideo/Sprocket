@@ -67,6 +67,19 @@ public readonly record struct Timecode : IComparable<Timecode>
         return (long)FloorDivide(numerator, denominator);
     }
 
+    /// <summary>
+    /// This time snapped to the start of its containing frame at <paramref name="frameRate"/>
+    /// (floor — the frame currently on screen, matching <see cref="ToFrameIndex"/>). Returns this
+    /// unchanged when the rate is non-positive. Scrubbing snaps seeks with this so repeated seeks
+    /// within one frame column collapse to the same target.
+    /// </summary>
+    public Timecode SnapToFrame(Rational frameRate)
+    {
+        if (frameRate.Num <= 0 || frameRate.Den <= 0)
+            return this;
+        return FromFrames(ToFrameIndex(frameRate), frameRate);
+    }
+
     // ---- Sample conversions (audio) ----
 
     /// <summary>Creates the timecode at the start of the given audio sample index. Rounds to the nearest tick.</summary>

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 using Sprocket.Media;
@@ -263,6 +264,64 @@ public class PlaybackEngineTests
         PlaybackStatistics stats = engine.GetStatistics();
         Assert.Equal(0, stats.FramesDropped);
         Assert.Equal(delivered, stats.FramesDelivered);
+    }
+
+    [Fact]
+    public async Task Paused_Seek_Position_Echo_Equals_The_Seek_Target_Exactly()
+    {
+        // TimelineControl moves its playhead locally on scrub and reconciles against the engine's echo by
+        // exact tick equality — a paused seek must therefore echo back precisely the sought position.
+        using var cts = new CancellationTokenSource(Timeout);
+        (Project project, RingVideoFrameFeed feed) = BuildSession();
+        await using var engine = new PlaybackEngine(project, feed, new SoftwareClock(() => TimeSpan.Zero));
+
+        Timecode? echoed = null;
+        engine.PositionChanged += p => echoed = p;
+
+        feed.Start();
+        engine.SeekTo(Timecode.FromFrames(60, Fps));
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+
+        Assert.Equal(60 * FrameTicks, echoed?.Ticks);
+    }
+
+    [Fact]
+    public async Task Paused_Seeks_Wake_The_Running_Pump_Immediately()
+    {
+        // Scrub latency (PLAN.md step 17): with the pump loop actually running, a seek while paused must be
+        // serviced by the wake signal rather than waiting out the idle poll — a burst of paused seeks completes
+        // without stacking up blind 16 ms delays.
+        using var cts = new CancellationTokenSource(Timeout);
+        (Project project, RingVideoFrameFeed feed) = BuildSession();
+        await using var engine = new PlaybackEngine(project, feed, new SoftwareClock(() => TimeSpan.Zero));
+
+        var presented = new SemaphoreSlim(0);
+        engine.FramePresented += () => presented.Release();
+
+        feed.Start();
+        engine.Start(); // real pump loop; seeks to 0 and force-presents frame 0
+
+        async Task WaitForPtsAsync(long pts)
+        {
+            while (CurrentPts(engine) != pts)
+                Assert.True(await presented.WaitAsync(Timeout), $"frame at pts {pts} was never presented");
+        }
+
+        await WaitForPtsAsync(0);
+
+        const int seeks = 10;
+        var sw = Stopwatch.StartNew();
+        for (int i = 1; i <= seeks; i++)
+        {
+            engine.SeekTo(Timecode.FromFrames(i * 5, Fps));
+            await WaitForPtsAsync(i * 5 * FrameTicks);
+        }
+        sw.Stop();
+
+        // Generous CI margin — the point is that seeks don't serially wait out idle polls on top of decode.
+        Assert.True(sw.ElapsedMilliseconds < seeks * 100,
+            $"{seeks} paused seeks took {sw.ElapsedMilliseconds} ms — the pump is not being woken");
+        Assert.Equal(seeks * 5 * FrameTicks, CurrentPts(engine));
     }
 
     [Fact]

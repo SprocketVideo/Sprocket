@@ -142,6 +142,11 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private long _seekGeneration;     // bumped by SeekTo; the pump re-seeks players on change
     private long _lastPumpGen;
 
+    // Wakes the idle (non-playing) pump out of its coarse poll so a paused seek is serviced immediately
+    // instead of waiting out the remainder of the 16 ms delay — scrub latency, PLAN.md step 17. Capacity 1:
+    // one pending signal is enough (the pump reads the latest generation), extra releases are dropped.
+    private readonly SemaphoreSlim _pumpWake = new(0, 1);
+
     // Diagnostics counters (cumulative; written on the pump thread, read via Interlocked in GetStatistics).
     private long _pumpCount;
     private long _presentCount;
@@ -346,6 +351,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
         SetState(PlaybackState.Playing);
         lock (_transportGate)
             _endHandled = false;
+        WakePump(); // don't leave the first frame of the span waiting out an idle poll
     }
 
     /// <summary>Pauses playback at the current position.</summary>
@@ -382,6 +388,18 @@ public sealed class PlaybackEngine : IAsyncDisposable
         {
             _endHandled = false;
             _rangeStop = null; // a scrub cancels a Play In to Out span — playback continues unconstrained
+        }
+        WakePump();
+    }
+
+    /// <summary>Wakes the idle pump immediately (see <see cref="_pumpWake"/>). Benign if the pump is playing
+    /// (the stray signal is consumed and ignored on the next idle wait) or already signaled.</summary>
+    private void WakePump()
+    {
+        if (_pumpWake.CurrentCount == 0)
+        {
+            try { _pumpWake.Release(); }
+            catch (SemaphoreFullException) { } // raced with another release — already signaled
         }
     }
 
@@ -551,11 +569,12 @@ public sealed class PlaybackEngine : IAsyncDisposable
             try
             {
                 // While playing, wait until the next frame's exact deadline so each frame is presented on the
-                // frame grid (smooth cadence). While idle, a coarse poll is enough to stay responsive to seeks.
+                // frame grid (smooth cadence). While idle, poll coarsely but let a seek (or a transport
+                // change) cut the wait short so a paused scrub is serviced immediately.
                 if (State == PlaybackState.Playing)
                     await WaitForNextFrameAsync(ct).ConfigureAwait(false);
                 else
-                    await Task.Delay(16, ct).ConfigureAwait(false);
+                    await _pumpWake.WaitAsync(16, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -1007,5 +1026,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
             await asyncClock.DisposeAsync().ConfigureAwait(false);
         else if (_clock is IDisposable syncClock)
             syncClock.Dispose();
+
+        _pumpWake.Dispose(); // after StopPumpAsync — the pump no longer waits on it
     }
 }

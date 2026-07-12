@@ -129,6 +129,13 @@ public sealed class TimelineControl : Control
     private Clip? _selected;
     private bool _scrubbing;
 
+    // Scrub-latency state (frame-snapped seeks): the last frame column sent to the engine during the
+    // current scrub (so same-column pointer moves don't re-seek), and the tick value of the seek whose
+    // PositionChanged echo we are waiting on (so stale in-flight echoes can't yank the locally-moved
+    // playhead backward mid-drag). Both reset on pointer release.
+    private long _lastSeekFrame = -1;
+    private long _pendingSeekTicks = -1;
+
     // Rubber-band marquee state (PLAN.md step 54): a Select-tool drag on empty lane area selects every clip
     // the band touches (live, as it moves); Ctrl/Shift at the press adds to the existing selection. A press
     // released below the drag threshold stays a plain click — clear the selection and move the playhead.
@@ -371,6 +378,15 @@ public sealed class TimelineControl : Control
 
     private void OnEnginePosition(Timecode t)
     {
+        // While a seek we issued is still in flight, the playhead already sits at the seek target
+        // (SeekToX moved it locally) — drop stale echoes from earlier seeks so they can't yank the
+        // indicator backward mid-drag; resume echo-driven updates once the engine has caught up.
+        if (_pendingSeekTicks >= 0)
+        {
+            if (t.Ticks != _pendingSeekTicks)
+                return;
+            _pendingSeekTicks = -1;
+        }
         _playhead = t;
         Dispatcher.UIThread.Post(InvalidateVisual, DispatcherPriority.Render);
     }
@@ -2023,6 +2039,8 @@ public sealed class TimelineControl : Control
     {
         base.OnPointerReleased(e);
         _scrubbing = false;
+        _lastSeekFrame = -1;   // a fresh scrub must always issue its first seek
+        _pendingSeekTicks = -1; // a running clock re-takes ownership of the playhead after a scrub-while-playing
         _panning = false;
         _resizingHeader = false;
         if (_marquee)
@@ -3069,10 +3087,26 @@ public sealed class TimelineControl : Control
 
     private void SeekToX(double x)
     {
-        long ticks = TimelineMath.ClampNonNegative(TimelineMath.TicksAtX(x, _pxPerSecond, _scrollX, _headerWidth));
-        Timecode t = new(ticks);
+        long raw = TimelineMath.ClampNonNegative(TimelineMath.TicksAtX(x, _pxPerSecond, _scrollX, _headerWidth));
+        Rational fps = _project?.Timeline.FrameRate ?? Rational.Zero;
+        // Snap to the frame under the pointer: seeks within one frame column collapse to the same target,
+        // so a drag issues one seek per frame crossed (and repeats hit VideoTrackPlayer's repeat-frame
+        // fast path) instead of a sub-frame-unique seek per pointer move.
+        Timecode t = new Timecode(raw).SnapToFrame(fps);
+        if (_project is not null)
+            t = Timecode.Min(t, _project.Timeline.Duration); // match the engine's clamp so its echo equals t
+
         if (_engine is not null)
-            _engine.SeekTo(t); // engine echoes PositionChanged → playhead + redraw
+        {
+            long frame = fps.Num > 0 ? t.ToFrameIndex(fps) : t.Ticks;
+            if (_scrubbing && frame == _lastSeekFrame)
+                return; // still in the same frame column — nothing new to seek or repaint
+            _lastSeekFrame = frame;
+            _pendingSeekTicks = t.Ticks;
+            _playhead = t; // move the indicator immediately; the engine echo reconciles asynchronously
+            InvalidateVisual();
+            _engine.SeekTo(t);
+        }
         else
         {
             _playhead = t;
