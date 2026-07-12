@@ -137,6 +137,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private readonly object _transportGate = new();
     private PlaybackState _state = PlaybackState.Stopped;
     private bool _endHandled;
+    private Timecode? _rangeStop; // out-point of a Play In to Out span (guarded by _transportGate); null = play to the timeline end
 
     private long _seekGeneration;     // bumped by SeekTo; the pump re-seeks players on change
     private long _lastPumpGen;
@@ -296,13 +297,43 @@ public sealed class PlaybackEngine : IAsyncDisposable
         SeekTo(Timecode.Zero); // position the feeds at the active clips' in-points and load frame 0
     }
 
-    /// <summary>Begins (or resumes) playback. Replays from the start if currently parked at the end.</summary>
+    /// <summary>Begins (or resumes) playback. Replays from the start if currently parked at the end. Normal play
+    /// is unconstrained — it clears any <see cref="PlayInToOut"/> range and runs to the timeline end.</summary>
     public void Play()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_transportGate)
+            _rangeStop = null;
         if (PlaybackMath.ReachedEnd(Position, Duration))
             SeekTo(Timecode.Zero);
+        BeginPlaySpan();
+    }
 
+    /// <summary>
+    /// Plays only the <c>[rangeIn, rangeOut)</c> slice of the timeline (the <b>Play In to Out</b> transport command
+    /// of leading editors): seeks to <paramref name="rangeIn"/>, plays, and stops there when the playhead reaches
+    /// <paramref name="rangeOut"/> (raising <see cref="PlaybackEnded"/>). Invoking it again replays from
+    /// <paramref name="rangeIn"/>. The range is one play span only — a normal <see cref="Play"/>, or any seek
+    /// (a scrub cancels the constrained span, as in leading editors), clears it. Both ends are clamped to the
+    /// timeline; an empty range degenerates to a normal play from <paramref name="rangeIn"/>.
+    /// </summary>
+    public void PlayInToOut(Timecode rangeIn, Timecode rangeOut)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        Timecode start = PlaybackMath.ClampToTimeline(rangeIn, Duration);
+        Timecode stop = PlaybackMath.ClampToTimeline(rangeOut, Duration);
+
+        SeekTo(start); // also clears any previous range; the stop is armed after, under the same gate
+        if (stop > start)
+            lock (_transportGate)
+                _rangeStop = stop;
+        BeginPlaySpan();
+    }
+
+    /// <summary>Starts a play span at the current position: arms the drop-accounting baseline, starts the master
+    /// clock, and flips the transport to Playing. Shared by <see cref="Play"/> and <see cref="PlayInToOut"/>.</summary>
+    private void BeginPlaySpan()
+    {
         // The audio master clock starts advancing immediately, but the first video frame of a play span may still
         // be decoding (cold decode warm-up, or the ring re-priming after a pause). The pump's first present then
         // catches up by a frame or two — expected startup catch-up, not a render stutter — so re-baseline the drop
@@ -348,7 +379,10 @@ public sealed class PlaybackEngine : IAsyncDisposable
         Interlocked.Increment(ref _seekGeneration);
 
         lock (_transportGate)
+        {
             _endHandled = false;
+            _rangeStop = null; // a scrub cancels a Play In to Out span — playback continues unconstrained
+        }
     }
 
     /// <summary>
@@ -816,7 +850,13 @@ public sealed class PlaybackEngine : IAsyncDisposable
 
     private void HandleEnd(Timecode pos)
     {
-        if (State != PlaybackState.Playing || !PlaybackMath.ReachedEnd(pos, Duration))
+        // The effective end of the current play span: the armed Play In to Out stop when one is set (and still
+        // inside the timeline), otherwise the timeline end.
+        Timecode end;
+        lock (_transportGate)
+            end = _rangeStop is { } stop && stop < Duration ? stop : Duration;
+
+        if (State != PlaybackState.Playing || !PlaybackMath.ReachedEnd(pos, end))
             return;
 
         bool fire;
@@ -824,6 +864,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
         {
             fire = !_endHandled;
             _endHandled = true;
+            _rangeStop = null; // the ranged span is over; the transport is unconstrained again
         }
         if (!fire)
             return;
@@ -833,7 +874,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
         // otherwise keep re-entering this path and re-throwing every tick.
         SetState(PlaybackState.Stopped);
         _clock.Pause();
-        _clock.Seek(Duration);
+        _clock.Seek(end);
         PlaybackEnded?.Invoke();
     }
 

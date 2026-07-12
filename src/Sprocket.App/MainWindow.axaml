@@ -138,6 +138,12 @@
             <Separator />
             <MenuItem x:Name="NestMenuItem" Header="_Nest" IsEnabled="False" />
             <Separator />
+            <!-- Play In to Out (the dedicated ranged-play transport command of leading editors — Premiere's
+                 Ctrl+Shift+Space): plays the Program monitor from the in mark and stops at the out mark, falling
+                 back to the sequence ends when a mark is unset. Normal Space playback is deliberately NOT
+                 constrained by the marks (the convention in leading editors). -->
+            <MenuItem x:Name="PlayInOutMenuItem" Header="_Play In to Out" InputGesture="Ctrl+Shift+Space" />
+            <Separator />
             <!-- Preview render cache (PLAN.md step 32): render commands + cache management. Render In to Out
                  uses the timeline in/out marks (I / O keys; Alt+I / Alt+O clear) and falls back to the whole
                  sequence when unset; Delete Render Files shows the cache's disk footprint on submenu-open. -->

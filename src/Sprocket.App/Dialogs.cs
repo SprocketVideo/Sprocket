@@ -574,10 +574,18 @@ internal static class SequenceSettingsDialog
 /// chosen container, so every selection is a valid combination. A <b>preset</b> dropdown applies a saved selection
 /// over that matrix (the curated built-ins plus the user's own, persisted by <see cref="UserExportPresets"/>), and
 /// <b>Save Preset…</b> captures the current selection as a new user preset (PLAN.md step 29). Returns the chosen
-/// <see cref="ExportOptions"/> on Export, or <see langword="null"/> on cancel.
+/// settings on Export, or <see langword="null"/> on cancel.
 /// </summary>
 internal static class ExportSettingsDialog
 {
+    /// <summary>
+    /// What the Export settings dialog returns: the delivery <see cref="Options"/> plus whether the export should
+    /// cover only the timeline's in/out-marked range (<see cref="UseInOutRange"/>) rather than the whole sequence —
+    /// the Range selector of leading editors' export dialogs (Premiere's Entire Sequence / Sequence In-Out,
+    /// Resolve's Entire Timeline / In-Out Range). The caller resolves the actual <c>ExportRange</c> from the marks.
+    /// </summary>
+    internal sealed record Result(ExportOptions Options, bool UseInOutRange);
+
     // The resolution / frame-rate override choices, each paired with its value (null = keep the sequence's own).
     // The set is closed: a user preset can only capture a value that exists here, so every saved preset round-trips
     // back to a dropdown entry.
@@ -603,8 +611,16 @@ internal static class ExportSettingsDialog
         ("60", new Rational(60, 1)),
     ];
 
-    public static Task<ExportOptions?> Show(Window owner, int sequenceWidth, int sequenceHeight)
+    public static Task<Result?> Show(Window owner, int sequenceWidth, int sequenceHeight, bool hasMarkedRange = false)
     {
+        // Range selector (the Premiere / Resolve export-dialog convention): Entire sequence vs. the timeline's
+        // in/out-marked range, defaulting to the marked range when marks are set. Kept out of presets (it is
+        // per-export scope, not delivery format) and never snaps the preset box to Custom. Applies to audio-only
+        // deliveries too — the master mix can be exported in-to-out. Choosing the range option with no marks set
+        // degrades to the whole sequence (the caller resolves the marks).
+        ComboBox rangeBox = MakeCombo(["Entire sequence", "In/Out range"]);
+        rangeBox.SelectedIndex = hasMarkedRange ? 1 : 0;
+
         // The Format list holds the video containers first, then the audio-only delivery targets (PLAN.md step 44):
         // selecting one of the latter switches the dialog into audio-only mode (the video-side controls hide).
         ExportContainer[] containers = Enum.GetValues<ExportContainer>();
@@ -825,6 +841,7 @@ internal static class ExportSettingsDialog
             {
                 LabeledRow("Preset", BurnInRow(presetBox, savePreset)),
                 LabeledRow("Format", containerBox),
+                LabeledRow("Range", rangeBox),
                 codecRow,
                 qualityRow,
                 resFpsRow,
@@ -898,15 +915,17 @@ internal static class ExportSettingsDialog
             if (!SelectionComplete())
                 return;
 
+            bool useInOut = rangeBox.SelectedIndex == 1;
+
             // Audio-only delivery (PLAN.md step 44): no video-side options, just the audio format + metadata.
             if (IsAudioOnly())
             {
-                dialog.Close(new ExportOptions(
+                dialog.Close(new Result(new ExportOptions(
                     AudioFormat: SelectedAudioFormat(),
                     MetaTitle: metaTitle.Text,
                     MetaAuthor: metaAuthor.Text,
                     MetaCopyright: metaCopyright.Text,
-                    MetaComment: metaComment.Text));
+                    MetaComment: metaComment.Text), useInOut));
                 return;
             }
 
@@ -923,7 +942,7 @@ internal static class ExportSettingsDialog
             if (int.TryParse((handlesBox.Text ?? string.Empty).Trim(), out int parsed))
                 handles = Math.Max(0, parsed);
 
-            dialog.Close(new ExportOptions(
+            dialog.Close(new Result(new ExportOptions(
                 Format: BuildFormat(),
                 Quality: (ExportQuality)Math.Max(0, qualityBox.SelectedIndex),
                 HandleFrames: handles,
@@ -935,9 +954,9 @@ internal static class ExportSettingsDialog
                 MetaTitle: metaTitle.Text,
                 MetaAuthor: metaAuthor.Text,
                 MetaCopyright: metaCopyright.Text,
-                MetaComment: metaComment.Text));
+                MetaComment: metaComment.Text), useInOut));
         };
-        cancel.Click += (_, _) => dialog.Close((ExportOptions?)null);
+        cancel.Click += (_, _) => dialog.Close((Result?)null);
 
         // Save Preset… captures the current format / quality / resolution / frame-rate under a user-given name and
         // persists it (burn-ins and handles are per-export review options, not part of a delivery preset). A repeated
@@ -971,7 +990,7 @@ internal static class ExportSettingsDialog
             applyingPreset = false;
         };
 
-        return dialog.ShowDialog<ExportOptions?>(owner);
+        return dialog.ShowDialog<Result?>(owner);
     }
 
     private static ComboBox MakeCombo(IEnumerable<string> items) => new()

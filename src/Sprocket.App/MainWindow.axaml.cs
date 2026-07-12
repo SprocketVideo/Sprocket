@@ -575,6 +575,7 @@ public partial class MainWindow : Window
         _nestMenuItem.Click += (_, _) => NestSelection();
         _openSequenceMenuItem = this.FindControl<MenuItem>("OpenSequenceMenuItem")!;
         this.FindControl<MenuItem>("SequenceMenu")!.SubmenuOpened += (_, _) => RefreshSequenceMenu();
+        this.FindControl<MenuItem>("PlayInOutMenuItem")!.Click += (_, _) => PlayInToOut();
 
         // Preview render cache commands (PLAN.md step 32).
         this.FindControl<MenuItem>("RenderInOutMenuItem")!.Click += (_, _) =>
@@ -691,6 +692,9 @@ public partial class MainWindow : Window
         else if (alt && e.Key == Key.O) { ClearMark(inPoint: false); e.Handled = true; }
         else if (e.Key == Key.I) { SetMarkAtPlayhead(inPoint: true); e.Handled = true; }
         else if (e.Key == Key.O) { SetMarkAtPlayhead(inPoint: false); e.Handled = true; }
+        // Play In to Out (Ctrl+Shift+Space / ⌘⇧Space, the Premiere convention): plays only the marked range of the
+        // Program monitor. Sits above plain Space, which stays unconstrained by the marks.
+        else if (primary && shift && e.Key == Key.Space) { if (!_exporting) PlayInToOut(); e.Handled = true; }
         else if (e.Key == Key.Space) { if (!_exporting) _active?.TogglePlayPause(); e.Handled = true; }
         // Esc peels fullscreen modes one layer at a time: the preview overlay first, then window fullscreen
         // (unless the preview itself entered fullscreen, in which case exiting it restores everything at once).
@@ -2391,6 +2395,23 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Play In to Out (Ctrl+Shift+Space / the Sequence menu): plays the Program monitor from the in mark and stops
+    /// at the out mark — the dedicated ranged-play transport command of leading editors (Premiere's
+    /// Ctrl+Shift+Space, Avid's Play In to Out). A missing mark falls back to the sequence start/end (the same
+    /// fallback as Render In to Out), so with no marks it replays the whole sequence. Invoking it again restarts
+    /// from the in mark; plain Space stays unconstrained by the marks.
+    /// </summary>
+    private void PlayInToOut()
+    {
+        if (_engine is null || _project is null)
+            return;
+        Timecode duration = _project.ActiveSequence.Timeline.Duration;
+        if (duration <= Timecode.Zero)
+            return;
+        _engine.PlayInToOut(_timeline?.MarkIn ?? Timecode.Zero, _timeline?.MarkOut ?? duration);
+    }
+
     /// <summary>Clears the timeline in (Alt+I) or out (Alt+O) mark.</summary>
     private void ClearMark(bool inPoint)
     {
@@ -3167,9 +3188,15 @@ public partial class MainWindow : Window
         }
 
         // Choose the delivery container / codecs / quality (PLAN.md step 27 matrix) before picking the file.
+        // The dialog's Range selector defaults to the timeline's in/out-marked range when marks are set (the
+        // Premiere / Resolve export-dialog convention); Entire sequence otherwise.
         Resolution res = _project.Timeline.Resolution;
-        if (await ExportSettingsDialog.Show(this, res.Width, res.Height) is not { } options)
+        ExportRange? marked = MarkedExportRange();
+        if (await ExportSettingsDialog.Show(this, res.Width, res.Height, hasMarkedRange: marked is not null)
+                is not { } choice)
             return; // user cancelled the settings dialog
+        ExportOptions options = choice.Options;
+        ExportRange? range = choice.UseInOutRange ? marked : null;
 
         // Let the user choose where the file goes (mirrors File ▸ Save As) instead of silently dropping a fixed
         // file into the app's own (often read-only) install folder, where it would go unnoticed. The extension +
@@ -3209,7 +3236,7 @@ public partial class MainWindow : Window
         try
         {
             await Task.Run(() => VideoExporter.Export(
-                _project, outputPath, options, progress, cts.Token));
+                _project, outputPath, options, sequenceId: null, range, progress, cts.Token));
             ok = true;
         }
         catch (OperationCanceledException)
@@ -3246,6 +3273,21 @@ public partial class MainWindow : Window
             SetStatus($"Export failed: {error}");
             await MessageDialog.Show(this, "Export Failed", $"The export could not be completed:\n{error}");
         }
+    }
+
+    /// <summary>
+    /// The timeline in/out marks as an <see cref="ExportRange"/> for the export dialogs' Range selector, or
+    /// <see langword="null"/> when no mark is set (or the marks clamp to an empty slice). A missing mark falls back
+    /// to the sequence start/end, mirroring Render In to Out and Play In to Out.
+    /// </summary>
+    private ExportRange? MarkedExportRange()
+    {
+        if (_project is null || _timeline is null || (_timeline.MarkIn is null && _timeline.MarkOut is null))
+            return null;
+        Timecode duration = _project.ActiveSequence.Timeline.Duration;
+        ExportRange range = new ExportRange(_timeline.MarkIn ?? Timecode.Zero, _timeline.MarkOut ?? duration)
+            .ClampTo(duration);
+        return range.IsValid ? range : null;
     }
 
     /// <summary>The save-dialog file extension + type filter for an export: the chosen video container, or the
@@ -3322,8 +3364,12 @@ public partial class MainWindow : Window
         }
 
         Resolution res = sequence.Timeline.Resolution;
-        if (await ExportSettingsDialog.Show(owner, res.Width, res.Height) is not { } options)
+        ExportRange? marked = MarkedExportRange();
+        if (await ExportSettingsDialog.Show(owner, res.Width, res.Height, hasMarkedRange: marked is not null)
+                is not { } choice)
             return;
+        ExportOptions options = choice.Options;
+        ExportRange? range = choice.UseInOutRange ? marked : null;
 
         (string extension, FilePickerFileType fileType) = ExportSaveFileType(options);
         string baseName = _currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath);
@@ -3342,7 +3388,7 @@ public partial class MainWindow : Window
             ? ExportCodecs.AudioFormat(af).DisplayName
             : ExportCodecs.Container(options.Format.Container).DisplayName;
         string name = $"{sequence.Name} · {formatLabel}";
-        _exportQueue!.Enqueue(outputPath, options, sequenceId: sequence.Id, range: null, name: name);
+        _exportQueue!.Enqueue(outputPath, options, sequenceId: sequence.Id, range: range, name: name);
         SetStatus($"Queued export → {Path.GetFileName(outputPath)}");
     }
 

@@ -66,8 +66,9 @@ frames never touch the managed heap per frame.
   hardware-accelerated decode (D3D11VA / CUDA / QSV, VAAPI, VideoToolbox) with software fallback,
   and premultiplied-alpha compositing of alpha-channel media.
 - **Export & delivery** — a format matrix beyond H.264/AAC MP4, audio-only export (WAV/FLAC/MP3/
-  AAC/Opus), export presets, an export queue with burn-ins & handles, hardware encoders, and
-  EDL/SMPTE interchange — all through the *same* render graph that drives preview.
+  AAC/Opus), export presets, an export queue with burn-ins & handles, in/out-range export,
+  hardware encoders, and EDL/SMPTE interchange — all through the *same* render graph that drives
+  preview.
 - **Projects** — versioned JSON save/load with relative + absolute media paths, autosave + crash
   recovery, media relinking, and offline-media tolerance.
 - **AI control & scripting** — an opt-in, loopback-only MCP server (~65 tools) lets AI assistants

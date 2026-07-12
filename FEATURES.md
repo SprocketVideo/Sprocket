@@ -173,6 +173,7 @@ in terms an app-side committer can check against their diff.
 | Clip filmstrip & waveform thumbnails | TimelineControl.cs:1257 | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Markers: add (`M`), navigate (`Shift+M`/`Ctrl+Shift+M`), Markers panel | MainWindow.axaml.cs `AddMarker`, `BuildMarkersPanel` | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | 🟡 (add-marker shortcut + a teaser; no guide section) |
 | In/Out marks: set (`I`/`O`), clear (`Alt+I`/`Alt+O`), range overlay | MainWindow.axaml.cs `SetMarkAtPlayhead` | — | ❌ |
+| Play In to Out (`Ctrl+Shift+Space`, Sequence menu): plays only the marked range, stops at the out mark, replays from the in mark; plain Space stays unconstrained | PlaybackEngine `PlayInToOut`; MainWindow.axaml.cs `PlayInToOut` | — | ❌ |
 
 ### Clips: speed, freeze frames & stop motion
 
@@ -270,7 +271,7 @@ in terms an app-side committer can check against their diff.
 | Export progress, cancel, reveal in folder | Dialogs.cs `ExportProgressDialog` | — | ❌ |
 | Export Queue (`Ctrl+Shift+E`): batch jobs, per-job progress | Sprocket.App/ExportQueueWindow.cs | — | ❌ |
 | Interchange export: EDL (CMX3600), Final Cut XML (+ warnings) | MainWindow.axaml.cs `ExportInterchangeAsync` | — | ❌ |
-| Export in-to-out range only | in/out marks + export dialog | — | ❌ |
+| Export in-to-out range only (Range selector in the Export Settings dialog: Entire sequence / In/Out range, defaulting to the marked range when marks are set; applies to single export and queued jobs) | Dialogs.cs `ExportSettingsDialog` Range picker; MainWindow.axaml.cs `MarkedExportRange` | — | ❌ |
 
 ## 7. Playback & performance
 

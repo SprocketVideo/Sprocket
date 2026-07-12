@@ -1763,7 +1763,10 @@ Tags reference the [UI.md §4 checklist](UI.md).
         one) and an optional half-open `[In, Out)` timeline slice; the delegating original signature is byte-for-byte
         unchanged. A sub-range samples the timeline at `rangeIn + offset` while the encoded file's own timestamps
         start at zero (a slice plays from 0). `ExportRange` (clamp-to-timeline, validity, `Whole`) is the pure
-        range type. The render graph already planned per-sequence **video**; this adds the matching per-sequence
+        range type. *(2026-07-11)* The interactive export UI now feeds it: `ExportSettingsDialog` gained a
+        **Range** selector (Entire sequence / In/Out range — the Premiere/Resolve export-dialog convention),
+        defaulting to the step-32 timeline in/out marks when set; both File ▸ Export and the queue's Add… pass
+        the resolved `ExportRange`. The render graph already planned per-sequence **video**; this adds the matching per-sequence
         **audio**: `RenderGraph.PlanAudioBuffer(project, sequence, …)` (Core) + `AudioMixer.MixInto(…, sequence)`
         (Audio) overloads, so an exported sequence's audio mixes correctly regardless of which sequence is open.
       - **`ExportQueueWindow` + wiring (App).** File ▸ **Export Queue…** (Ctrl+Shift+E) opens a live job list — name,
@@ -2226,7 +2229,10 @@ Tags reference the [UI.md §4 checklist](UI.md).
       - **Surface (App).** The **render bar** over the timeline ruler (`RenderBarModel`, pure + tested): green =
         valid cached render, red = un-rendered nests/transition windows (can't fully composite live), yellow =
         un-rendered effect chains / adjustment layers. **Timeline in/out marks** (I / O at the playhead, Alt+I/O
-        clear, drawn as a shaded ruler range — session UI state, cleared on sequence switch). Sequence menu:
+        clear, drawn as a shaded ruler range — session UI state, cleared on sequence switch). *(2026-07-11)* The
+        marks also drive **Play In to Out** (Ctrl+Shift+Space, Sequence menu — `PlaybackEngine.PlayInToOut` plays
+        the marked range and parks at the out mark; plain Space stays unconstrained, the leading-editors
+        convention) and the export dialogs' **Range** selector (see step 29). Sequence menu:
         **Render In to Out** (marks, else the whole sequence), **Render Selection**, **Render Audio**, and
         **Delete Render Files…** — which shows the cache's **current disk footprint** in the menu item and the
         confirm dialog (a small deliberate addition beyond the step text, matching leading editors' cache UI).
