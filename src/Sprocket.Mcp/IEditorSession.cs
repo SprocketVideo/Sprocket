@@ -104,13 +104,22 @@ public interface IEditorApi
     McpResult<bool> NewProject();
 
     /// <summary>
-    /// Starts a background export of the active sequence to <paramref name="outputPath"/> with the default
-    /// delivery settings (MP4 / H.264 + AAC, CRF quality), returning immediately — poll
-    /// <see cref="ExportStatus"/> for progress. Fails when an export is already running or the timeline is
-    /// empty. <paramref name="rangeInTicks"/>/<paramref name="rangeOutTicks"/> select a half-open timeline
-    /// slice (<see langword="null"/> = whole timeline).
+    /// Starts a background export of the active sequence to <paramref name="outputPath"/> in the default
+    /// delivery format (MP4 / H.264 + AAC), returning immediately — poll <see cref="ExportStatus"/> for
+    /// progress. Fails when an export is already running or the timeline is empty.
+    /// <paramref name="rangeInTicks"/>/<paramref name="rangeOutTicks"/> select a half-open timeline slice
+    /// (<see langword="null"/> = whole timeline). Rate control travels as primitives so this seam stays
+    /// Export-assembly-free: <paramref name="rateControl"/> is <c>"quality"</c> (constant quality — the
+    /// pre-validated tool default) or <c>"bitrate"</c>; <paramref name="crf"/> is an explicit 1–51
+    /// constant-quality value (<see langword="null"/> = the app's High default); <paramref name="bitrateMbps"/>/
+    /// <paramref name="maxBitrateMbps"/> are the bitrate-mode target and optional ceiling in Mbps
+    /// (<see langword="null"/> = resolution-scaled default / uncapped); <paramref name="hardware"/> prefers the
+    /// GPU encoder with automatic software fallback.
     /// </summary>
-    McpResult<bool> StartExport(string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks);
+    McpResult<bool> StartExport(
+        string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks,
+        string? rateControl = null, int? crf = null, double? bitrateMbps = null, double? maxBitrateMbps = null,
+        bool hardware = false);
 
     /// <summary>
     /// Starts a background <b>audio-only</b> export of the active sequence's master mix to

@@ -3041,11 +3041,40 @@ public partial class MainWindow : Window
     internal void McpCancelExport() => _mcpExportCts?.Cancel();
 
     /// <summary>
-    /// Starts a background export for the MCP <c>export_video</c> with the default delivery settings.
-    /// Returns an error message, or <see langword="null"/> when the export was started.
+    /// Starts a background export for the MCP <c>export_video</c> in the default delivery format (MP4 / H.264 +
+    /// AAC), with the tool's rate-control choice mapped onto <see cref="ExportOptions"/>: quality mode carries an
+    /// explicit CRF (or the High-tier default when omitted); bitrate mode carries the Mbps target / optional max
+    /// converted to bits/s (0 = the exporter's resolution-scaled default / uncapped). Returns an error message,
+    /// or <see langword="null"/> when the export was started.
     /// </summary>
-    internal string? McpStartExport(string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks) =>
-        McpStartExport(outputPath, new ExportOptions(VideoOnly: videoOnly), rangeInTicks, rangeOutTicks);
+    internal string? McpStartExport(
+        string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks,
+        string? rateControl = null, int? crf = null, double? bitrateMbps = null, double? maxBitrateMbps = null,
+        bool hardware = false)
+    {
+        if (!TryParseRateControl(rateControl, out ExportRateControl mode))
+            return $"unknown rate control '{rateControl}' — use quality or bitrate.";
+        var options = new ExportOptions(
+            VideoOnly: videoOnly,
+            RateControl: mode,
+            Crf: mode == ExportRateControl.Quality ? crf ?? 0 : 0,
+            VideoBitRate: mode == ExportRateControl.Bitrate && bitrateMbps is { } t ? (long)Math.Round(t * 1_000_000) : 0,
+            MaxBitRate: mode == ExportRateControl.Bitrate && maxBitrateMbps is { } m ? (long)Math.Round(m * 1_000_000) : 0,
+            Acceleration: hardware ? ExportAcceleration.Hardware : ExportAcceleration.Software);
+        return McpStartExport(outputPath, options, rangeInTicks, rangeOutTicks);
+    }
+
+    /// <summary>Parses the MCP rate-control string (case-insensitive; <see langword="null"/>/blank = the quality
+    /// default) to an <see cref="ExportRateControl"/>.</summary>
+    private static bool TryParseRateControl(string? value, out ExportRateControl mode)
+    {
+        switch ((value ?? "").Trim().ToLowerInvariant())
+        {
+            case "" or "quality": mode = ExportRateControl.Quality; return true;
+            case "bitrate": mode = ExportRateControl.Bitrate; return true;
+            default: mode = default; return false;
+        }
+    }
 
     /// <summary>
     /// Starts a background audio-only export for the MCP <c>export_audio</c> (PLAN.md step 44). Returns an error

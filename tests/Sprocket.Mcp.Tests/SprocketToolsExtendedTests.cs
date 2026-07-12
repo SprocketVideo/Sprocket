@@ -742,6 +742,36 @@ public class SprocketToolsExtendedTests
     }
 
     [Fact]
+    public async Task ExportVideo_RateControl_PassesThroughTheSeam_AndValidates()
+    {
+        (FakeEditorSession session, SprocketTools tools, Clip _, Clip _) = await LinkedPair();
+
+        // Quality mode with an explicit CRF (the default mode when rateControl is omitted).
+        await tools.ExportVideo(@"C:\out\crf.mp4", crf: 30);
+        Assert.Equal("quality", session.ExportRateControl);
+        Assert.Equal(30, session.ExportCrf);
+        Assert.False(session.ExportHardware);
+
+        // Bitrate mode with a target + ceiling, on the GPU.
+        await tools.ExportVideo(@"C:\out\vbr.mp4", rateControl: "bitrate", bitrateMbps: 8, maxBitrateMbps: 12, hardware: true);
+        Assert.Equal("bitrate", session.ExportRateControl);
+        Assert.Null(session.ExportCrf);
+        Assert.Equal(8, session.ExportBitrateMbps);
+        Assert.Equal(12, session.ExportMaxBitrateMbps);
+        Assert.True(session.ExportHardware);
+
+        // Validation: unknown mode, out-of-range CRF, mode/parameter mismatches, an inverted ceiling.
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportVideo(@"C:\out\x.mp4", rateControl: "vbr2pass"));
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportVideo(@"C:\out\x.mp4", crf: 0));
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportVideo(@"C:\out\x.mp4", crf: 52));
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportVideo(@"C:\out\x.mp4", rateControl: "bitrate", crf: 20));
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportVideo(@"C:\out\x.mp4", bitrateMbps: 8));
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportVideo(@"C:\out\x.mp4", rateControl: "bitrate", bitrateMbps: -1));
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportVideo(@"C:\out\x.mp4", rateControl: "bitrate", bitrateMbps: 8, maxBitrateMbps: 4));
+        await Assert.ThrowsAsync<McpException>(() => tools.ExportVideo(@"C:\out\x.mp4", maxBitrateMbps: 12));
+    }
+
+    [Fact]
     public async Task ExportAudio_Starts_WithFormat_AndRejectsBadInput()
     {
         (FakeEditorSession session, SprocketTools tools, Clip _, Clip _) = await LinkedPair();

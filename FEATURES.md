@@ -82,7 +82,7 @@ in terms an app-side committer can check against their diff.
 | media/importing-media.md | §2 (Importing media & the Project panel) | the import formats/picker, media-bin tiles/badges/search, Project-panel tabs, still/sequence/alpha import, or the Interpret Footage dialog change | 5227505 | ✅ current |
 | media/log-footage.md | §2 (Working with log & camera footage) | Input Color Transform, the camera LUT set, or ACES Filmic change | 438f6e2 | ✅ current |
 | audio/audio-mixing.md | §5 (track mute/solo, the Fade effect) | per-track audio controls or the Fade effect change | 92226ec | ✅ current |
-| export/exporting.md | §6 (Export Settings; format matrix; audio-only; presets; burn-ins; handles; encoding; color; metadata; progress/reveal) | the Export Settings dialog, its defaults, the format/codec matrix, the built-in preset list, or the audio-only formats change | 48acaf5 | ✅ current (expanded to the full dialog: format+codec reference, range, quality/encoding, resolution/fps, burn-ins+positions, handles, color, metadata, presets, progress; screenshot regenerated) |
+| export/exporting.md | §6 (Export Settings; format matrix; audio-only; presets; burn-ins; handles; encoding; color; metadata; progress/reveal) | the Export Settings dialog, its defaults, the format/codec matrix, the built-in preset list, or the audio-only formats change | 48acaf5 | 🟡 stale (the quality picker became a two-mode Rate control — CRF slider / target-bitrate Mbps — and hardware encoding now honors quality; the quality/encoding section + screenshot need updating) |
 | export/export-queue-and-interchange.md | §6 (Export Queue; EDL/Final Cut XML interchange) | the Export Queue window controls/statuses, or the interchange formats/warnings change | 48acaf5 | ✅ current (new guide) |
 | ai/ai-control.md | §8 (+ §9 Preferences MCP settings, §4 effect tags) | the MCP tool surface, Preferences AI section, setup command, status-bar indicator, or effect-tag UI changes | c86c921 | ✅ current |
 
@@ -265,13 +265,14 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Export Settings dialog (`Ctrl+E`): container/codec/quality/resolution/frame rate | Dialogs.cs `ExportSettingsDialog` | export/exporting.md#export-your-finished-video | ✅ |
+| Export Settings dialog (`Ctrl+E`): container/codec/rate control/resolution/frame rate | Dialogs.cs `ExportSettingsDialog` | export/exporting.md#export-your-finished-video | 🟡 (docs describe the former High/Medium/Low quality picker; update for the rate-control modes) |
+| Rate control: Constant quality (CRF slider on the codec's own scale + plain-language readout) or Target bitrate (Mbps + optional max, resolution-scaled default) | Dialogs.cs `ExportSettingsDialog` (Rate control picker); Sprocket.Export/ExportFormat.cs `ExportRateControl`/`CrfFor`/`DefaultTargetBitrate`; VideoExporter.cs `ExportOptions` | — | ❌ |
 | Format matrix: MP4/MOV/MKV/WebM/AVI/TS × H.264/HEVC/AV1/VP9/MPEG-2/ProRes × AAC/MP3/PCM/FLAC/AC-3/Opus | Sprocket.Export/ExportFormat.cs | export/exporting.md#format-reference | ✅ (reference tables for container×codec + audio-only formats) |
 | Audio-only export (master mix, no video): WAV/PCM, FLAC, MP3, AAC/M4A, Opus | Sprocket.Export/ExportFormat.cs `ExportAudioFormat`; VideoExporter.cs `ExportAudioOnly` | export/exporting.md#export-the-audio-only | ✅ |
 | Delivery presets (built-in + save your own) | ExportPresetStore.cs; UserExportPresets.cs | export/exporting.md#save-and-reuse-presets | ✅ (built-in preset list + Save Preset flow) |
 | Burn-ins (timecode / clip name / watermark, 9-point position) | Dialogs.cs:593 | export/exporting.md#add-burn-ins | ✅ (all three fields + nine positions) |
 | Handles (extra frames around an in/out range) | Dialogs.cs:609 | export/exporting.md#add-handles | ✅ |
-| Hardware vs software encoding choice | Dialogs.cs `ExportSettingsDialog` (Encoding picker); Sprocket.Media/MediaEncoder.cs `VideoEncoderSettings.HardwareCandidates`; PLAN.md step 29 | export/exporting.md#set-the-quality-and-encoding | ✅ |
+| Hardware vs software encoding choice (hardware now honors the quality setting via each vendor's CQ/QP knob — NVENC cq, QSV ICQ, AMF/VAAPI CQP, VideoToolbox qscale) | Dialogs.cs `ExportSettingsDialog` (Encoding picker); Sprocket.Media/MediaEncoder.cs `VideoEncoderSettings.HardwareCandidates` + `DescribeHardwareQualityOptions`; PLAN.md step 29 | export/exporting.md#set-the-quality-and-encoding | 🟡 (docs predate hardware honoring quality; note the former bitrate-only caveat no longer applies) |
 | Export color handling (bake log transform vs pass-through) | Dialogs.cs:618 | export/exporting.md#choose-how-color-is-handled | ✅ |
 | Export metadata tags (title/author/copyright/comment) | Dialogs.cs:622 | export/exporting.md#add-file-details-metadata | ✅ |
 | Export progress, cancel, reveal in folder | Dialogs.cs `ExportProgressDialog` | export/exporting.md#while-it-exports | ✅ |
@@ -314,7 +315,7 @@ Preferences or an "advanced" page.
 |---|---|---|---|
 | Enable AI control (Edit ▸ Preferences, or `--mcp` / `--mcp-port` flags) | Sprocket.App/PreferencesDialog.cs; CliOptions.cs | ai/ai-control.md#turn-on-ai-control + #starting-from-the-command-line | ✅ |
 | Connect an AI client (Copy setup command, bearer token, loopback security model) | PreferencesDialog.cs; McpServerService.cs | ai/ai-control.md#connect-an-ai-client + #require-a-bearer-token | ✅ |
-| What AI can do: the tool surface (~70 tools — edit, effects, markers, export, transport) | Sprocket.Mcp/SprocketTools*.cs; PLAN.md step 38 | ai/ai-control.md#what-ai-can-do-the-tool-reference | ✅ |
+| What AI can do: the tool surface (~70 tools — edit, effects, markers, export, transport; export_video takes rate-control params: rateControl quality/bitrate, crf, bitrateMbps, maxBitrateMbps, hardware) | Sprocket.Mcp/SprocketTools*.cs; PLAN.md step 38 | ai/ai-control.md#what-ai-can-do-the-tool-reference | 🟡 (tool reference predates the export_video rate-control params) |
 | AI edits are undoable (route through the same undo stack) | Sprocket.Mcp/McpEditorSession.cs | ai/ai-control.md#ai-edits-are-undoable | ✅ |
 | Address effects by reference tag (effect_tag, e.g. RV-1 — stable across reorders; shown as the Inspector tag chip) | Sprocket.Core/Model/EffectTags.cs; Sprocket.Mcp/SprocketTools*.cs `ResolveEffect` | ai/ai-control.md#effect-reference-tags | ✅ |
 | MCP status in the status bar | MainWindow.axaml.cs `UpdateMcpStatus` | ai/ai-control.md#the-status-bar-tells-you-when-its-on | ✅ (also named in the quick tour) |

@@ -17,7 +17,10 @@ namespace Sprocket.Media;
 /// resolution-scaled default (others).</param>
 /// <param name="GopSize">Maximum I-frame (GOP key picture) interval in frames (<c>0</c> = encoder default).</param>
 /// <param name="Crf">Constant-rate-factor quality (lower = better) used when <paramref name="BitRate"/> is 0 and
-/// the encoder supports CRF. Ignored otherwise.</param>
+/// the encoder supports CRF. Ignored otherwise. Hardware encoders map it onto their own constant-quality knob
+/// (NVENC <c>cq</c>, QSV ICQ, AMF/VAAPI CQP, VideoToolbox <c>q</c>) — see <see cref="HardwareQualityOptions"/>.</param>
+/// <param name="MaxBitRate">Optional VBR ceiling in bits/s (<c>maxrate</c> + a one-second <c>bufsize</c>) applied
+/// when <paramref name="BitRate"/> is set; <c>0</c> = unconstrained.</param>
 /// <param name="Preset">Encoder speed/quality preset (x264/x265: <c>"medium"</c> etc.; SVT-AV1: a number), applied
 /// when the encoder recognises a <c>preset</c> option. <see langword="null"/> leaves the encoder default.</param>
 /// <param name="HardwareCandidates">Ordered hardware-encoder names to <b>probe before</b> <paramref name="CodecName"/>
@@ -32,6 +35,7 @@ public readonly record struct VideoEncoderSettings(
     long BitRate = 0,
     int GopSize = 0,
     int Crf = 20,
+    long MaxBitRate = 0,
     string? Preset = "medium",
     IReadOnlyList<string>? HardwareCandidates = null);
 
@@ -428,9 +432,6 @@ public sealed unsafe class MediaEncoder : IDisposable
                     throw new FFmpegException("av_hwdevice_ctx_create", 0, $"no {type} device available for '{name}'");
 
                 ConfigureCommonVideo(encoder, v, surfaceMode ? hwFmt : swFmt, globalHeader);
-                // Hardware encoders ignore libx264-style CRF; drive quality by bit rate (the knob NVENC/QSV/AMF/
-                // VAAPI/VideoToolbox all honour). An explicit VideoBitRate wins; otherwise a resolution-scaled default.
-                encoder.BitRate = v.BitRate > 0 ? v.BitRate : DefaultVideoBitRate(v.Width, v.Height, v.FrameRate);
 
                 if (device is not null)
                     encoder.HwDeviceCtx = LibAv.av_buffer_ref(device.DeviceContextRef);
@@ -440,7 +441,23 @@ public sealed unsafe class MediaEncoder : IDisposable
                     encoder.HwFramesCtx = LibAv.av_buffer_ref(framesRef);
                 }
 
-                encoder.Open(codec); // fails here when the encoder can't init on this hardware → candidate rejected
+                // Rate control mirrors the software policy: an explicit bit rate wins (with an optional maxrate
+                // ceiling); else the CRF maps onto this vendor's own constant-quality knob (NVENC cq / QSV ICQ /
+                // AMF+VAAPI CQP / VideoToolbox qscale) so the dialog's quality choice is honoured on hardware too;
+                // else the resolution-scaled default bit rate. A vendor that rejects an option fails Open below,
+                // the candidate is skipped, and the software encoder (which honours CRF exactly) takes over.
+                IntPtr hwOptions = IntPtr.Zero;
+                if (v.BitRate > 0)
+                {
+                    encoder.BitRate = v.BitRate;
+                    SetMaxRateOptions(ref hwOptions, v.MaxBitRate);
+                }
+                else if (v.Crf <= 0 || !HardwareQualityOptions(name, NormalizeCrfTo51(v.CodecName, v.Crf), ref hwOptions))
+                {
+                    encoder.BitRate = DefaultVideoBitRate(v.Width, v.Height, v.FrameRate);
+                }
+
+                encoder.Open(codec, hwOptions); // fails when the encoder can't init on this hardware → candidate rejected
             }
 
             // Allocate the staging frames BEFORE registering the stream, so an (unlikely) alloc failure on a
@@ -490,6 +507,7 @@ public sealed unsafe class MediaEncoder : IDisposable
         if (v.BitRate > 0)
         {
             encoder.BitRate = v.BitRate;
+            SetMaxRateOptions(ref options, v.MaxBitRate);
         }
         else if (CrfEncoders.Contains(v.CodecName))
         {
@@ -503,6 +521,78 @@ public sealed unsafe class MediaEncoder : IDisposable
         }
         if (!string.IsNullOrEmpty(v.Preset)) LibAv.av_dict_set(ref options, "preset", v.Preset, 0);
         encoder.Open(codec, options);   // frees the option dict, incl. any unconsumed keys
+    }
+
+    /// <summary>Adds a VBR ceiling (<c>maxrate</c> + a one-second <c>bufsize</c>) to the encoder options when
+    /// <paramref name="maxBitRate"/> is set. Both are generic <c>AVCodecContext</c> options, so the same dict
+    /// entries serve the software and hardware encoders.</summary>
+    private static void SetMaxRateOptions(ref IntPtr options, long maxBitRate)
+    {
+        if (maxBitRate <= 0)
+            return;
+        LibAv.av_dict_set(ref options, "maxrate", maxBitRate.ToString(), 0);
+        LibAv.av_dict_set(ref options, "bufsize", maxBitRate.ToString(), 0);
+    }
+
+    // Software encoders whose CRF scale runs 0–63 (AV1/VP9) rather than x264/x265's 0–51. Used to normalize the
+    // requested CRF onto the 0–51 domain before mapping it to a hardware constant-quality knob.
+    private static readonly HashSet<string> Crf63Encoders = new(StringComparer.Ordinal)
+    {
+        "libvpx-vp9", "libvpx", "libsvtav1", "libaom-av1",
+    };
+
+    /// <summary>The CRF normalized onto the 0–51 x264 domain: AV1/VP9 values (0–63, per
+    /// <paramref name="softwareCodecName"/>'s scale) are rescaled; others pass through.</summary>
+    internal static int NormalizeCrfTo51(string softwareCodecName, int crf) =>
+        Crf63Encoders.Contains(softwareCodecName) ? (int)Math.Round(crf * 51.0 / 63.0) : crf;
+
+    /// <summary>Builds the constant-quality options for one hardware encoder, mapping a 0–51 CRF-domain value onto
+    /// the vendor's own knob — <b>each vendor's option name, mechanism, and scale differs from software CRF</b>:
+    /// NVENC <c>rc=vbr</c>+<c>cq</c> (0–51, but ~5 units more generous than x264 CRF at the same number, so a +5
+    /// offset roughly matches the software look); QSV ICQ via the generic <c>global_quality</c> (1–51, engaged when
+    /// no bit rate is set); AMF <c>rc=cqp</c>+per-frame-type QPs (0–51); VAAPI <c>rc_mode=CQP</c>+<c>qp</c> (0–51);
+    /// VideoToolbox the generic qscale mechanism — <c>flags=+qscale</c> with <c>global_quality</c> = q ×
+    /// <c>FF_QP2LAMBDA</c> (118) on its <b>inverted 0–100 scale</b> (higher = better). Returns <see langword="false"/>
+    /// for an unrecognized vendor (the caller falls back to a default bit rate). Exposed for tests via
+    /// <see cref="DescribeHardwareQualityOptions"/>.</summary>
+    private static bool HardwareQualityOptions(string encoderName, int crf51, ref IntPtr options)
+    {
+        IReadOnlyList<(string Key, string Value)>? entries = DescribeHardwareQualityOptions(encoderName, crf51);
+        if (entries is null)
+            return false;
+        foreach ((string key, string value) in entries)
+            LibAv.av_dict_set(ref options, key, value, 0);
+        return true;
+    }
+
+    /// <summary>The option-dict entries <see cref="HardwareQualityOptions"/> would set for
+    /// <paramref name="encoderName"/> at <paramref name="crf51"/> (0–51 domain), or <see langword="null"/> for an
+    /// unrecognized vendor. Pure — kept separate from the dict plumbing so the per-vendor mapping is unit-testable
+    /// without a GPU.</summary>
+    internal static IReadOnlyList<(string Key, string Value)>? DescribeHardwareQualityOptions(string encoderName, int crf51)
+    {
+        const int qp2Lambda = 118; // FF_QP2LAMBDA — the generic qscale unit avcodec stores in global_quality
+        int q = Math.Clamp(crf51, 1, 51);
+        int suffix = encoderName.LastIndexOf('_');
+        switch (suffix >= 0 ? encoderName[(suffix + 1)..] : "")
+        {
+            case "nvenc":
+                // NVENC's cq tracks CRF loosely but runs ~5 units generous (cq 28 ≈ x264 crf 23).
+                return [("rc", "vbr"), ("cq", Math.Min(51, q + 5).ToString())];
+            case "qsv":
+                return [("global_quality", q.ToString())];
+            case "amf":
+                string qp = q.ToString();
+                return [("rc", "cqp"), ("qp_i", qp), ("qp_p", qp), ("qp_b", qp)];
+            case "vaapi":
+                return [("rc_mode", "CQP"), ("qp", q.ToString())];
+            case "videotoolbox":
+                // VT quality is 0–100, higher = better — inverted from CRF — carried via the qscale mechanism.
+                int vtq = Math.Clamp((int)Math.Round((51 - q) / 51.0 * 100.0), 1, 100);
+                return [("flags", "+qscale"), ("global_quality", (vtq * qp2Lambda).ToString())];
+            default:
+                return null;
+        }
     }
 
     /// <summary>Decides how a hardware encoder is fed. Reads the encoder's advertised pixel formats: if it lists a

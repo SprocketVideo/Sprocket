@@ -85,22 +85,48 @@ public sealed partial class SprocketTools
     // ── Export ──────────────────────────────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "export_video")]
-    [Description("Starts exporting the active sequence to a video file (MP4 / H.264 + AAC at CRF quality — " +
-                 "the app's default delivery settings) on a background thread and returns immediately. Poll " +
-                 "get_export_status for progress; cancel with cancel_export. Playback is suspended while the " +
-                 "export runs. Only one export can run at a time.")]
+    [Description("Starts exporting the active sequence to a video file (MP4 / H.264 + AAC — the app's default " +
+                 "delivery format) on a background thread and returns immediately. Rate control: quality mode " +
+                 "(the default) holds visual quality via a CRF value (1–51, lower = better; default 18 ≈ visually " +
+                 "lossless, 23 good for web, 28 small file) and lets file size float; bitrate mode aims at a Mbps " +
+                 "target (optionally capped by maxBitrateMbps) for predictable size. Poll get_export_status for " +
+                 "progress; cancel with cancel_export. Playback is suspended while the export runs. Only one " +
+                 "export can run at a time.")]
     public Task<string> ExportVideo(
         [Description("Absolute output path; use the .mp4 extension.")] string outputPath,
         [Description("Skip the audio stream entirely (default false).")] bool videoOnly = false,
         [Description("Export only from this tick (inclusive); omit for the whole timeline.")] long? rangeInTicks = null,
-        [Description("Export only up to this tick (exclusive); omit for the whole timeline.")] long? rangeOutTicks = null) =>
+        [Description("Export only up to this tick (exclusive); omit for the whole timeline.")] long? rangeOutTicks = null,
+        [Description("Rate control mode: \"quality\" (constant quality, the default) or \"bitrate\" (target bit rate).")] string? rateControl = null,
+        [Description("Constant-quality CRF 1–51 for quality mode (lower = better); omit for the default (18).")] int? crf = null,
+        [Description("Target bit rate in Mbps for bitrate mode; omit for a resolution-scaled default (≈40 for 4K, 16 for 1080p).")] double? bitrateMbps = null,
+        [Description("Optional VBR ceiling in Mbps for bitrate mode; must be ≥ bitrateMbps.")] double? maxBitrateMbps = null,
+        [Description("Encode on the GPU when available, falling back to software (default false = deterministic software).")] bool hardware = false) =>
         _session.OnModelThreadAsync(api =>
         {
             if (string.IsNullOrWhiteSpace(outputPath) || !Path.IsPathRooted(outputPath))
                 throw new McpException("pass an absolute output path.");
             if (rangeInTicks is { } rin && rangeOutTicks is { } rout && rout <= rin)
                 throw new McpException("rangeOutTicks must be after rangeInTicks.");
-            McpResult<bool> result = api.StartExport(outputPath, videoOnly, rangeInTicks, rangeOutTicks);
+            bool bitrateMode = string.Equals(rateControl?.Trim(), "bitrate", StringComparison.OrdinalIgnoreCase);
+            if (rateControl is not null && !bitrateMode
+                && !string.Equals(rateControl.Trim(), "quality", StringComparison.OrdinalIgnoreCase))
+                throw new McpException($"unknown rateControl '{rateControl}' — use quality or bitrate.");
+            if (crf is { } c && (c < 1 || c > 51))
+                throw new McpException("crf must be between 1 and 51 (lower = better quality).");
+            if (crf is not null && bitrateMode)
+                throw new McpException("crf applies to quality mode — omit it, or use rateControl: quality.");
+            if (bitrateMbps is <= 0 || maxBitrateMbps is <= 0)
+                throw new McpException("bitrate values must be positive Mbps figures.");
+            if (bitrateMbps is not null && !bitrateMode)
+                throw new McpException("bitrateMbps applies to bitrate mode — pass rateControl: bitrate.");
+            if (maxBitrateMbps is { } max && bitrateMbps is { } target && max < target)
+                throw new McpException("maxBitrateMbps must be ≥ bitrateMbps.");
+            if (maxBitrateMbps is not null && !bitrateMode)
+                throw new McpException("maxBitrateMbps applies to bitrate mode — pass rateControl: bitrate.");
+            McpResult<bool> result = api.StartExport(
+                outputPath, videoOnly, rangeInTicks, rangeOutTicks,
+                bitrateMode ? "bitrate" : "quality", crf, bitrateMbps, maxBitrateMbps, hardware);
             if (!result.Ok)
                 throw new McpException(result.Error ?? "export could not start.");
             return StateFormatter.ExportStatus(api.ExportStatus);

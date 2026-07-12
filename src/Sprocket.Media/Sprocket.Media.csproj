@@ -28,6 +28,10 @@
     <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sprocket.Media.Tests" />
+  </ItemGroup>
+
   <!-- No FFmpeg binding NuGet: the libav* surface is hand-rolled in Native/LibAv.cs and the FFmpeg 8
        shared natives are bundled per-RID by the release scripts / resolved via %SPROCKET_FFMPEG8_DIR%
        in dev (see the header comment and FFmpegLoader). -->

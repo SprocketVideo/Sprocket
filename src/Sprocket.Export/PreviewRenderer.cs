@@ -31,7 +31,11 @@ public static class PreviewRenderer
     /// over size — the cache is local and regenerable), and the platform's <b>hardware encoders probed first</b>
     /// (NVENC/QSV/AMF on Windows, VideoToolbox on macOS, VAAPI on Linux) with the software encoder as the
     /// guaranteed fallback — the OS-varying speed-first policy of §11, harmless here because the cache never
-    /// affects export. Video only: the audio side is cached separately as PCM.
+    /// affects export. The High quality tier drives <b>constant quality on both paths</b> (software CRF, hardware
+    /// via each vendor's CQ knob — <see cref="Sprocket.Media.MediaEncoder"/>'s per-vendor mapping): fidelity-steady intermediates
+    /// suit a cache that must replay what live compositing shows, and rate-control mode doesn't change GPU encode
+    /// speed; size floating with content is fine for a local, regenerable file. Video only: the audio side is
+    /// cached separately as PCM.
     /// </summary>
     public static ExportOptions VideoOptions => new(
         Quality: ExportQuality.High,

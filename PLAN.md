@@ -1919,8 +1919,9 @@ Tags reference the [UI.md §4 checklist](UI.md).
         and **uploads internally**; one that lists *only* device-surface formats — VAAPI — takes the **`hw_frames_ctx`
         upload path**: a pooled GPU surface is drawn from an `AVHWFramesContext` (`av_hwframe_get_buffer`) and the nv12
         staging frame uploaded into it (`av_hwframe_transfer_data`) each frame before encode. Both are native→GPU copies
-        with **zero managed pixel allocation** (§1). Quality is driven by bit rate (the knob all four vendors honour;
-        hardware ignores libx264-style CRF), an explicit `VideoBitRate` winning over a resolution-scaled default.
+        with **zero managed pixel allocation** (§1). Quality was originally driven by bit rate only (an explicit
+        `VideoBitRate` winning over a resolution-scaled default); *(2026-07-12)* hardware now **honours the
+        constant-quality setting too** via each vendor's own CQ knob — see the rate-control addendum below.
       - **Platform candidate resolver (Export).** `ExportCodecs.HardwareEncoderCandidates(codec)` builds `{base}_{vendor}`
         names for the current OS, most-preferred first per the brief — **Windows** NVENC → QSV → AMF, **Linux** VAAPI →
         NVENC, **macOS** VideoToolbox — and `VideoExporter` passes them as the candidate chain only when
@@ -1942,6 +1943,32 @@ Tags reference the [UI.md §4 checklist](UI.md).
         path is code-verified but Linux-only (no VAAPI device here). Clean build (0 warnings); `SPROCKET_APP_SECONDS` smoke
         launch with the sample clip starts and tears down cleanly (exit 0). Full suite: **684 tests green** (Core 215,
         Media 34, Render 50, Audio 23, Playback 52, Export 77, Persistence 90, App 143).
+    - **✅ *(2026-07-12)* Rate-control upgrade (steps 27/29 export quality, revisited).** The opaque High/Medium/Low
+      tier became a **two-mode rate control** matching the leading-NLE convention (Resolve's Quality vs "Restrict to"
+      bitrate; Premiere's VBR target), and the hardware path's silent quality no-op is fixed:
+      - **Model (Export).** `ExportRateControl` (Quality | Bitrate) + `ExportOptions.RateControl`/`Crf`/`MaxBitRate`
+        (additive; `default(ExportOptions)` unchanged). Quality mode resolves an explicit CRF (else the tier's
+        `CrfFor`); bitrate mode a target (else the new `ExportCodecs.DefaultTargetBitrate` — ≈40 Mbps@4K, 16@1080p,
+        8@720p, fps-scaled) with an optional `maxrate`/`bufsize` ceiling. New helpers `MaxCrfFor` (51 / 63 for
+        AV1-VP9) and `QualityLabel` (plain-language slider readout). `ExportPreset` + its JSON DTO carry the new
+        fields (nullable/omitted → legacy files load as before).
+      - **Hardware constant quality (Media).** `MediaEncoder.DescribeHardwareQualityOptions` maps the 0–51 CRF domain
+        onto each vendor's own knob — NVENC `rc=vbr`+`cq` (+5 offset, cq runs ~5 generous vs x264), QSV ICQ via
+        `global_quality`, AMF `rc=cqp`+`qp_i/p/b`, VAAPI `rc_mode=CQP`+`qp`, VideoToolbox the generic qscale
+        mechanism (`+qscale`, `global_quality = q×FF_QP2LAMBDA` on its inverted 0–100 scale); AV1/VP9's 0–63 CRF is
+        rescaled first (`NormalizeCrfTo51`). A vendor that rejects an option fails open → candidate skipped →
+        software (which honours CRF exactly), the existing degrade chain. The render cache's hardware intermediates
+        inherit constant quality (documented in `PreviewRenderer`); proxies are unaffected (out-of-process ffmpeg CLI).
+      - **UI (App).** The dialog's Quality dropdown became a **Rate control** picker with swappable sub-panels: a CRF
+        slider on the selected codec's own scale with a live "CRF N — visually lossless/high quality/good for web/…"
+        readout, or Target/Max Mbps boxes seeded with the recommended default for the output resolution. Presets
+        capture the mode + values.
+      - **MCP.** `export_video` gained optional `rateControl`/`crf`/`bitrateMbps`/`maxBitrateMbps`/`hardware`
+        params (validated with clear errors), threaded through `IEditorSession.StartExport` as primitives.
+      - **Tests.** Media +16 (`HardwareQualityMappingTests` — exact per-vendor keys/values, offset/inversion/rescale),
+        Export +17 (`RateControlTests` — exact `CrfFor`/`MaxCrfFor`/label/default-bitrate values, preset round-trip +
+        legacy-JSON defaulting, real encodes: CRF ordering, bitrate targeting within budget, max-rate capping),
+        Mcp +1 (param pass-through + validation).
 30. **Audio loudness metering, normalization & editorial audio polish.** The delivery-grade audio
     visibility that effects alone don't provide — the first of the two audio-post layers (the second is
     plugin hosting + deeper DSP, step 31):

@@ -125,6 +125,31 @@ public class HardwareEncodeTests
             Assert.Equal("libx264", encoder);      // no usable GPU encoder here → clean software fallback
     }
 
+    [Fact]
+    public void PlatformHardwareCandidates_WithConstantQuality_EngageOrFallBack_AndProduceAValidFile()
+    {
+        // The same platform probe, but in constant-quality mode (Crf set, no bit rate) — the per-vendor CQ options
+        // (NVENC rc=vbr+cq / QSV ICQ / AMF CQP / VideoToolbox qscale) must not break the encoder open: a GPU that
+        // accepts them engages, one that rejects them (or no GPU at all) falls back to libx264, which honours the
+        // CRF exactly. Either way the output decodes. (Verified engaging the real h264_nvenc CQ path on the
+        // NVIDIA dev box.)
+        IReadOnlyList<string> candidates = PlatformH264HardwareNames();
+        if (candidates.Count == 0)
+            return; // no hardware family for this OS
+
+        using var output = new TempMp4();
+        var settings = new VideoEncoderSettings(
+            W, H, Fps, CodecName: "libx264", Crf: 23, HardwareCandidates: candidates);
+
+        (string encoder, bool hardware, int frames) = Encode(output.Path, settings);
+
+        Assert.InRange(frames, FrameCount - 1, FrameCount + 1);
+        if (hardware)
+            Assert.Contains(encoder, candidates);
+        else
+            Assert.Equal("libx264", encoder);
+    }
+
     private static IReadOnlyList<string> PlatformH264HardwareNames()
     {
         if (OperatingSystem.IsWindows()) return ["h264_nvenc", "h264_qsv", "h264_amf"];

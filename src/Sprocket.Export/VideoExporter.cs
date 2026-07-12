@@ -13,11 +13,23 @@ namespace Sprocket.Export;
 /// so <c>default(ExportOptions)</c> reproduces the step-8 behaviour; set <see cref="Format"/> for the wider
 /// container/codec matrix (PLAN.md step 27).</summary>
 /// <param name="Format">The container × video-codec × audio-codec to deliver. <c>default</c> is MP4 / H.264 / AAC.</param>
-/// <param name="Quality">The constant-quality (CRF) tier used when no explicit bit rate is set.</param>
+/// <param name="Quality">The constant-quality (CRF) tier used in <see cref="ExportRateControl.Quality"/> mode when
+/// no explicit <see cref="Crf"/> is set.</param>
 /// <param name="Channels">Audio channel count to render and encode (default stereo).</param>
-/// <param name="VideoBitRate">Target video bit rate in bits/s, or <c>0</c> for CRF-quality encoding.</param>
+/// <param name="VideoBitRate">Target video bit rate in bits/s for <see cref="ExportRateControl.Bitrate"/> mode, or
+/// <c>0</c> for a resolution-scaled default (<see cref="ExportCodecs.DefaultTargetBitrate"/>). Ignored in
+/// <see cref="ExportRateControl.Quality"/> mode.</param>
 /// <param name="AudioBitRate">Target audio bit rate in bits/s, or <c>0</c> for the encoder default.</param>
 /// <param name="GopSize">Keyframe interval in frames, or <c>0</c> for the encoder default.</param>
+/// <param name="RateControl">How the video size/quality trade-off is driven: constant quality (the default —
+/// <see cref="Crf"/>/<see cref="Quality"/> hold the picture steady, size floats) or a target bit rate
+/// (<see cref="VideoBitRate"/>/<see cref="MaxBitRate"/> make size predictable). The two-mode rate control
+/// leading NLEs expose (Resolve's Quality vs "Restrict to", Premiere's VBR target).</param>
+/// <param name="Crf">An explicit constant-quality value on the codec's own scale (x264/x265 0–51, AV1/VP9 0–63;
+/// lower = better), or <c>0</c> to derive it from the <see cref="Quality"/> tier. Only used in
+/// <see cref="ExportRateControl.Quality"/> mode.</param>
+/// <param name="MaxBitRate">An optional VBR ceiling in bits/s for <see cref="ExportRateControl.Bitrate"/> mode
+/// (the encoder's <c>maxrate</c>), or <c>0</c> for none. Ignored in quality mode.</param>
 /// <param name="PixelFormat">An explicit encoder pixel-format name, or <see langword="null"/> to use the codec's
 /// default (yuv420p for most; yuv422p10le for ProRes).</param>
 /// <param name="HandleFrames">Export <b>handles</b> (PLAN.md step 29): extra frames rendered before the range's
@@ -62,6 +74,9 @@ public readonly record struct ExportOptions(
     long VideoBitRate = 0,
     long AudioBitRate = 0,
     int GopSize = 0,
+    ExportRateControl RateControl = ExportRateControl.Quality,
+    int Crf = 0,
+    long MaxBitRate = 0,
     string? PixelFormat = null,
     int HandleFrames = 0,
     IReadOnlyList<BurnIn>? BurnIns = null,
@@ -211,13 +226,24 @@ public static class VideoExporter
         IReadOnlyList<string>? hwCandidates = options.Acceleration == ExportAcceleration.Hardware
             ? ExportCodecs.HardwareEncoderCandidates(format.VideoCodec)
             : null;
+        // Rate control: the mode decides which knob drives the encoder. Quality mode resolves a CRF (an explicit
+        // value, else the tier's per-codec mapping) and leaves the bit rate 0; bitrate mode resolves a target
+        // (an explicit rate, else the resolution-scaled default) and leaves CRF 0 — so the two never fight.
+        bool bitrateMode = options.RateControl == ExportRateControl.Bitrate;
+        int crf = bitrateMode ? 0
+            : options.Crf > 0 ? options.Crf
+            : ExportCodecs.CrfFor(format.VideoCodec, options.Quality);
+        long bitRate = !bitrateMode ? 0
+            : options.VideoBitRate > 0 ? options.VideoBitRate
+            : ExportCodecs.DefaultTargetBitrate(outWidth, outHeight, fps);
         var video = new VideoEncoderSettings(
             outWidth, outHeight, fps,
             CodecName: videoCodec.EncoderName,
             PixelFormat: options.PixelFormat ?? videoCodec.PixelFormat,
-            BitRate: options.VideoBitRate,
+            BitRate: bitRate,
             GopSize: options.GopSize,
-            Crf: ExportCodecs.CrfFor(format.VideoCodec, options.Quality),
+            Crf: crf,
+            MaxBitRate: bitrateMode ? options.MaxBitRate : 0,
             Preset: options.Preset ?? videoCodec.DefaultPreset,
             HardwareCandidates: hwCandidates);
 

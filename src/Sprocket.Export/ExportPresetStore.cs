@@ -19,6 +19,9 @@ public static class ExportPresetStore
     {
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter() },
+        // Unset optional fields (no resolution pin, tier-derived rate control, …) stay out of the file entirely,
+        // keeping it human-editable; omitted == null on read, so this is schema-compatible both ways.
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
     // A flat, human-editable DTO decoupled from the domain records: no computed-property noise
@@ -33,7 +36,11 @@ public static class ExportPresetStore
         int? Height,
         int? FrameRateNum,
         int? FrameRateDen,
-        ExportAudioFormat? AudioFormat = null); // set → audio-only preset (PLAN.md step 44); additive, older files omit it
+        ExportAudioFormat? AudioFormat = null,     // set → audio-only preset (PLAN.md step 44); additive, older files omit it
+        ExportRateControl? RateControl = null,     // rate control (additive): null / omitted = quality mode with the
+        int? Crf = null,                           //   tier-derived CRF — exactly the pre-rate-control behaviour, so
+        long? VideoBitRate = null,                 //   older preset files keep working unchanged
+        long? MaxBitRate = null);
 
     /// <summary>Serialises the presets to the persisted JSON form (exposed for testing).</summary>
     public static string Serialize(IReadOnlyList<ExportPreset> presets) =>
@@ -96,7 +103,12 @@ public static class ExportPresetStore
 
     private static PresetDto ToDto(ExportPreset p) => new(
         p.Name, p.Format.Container, p.Format.VideoCodec, p.Format.AudioCodec, p.Quality,
-        p.Resolution?.Width, p.Resolution?.Height, p.FrameRate?.Num, p.FrameRate?.Den, p.AudioFormat);
+        p.Resolution?.Width, p.Resolution?.Height, p.FrameRate?.Num, p.FrameRate?.Den, p.AudioFormat,
+        // The default-valued rate-control fields serialize as null so a quality-tier preset's JSON is unchanged.
+        p.RateControl == ExportRateControl.Quality ? null : p.RateControl,
+        p.Crf > 0 ? p.Crf : null,
+        p.VideoBitRate > 0 ? p.VideoBitRate : null,
+        p.MaxBitRate > 0 ? p.MaxBitRate : null);
 
     private static ExportPreset FromDto(PresetDto d) => new(
         d.Name,
@@ -104,5 +116,9 @@ public static class ExportPresetStore
         d.Quality,
         d.Width is { } w && d.Height is { } h ? new Resolution(w, h) : null,
         d.FrameRateNum is { } n && d.FrameRateDen is { } den && den != 0 ? new Rational(n, den) : null,
-        d.AudioFormat);
+        d.AudioFormat,
+        d.RateControl ?? ExportRateControl.Quality,
+        d.Crf ?? 0,
+        d.VideoBitRate ?? 0,
+        d.MaxBitRate ?? 0);
 }

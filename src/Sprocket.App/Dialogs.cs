@@ -635,17 +635,47 @@ internal static class ExportSettingsDialog
         ExportAudioFormat SelectedAudioFormat() => audioFormats[containerBox.SelectedIndex - videoFormatCount];
         ComboBox videoBox = MakeCombo([]);
         ComboBox audioBox = MakeCombo([]);
-        ComboBox qualityBox = MakeCombo(["High (larger file)", "Medium", "Low (smaller file)"]);
-        qualityBox.SelectedIndex = 0;
+        // Rate control (the two-mode trade-off leading NLEs expose — Resolve's Quality vs "Restrict to", Premiere's
+        // VBR target): constant quality holds the picture steady via a CRF slider (size floats with content);
+        // target bitrate aims at a Mbps figure (size predictable, quality floats). Part of the delivery format,
+        // so presets capture it.
+        ComboBox rateControlBox = MakeCombo(["Constant quality", "Target bitrate"]);
+        rateControlBox.SelectedIndex = 0;
         // Encoding: software (deterministic, best compatibility — the default) or hardware (GPU encoder with
-        // automatic software fallback, PLAN.md step 29). Kept out of presets: it is a performance choice, not part
-        // of the delivery format, so it neither snaps the preset to Custom nor is captured by Save Preset.
+        // automatic software fallback, PLAN.md step 29; it honours the same rate control via each vendor's own
+        // quality knob). Kept out of presets: it is a performance choice, not part of the delivery format, so it
+        // neither snaps the preset to Custom nor is captured by Save Preset.
         ComboBox encodingBox = MakeCombo(["Software", "Hardware (if available)"]);
         encodingBox.SelectedIndex = 0;
         ComboBox resolutionBox = MakeCombo(Resolutions.Select(r => r.Label));
         resolutionBox.SelectedIndex = 0;
         ComboBox fpsBox = MakeCombo(FrameRates.Select(f => f.Label));
         fpsBox.SelectedIndex = 0;
+
+        // Constant-quality sub-panel: a CRF slider on the selected codec's own scale with a live plain-language
+        // readout, so the number's visual meaning is never a mystery. Seeded to the High tier's CRF.
+        var crfSlider = new Slider
+        {
+            Minimum = 1,
+            Maximum = ExportCodecs.MaxCrfFor(ExportVideoCodec.H264),
+            Value = ExportCodecs.CrfFor(ExportVideoCodec.H264, ExportQuality.High),
+            TickFrequency = 1,
+            IsSnapToTickEnabled = true,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var crfText = new TextBlock { Foreground = Palette.MutedTextBrush, FontSize = 12 };
+
+        // Target-bitrate sub-panel: Mbps target + optional max (VBR ceiling). An empty target uses the
+        // resolution-scaled default shown as its watermark; an empty max leaves the rate uncapped.
+        TextBox MakeMbpsBox() => new()
+        {
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        TextBox bitrateBox = MakeMbpsBox();
+        TextBox maxRateBox = MakeMbpsBox();
+        maxRateBox.PlaceholderText = "none";
 
         var resText = new TextBlock { Foreground = Palette.MutedTextBrush, FontSize = 12 };
         void UpdateResText()
@@ -656,6 +686,10 @@ internal static class ExportSettingsDialog
             resText.Text = ow == sw && oh == sh
                 ? $"Output resolution: {ow}×{oh}"
                 : $"Output resolution: {ow}×{oh}  (scaled from {sw}×{sh} to the 4K export cap)";
+            // Reseed the bitrate watermark to the output size's recommended default ("Same as sequence" frame rate
+            // seeds at the 30 fps baseline; the exporter recomputes with the actual rate when the box is left empty).
+            Rational fps = FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value ?? new Rational(30, 1);
+            bitrateBox.PlaceholderText = $"{ExportCodecs.DefaultTargetBitrate(ow, oh, fps) / 1_000_000.0:0.#} (recommended)";
         }
         UpdateResText();
 
@@ -669,9 +703,45 @@ internal static class ExportSettingsDialog
         var videoCodecs = new List<ExportVideoCodec>();
         var audioCodecs = new List<ExportAudioCodec>();
 
+        ExportVideoCodec SelectedVideoCodec() =>
+            !IsAudioOnly() && videoBox.SelectedIndex >= 0 && videoBox.SelectedIndex < videoCodecs.Count
+                ? videoCodecs[videoBox.SelectedIndex]
+                : ExportVideoCodec.H264;
+
+        void UpdateCrfText()
+        {
+            int crf = (int)crfSlider.Value;
+            crfText.Text = $"CRF {crf} — {ExportCodecs.QualityLabel(SelectedVideoCodec(), crf)}  (lower = better quality, larger file)";
+        }
+
+        // Keeps the CRF slider on the selected codec's own scale (x264/x265 0–51, AV1/VP9 0–63). When a codec
+        // change switches scale families, the old number would mean something different, so re-seed to the new
+        // codec's High-tier CRF rather than keep a misleading value; a same-scale change keeps the user's setting.
+        void UpdateCrfSliderScale()
+        {
+            int max = ExportCodecs.MaxCrfFor(SelectedVideoCodec());
+            if ((int)crfSlider.Maximum != max)
+            {
+                crfSlider.Maximum = max;
+                crfSlider.Value = ExportCodecs.CrfFor(SelectedVideoCodec(), ExportQuality.High);
+            }
+            UpdateCrfText();
+        }
+
         // The video-side rows (assigned once the controls below are built); audio-only mode (PLAN.md step 44) hides
-        // them. Declared here so the preset / selection handlers defined below can call UpdateAudioOnlyMode.
+        // them. Declared here so the preset / selection handlers defined below can call UpdateAudioOnlyMode. The
+        // rate-control rows are swappable within the video side (only the active mode's row shows), so audio-only
+        // restore re-applies the mode split after the blanket un-hide.
         Control[]? videoOnlyControls = null;
+        Control? crfRow = null, bitrateRow = null;
+        void UpdateRateControlMode()
+        {
+            if (crfRow is null || bitrateRow is null)
+                return;
+            bool bitrate = rateControlBox.SelectedIndex == 1;
+            crfRow.IsVisible = !bitrate && !IsAudioOnly();
+            bitrateRow.IsVisible = bitrate && !IsAudioOnly();
+        }
         void UpdateAudioOnlyMode()
         {
             if (videoOnlyControls is null)
@@ -679,6 +749,7 @@ internal static class ExportSettingsDialog
             bool audio = IsAudioOnly();
             foreach (Control c in videoOnlyControls)
                 c.IsVisible = !audio;
+            UpdateRateControlMode();
         }
 
         void RepopulateCodecs()
@@ -707,6 +778,7 @@ internal static class ExportSettingsDialog
         containerBox.SelectionChanged += (_, _) => RepopulateCodecs();
         containerBox.SelectedIndex = 0;
         RepopulateCodecs(); // ensure populated even though setting index 0 (already 0) fires no change
+        UpdateCrfSliderScale(); // reflect the initial codec (H.264) in the slider's range + readout
 
         // Applying a preset drives the controls programmatically; the guard stops that from snapping the preset box
         // back to "Custom" (which any *manual* control change does, below).
@@ -729,7 +801,13 @@ internal static class ExportSettingsDialog
                 if (vi >= 0) videoBox.SelectedIndex = vi;
                 int ai = audioCodecs.IndexOf(p.Format.AudioCodec);
                 if (ai >= 0) audioBox.SelectedIndex = ai;
-                qualityBox.SelectedIndex = (int)p.Quality;
+                rateControlBox.SelectedIndex = p.RateControl == ExportRateControl.Bitrate ? 1 : 0;
+                UpdateCrfSliderScale(); // range for the preset's codec before seeding the value
+                crfSlider.Value = p.Crf > 0
+                    ? Math.Clamp(p.Crf, (int)crfSlider.Minimum, (int)crfSlider.Maximum)
+                    : ExportCodecs.CrfFor(p.Format.VideoCodec, p.Quality);
+                bitrateBox.Text = p.VideoBitRate > 0 ? (p.VideoBitRate / 1_000_000.0).ToString("0.##") : "";
+                maxRateBox.Text = p.MaxBitRate > 0 ? (p.MaxBitRate / 1_000_000.0).ToString("0.##") : "";
                 resolutionBox.SelectedIndex = Math.Max(0, IndexOfResolution(p.Resolution));
                 fpsBox.SelectedIndex = Math.Max(0, IndexOfFrameRate(p.FrameRate));
             }
@@ -751,10 +829,17 @@ internal static class ExportSettingsDialog
         containerBox.SelectionChanged += SnapToCustom;
         videoBox.SelectionChanged += SnapToCustom;
         audioBox.SelectionChanged += SnapToCustom;
-        qualityBox.SelectionChanged += SnapToCustom;
+        rateControlBox.SelectionChanged += SnapToCustom;
+        crfSlider.ValueChanged += SnapToCustom;
+        bitrateBox.TextChanged += SnapToCustom;
+        maxRateBox.TextChanged += SnapToCustom;
         resolutionBox.SelectionChanged += SnapToCustom;
         fpsBox.SelectionChanged += SnapToCustom;
+        rateControlBox.SelectionChanged += (_, _) => UpdateRateControlMode();
+        crfSlider.ValueChanged += (_, _) => UpdateCrfText();
+        videoBox.SelectionChanged += (_, _) => UpdateCrfSliderScale();
         resolutionBox.SelectionChanged += (_, _) => UpdateResText();
+        fpsBox.SelectionChanged += (_, _) => UpdateResText(); // the frame rate feeds the recommended-bitrate seed
 
         // Burn-ins & handles (PLAN.md step 29). Burn-ins are opt-in overlays baked onto the export (timecode /
         // clip name / watermark) with a nine-point position each; handles add extra frames around an in-out range
@@ -823,7 +908,11 @@ internal static class ExportSettingsDialog
         // Video-side rows, captured so audio-only mode (PLAN.md step 44) can hide them (the master mix has no video
         // codec, resolution, frame rate, burn-ins, or color-transform choice).
         Control codecRow = TwoColumnRow("Video codec", videoBox, "Audio codec", audioBox);
-        Control qualityRow = TwoColumnRow("Quality", qualityBox, "Encoding", encodingBox);
+        Control rateRow = TwoColumnRow("Rate control", rateControlBox, "Encoding", encodingBox);
+        Control crfRowControl = LabeledRow("Quality", new StackPanel { Spacing = 2, Children = { crfSlider, crfText } });
+        Control bitrateRowControl = TwoColumnRow("Target (Mbps)", bitrateBox, "Max (Mbps)", maxRateBox);
+        crfRow = crfRowControl;
+        bitrateRow = bitrateRowControl;
         Control resFpsRow = TwoColumnRow("Resolution", resolutionBox, "Frame rate", fpsBox);
         Control burnHeader = new TextBlock { Text = "Burn-ins", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
         Control tcRow = BurnInRow(tcCheck, tcPos);
@@ -832,7 +921,7 @@ internal static class ExportSettingsDialog
         Control handlesRow = LabeledRow("Handles (frames before / after the range)", handlesBox);
         Control colorHeader = new TextBlock { Text = "Color", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
         videoOnlyControls =
-            [codecRow, qualityRow, resFpsRow, resText, burnHeader, tcRow, nameRow, watermarkRow, handlesRow, colorHeader, bakeColorCheck];
+            [codecRow, rateRow, crfRowControl, bitrateRowControl, resFpsRow, resText, burnHeader, tcRow, nameRow, watermarkRow, handlesRow, colorHeader, bakeColorCheck];
 
         var settings = new StackPanel
         {
@@ -843,7 +932,9 @@ internal static class ExportSettingsDialog
                 LabeledRow("Format", containerBox),
                 LabeledRow("Range", rangeBox),
                 codecRow,
-                qualityRow,
+                rateRow,
+                crfRowControl,
+                bitrateRowControl,
                 resFpsRow,
                 resText,
                 burnHeader,
@@ -910,6 +1001,19 @@ internal static class ExportSettingsDialog
             videoCodecs[videoBox.SelectedIndex],
             audioCodecs[audioBox.SelectedIndex]);
 
+        // The rate-control state as (mode, crf, target, max) in the model's units. An unparsable / empty Mbps box
+        // means "use the recommended default" (0), matching its watermark.
+        (ExportRateControl Mode, int Crf, long BitRate, long MaxRate) BuildRateControl()
+        {
+            static long ParseMbps(TextBox box) =>
+                double.TryParse((box.Text ?? string.Empty).Trim(), out double mbps) && mbps > 0
+                    ? (long)Math.Round(mbps * 1_000_000)
+                    : 0;
+            return rateControlBox.SelectedIndex == 1
+                ? (ExportRateControl.Bitrate, 0, ParseMbps(bitrateBox), ParseMbps(maxRateBox))
+                : (ExportRateControl.Quality, (int)crfSlider.Value, 0, 0);
+        }
+
         export.Click += (_, _) =>
         {
             if (!SelectionComplete())
@@ -942,9 +1046,13 @@ internal static class ExportSettingsDialog
             if (int.TryParse((handlesBox.Text ?? string.Empty).Trim(), out int parsed))
                 handles = Math.Max(0, parsed);
 
+            (ExportRateControl rateMode, int crf, long bitRate, long maxRate) = BuildRateControl();
             dialog.Close(new Result(new ExportOptions(
                 Format: BuildFormat(),
-                Quality: (ExportQuality)Math.Max(0, qualityBox.SelectedIndex),
+                RateControl: rateMode,
+                Crf: crf,
+                VideoBitRate: bitRate,
+                MaxBitRate: maxRate,
                 HandleFrames: handles,
                 BurnIns: burnIns.Count > 0 ? burnIns : null,
                 Resolution: Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
@@ -968,14 +1076,19 @@ internal static class ExportSettingsDialog
             if (await PromptForPresetName(dialog) is not { } name)
                 return;
 
+            (ExportRateControl rateMode, int crf, long bitRate, long maxRate) = BuildRateControl();
             ExportPreset preset = IsAudioOnly()
                 ? new ExportPreset(name, default, ExportQuality.High, AudioFormat: SelectedAudioFormat())
                 : new ExportPreset(
                     name,
                     BuildFormat(),
-                    (ExportQuality)Math.Max(0, qualityBox.SelectedIndex),
+                    ExportQuality.High, // the explicit Crf / bit rate below carries the quality; the tier is unused
                     Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
-                    FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value);
+                    FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value,
+                    RateControl: rateMode,
+                    Crf: crf,
+                    VideoBitRate: bitRate,
+                    MaxBitRate: maxRate);
 
             var user = UserExportPresets.Load()
                 .Where(p => !string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))

@@ -23,6 +23,19 @@ public enum ExportAudioFormat { WavPcm, Flac, Mp3, Aac, Opus }
 /// bit rates on <see cref="ExportOptions"/> override this.</summary>
 public enum ExportQuality { High, Medium, Low }
 
+/// <summary>How the exported video stream's size/quality trade-off is driven — the two-mode rate control leading
+/// NLEs expose (Resolve's Quality dropdown: constant quality vs "Restrict to" a bit rate; Premiere's VBR target).</summary>
+public enum ExportRateControl
+{
+    /// <summary>Constant quality: a CRF/CQ value holds visual quality steady and the bit rate floats with scene
+    /// complexity. The default — file size varies, the picture doesn't.</summary>
+    Quality,
+
+    /// <summary>Target bit rate (VBR): the encoder aims at a bits/s target (optionally capped by a max rate),
+    /// making file size predictable at the cost of quality varying with scene complexity.</summary>
+    Bitrate,
+}
+
 /// <summary>How the exported video stream is encoded (PLAN.md step 29). Orthogonal to the codec, matching how
 /// leading NLEs (a "Software / Hardware Encoding" toggle, or an encoder picker) present it.</summary>
 public enum ExportAcceleration
@@ -115,23 +128,37 @@ public readonly record struct ExportFormat(
 /// <param name="AudioFormat">When set, the preset is an <b>audio-only</b> delivery (PLAN.md step 44): the master mix
 /// is written in this format and the video-side fields above are ignored. <see langword="null"/> = a normal
 /// video/AV preset.</param>
+/// <param name="RateControl">Which knob drives the video size/quality trade-off: constant quality (the default —
+/// <see cref="Crf"/>/<see cref="Quality"/>) or a target bit rate (<see cref="VideoBitRate"/>/<see cref="MaxBitRate"/>).</param>
+/// <param name="Crf">An explicit constant-quality value on the codec's own scale, or <c>0</c> to derive it from
+/// the <see cref="Quality"/> tier (quality mode only).</param>
+/// <param name="VideoBitRate">The target video bit rate in bits/s, or <c>0</c> for the resolution-scaled default
+/// (bitrate mode only).</param>
+/// <param name="MaxBitRate">An optional VBR ceiling in bits/s, or <c>0</c> for none (bitrate mode only).</param>
 public readonly record struct ExportPreset(
     string Name,
     ExportFormat Format,
     ExportQuality Quality,
     Resolution? Resolution = null,
     Rational? FrameRate = null,
-    ExportAudioFormat? AudioFormat = null)
+    ExportAudioFormat? AudioFormat = null,
+    ExportRateControl RateControl = ExportRateControl.Quality,
+    int Crf = 0,
+    long VideoBitRate = 0,
+    long MaxBitRate = 0)
 {
     /// <summary>Whether this is an audio-only delivery preset (PLAN.md step 44).</summary>
     public bool IsAudioOnly => AudioFormat is not null;
 
-    /// <summary>The <see cref="ExportOptions"/> this preset applies: for a normal preset, its format, quality, and any
-    /// resolution / frame-rate override; for an audio-only preset (PLAN.md step 44), just the audio format. Burn-ins
-    /// and handles are per-export review options, not part of a delivery preset.</summary>
+    /// <summary>The <see cref="ExportOptions"/> this preset applies: for a normal preset, its format, rate control
+    /// (quality tier / CRF or target bit rate), and any resolution / frame-rate override; for an audio-only preset
+    /// (PLAN.md step 44), just the audio format. Burn-ins and handles are per-export review options, not part of a
+    /// delivery preset.</summary>
     public ExportOptions ToOptions() => AudioFormat is { } af
         ? new ExportOptions(AudioFormat: af)
-        : new ExportOptions(Format: Format, Quality: Quality, Resolution: Resolution, FrameRate: FrameRate);
+        : new ExportOptions(
+            Format: Format, Quality: Quality, Resolution: Resolution, FrameRate: FrameRate,
+            RateControl: RateControl, Crf: Crf, VideoBitRate: VideoBitRate, MaxBitRate: MaxBitRate);
 }
 
 /// <summary>
@@ -271,6 +298,49 @@ public static class ExportCodecs
             _ => 28,
         },
     };
+
+    /// <summary>The top of <paramref name="codec"/>'s CRF scale (the worst-quality end, for the dialog slider's
+    /// upper bound): AV1/VP9 use a 0–63 scale, the x264/x265 family 0–51.</summary>
+    public static int MaxCrfFor(ExportVideoCodec codec) =>
+        codec is ExportVideoCodec.Av1 or ExportVideoCodec.Vp9 ? 63 : 51;
+
+    /// <summary>A plain-language descriptor for a CRF value on <paramref name="codec"/>'s scale, for the dialog's
+    /// live slider readout ("what does this number mean for the picture?"). Bands follow the common x264 guidance
+    /// (18 visually lossless, ~23 high, ~28 good for web, above that small-file territory) rescaled onto the
+    /// AV1/VP9 0–63 domain, with the cutoffs padded one unit so each codec's own tier CRFs (including AV1/VP9's
+    /// 30/36/45, which normalize to 24/29/36) land inside the band their tier names.</summary>
+    public static string QualityLabel(ExportVideoCodec codec, int crf)
+    {
+        // Normalize onto the 0–51 x264 domain so one threshold table serves both scales.
+        int c51 = codec is ExportVideoCodec.Av1 or ExportVideoCodec.Vp9 ? (int)Math.Round(crf * 51.0 / 63.0) : crf;
+        return c51 switch
+        {
+            <= 18 => "visually lossless",
+            <= 24 => "high quality",
+            <= 29 => "good for web",
+            <= 36 => "small file",
+            _ => "very compressed",
+        };
+    }
+
+    /// <summary>A sensible default video target bit rate in bits/s for the bitrate rate-control mode, scaled by
+    /// resolution tier and frame rate — the ballpark leading NLEs and platform upload guides recommend (≈40 Mbps
+    /// for 4K, 16 for 1080p, 8 for 720p at 30 fps; high-frame-rate output scales up proportionally).</summary>
+    public static long DefaultTargetBitrate(int width, int height, Rational frameRate)
+    {
+        long pixels = Math.Max(1, (long)width * Math.Max(1, height));
+        long baseRate = pixels switch
+        {
+            >= 3840L * 2160 => 40_000_000,
+            >= 1920L * 1080 => 16_000_000,
+            >= 1280L * 720 => 8_000_000,
+            _ => 5_000_000,
+        };
+        double fps = frameRate is { Num: > 0, Den: > 0 } ? (double)frameRate.Num / frameRate.Den : 30.0;
+        // Scale by frame rate around the 30 fps baseline, but never below it — fewer frames don't
+        // proportionally cheapen the picture the way more frames cost.
+        return fps > 30.0 ? (long)(baseRate * fps / 30.0) : baseRate;
+    }
 
     /// <summary>The hardware encoders to probe for <paramref name="codec"/> on the current OS, most-preferred first
     /// (PLAN.md step 29). Built as <c>{base}_{vendor}</c> — e.g. H.264 on Windows → <c>[h264_nvenc, h264_qsv,
