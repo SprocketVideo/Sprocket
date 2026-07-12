@@ -108,6 +108,7 @@ in terms an app-side committer can check against their diff.
 | Help ▸ Sprocket Website (opens sprocketvideo.org; also linked in About) | MainWindow.axaml.cs `OpenWebsiteAsync`; Dialogs.cs `AboutDialog.WebsiteUrl` | — | ➖ (trivial; mention only if asked) |
 | Help ▸ Documentation (opens sprocketvideo.org/docs/) | MainWindow.axaml.cs `OpenUriAsync`; Dialogs.cs `AboutDialog.DocsUrl` | — | ➖ (trivial; mention only if asked) |
 | Help ▸ Report an Issue (opens the GitHub new-issue chooser) | MainWindow.axaml.cs `OpenUriAsync`; Dialogs.cs `AboutDialog.ReportIssueUrl`; .github/ISSUE_TEMPLATE/ | — | ➖ (trivial; mention only if asked) |
+| Help ▸ Support Sprocket ♥ (opens the GitHub Sponsors funding page) | MainWindow.axaml.cs `OpenUriAsync`; Dialogs.cs `AboutDialog.SupportUrl`; .github/FUNDING.yml | — | ➖ (trivial; mention only if asked) |
 
 ### Projects & saving
 

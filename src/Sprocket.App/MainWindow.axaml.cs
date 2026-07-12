@@ -403,6 +403,7 @@ public partial class MainWindow : Window
         this.FindControl<MenuItem>("DocsMenuItem")!.Click += (_, _) => _ = OpenUriAsync(AboutDialog.DocsUrl);
         this.FindControl<MenuItem>("WebsiteMenuItem")!.Click += (_, _) => _ = OpenWebsiteAsync();
         this.FindControl<MenuItem>("ReportIssueMenuItem")!.Click += (_, _) => _ = OpenUriAsync(AboutDialog.ReportIssueUrl);
+        this.FindControl<MenuItem>("SupportMenuItem")!.Click += (_, _) => _ = OpenUriAsync(AboutDialog.SupportUrl);
         this.FindControl<MenuItem>("ThirdPartyNoticesMenuItem")!.Click += (_, _) => _ = ThirdPartyNoticesDialog.Show(this);
         this.FindControl<MenuItem>("AboutMenuItem")!.Click += (_, _) => _ = AboutDialog.Show(this);
 

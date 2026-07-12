@@ -192,6 +192,7 @@
             <MenuItem x:Name="DocsMenuItem" Header="_Documentation" />
             <MenuItem x:Name="WebsiteMenuItem" Header="Sprocket _Website" />
             <MenuItem x:Name="ReportIssueMenuItem" Header="_Report an Issue…" />
+            <MenuItem x:Name="SupportMenuItem" Header="_Support Sprocket ♥" />
             <MenuItem x:Name="ThirdPartyNoticesMenuItem" Header="_Third-Party Notices" />
             <Separator />
             <MenuItem x:Name="AboutMenuItem" Header="_About Sprocket" />

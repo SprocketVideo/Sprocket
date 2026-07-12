@@ -46,6 +46,10 @@ internal static class AboutDialog
     /// <summary>The GitHub new-issue chooser, opened by Help ▸ Report an Issue.</summary>
     public const string ReportIssueUrl = "https://github.com/SprocketVideo/Sprocket/issues/new/choose";
 
+    /// <summary>The funding page, opened by Help ▸ Support Sprocket. The sponsor profile also links
+    /// the secondary Ko-fi channel, so the app carries a single canonical URL.</summary>
+    public const string SupportUrl = "https://github.com/sponsors/drittich";
+
     public static Task Show(Window owner)
     {
         // The bundled media engine version — a user-facing credit for the core dependency (not framework

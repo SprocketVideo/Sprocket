@@ -11,6 +11,7 @@
 [![Downloads](https://img.shields.io/github/downloads/SprocketVideo/Sprocket/total?label=downloads)](https://github.com/SprocketVideo/Sprocket/releases)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-blue)](#platform-support)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)
+[![Sponsor](https://img.shields.io/badge/sponsor-%E2%99%A5-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/drittich)
 
 **Website:** <https://sprocketvideo.org> 
 **Download:** [latest release](https://github.com/SprocketVideo/Sprocket/releases/latest) ([install instructions](#installing-sprocket))
@@ -104,6 +105,16 @@ warning — the release notes on every release walk through it.
   unsigned); clear it with `xattr -dr com.apple.quarantine /Applications/Sprocket.app` — details
   in the release notes.
 - Portable per-RID zips are also attached for every platform (no self-update).
+
+---
+
+## Support Sprocket
+
+Sprocket is free and open source, built and maintained in the open. If it's useful to you,
+you can support continued development — new features, codecs, and platform support:
+
+- **[GitHub Sponsors](https://github.com/sponsors/drittich)** — one-time or monthly
+- **[Ko-fi](https://ko-fi.com/sprocketvideo)** — one-time tips, no account needed
 
 ---
 
