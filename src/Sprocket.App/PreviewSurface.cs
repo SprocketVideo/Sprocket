@@ -170,13 +170,32 @@ public sealed class PreviewSurface : Control
                 _engine.UseLayers(layers =>
                 {
                     canvas.Clear(Background);
-                    if (layers.Count == 0 || _pipeline is null)
-                        return;
 
                     bool haveFrame = _frameWidth > 0 && _frameHeight > 0;
                     SKRect frameRect = haveFrame
                         ? FramePresenter.ComputeZoomRect(bounds, _frameWidth, _frameHeight, _zoom)
                         : SKRect.Empty;
+
+                    // The sequence canvas: export composites onto black (VideoExporter), so show the frame's
+                    // uncovered area as black in preview too. Besides export fidelity, this makes the frame
+                    // rectangle itself visible whenever its aspect differs from the panel's (portrait/square
+                    // sequences) — without it the empty canvas is indistinguishable from the panel background
+                    // and the guides overlay looks unclipped. Allocation-free save/clip/clear (§1 hot path).
+                    if (haveFrame)
+                    {
+                        canvas.Save();
+                        canvas.ClipRect(frameRect);
+                        canvas.Clear(SKColors.Black);
+                        canvas.Restore();
+                    }
+
+                    if (layers.Count == 0 || _pipeline is null)
+                    {
+                        // Even with nothing to composite (empty timeline / gap), the frame + guides still show.
+                        if (_showGuides && haveFrame)
+                            MonitorOverlay.Draw(canvas, frameRect, thirds: true, safeAreas: true);
+                        return;
+                    }
 
                     foreach (PresentedVideoLayer l in layers)
                     {

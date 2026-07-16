@@ -3,8 +3,11 @@ using SkiaSharp;
 namespace Sprocket.Render;
 
 /// <summary>
-/// The monitor's safe-area / framing-grid overlay (PLAN.md step 17, UI.md §3.4): a rule-of-thirds grid plus
-/// action-safe (93%) and title-safe (90%) guide rectangles, drawn over the program/source frame. The geometry
+/// The monitor's safe-area / framing-grid overlay (PLAN.md step 17, UI.md §3.4): the frame boundary, a
+/// rule-of-thirds grid, and action-safe (93%) / title-safe (90%) guide rectangles, drawn over the program/source
+/// frame. The boundary stroke matters for non-16:9 (portrait/square) sequences: at Fit the frame's empty canvas
+/// is otherwise indistinguishable from the panel background, so thirds lines legitimately spanning the full
+/// frame height read as overrunning it — the outline makes where they terminate visible. The geometry
 /// (<see cref="ComputeSafeAreas"/>) is pure so it is unit-testable without a canvas; <see cref="Draw"/> renders
 /// it as thin translucent strokes that read on any image. This is a non-destructive overlay — it never touches
 /// the decoded pixels (ARCHITECTURE.md §1), only the surface canvas after the frame is composited.
@@ -37,8 +40,10 @@ public static class MonitorOverlay
 
     /// <summary>
     /// Draws the requested overlays inside <paramref name="frame"/>: <paramref name="thirds"/> draws the
-    /// rule-of-thirds grid; <paramref name="safeAreas"/> draws the action- and title-safe rectangles. No-op for
-    /// a degenerate frame or when both flags are off.
+    /// rule-of-thirds grid; <paramref name="safeAreas"/> draws the action- and title-safe rectangles. Either
+    /// flag also strokes the frame boundary itself, so the guides visibly end at the frame edge even where the
+    /// frame's canvas matches the panel background (see the class remarks). No-op for a degenerate frame or
+    /// when both flags are off.
     /// </summary>
     public static void Draw(SKCanvas canvas, SKRect frame, bool thirds, bool safeAreas)
     {
@@ -50,10 +55,16 @@ public static class MonitorOverlay
         {
             Style = SKPaintStyle.Stroke,
             StrokeWidth = 1,
-            Color = new SKColor(0xFF, 0xFF, 0xFF, 0x66),
+            Color = new SKColor(0xFF, 0xFF, 0xFF, 0xB3),
             IsAntialias = false,
         };
 
+        // Frame boundary, brightest of the strokes. Inset by half the stroke width so the whole line lands
+        // inside the frame — at Fit the frame edge coincides with the surface edge, where a centred stroke
+        // would lose its outer half to the bounds clip.
+        canvas.DrawRect(new SKRect(frame.Left + 0.5f, frame.Top + 0.5f, frame.Right - 0.5f, frame.Bottom - 0.5f), line);
+
+        line.Color = new SKColor(0xFF, 0xFF, 0xFF, 0x66);
         if (thirds)
         {
             for (int i = 1; i <= 2; i++)
