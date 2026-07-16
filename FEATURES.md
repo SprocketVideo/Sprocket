@@ -72,11 +72,12 @@ in terms an app-side committer can check against their diff.
 | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 487ace6 | ✅ current (macOS ⌘ note added, links to the full reference) |
 | get-started/keyboard-shortcuts.md (full page) | §9; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | 487ace6 | ✅ current |
 | get-started/projects-and-saving.md | §1 (Projects & saving); §9 (Autosave interval) | New/Open/Save/Save As, the discard-changes prompt, autosave + crash recovery, the autosave interval preference, or Relink Media change | 777f288 | ✅ current |
-| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 9e7bc4d | ✅ current (added the Audio effects guide) |
+| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 0e665cb | ✅ current (added the Aspect ratio and framing guide under Edit) |
 | edit/editing-on-the-timeline.md | §3 (Timeline editing; Clips: speed / frame hold / frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 487ace6 | ✅ current (expanded: multi-select, cut/copy/paste, split/duplicate/enable, right-click menu, track rename/resize, on-clip fade handles, per-tool cursors) |
 | edit/marks-and-markers.md | §3 (Markers; In/Out marks; Play In to Out) | the Markers panel, in/out mark keys/overlay, or Play In to Out change | 487ace6 | ✅ current |
 | edit/titles-and-generators.md | §3 (Titles, generators & layers) | the Clip ▸ Insert generator set, the title Inspector sections, or adjustment-layer placement change | 487ace6 | ✅ current |
-| edit/multicam-and-sequences.md | §3 (Multicam & sequences) | multicam creation/angle-switching, the Sequence menu (New/Open/Settings), or nesting change | 487ace6 | ✅ current |
+| edit/multicam-and-sequences.md | §3 (Multicam & sequences) | multicam creation/angle-switching, the Sequence menu (New/Open/Settings), or nesting change | 0e665cb | ✅ current (sequence section rewritten for the frame-size picker; format-preset detail moved to aspect-ratio-and-framing.md; sequence-settings.png re-captured) |
+| edit/aspect-ratio-and-framing.md | §3 (Sequence format presets; per-clip conform; Inspector Framing) | the New Sequence / Sequence Settings frame-size picker, the preset list, per-clip Fit/Fill conform, or the Inspector Framing controls (Conform / Center / Fill Height / Reset Framing) change | 0e665cb | ✅ current (new guide) |
 | effects-color/effects.md | §4 (Effects & the effect stack) | the everyday effects, the Effects menu, or the Inspector effect UI change | 92226ec | ✅ current |
 | effects-color/color-grading.md | §4 (Color grading & scopes) | grading effects, scopes, or wheel UI change | 438f6e2 | ✅ current |
 | media/importing-media.md | §2 (Importing media & the Project panel) | the import formats/picker, media-bin tiles/badges/search, Project-panel tabs, still/sequence/alpha import, or the Interpret Footage dialog change | 5227505 | ✅ current |
@@ -205,10 +206,10 @@ in terms an app-side committer can check against their diff.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Multicam: Create Multicam Source + angle switch (`1`–`9`) | MainWindow.axaml.cs `CreateMulticamSource`; PLAN.md step 24 | edit/multicam-and-sequences.md#cutting-between-camera-angles-multicam | ✅ (angle-buttons Inspector shot deferred — sample project has one video clip) |
-| Multiple sequences: New / Open / Sequence Settings (rename + editable frame size) | MainWindow.axaml.cs `NewSequenceAsync`, `SwitchToSequence`, `ShowSequenceSettingsAsync`; Dialogs.cs `SequenceSettingsDialog` | edit/multicam-and-sequences.md#working-with-more-than-one-sequence | 🟡 (docs predate the editable frame size; New Sequence now opens the format picker) |
-| Sequence format presets incl. portrait/square (1080×1920, 1080×1350, 1080×1080, 2160×3840 + Custom) in New Sequence / Sequence Settings | Sprocket.App/SequenceFormatPresets.cs; Dialogs.cs `SequenceSettingsDialog` | — | ❌ |
-| Per-clip conform mode: Fit (letterbox) / Fill (centre-crop) for mismatched-resolution media | Sprocket.Core/Model/Clip.cs `ConformMode`; Sprocket.Render/FramePresenter.cs `ComputeFillRect` | — | ❌ |
-| Inspector Framing section: Conform dropdown + Center / Fill Height / Reset Framing buttons | InspectorPanel.cs `BuildFramingSection`; Sprocket.App/FramingOps.cs | — | ❌ |
+| Multiple sequences: New / Open / Sequence Settings (rename + editable frame size) | MainWindow.axaml.cs `NewSequenceAsync`, `SwitchToSequence`, `ShowSequenceSettingsAsync`; Dialogs.cs `SequenceSettingsDialog` | edit/multicam-and-sequences.md#working-with-more-than-one-sequence | ✅ (New Sequence + Sequence Settings now describe the frame-size picker; format presets detailed in aspect-ratio-and-framing.md) |
+| Sequence format presets incl. portrait/square (1080×1920, 1080×1350, 1080×1080, 2160×3840 + Custom) in New Sequence / Sequence Settings | Sprocket.App/SequenceFormatPresets.cs; Dialogs.cs `SequenceSettingsDialog` | edit/aspect-ratio-and-framing.md#choose-your-videos-shape | ✅ |
+| Per-clip conform mode: Fit (letterbox) / Fill (centre-crop) for mismatched-resolution media | Sprocket.Core/Model/Clip.cs `ConformMode`; Sprocket.Render/FramePresenter.cs `ComputeFillRect` | edit/aspect-ratio-and-framing.md#fit-or-fill-how-a-clip-meets-the-frame | ✅ |
+| Inspector Framing section: Conform dropdown + Center / Fill Height / Reset Framing buttons | InspectorPanel.cs `BuildFramingSection`; Sprocket.App/FramingOps.cs | edit/aspect-ratio-and-framing.md#the-framing-controls | ✅ |
 | Nest selection into a sequence (compound clips; the whole multi-clip selection nests) | MainWindow.axaml.cs `NestSelection`; PLAN.md steps 23, 54 | edit/multicam-and-sequences.md#nesting-clips-into-a-sequence | ✅ |
 
 ## 4. Effects & color
@@ -305,10 +306,10 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Proxy media (automatic background proxies; status-bar indicator) | Sprocket.App/Proxy/*.cs; PLAN.md step 18 | — | ❌ |
-| Render In to Out / Selection / Audio (Sequence menu) | MainWindow.axaml.cs `RenderRangeAsync` | — | ❌ |
-| Render bar (green/yellow/red cache states) | RenderCache/RenderBarModel.cs | — | ❌ |
-| Delete Render Files (with disk footprint) | MainWindow.axaml.cs `DeleteRenderFilesAsync` | — | ❌ |
+| Proxy media (automatic background proxies; status-bar indicator) | Sprocket.App/Proxy/*.cs; PLAN.md step 18 | performance/proxies-and-render-cache.md#proxies-automatic-help-with-heavy-footage | ✅ (automatic behavior + status-bar messages; the internal tier/resolution/CRF numbers stay undocumented) |
+| Render In to Out / Selection / Audio (Sequence menu) | MainWindow.axaml.cs `RenderRangeAsync` | performance/proxies-and-render-cache.md#render-a-range-for-smooth-playback | ✅ |
+| Render bar (green/yellow/red cache states) | RenderCache/RenderBarModel.cs | performance/proxies-and-render-cache.md#the-render-bar-what-needs-rendering | ✅ |
+| Delete Render Files (with disk footprint) | MainWindow.axaml.cs `DeleteRenderFilesAsync` | performance/proxies-and-render-cache.md#reclaim-disk-space | ✅ |
 | Hardware-accelerated decode (automatic; software fallback) | Sprocket.Media/HardwareContext.cs; PLAN.md step 6; README | performance/troubleshooting-playback.md#if-the-preview-cant-keep-up | ➖ (automatic; covered only as a troubleshooting note) |
 
 ## 8. AI control (MCP) & command line
