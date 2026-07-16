@@ -72,7 +72,7 @@ in terms an app-side committer can check against their diff.
 | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 487ace6 | ✅ current (macOS ⌘ note added, links to the full reference) |
 | get-started/keyboard-shortcuts.md (full page) | §9; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | 487ace6 | ✅ current |
 | get-started/projects-and-saving.md | §1 (Projects & saving); §9 (Autosave interval) | New/Open/Save/Save As, the discard-changes prompt, autosave + crash recovery, the autosave interval preference, or Relink Media change | 777f288 | ✅ current |
-| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 777f288 | ✅ current (added the Projects and saving guide) |
+| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 9e7bc4d | ✅ current (added the Audio effects guide) |
 | edit/editing-on-the-timeline.md | §3 (Timeline editing; Clips: speed / frame hold / frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 487ace6 | ✅ current (expanded: multi-select, cut/copy/paste, split/duplicate/enable, right-click menu, track rename/resize, on-clip fade handles, per-tool cursors) |
 | edit/marks-and-markers.md | §3 (Markers; In/Out marks; Play In to Out) | the Markers panel, in/out mark keys/overlay, or Play In to Out change | 487ace6 | ✅ current |
 | edit/titles-and-generators.md | §3 (Titles, generators & layers) | the Clip ▸ Insert generator set, the title Inspector sections, or adjustment-layer placement change | 487ace6 | ✅ current |
@@ -81,7 +81,8 @@ in terms an app-side committer can check against their diff.
 | effects-color/color-grading.md | §4 (Color grading & scopes) | grading effects, scopes, or wheel UI change | 438f6e2 | ✅ current |
 | media/importing-media.md | §2 (Importing media & the Project panel) | the import formats/picker, media-bin tiles/badges/search, Project-panel tabs, still/sequence/alpha import, or the Interpret Footage dialog change | 5227505 | ✅ current |
 | media/log-footage.md | §2 (Working with log & camera footage) | Input Color Transform, the camera LUT set, or ACES Filmic change | 438f6e2 | ✅ current |
-| audio/audio-mixing.md | §5 (track mute/solo, the Fade effect) | per-track audio controls or the Fade effect change | 92226ec | ✅ current |
+| audio/audio-mixing.md | §5 (track mute/solo, the Fade effect; the mixer: gain/pan, master strip, loudness meters, normalization, insert chains) | per-track audio controls, the Fade effect, or any mixer control (strips, master, meters, Normalize targets, inserts) change | 9e7bc4d | ✅ current (expanded from levels-only to the full mixer: strips, master, loudness meters, normalize, inserts) |
+| audio/audio-effects.md | §5 (audio-effect library: Gain/Pan, EQ, Compressor, Noise Gate, reverbs, delays; preset picker; Freeze/Unfreeze Clip Audio) | an audio effect is added/changed, the audio-effect Inspector UI or preset picker changes, or Freeze/Unfreeze Clip Audio changes | 9e7bc4d | ✅ current (new guide) |
 | export/exporting.md | §6 (Export Settings; format matrix; audio-only; presets; burn-ins; handles; encoding; color; metadata; progress/reveal) | the Export Settings dialog, its defaults, the format/codec matrix, the built-in preset list, or the audio-only formats change | ddf153b | ✅ current (quality/encoding section rewritten for the two-mode Rate control; portrait/square resolutions added; export-settings.png re-captured + new export-rate-bitrate.png) |
 | export/export-queue-and-interchange.md | §6 (Export Queue; EDL/Final Cut XML interchange) | the Export Queue window controls/statuses, or the interchange formats/warnings change | 48acaf5 | ✅ current (new guide) |
 | ai/ai-control.md | §8 (+ §9 Preferences MCP settings, §4 effect tags) | the MCP tool surface, Preferences AI section, setup command, status-bar indicator, or effect-tag UI changes | c86c921 | ✅ current |
@@ -238,7 +239,7 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Keyframing: animate parameters, keyframe lanes, velocity graph, `[`/`]` navigation | InspectorPanel.cs; Inspector/KeyframeLane.cs | — | ❌ (teased twice in guides; never taught) |
+| Keyframing: animate parameters, keyframe lanes, velocity graph, `[`/`]` navigation | InspectorPanel.cs; Inspector/KeyframeLane.cs | effects-color/keyframing.md | ✅ (dedicated guide; the two former teasers in effects.md + getting-started.md now link to it) |
 
 ### Color grading & scopes
 
@@ -253,17 +254,17 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|
 | Track mute / solo | TimelineControl.cs headers | audio/audio-mixing.md#adjust-the-audio | ✅ |
 | Audio fades (Fade effect; fade handles on clips) | EffectCatalog.cs; TimelineControl fade handles | audio/audio-mixing.md#adjust-the-audio; edit/editing-on-the-timeline.md#fading-a-clip-in-or-out | ✅ (Fade effect in audio-mixing; on-clip fade handles in editing-on-the-timeline) |
-| Mixer (Audio tab): per-track gain/pan/mute/solo, master strip | Sprocket.App/Mixer/MixerView.cs | — | ❌ |
-| Mixer insert chains: track / Sequence Bus / Master inserts (add, enable LED, remove, Move Up/Down; click an insert to edit its parameters/keyframes in the Inspector) | MixerView.cs `BuildInsertsBlock`; Mixer/AudioChainTarget.cs; InspectorPanel.cs `SetSelectedChain`; PLAN.md step 31 follow-on | — | ❌ |
-| Loudness meters (LUFS + true peak, EBU R128) | Sprocket.Audio/Loudness/*.cs | — | ❌ |
-| Loudness normalization (clip / track / master to LUFS target) | MixerView.cs; `NormalizeSelectedClip` | — | ❌ |
-| Audio effects: Gain/Pan, Parametric EQ, Compressor, Reverb (Lite) | Sprocket.Audio/Effects/*.cs; EffectCatalog.cs | — | ❌ |
-| Studio Reverb (Dattorro plate/hall; presets Room–Cathedral–Ambient Bloom via Inspector preset picker) | Sprocket.Audio/Effects/StudioReverbEffect.cs; EffectCatalog.cs | — | ❌ |
-| Delay effects: Digital, Tape (wow/flutter + saturation), Multi-Tap (8 taps), Stereo (Ping Pong) | Sprocket.Audio/Effects/{DigitalDelay,TapeDelay,MultiTapDelay,StereoDelay}Effect.cs; EffectCatalog.cs | — | ❌ |
-| Noise Gate (threshold/attack/hold/release, range floor, hysteresis) | Sprocket.Audio/Effects/NoiseGateEffect.cs; EffectCatalog.cs | — | ❌ |
-| Shelving EQ (standalone low + high shelves: freq/gain/slope, per-shelf enable) | Sprocket.Audio/Effects/ShelvingEqEffect.cs; EffectCatalog.cs | — | ❌ |
-| Shimmer Reverb (pitch-shifted feedback wash; interval control; presets Classic–Dark–Fifth–Drone) | Sprocket.Audio/Effects/ShimmerReverbEffect.cs; EffectCatalog.cs | — | ❌ |
-| Freeze / Unfreeze Clip Audio (pre-render heavy audio chains; Sequence menu) | MainWindow.axaml.cs `UnfreezeClipAudio`; RenderCacheService.cs | — | ❌ |
+| Mixer (Audio tab): per-track gain/pan/mute/solo, master strip | Sprocket.App/Mixer/MixerView.cs | audio/audio-mixing.md#set-a-tracks-gain-pan-mute-and-solo; audio/audio-mixing.md#the-master-strip | ✅ |
+| Mixer insert chains: track / Sequence Bus / Master inserts (add, enable LED, remove, Move Up/Down; click an insert to edit its parameters/keyframes in the Inspector) | MixerView.cs `BuildInsertsBlock`; Mixer/AudioChainTarget.cs; InspectorPanel.cs `SetSelectedChain`; PLAN.md step 31 follow-on | audio/audio-mixing.md#add-insert-effects-to-a-track-bus-or-the-master | ✅ |
+| Loudness meters (LUFS + true peak, EBU R128) | Sprocket.Audio/Loudness/*.cs | audio/audio-mixing.md#read-the-loudness-meters | ✅ |
+| Loudness normalization (clip / track / master to LUFS target) | MixerView.cs; `NormalizeSelectedClip` | audio/audio-mixing.md#match-a-loudness-target | ✅ |
+| Audio effects: Gain/Pan, Parametric EQ, Compressor, Reverb (Lite) | Sprocket.Audio/Effects/*.cs; EffectCatalog.cs | audio/audio-effects.md#add-an-audio-effect | ✅ (Gain/Pan + Compressor in #levels--dynamics, Parametric EQ in #equalizers, Reverb (Lite) in #reverb) |
+| Studio Reverb (Dattorro plate/hall; presets Room–Cathedral–Ambient Bloom via Inspector preset picker) | Sprocket.Audio/Effects/StudioReverbEffect.cs; EffectCatalog.cs | audio/audio-effects.md#reverb | ✅ |
+| Delay effects: Digital, Tape (wow/flutter + saturation), Multi-Tap (8 taps), Stereo (Ping Pong) | Sprocket.Audio/Effects/{DigitalDelay,TapeDelay,MultiTapDelay,StereoDelay}Effect.cs; EffectCatalog.cs | audio/audio-effects.md#delay--echo | ✅ |
+| Noise Gate (threshold/attack/hold/release, range floor, hysteresis) | Sprocket.Audio/Effects/NoiseGateEffect.cs; EffectCatalog.cs | audio/audio-effects.md#levels--dynamics | ✅ |
+| Shelving EQ (standalone low + high shelves: freq/gain/slope, per-shelf enable) | Sprocket.Audio/Effects/ShelvingEqEffect.cs; EffectCatalog.cs | audio/audio-effects.md#equalizers | ✅ |
+| Shimmer Reverb (pitch-shifted feedback wash; interval control; presets Classic–Dark–Fifth–Drone) | Sprocket.Audio/Effects/ShimmerReverbEffect.cs; EffectCatalog.cs | audio/audio-effects.md#reverb | ✅ |
+| Freeze / Unfreeze Clip Audio (pre-render heavy audio chains; Sequence menu) | MainWindow.axaml.cs `UnfreezeClipAudio`; RenderCacheService.cs | audio/audio-effects.md#freeze-a-heavy-audio-chain | ✅ |
 
 ## 6. Export & share
 
