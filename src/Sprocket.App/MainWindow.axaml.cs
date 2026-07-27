@@ -15,6 +15,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Sprocket.App.Inspector;
 using Sprocket.App.MediaBrowser;
 using Sprocket.Audio;
@@ -156,6 +157,15 @@ public partial class MainWindow : Window
     private Border? _projectPane, _inspectorPane;
     private GridSplitter? _projectSplitter, _inspectorSplitter;
 
+    // Work-area focus ring (Tab / Shift+Tab, Shift+1–4). The active area is explicit shell state rather than
+    // something inferred from whichever child control happens to hold focus: it survives focus landing on the
+    // toolbar or status bar, drives the accent pane edge, and is what the direct chords set. Kept in sync with
+    // real focus by OnShellGotFocus.
+    private Panel? _shellRoot;
+    private Border? _monitorPane, _timelinePane;
+    private Control? _projectAreaTarget, _monitorAreaTarget, _timelineAreaTarget, _inspectorAreaTarget;
+    private WorkArea _activeArea = WorkArea.Timeline;
+
     /// <summary>The Sprocket project file type (a JSON sidecar) for the open / save-as pickers.</summary>
     private static readonly FilePickerFileType SprocketProjectFileType =
         new("Sprocket project") { Patterns = ["*.sprocket.json", "*.json"] };
@@ -252,6 +262,9 @@ public partial class MainWindow : Window
         PopulateProjectChrome(status);
         WireMediaBrowser();
         WireInspector();
+        // After the panes are resolved (WireCommandMenus / WireMediaBrowser / WireInspector) and before the
+        // no-engine early return below, so Tab still cycles the shell of an empty project.
+        WireWorkAreaFocus();
 
         _history.Changed += OnHistoryChanged;
         OnHistoryChanged(); // initialise menu-enable + save-state
@@ -867,9 +880,17 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Delete || e.Key == Key.Back) { _timeline?.DeleteSelected(); e.Handled = true; }
         else if (alt && e.Key == Key.Left) { _timeline?.NudgeSelected(-1); e.Handled = true; }
         else if (alt && e.Key == Key.Right) { _timeline?.NudgeSelected(+1); e.Handled = true; }
+        // Activate a work area directly (Shift+1 Project, Shift+2 Timeline, Shift+3 Monitor, Shift+4 Inspector —
+        // the Premiere-style "activate panel by number" convention, see WorkAreaFocus.TryDirectKey). Sits above
+        // the bare 1–9 multicam angle keys, which are gated on !shift so the two never collide, and below the
+        // text guard so Shift+1 still types "!" in a field.
+        else if (shift && !primary && !ctrl && !alt && WorkAreaFocus.TryDirectKey(e.Key, out WorkArea directArea))
+        {
+            e.Handled = FocusWorkArea(directArea);
+        }
         // Multicam angle switching (PLAN.md step 24): 1–9 cut the selected multicam clip to that angle at the
         // playhead — the convention in leading editors. Only swallow the digit when a multicam clip is selected.
-        else if (!primary && !ctrl && !alt && TryAngleKey(e.Key, out int angle) && _timeline?.SelectedIsMulticam == true)
+        else if (!primary && !ctrl && !alt && !shift && TryAngleKey(e.Key, out int angle) && _timeline?.SelectedIsMulticam == true)
         {
             _timeline.SwitchSelectedAngle(angle);
             e.Handled = true;
@@ -942,8 +963,233 @@ public partial class MainWindow : Window
         }
     }
 
-    private bool IsTypingInTextBox() =>
-        TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox;
+    private bool IsTypingInTextBox() => FocusedElement() is TextBox;
+
+    private IInputElement? FocusedElement() =>
+        TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
+
+    // ── Work-area focus ring (Tab / Shift+Tab, Shift+1–4) ───────────────────────────────────────────
+
+    /// <summary>
+    /// Installs the coarse work-area focus model (<see cref="WorkAreaFocus"/>): plain <c>Tab</c> /
+    /// <c>Shift+Tab</c> step between the Project / Monitor / Timeline / Inspector panes instead of crawling
+    /// every focusable widget in the shell, which is how panels are activated in leading NLEs.
+    /// <para>
+    /// The handler goes on <c>ShellRoot</c>, not on the window: Avalonia's own
+    /// <c>KeyboardNavigationHandler</c> is registered as an instance <c>KeyDown</c> handler on the
+    /// <see cref="TopLevel"/> itself, so a window-level handler would only run after focus had already moved.
+    /// <c>ShellRoot</c> is nearer the focused control in the bubble route, so it sees the key first and
+    /// marking it handled keeps native traversal out.
+    /// </para>
+    /// </summary>
+    private void WireWorkAreaFocus()
+    {
+        _shellRoot = this.FindControl<Panel>("ShellRoot");
+        _monitorPane = this.FindControl<Border>("MonitorPane");
+        _timelinePane = this.FindControl<Border>("TimelinePane");
+
+        // Each area's representative focus target is the panel root, never a control inside it: focusing a
+        // text field (the bin's search box, an Inspector value) would immediately hand Tab back to native
+        // traversal. These are resolved from the XAML rather than the wired fields so the ring also works in
+        // a session with no engine, where WireTransport / WireTimeline never run.
+        _projectAreaTarget = this.FindControl<MediaBrowserPanel>("MediaBrowser");
+        _monitorAreaTarget = this.FindControl<PreviewSurface>("Preview");
+        _timelineAreaTarget = this.FindControl<TimelineControl>("Timeline");
+        _inspectorAreaTarget = this.FindControl<InspectorPanel>("Inspector");
+        foreach (Control? target in new[] { _projectAreaTarget, _monitorAreaTarget, _timelineAreaTarget, _inspectorAreaTarget })
+        {
+            if (target is null)
+                continue;
+            // Focusable so the ring can park focus on them (the timeline already was), but deliberately not
+            // native tab stops: the areas are reached through the ring, and native traversal — which now only
+            // runs out of a focused text field — should keep landing on real widgets, not on a panel root
+            // that has no focus adorner of its own.
+            target.Focusable = true;
+            target.IsTabStop = false;
+        }
+
+        if (_shellRoot is not null)
+        {
+            _shellRoot.AddHandler(KeyDownEvent, OnShellKeyDown);
+            _shellRoot.AddHandler(GotFocusEvent, OnShellGotFocus);
+        }
+        UpdateActiveAreaAffordance();
+
+        // Park focus in the default work area (the timeline) once the shell is up. Two reasons: the accent edge
+        // shouldn't claim an area nothing is focused in, and a key event with no focused element is raised on the
+        // window rather than routed up through ShellRoot — so the first Tab would miss the handler above.
+        Opened += (_, _) => FocusWorkArea(_activeArea);
+    }
+
+    /// <summary>
+    /// Turns plain <c>Tab</c> / <c>Shift+Tab</c> into a work-area step. Deliberately narrow: modified Tab
+    /// chords, menus/popups (their own visual root), and a focused lone text field are all left to their
+    /// native behavior, and a focused field inside a form-like group (an Inspector section card) traverses
+    /// that group's fields first — only running off the group's edge escalates to the ring.
+    /// </summary>
+    private void OnShellKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled || e.Key != Key.Tab)
+            return;
+        // Only the unmodified chords drive the ring; Ctrl/Alt/⌘+Tab stay with the OS and the window manager.
+        if (e.KeyModifiers is not (KeyModifiers.None or KeyModifiers.Shift))
+            return;
+
+        bool forward = !e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        IInputElement? focused = FocusedElement();
+
+        // A menu drop-down / combo popup / context menu lives in its own visual root (a PopupRoot is itself a
+        // TopLevel) and keeps its own traversal. Modal dialogs are separate windows and never reach this
+        // handler at all.
+        if (focused is Control focusedControl && !ReferenceEquals(TopLevel.GetTopLevel(focusedControl), this))
+            return;
+
+        if (focused is Control control && NearestFieldGroup(control) is { } group)
+        {
+            List<Control> stops = FieldGroupStops(group);
+            int index = stops.IndexOf(control);
+            int nextIndex = index + (forward ? 1 : -1);
+            if (index >= 0 && nextIndex >= 0 && nextIndex < stops.Count)
+            {
+                stops[nextIndex].Focus(NavigationMethod.Tab);
+                e.Handled = true;
+                return;
+            }
+            // Off the group's first/last field → the ring takes over below.
+        }
+        else if (focused is TextBox)
+        {
+            // Never hijack Tab while typing in a standalone field (the bin search box, the inline track-rename
+            // and title editors): a lone field has no group to traverse, so native navigation stands.
+            return;
+        }
+
+        if (FocusWorkArea(WorkAreaFocus.Advance(_activeArea, forward, IsWorkAreaAvailable)))
+            e.Handled = true;
+    }
+
+    /// <summary>
+    /// Keeps <see cref="_activeArea"/> honest when focus moves by any other means — a click in a pane, a
+    /// dialog closing back onto the timeline, native traversal out of a text field. Focus landing on shell
+    /// chrome (toolbar, transport, status bar, title bar) belongs to no area and leaves the active one alone.
+    /// </summary>
+    private void OnShellGotFocus(object? sender, FocusChangedEventArgs e)
+    {
+        if (e.Source is Control control && AreaOf(control) is { } area)
+            SetActiveArea(area);
+    }
+
+    /// <summary>
+    /// Makes <paramref name="area"/> the active work area and moves keyboard focus to its representative
+    /// control. Returns <see langword="false"/> (and changes nothing) when the area is unavailable — a hidden
+    /// pane, or a shell that never built that control.
+    /// </summary>
+    private bool FocusWorkArea(WorkArea? area)
+    {
+        if (area is not { } target || !IsWorkAreaAvailable(target) || TargetFor(target) is not { } control)
+            return false;
+        SetActiveArea(target);
+        control.Focus(NavigationMethod.Tab);
+        return true;
+    }
+
+    private void SetActiveArea(WorkArea area)
+    {
+        if (_activeArea == area)
+            return;
+        _activeArea = area;
+        UpdateActiveAreaAffordance();
+    }
+
+    /// <summary>Whether the ring should stop on <paramref name="area"/>: its pane is on screen and built.</summary>
+    private bool IsWorkAreaAvailable(WorkArea area)
+    {
+        // While the full-screen preview overlay is up, the picture is the only work area on screen.
+        if (_previewFullscreen)
+            return area == WorkArea.Monitor && _monitorAreaTarget is not null;
+
+        return area switch
+        {
+            WorkArea.Project => _projectAreaTarget is not null && _projectPane?.IsVisible != false,
+            WorkArea.Monitor => _monitorAreaTarget is not null,
+            WorkArea.Timeline => _timelineAreaTarget is not null,
+            WorkArea.Inspector => _inspectorAreaTarget is not null && _inspectorPane?.IsVisible != false,
+            _ => false,
+        };
+    }
+
+    private Control? TargetFor(WorkArea area) => area switch
+    {
+        WorkArea.Project => _projectAreaTarget,
+        WorkArea.Monitor => _monitorAreaTarget,
+        WorkArea.Timeline => _timelineAreaTarget,
+        WorkArea.Inspector => _inspectorAreaTarget,
+        _ => null,
+    };
+
+    private Border? PaneFor(WorkArea area) => area switch
+    {
+        WorkArea.Project => _projectPane,
+        WorkArea.Monitor => _monitorPane,
+        WorkArea.Timeline => _timelinePane,
+        WorkArea.Inspector => _inspectorPane,
+        _ => null,
+    };
+
+    /// <summary>The work area <paramref name="control"/> sits in, or <see langword="null"/> for shell chrome.</summary>
+    private WorkArea? AreaOf(Control control)
+    {
+        foreach (WorkArea area in WorkAreaFocus.Ring)
+        {
+            if (PaneFor(area) is { } pane && IsInside(control, pane))
+                return area;
+        }
+        return null;
+    }
+
+    /// <summary>Paints the accent pane edge on the active area and clears it everywhere else.</summary>
+    private void UpdateActiveAreaAffordance()
+    {
+        foreach (WorkArea area in WorkAreaFocus.Ring)
+        {
+            if (PaneFor(area) is not { } pane)
+                continue;
+            bool active = area == _activeArea;
+            if (active && !pane.Classes.Contains(WorkAreaFocus.ActiveAreaClass))
+                pane.Classes.Add(WorkAreaFocus.ActiveAreaClass);
+            else if (!active)
+                pane.Classes.Remove(WorkAreaFocus.ActiveAreaClass);
+        }
+    }
+
+    /// <summary>
+    /// The nearest ancestor (or <paramref name="control"/> itself) marked
+    /// <see cref="WorkAreaFocus.FieldGroupClass"/> — the form-like grouping whose fields keep local Tab
+    /// traversal. Null when the control is not in one.
+    /// </summary>
+    private static Control? NearestFieldGroup(Control control)
+    {
+        for (Visual? v = control; v is not null; v = v.GetVisualParent())
+        {
+            if (v is Control c && c.Classes.Contains(WorkAreaFocus.FieldGroupClass))
+                return c;
+        }
+        return null;
+    }
+
+    private static bool IsInside(Visual control, Visual container) =>
+        ReferenceEquals(control, container) || control.GetVisualAncestors().Contains(container);
+
+    /// <summary>
+    /// A field group's own tab stops in visual order — the list plain Tab walks before escalating to the work-area
+    /// ring. Visual order rather than <c>TabIndex</c> order because nothing in the Inspector assigns a TabIndex;
+    /// a collapsed section's content is not effectively visible, so it contributes no stops.
+    /// </summary>
+    private static List<Control> FieldGroupStops(Control group) =>
+        group.GetVisualDescendants()
+            .OfType<Control>()
+            .Where(c => c is { Focusable: true, IsTabStop: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true })
+            .ToList();
 
     /// <summary>Maps a 1–9 number-row or numpad key to a zero-based multicam angle index (PLAN.md step 24).</summary>
     private static bool TryAngleKey(Key key, out int angle)
@@ -2348,6 +2594,12 @@ public partial class MainWindow : Window
             _workspaceGrid.ColumnDefinitions[4].MinWidth = visible ? 192 : 0;
             _workspaceGrid.ColumnDefinitions[3].Width = visible ? new GridLength(6) : new GridLength(0);
         }
+
+        // Hiding the pane that owns the work-area focus ring would leave the active-area affordance stranded on
+        // an off-screen pane; hand the ring on to the next available area instead.
+        WorkArea hidden = project ? WorkArea.Project : WorkArea.Inspector;
+        if (!visible && _activeArea == hidden)
+            FocusWorkArea(WorkAreaFocus.Advance(hidden, forward: true, IsWorkAreaAvailable));
     }
 
     /// <summary>Window ▸ Reset Layout: restore the pane splitters to their default sizes and show all panes.</summary>

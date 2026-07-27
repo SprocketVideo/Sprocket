@@ -122,6 +122,13 @@
       <Setter Property="CornerRadius" Value="6" />
     </Style>
 
+    <!-- The active work area of the Tab / Shift+Tab focus ring (WorkAreaFocus, Shift+1–4 activate directly):
+         the pane that owns keyboard focus reads with an accent edge — the indigo the style guide reserves for
+         selection outlines. Declared after Border.pane so it wins the BorderBrush setter. -->
+    <Style Selector="Border.pane.activeArea">
+      <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+    </Style>
+
     <!-- Pane title strip. -->
     <Style Selector="Border.paneHeader">
       <Setter Property="Background" Value="{DynamicResource RaisedBg}" />

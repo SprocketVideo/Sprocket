@@ -2014,6 +2014,10 @@ public sealed class InspectorPanel : UserControl
         // Each section reads as a card a step darker than the panel (UI.md §3.5). The Border owns the
         // whole card look — bg / edge / radius — while App.axaml's inspectorSection styles strip the
         // Fluent Expander's own header/content fills so they don't paint over it.
+        //
+        // The card is also the Tab field group (WorkAreaFocus.FieldGroupClass): a section's parameter rows are
+        // a form, so Tab walks them locally and only steps to the next work area once it runs off the last
+        // field in the section. Purely behavioral — no style targets this class.
         return new Border
         {
             Background = Palette.SectionBgBrush,
@@ -2022,6 +2026,7 @@ public sealed class InspectorPanel : UserControl
             CornerRadius = new Avalonia.CornerRadius(6),
             ClipToBounds = true,
             Margin = new Avalonia.Thickness(8, 6, 8, 0),
+            Classes = { WorkAreaFocus.FieldGroupClass },
             Child = expander,
         };
     }

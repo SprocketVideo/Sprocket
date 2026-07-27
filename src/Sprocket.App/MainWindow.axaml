@@ -23,7 +23,10 @@
   <!-- The overlay Panel exists for the full-screen preview (View ▸ Full Screen Preview, Ctrl+F): the shared
        PreviewSurface is reparented into FullscreenPreviewHost so the picture covers the whole window while the
        window itself goes WindowState.FullScreen (single window → single compositor/GRContext lease, §10). -->
-  <Panel>
+  <!-- ShellRoot is where the work-area focus ring hooks its Tab handler (MainWindow.WireWorkAreaFocus): it is
+       nearer the focused control than the Window itself, so our handler runs *before* the TopLevel's own
+       KeyboardNavigationHandler gets to move focus. It also covers FullscreenPreviewHost, which Root does not. -->
+  <Panel x:Name="ShellRoot">
   <DockPanel x:Name="Root">
 
     <!-- ── Title bar: logo · menu · project title/save-state · window controls ─────────────────────
@@ -343,8 +346,10 @@
           <ColumnDefinition Width="300" MinWidth="192" />
         </Grid.ColumnDefinitions>
 
-        <!-- Project panel: tabbed media bin / effects / transitions / audio browser (PLAN.md step 15). -->
-        <Border x:Name="ProjectPane" Grid.Column="0" Classes="pane">
+        <!-- Project panel: tabbed media bin / effects / transitions / audio browser (PLAN.md step 15).
+             AutomationProperties.Name on each of the four pane Borders below names the work areas of the
+             Tab / Shift+Tab focus ring (WorkAreaFocus) for screen readers. -->
+        <Border x:Name="ProjectPane" Grid.Column="0" Classes="pane" AutomationProperties.Name="Project panel">
           <DockPanel>
             <Border DockPanel.Dock="Top" Classes="paneHeader">
               <Grid ColumnDefinitions="Auto,*">
@@ -362,7 +367,8 @@
                       HorizontalAlignment="Stretch" />
 
         <!-- Program monitor: the live preview + transport. -->
-        <Border Grid.Column="2" Classes="pane" ClipToBounds="True">
+        <Border x:Name="MonitorPane" Grid.Column="2" Classes="pane" ClipToBounds="True"
+                AutomationProperties.Name="Monitor">
           <DockPanel>
             <Border DockPanel.Dock="Top" Classes="paneHeader">
               <Grid ColumnDefinitions="Auto,*,Auto">
@@ -486,7 +492,7 @@
                       HorizontalAlignment="Stretch" />
 
         <!-- Inspector: type-driven, collapsible property sections for the selected clip (PLAN.md step 16). -->
-        <Border x:Name="InspectorPane" Grid.Column="4" Classes="pane">
+        <Border x:Name="InspectorPane" Grid.Column="4" Classes="pane" AutomationProperties.Name="Inspector">
           <DockPanel>
             <Border DockPanel.Dock="Top" Classes="paneHeader">
               <Grid ColumnDefinitions="*,Auto,Auto">
@@ -522,7 +528,7 @@
                     HorizontalAlignment="Stretch" VerticalAlignment="Center" />
 
       <!-- Timeline (custom-drawn control lands in step 12). -->
-      <Border Grid.Row="2" Classes="pane">
+      <Border x:Name="TimelinePane" Grid.Row="2" Classes="pane" AutomationProperties.Name="Timeline">
         <DockPanel>
           <Border DockPanel.Dock="Top" Classes="paneHeader">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
