@@ -302,7 +302,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
             VideoDecodeInfo? top = null; // bottom→top: the last match is the top-most layer the preview shows
             foreach (VideoTrack track in _project.Timeline.VideoTracks)
             {
-                if (!track.Enabled || track.ResolveActiveClip(pos) is null)
+                if (ActiveVideoClip(track, pos) is null)
                     continue;
                 if (FindPlayer(track)?.DecodeInfo is { } info)
                     top = info;
@@ -493,10 +493,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
             // (PLAN.md step 19) — the preview draws their content / applies their effects to the lower composite.
             foreach (VideoTrack track in _project.Timeline.VideoTracks)
             {
-                if (!track.Enabled)
-                    continue;
-                Clip? clip = track.ResolveActiveClip(pos);
-                if (clip is null)
+                if (ActiveVideoClip(track, pos) is not { } clip)
                     continue;
 
                 IReadOnlyList<ResolvedEffect> effects = RenderGraph.ResolveEffects(clip, pos);
@@ -554,16 +551,15 @@ public sealed class PlaybackEngine : IAsyncDisposable
             }
 
             PresentedFrame? top = null;
-            // Top-most = last enabled video track (in bottom→top order) that has a frame.
+            // Top-most = last video track (in bottom→top order) with an active clip and a frame for it.
             foreach (VideoTrack track in _project.Timeline.VideoTracks)
             {
-                if (!track.Enabled)
+                if (ActiveVideoClip(track, pos) is not { } clip)
                     continue;
                 VideoTrackPlayer? player = FindPlayer(track);
                 if (player?.Current is not { } frame)
                     continue;
-                Clip? clip = track.ResolveActiveClip(pos);
-                IReadOnlyList<ResolvedEffect> effects = clip is null ? [] : RenderGraph.ResolveEffects(clip, pos);
+                IReadOnlyList<ResolvedEffect> effects = RenderGraph.ResolveEffects(clip, pos);
                 top = new PresentedFrame(frame.Pixels, frame.RowBytes, frame.Width, frame.Height, frame.Pts, effects, frame.HasAlpha);
             }
             use(top);
@@ -728,7 +724,15 @@ public sealed class PlaybackEngine : IAsyncDisposable
         bool composite = HasComposite(pos, inCache);
         bool blanked = _hadComposite && !composite;
         _hadComposite = composite;
-        bool present = promoted || synthetic || blanked;
+
+        // That transition is edge-triggered and fires exactly once, so a lost edge would strand the stale frame
+        // for good: SuspendAsync resets _hadComposite (and Resume only re-seeks — `force` alone does not present),
+        // and an iteration that faults is swallowed by PumpError having already consumed it. Back it with a
+        // level-triggered rule: a seek/scrub that lands where nothing is active always repaints. Gated on "no clip
+        // active" rather than plain !composite so a forced present that merely beat the decoder to a frame cannot
+        // flash black over a clip that is about to promote one.
+        bool forcedBlank = force && !composite && !HasActiveVideoClip(pos);
+        bool present = promoted || synthetic || blanked || forcedBlank;
 
         // Dropped frames = timeline frames the pump failed to service on time and had to skip to keep pace with
         // the clock (ARCHITECTURE.md §8). Measured per pump tick off the playhead's timeline-frame index — a tick
@@ -867,9 +871,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
 
         foreach (VideoTrack track in _project.Timeline.VideoTracks)
         {
-            if (!track.Enabled)
-                continue;
-            if (track.ResolveActiveClip(pos) is not { } clip)
+            if (ActiveVideoClip(track, pos) is not { } clip)
                 continue;
             // Decoder-less clips contribute a layer on their own; a media clip only once its frame has decoded.
             if (clip.Kind is ClipKind.Generator or ClipKind.Adjustment or ClipKind.Sequence)
@@ -887,13 +889,37 @@ public sealed class PlaybackEngine : IAsyncDisposable
     {
         foreach (VideoTrack track in _project.Timeline.VideoTracks)
         {
-            if (!track.Enabled)
-                continue;
-            if (track.ResolveActiveClip(pos) is { Kind: ClipKind.Generator or ClipKind.Adjustment or ClipKind.Sequence })
+            if (ActiveVideoClip(track, pos) is { Kind: ClipKind.Generator or ClipKind.Adjustment or ClipKind.Sequence })
                 return true;
         }
         return false;
     }
+
+    /// <summary>Whether any enabled video track has <i>any</i> clip active at <paramref name="pos"/> — i.e. whether
+    /// there is anything for the composite to show once it has decoded. Unlike <see cref="HasComposite"/> this does
+    /// not require a frame to have arrived yet, which is what makes it safe to blank on: "no clip here" is a
+    /// property of the timeline, not of how far decode has got.</summary>
+    private bool HasActiveVideoClip(Timecode pos)
+    {
+        foreach (VideoTrack track in _project.Timeline.VideoTracks)
+        {
+            if (ActiveVideoClip(track, pos) is not null)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The clip an enabled video track shows at <paramref name="pos"/>, or <see langword="null"/>. Mirrors the
+    /// gating <see cref="RenderGraph.PlanVideoFrame(Project, Timecode)"/> applies (a disabled <i>track</i> plans no
+    /// layers; a disabled <i>clip</i> resolves to none — ARCHITECTURE.md §5), so the live preview and the export
+    /// agree on what is visible. Every preview-side resolution — <see cref="UseLayers"/>,
+    /// <see cref="UseCurrentFrame"/>, <see cref="GetActiveVideoDecodeInfo"/> and the repaint predicates — must go
+    /// through here rather than calling <see cref="Track.ResolveActiveClip"/> directly, or they drift apart and a
+    /// hidden clip's last frame is left stranded on the preview.
+    /// </summary>
+    private static Clip? ActiveVideoClip(VideoTrack track, Timecode pos) =>
+        track.Enabled && track.ResolveActiveClip(pos) is { Enabled: true } clip ? clip : null;
 
     /// <summary>Drains the pending source invalidations (from <see cref="InvalidateSource"/>) and asks any player
     /// currently decoding one of those sources to rebuild its feed on this pump. Runs on the pump thread, so the

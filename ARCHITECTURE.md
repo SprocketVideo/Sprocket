@@ -339,6 +339,15 @@ does not**, because nothing exists past the end of a source file. Out there the 
 and the preview shows black — so the pump must raise a present on the composite's non-empty→empty
 transition, or the surface would keep displaying the last frame it had.
 
+That transition is edge-triggered and fires once, which is not enough on its own: a suspend/resume resets the
+flag it is computed from, and a pump iteration that faults consumes it. So the rule is backed by a
+level-triggered one — **a forced present (any seek/scrub) that lands where no clip is active always presents**,
+whether or not the edge was seen. It is gated on *no clip active* rather than *no frame yet* so a seek that
+merely beat the decoder cannot flash black over a clip about to promote a frame. What counts as "active" must
+be the same question the render graph asks (§5) — an enabled clip on an enabled track — or preview and export
+disagree and a hidden clip's frame is stranded on screen; every preview-side resolution therefore goes through
+one `PlaybackEngine.ActiveVideoClip` helper rather than calling `Track.ResolveActiveClip` directly.
+
 ---
 
 ## 9. Effect parameters & animation

@@ -563,6 +563,21 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         (`PlaybackMath`/`PlaybackEngine`/`MediaBootstrap`/`TimelineMath`/`TimelineControl`/`Sprocket.Mcp`;
         11 new tests in `tests/Sprocket.Playback.Tests/OpenEndedTransportTests.cs`, `PlaybackMathTests`,
         `tests/Sprocket.App.Tests/TimelineMathTests.cs`.)
+      - **✅ FOLLOW-ON (2026-07-27): stale-frame hardening — the blank can no longer be missed.** User feedback
+        on an older alpha ("last frame of video should hide as soon as cursor goes past it") pointed at the bug
+        fixed above, which shipped in v0.1.73-alpha. Two gaps in that fix are now closed. (1) The blank present
+        was **edge-triggered and single-shot**, so a lost edge stranded the frame for good — `SuspendAsync`
+        resets `_hadComposite` and `Resume` only re-seeks (a forced present did not itself present), and a pump
+        iteration that faults is swallowed by `PumpError` having already consumed it. A **forced present that
+        lands where no clip is active now always presents**, gated on *no active clip* rather than *no composite*
+        so a seek that beat the decoder can't flash black over a clip about to promote a frame. (2) The preview
+        **ignored `clip.Enabled`** — `RenderGraph.ResolveClipLayer` drops a disabled clip but all five
+        preview-side resolutions checked only `track.Enabled`, so hiding a clip left its picture up and preview
+        disagreed with export. All of them (plus `VideoTrackPlayer.PumpAsync`, so the decoder stops and the frame
+        buffer is released) now go through one `PlaybackEngine.ActiveVideoClip` helper that mirrors the render
+        graph's gating. (`PlaybackEngine`/`VideoTrackPlayer`; 7 new decode-free tests in
+        `tests/Sprocket.Playback.Tests/PreviewBlankingTests.cs`, which use a generator clip so the composite can
+        be exercised without FFmpeg — 2 of them fail against the pre-change engine.)
       - **✅ FOLLOW-ON (2026-07-27): playback auto-scroll (the view follows the playhead).** The timeline used to
         sit still during playback, so the playhead simply left the viewport and you watched a frozen picture of the
         timeline. It now follows, with **Premiere's three modes and its wording and default** verbatim

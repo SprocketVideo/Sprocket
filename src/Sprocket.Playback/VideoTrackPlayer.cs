@@ -104,7 +104,9 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
     /// </summary>
     public async Task<bool> PumpAsync(Timecode pos, bool force, CancellationToken ct)
     {
-        Clip? clip = Track.Enabled ? Track.ResolveActiveClip(pos) : null;
+        // Matches PlaybackEngine.ActiveVideoClip (and so RenderGraph, §5): a disabled track or a disabled clip
+        // shows nothing, and must also stop decoding and release its frame so the preview can't hold it.
+        Clip? clip = Track.Enabled && Track.ResolveActiveClip(pos) is { Enabled: true } active ? active : null;
         if (clip is null)
         {
             ClearCurrent();
