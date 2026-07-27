@@ -1,4 +1,5 @@
 using System.Globalization;
+using Sprocket.Core.Model;
 
 namespace Sprocket.App.Inspector;
 
@@ -10,15 +11,22 @@ public static class InspectorFormat
 {
     /// <summary>
     /// Formats a parameter value for display: up to three decimals, trailing zeros trimmed, with an optional
-    /// unit suffix (degrees abut the number; other units are spaced, e.g. <c>"+1 EV"</c> style — sign is the
-    /// caller's value, we don't force a <c>+</c>).
+    /// unit suffix (degrees and percent abut the number; other units are spaced, e.g. <c>"+1 EV"</c> style —
+    /// sign is the caller's value, we don't force a <c>+</c>).
+    /// <para>
+    /// <paramref name="displayScale"/> is <see cref="EffectParameterDescriptor.DisplayScale"/>: a 0–1 ratio
+    /// shown as a percentage passes 100, so Opacity 0.5 reads <c>"50%"</c>. The scale applies to the
+    /// <em>displayed number only</em> — the slider, the clamp and every command stay in model units.
+    /// </para>
     /// </summary>
-    public static string Value(double value, string? unit = null)
+    public static string Value(double value, string? unit = null, double displayScale = 1.0)
     {
-        string number = value.ToString("0.###", CultureInfo.InvariantCulture);
+        // Scaling reintroduces binary-float noise the model value didn't have (0.07 * 100 = 7.000000000000001);
+        // "0.###" already collapses it, so no extra rounding is needed here.
+        string number = (value * displayScale).ToString("0.###", CultureInfo.InvariantCulture);
         if (string.IsNullOrEmpty(unit))
             return number;
-        return unit == "°" ? $"{number}{unit}" : $"{number} {unit}";
+        return unit is "°" or "%" ? $"{number}{unit}" : $"{number} {unit}";
     }
 
     /// <summary>
@@ -27,8 +35,12 @@ public static class InspectorFormat
     /// case). Without this, committing back a displayed value like <c>"1.5 EV"</c> or <c>"90°"</c> fails a
     /// plain <see cref="double.TryParse(string?, out double)"/> and the edit silently reverts. As a last
     /// resort the leading numeric token is parsed, so <c>"12 semitones"</c> still commits 12.
+    /// <para>
+    /// <paramref name="displayScale"/> is the inverse of <see cref="Value"/>'s: the parsed number is divided
+    /// by it, so on a percent parameter both <c>"50"</c> and <c>"50%"</c> commit the model value 0.5.
+    /// </para>
     /// </summary>
-    public static bool TryParseValue(string? text, string? unit, out double value)
+    public static bool TryParseValue(string? text, string? unit, out double value, double displayScale = 1.0)
     {
         value = 0.0;
         string trimmed = text?.Trim() ?? string.Empty;
@@ -42,7 +54,10 @@ public static class InspectorFormat
         }
 
         if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+        {
+            value /= displayScale;
             return true;
+        }
 
         // Leading numeric token ("12 semitones", "1.5EV" with an unknown suffix…).
         int end = 0;
@@ -51,7 +66,12 @@ public static class InspectorFormat
         {
             end++;
         }
-        return end > 0 &&
-               double.TryParse(trimmed[..end], NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        if (end == 0 ||
+            !double.TryParse(trimmed[..end], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+        {
+            return false;
+        }
+        value /= displayScale;
+        return true;
     }
 }

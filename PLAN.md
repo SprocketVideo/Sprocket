@@ -515,13 +515,19 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         whole drag is **one undo entry** and the model updates live. **Snapping** (to other clip edges, the
         playhead, and t=0, within 8 px) honours the action-bar toggle; the M/S/enable toggles issue
         `SetPropertyCommand<bool>`s. Selection drives a status hint (and feeds the Inspector at step 16).
-      - **Zoom + scroll:** magnifier −/+ buttons (with `Ctrl+-`/`Ctrl+=` tooltips), the **Ctrl+wheel** and
-        **Zoom-tool** click, and **`Ctrl+-`/`Ctrl+=`** keys all zoom (anchored so the tick under the
-        cursor/playhead stays put, 8–600 px/s); the wheel scrolls horizontally, clamped to content. A
-        **`TimelineControl.ZoomToFit`** (View ▸ Zoom to Fit, **`Shift+Z`** — the convention in leading editors) frames
-        the whole sequence to the viewport width and scrolls back to the start. (Menu items for plain
-        Zoom In/Out carry no `InputGesture` label because Avalonia renders `=`/`-` as their raw `OemPlus`/
-        `OemMinus` enum names; the clean shortcut text lives in the buttons' tooltips.)
+      - **Zoom + scroll:** magnifier −/+ buttons, the **Ctrl+wheel** and **Zoom-tool** click, and the
+        **bare `-`/`=`** (the Premiere / After Effects / Shotcut / Kdenlive convention; shifted `+` and the
+        numpad `±` too) and **`Ctrl+-`/`Ctrl+=`** (the FCP / Resolve one) keys all zoom (anchored so the tick
+        under the cursor/playhead stays put, 8–600 px/s); the wheel scrolls horizontally, clamped to content.
+        `TimelineMath.ZoomAnchorX` falls back to the **viewport centre when the playhead is off-screen**, so
+        repeated key presses don't lurch the visible content around an invisible anchor. The bare keys zoom the
+        timeline globally rather than the focused panel (a deliberate departure from Premiere, matching
+        `Shift+Z`/`Space`/`M` here) and sit below `OnKeyDown`'s text-field guard so `-`/`=` still type into a
+        focused field; the `Ctrl+±` pair stays above it. A **`TimelineControl.ZoomToFit`** (View ▸ Zoom to Fit,
+        **`Shift+Z`** — the convention in leading editors) frames the whole sequence to the viewport width and
+        scrolls back to the start. (Menu items for plain Zoom In/Out carry no `InputGesture` label because
+        Avalonia's `KeyGesture.ToString()` renders `=`/`-` as their raw `OemPlus`/`OemMinus` enum names even
+        without a modifier; the clean shortcut text lives in the buttons' tooltips.)
       - **New Core primitive:** `SetClipPlacementCommand` sets a clip's source in/out **and** timeline start
         atomically (the move/trim/slip primitive), coalescing per clip — joining the step-10 command set.
       - **Tested geometry:** the tick↔pixel mapping, snapping, edge hit-testing, and ruler-interval selection
@@ -750,6 +756,25 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         when a channel is animated. The wheel is an Inspector composite editor dispatched by effect id
         (promote to descriptor group metadata if plugins ever need wheels). Round-trip/axis/clamp math tests
         green.
+      - **✅ FOLLOW-ON (2026-07-27): percentage display + drag-to-scrub numeric fields.** Closes the UI.md §3.5
+        divergence (the mockup specifies `Scale 118%` / `Opacity 100%`; the build showed bare `1.18` / `1`).
+        `EffectParameterDescriptor` gained an optional **`DisplayScale`** init property — declared explicitly
+        alongside `Unit = "%"`, never inferred — and `InspectorFormat.Value`/`TryParseValue` scale the
+        *displayed number only*, so Opacity reads `50%` while the slider, the clamp, the keyframe lane and
+        every command stay in model units. Applied to **Transform Scale + Opacity**, **Fade Opacity**, and the
+        audio effects' **0–1 mix/amount params** (reverb Room Size / Damping / Mix / Diffusion / Width / …,
+        delay Feedback / Cross-Feed / tap Level, tape Saturation, Shimmer) — the Premiere / Final Cut / After
+        Effects convention. Deliberately **not** applied to Contrast/Saturation/Vibrance (Resolve keeps
+        multipliers; a genuine toss-up), Position/Anchor, generator fractions, or Pan (keeps `L50` / `C` /
+        `R25`); **audio level stays in dB** everywhere, as in every professional NLE. New
+        `Controls/DragNumber` + `DragNumberMath` make every Inspector and mixer number a **"scrubby slider"**
+        (drag to change, Shift = coarse ×5, Ctrl = fine ×0.2, Esc cancels, click to type) with the whole
+        scrub coalescing to one undo entry; sensitivity is range-relative with a step floor rather than the
+        one-step-per-pixel rule, because our steps span four orders of magnitude. MCP emits `display_scale`
+        with an explicit note that tool arguments remain model units. Not attached to the Speed row: a retime
+        rebuilds the panel and the linked companions per commit, and Premiere/Resolve both keep speed in a
+        dialog rather than a scrubby field. Tests: percent format/parse + a catalog-wide default round-trip,
+        the `DisplayScale`↔`"%"` pairing invariant, and the scrub sensitivity/modifier/clamp/snap math.
 16b. **Direct-manipulation editing & keyframe editor (follow-on to 15/16).** The conveniences that the
     bin + inspector + timeline make obvious but that steps 15/16 deferred. Lands entirely on existing
     seams + commands ([ARCHITECTURE §17](ARCHITECTURE.md)) — no model redesign:
@@ -2139,6 +2164,19 @@ Tags reference the [UI.md §4 checklist](UI.md).
         `SPROCKET_APP_SECONDS` smoke launch with the sample clip (audio wired → the mixer's meters live) starts and
         tears down cleanly (exit 0). Full suite: **744 tests green** (Core 231, Media 34, Render 50, Audio 46,
         Playback 52, Export 77, Persistence 91, App 163). **Step 30 is complete.**
+      - **✅ FOLLOW-ON (2026-07-27): the strip read-outs are editable.** The gain / pan / master-gain labels
+        were display-only `TextBlock`s, so dragging the fader was the only way to set a level — every
+        professional mixer lets you click the dB number and type an exact value. They are now compact
+        `TextBox` fields (Inspector styling: `PanelBg` fill + `InputEdge` border per STYLE_GUIDE.md) that
+        commit on Enter/blur as one discrete undo entry, revert on an unparseable entry rather than silently
+        muting a track, and carry the same drag-to-scrub gesture as the Inspector's numeric boxes
+        (`Controls/DragNumber`, one undo entry per scrub via the existing fader coalescing scope).
+        `MixerFormat` gained the parse side of its labels — `TryParseGainDb` (`-6`, `-6.0 dB`, `+3dB`, and
+        `-∞` / `-inf` / `-infinity` → the `SilenceFloorDb` fader floor, now a named constant the slider's
+        minimum also reads) and `TryParsePan` (`C`, `L50`, `R25`, or a bare −100..100, the Premiere pan-field
+        convention) — both round-trip-tested against the label formatters. **Level stays in dB**, not
+        percent: swapping it would break the `-∞` floor, the +12 dB boost range, and the LUFS/dBTP read-outs
+        beside it.
 31. **Audio effects & plugin hosting (VST3 / AU).** The deeper audio-post layer (loudness
     metering/normalization is the earlier step 30). Give audio an effect chain mirroring video's
     `IVideoEffect` stack: a new Core **`IAudioEffect`** seam and an audio effect chain on audio **clips,

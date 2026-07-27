@@ -68,7 +68,23 @@ public sealed record EffectParameterDescriptor(
     string? Unit = null,
     string? Description = null,
     ParameterKind Kind = ParameterKind.Continuous,
-    IReadOnlyList<string>? Choices = null);
+    IReadOnlyList<string>? Choices = null)
+{
+    /// <summary>
+    /// Multiplier applied to the model value for display only (1.0 = shown exactly as stored). A 0–1 ratio
+    /// presented as a percentage sets 100 alongside <c>Unit = "%"</c>, so Opacity 0.5 reads <c>"50%"</c> and
+    /// typing <c>"50"</c> commits 0.5 — matching how Premiere / Final Cut / After Effects surface opacity,
+    /// scale and audio mix amounts.
+    /// <para>
+    /// <see cref="Default"/>, <see cref="Min"/>, <see cref="Max"/> and <see cref="Step"/> stay in
+    /// <em>model</em> units: the slider, the clamp, the keyframe lane, every command and every MCP tool
+    /// argument are unscaled. Only the Inspector's numeric field converts.
+    /// </para>
+    /// Declared explicitly like <see cref="Kind"/> — never inferred from <see cref="Unit"/>, since a
+    /// parameter may legitimately store 0–100 and display <c>"%"</c> with no scaling at all.
+    /// </summary>
+    public double DisplayScale { get; init; } = 1.0;
+}
 
 /// <summary>
 /// A named factory preset for an effect (PLAN.md step 41): the parameter values that give a recognisable
@@ -140,8 +156,8 @@ public static class EffectCatalog
             EffectCategory.Video,
             "Scale, position, and rotate the layer around an anchor, with layer opacity.",
             [
-                new EffectParameterDescriptor(EffectParamNames.Scale, "Scale", 1.0, 0.0, 4.0, 0.05,
-                    Description: "Uniform size of the layer (1.0 = original size)."),
+                new EffectParameterDescriptor(EffectParamNames.Scale, "Scale", 1.0, 0.0, 4.0, 0.05, "%",
+                    "Uniform size of the layer (100% = original size).") { DisplayScale = 100 },
                 new EffectParameterDescriptor(EffectParamNames.PositionX, "Position X", 0.0, -1.0, 1.0, 0.01,
                     Description: "Horizontal offset as a fraction of frame width (0 = centered)."),
                 new EffectParameterDescriptor(EffectParamNames.PositionY, "Position Y", 0.0, -1.0, 1.0, 0.01,
@@ -152,8 +168,8 @@ public static class EffectCatalog
                     Description: "Horizontal pivot for scale and rotation (0 = left edge, 1 = right edge)."),
                 new EffectParameterDescriptor(EffectParamNames.AnchorY, "Anchor Y", 0.5, 0.0, 1.0, 0.01,
                     Description: "Vertical pivot for scale and rotation (0 = top edge, 1 = bottom edge)."),
-                new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05,
-                    Description: "Layer transparency (1.0 = fully opaque, 0 = invisible)."),
+                new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05, "%",
+                    "Layer transparency (100% = fully opaque, 0% = invisible).") { DisplayScale = 100 },
             ]) { ShortCode = "TR" },
 
         new EffectDescriptor(
@@ -336,8 +352,8 @@ public static class EffectCatalog
             EffectCategory.Video,
             "Ramps opacity — drives video alpha and audio gain together.",
             [
-                new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05,
-                    Description: "Clip opacity — also scales the clip's audio gain in step."),
+                new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05, "%",
+                    "Clip opacity — also scales the clip's audio gain in step.") { DisplayScale = 100 },
             ]) { ShortCode = "FD" },
 
         // ── Audio chain stages (PLAN.md step 31) — executed by the mixer, not the shader pipeline. ──
@@ -399,12 +415,12 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Adds room ambience (Freeverb-style) — the low-CPU editorial reverb.",
             [
-                new EffectParameterDescriptor(EffectParamNames.RoomSize, "Room Size", 0.5, 0.0, 1.0, 0.05,
-                    Description: "Apparent size of the simulated room — larger = longer tail."),
-                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.5, 0.0, 1.0, 0.05,
-                    Description: "How quickly high frequencies die away in the tail."),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
-                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
+                new EffectParameterDescriptor(EffectParamNames.RoomSize, "Room Size", 0.5, 0.0, 1.0, 0.05, "%",
+                    "Apparent size of the simulated room — larger = longer tail.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.5, 0.0, 1.0, 0.05, "%",
+                    "How quickly high frequencies die away in the tail.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 },
             ]) { ShortCode = "RV" },
 
         new EffectDescriptor(
@@ -417,24 +433,24 @@ public static class EffectCatalog
                     "Gap between the dry sound and the start of the reverb."),
                 new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 2.0, 0.1, 20.0, 0.1, "s",
                     "How long the reverb tail takes to die away."),
-                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05,
-                    Description: "Apparent size of the simulated space."),
-                new EffectParameterDescriptor(EffectParamNames.Diffusion, "Diffusion", 0.7, 0.0, 1.0, 0.05,
-                    Description: "Echo density — low = discrete repeats, high = smooth wash."),
-                new EffectParameterDescriptor(EffectParamNames.ModDepth, "Mod Depth", 0.3, 0.0, 1.0, 0.05,
-                    Description: "Amount of pitch modulation in the tail (adds chorus-like movement)."),
+                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05, "%",
+                    "Apparent size of the simulated space.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Diffusion, "Diffusion", 0.7, 0.0, 1.0, 0.05, "%",
+                    "Echo density — low = discrete repeats, high = smooth wash.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.ModDepth, "Mod Depth", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Amount of pitch modulation in the tail (adds chorus-like movement).") { DisplayScale = 100 },
                 new EffectParameterDescriptor(EffectParamNames.ModRateHz, "Mod Rate", 0.5, 0.05, 5.0, 0.05, "Hz",
                     "Speed of the tail's pitch modulation."),
-                new EffectParameterDescriptor(EffectParamNames.EarlyLate, "Early / Late", 0.7, 0.0, 1.0, 0.05,
-                    Description: "Balance of early reflections (0) versus the late tail (1)."),
-                new EffectParameterDescriptor(EffectParamNames.Width, "Width", 1.0, 0.0, 1.0, 0.05,
-                    Description: "Stereo spread of the reverb (0 = mono, 1 = full stereo)."),
-                new EffectParameterDescriptor(EffectParamNames.LowDamp, "Low Damp", 0.1, 0.0, 1.0, 0.05,
-                    Description: "How quickly low frequencies die away in the tail."),
-                new EffectParameterDescriptor(EffectParamNames.HighDamp, "High Damp", 0.4, 0.0, 1.0, 0.05,
-                    Description: "How quickly high frequencies die away in the tail."),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
-                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
+                new EffectParameterDescriptor(EffectParamNames.EarlyLate, "Early / Late", 0.7, 0.0, 1.0, 0.05, "%",
+                    "Balance of early reflections (0%) versus the late tail (100%).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Width, "Width", 1.0, 0.0, 1.0, 0.05, "%",
+                    "Stereo spread of the reverb (0% = mono, 100% = full stereo).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.LowDamp, "Low Damp", 0.1, 0.0, 1.0, 0.05, "%",
+                    "How quickly low frequencies die away in the tail.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.HighDamp, "High Damp", 0.4, 0.0, 1.0, 0.05, "%",
+                    "How quickly high frequencies die away in the tail.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 },
             ])
         {
             ShortCode = "SR",
@@ -503,12 +519,12 @@ public static class EffectCatalog
             [
                 new EffectParameterDescriptor(EffectParamNames.DelayMs, "Time", 500.0, 1.0, 2000.0, 1.0, "ms",
                     "Gap between the dry sound and each repeat."),
-                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05,
-                    Description: "How much of each repeat feeds back — higher = more repeats."),
+                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05, "%",
+                    "How much of each repeat feeds back — higher = more repeats.") { DisplayScale = 100 },
                 new EffectParameterDescriptor(EffectParamNames.HighCutHz, "High Cut", 8000.0, 200.0, 20000.0, 100.0, "Hz",
                     "Filters highs out of the repeats — lower = darker echoes."),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
-                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 },
             ]) { ShortCode = "DD" },
 
         new EffectDescriptor(
@@ -519,16 +535,16 @@ public static class EffectCatalog
             [
                 new EffectParameterDescriptor(EffectParamNames.DelayMs, "Time", 500.0, 1.0, 2000.0, 1.0, "ms",
                     "Gap between the dry sound and each repeat."),
-                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.4, 0.0, 1.0, 0.05,
-                    Description: "How much of each repeat feeds back — higher = more repeats."),
-                new EffectParameterDescriptor(EffectParamNames.WowFlutterDepth, "Wow / Flutter", 0.25, 0.0, 1.0, 0.05,
-                    Description: "Amount of tape-style pitch wobble on the repeats."),
+                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.4, 0.0, 1.0, 0.05, "%",
+                    "How much of each repeat feeds back — higher = more repeats.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.WowFlutterDepth, "Wow / Flutter", 0.25, 0.0, 1.0, 0.05, "%",
+                    "Amount of tape-style pitch wobble on the repeats.") { DisplayScale = 100 },
                 new EffectParameterDescriptor(EffectParamNames.WowFlutterRateHz, "Wow Rate", 1.0, 0.1, 10.0, 0.1, "Hz",
                     "Speed of the pitch wobble."),
-                new EffectParameterDescriptor(EffectParamNames.Drive, "Saturation", 0.3, 0.0, 1.0, 0.05,
-                    Description: "Tape drive — adds warmth and grit to the repeats."),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
-                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
+                new EffectParameterDescriptor(EffectParamNames.Drive, "Saturation", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Tape drive — adds warmth and grit to the repeats.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 },
             ]) { ShortCode = "TD" },
 
         new EffectDescriptor(
@@ -548,15 +564,15 @@ public static class EffectCatalog
                     "Delay time of the left channel's repeats."),
                 new EffectParameterDescriptor(EffectParamNames.RightTimeMs, "Right Time", 500.0, 1.0, 2000.0, 1.0, "ms",
                     "Delay time of the right channel's repeats."),
-                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05,
-                    Description: "How much of each repeat feeds back — higher = more repeats."),
+                new EffectParameterDescriptor(EffectParamNames.Feedback, "Feedback", 0.35, 0.0, 1.0, 0.05, "%",
+                    "How much of each repeat feeds back — higher = more repeats.") { DisplayScale = 100 },
                 new EffectParameterDescriptor(EffectParamNames.PingPong, "Ping Pong", 0.0, 0.0, 1.0, 1.0,
                     Description: "Bounces the repeats alternately between left and right.",
                     Kind: ParameterKind.Toggle),
-                new EffectParameterDescriptor(EffectParamNames.CrossFeed, "Cross-Feed", 1.0, 0.0, 1.0, 0.05,
-                    Description: "How much each channel's repeats bleed into the other side."),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
-                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
+                new EffectParameterDescriptor(EffectParamNames.CrossFeed, "Cross-Feed", 1.0, 0.0, 1.0, 0.05, "%",
+                    "How much each channel's repeats bleed into the other side.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 },
             ]) { ShortCode = "SD" },
 
         // ── Noise Gate (PLAN.md step 47) — the standard DAW gate/expander design. ──
@@ -612,19 +628,19 @@ public static class EffectCatalog
             EffectCategory.Audio,
             "Ethereal pitched-up reverb wash: an octave-shifted feedback path under a conventional tail.",
             [
-                new EffectParameterDescriptor(EffectParamNames.ShimmerAmount, "Shimmer", 0.5, 0.0, 1.0, 0.05,
-                    Description: "How much pitched-up signal feeds the tail — higher = more ethereal."),
+                new EffectParameterDescriptor(EffectParamNames.ShimmerAmount, "Shimmer", 0.5, 0.0, 1.0, 0.05, "%",
+                    "How much pitched-up signal feeds the tail — higher = more ethereal.") { DisplayScale = 100 },
                 new EffectParameterDescriptor(EffectParamNames.ShimmerInterval, "Interval", 12.0, 1.0, 12.0, 1.0, "st",
                     "Pitch shift of the shimmer path, in semitones (12 = one octave up).",
                     Kind: ParameterKind.Integer),
-                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05,
-                    Description: "Apparent size of the simulated space."),
+                new EffectParameterDescriptor(EffectParamNames.Size, "Size", 0.5, 0.0, 1.0, 0.05, "%",
+                    "Apparent size of the simulated space.") { DisplayScale = 100 },
                 new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 4.0, 0.1, 20.0, 0.1, "s",
                     "How long the reverb tail takes to die away."),
-                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.3, 0.0, 1.0, 0.05,
-                    Description: "How quickly high frequencies die away in the tail."),
-                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
-                    Description: "Wet/dry balance (0 = dry only, 1 = effect only)."),
+                new EffectParameterDescriptor(EffectParamNames.Damping, "Damping", 0.3, 0.0, 1.0, 0.05, "%",
+                    "How quickly high frequencies die away in the tail.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 },
             ])
         {
             ShortCode = "SH",
@@ -680,14 +696,14 @@ public static class EffectCatalog
                 EffectParamNames.TapTimeMs[i], $"Tap {tap} Time", 150.0 * tap, 1.0, 2000.0, 1.0, "ms",
                 $"Delay time of tap {tap}.");
             parameters[i * 4 + 2] = new EffectParameterDescriptor(
-                EffectParamNames.TapLevel[i], $"Tap {tap} Level", Math.Round(1.0 - i * 0.1, 2), 0.0, 1.0, 0.05,
-                Description: $"Volume of tap {tap}.");
+                EffectParamNames.TapLevel[i], $"Tap {tap} Level", Math.Round(1.0 - i * 0.1, 2), 0.0, 1.0, 0.05, "%",
+                $"Volume of tap {tap}.") { DisplayScale = 100 };
             parameters[i * 4 + 3] = new EffectParameterDescriptor(
                 EffectParamNames.TapPan[i], $"Tap {tap} Pan", 0.0, -1.0, 1.0, 0.05,
                 Description: $"Stereo position of tap {tap} (−1 = left, +1 = right).");
         }
-        parameters[^1] = new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05,
-            Description: "Wet/dry balance (0 = dry only, 1 = effect only).");
+        parameters[^1] = new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05, "%",
+            "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 };
         return parameters;
     }
 

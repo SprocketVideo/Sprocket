@@ -343,10 +343,11 @@ public sealed class TimelineControl : Control
         base.OnDetachedFromVisualTree(e);
     }
 
-    /// <summary>Zooms in (buttons / Ctrl+wheel), keeping the playhead roughly in view.</summary>
+    /// <summary>Zooms in (buttons / menu / the -,= and Ctrl+-,Ctrl+= keys), pinning the playhead when it is
+    /// on screen and the viewport centre when it is not.</summary>
     public void ZoomIn() => SetZoom(_pxPerSecond * 1.25, AnchorX());
 
-    /// <summary>Zooms out.</summary>
+    /// <summary>Zooms out, anchored the same way as <see cref="ZoomIn"/>.</summary>
     public void ZoomOut() => SetZoom(_pxPerSecond * 0.8, AnchorX());
 
     /// <summary>
@@ -368,7 +369,8 @@ public sealed class TimelineControl : Control
         InvalidateVisual();
     }
 
-    private double AnchorX() => TimelineMath.XAtTicks(_playhead.Ticks, _pxPerSecond, _scrollX, _headerWidth);
+    private double AnchorX() => TimelineMath.ZoomAnchorX(
+        _playhead.Ticks, _pxPerSecond, _scrollX, _headerWidth, Bounds.Width);
 
     private void OnHistoryChanged()
     {

@@ -9,6 +9,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Sprocket.App.Controls;
 using Sprocket.App.Inspector;
 using Sprocket.Audio.Loudness;
 using Sprocket.Core.Audio;
@@ -30,7 +31,11 @@ namespace Sprocket.App.Mixer;
 /// </summary>
 public sealed class MixerView : UserControl
 {
-    private const double GainMinDb = -60, GainMaxDb = 12;
+    // The fader's travel. The bottom is MixerFormat.SilenceFloorDb so the readout's "-∞ dB" sentinel and the
+    // slider's minimum are the same value — typing "-inf" lands exactly on the floor.
+    private const double GainMinDb = MixerFormat.SilenceFloorDb, GainMaxDb = 12;
+    private const double PanMin = -1, PanMax = 1;
+    private const double GainStepDb = 0.5, PanStep = 0.05;
 
     private Project? _project;
     private EditHistory? _history;
@@ -56,7 +61,7 @@ public sealed class MixerView : UserControl
     private readonly MeterBar _meterL = new();
     private readonly MeterBar _meterR = new();
     private Slider _masterSlider = null!;
-    private readonly TextBlock _masterGainLabel = ValueLabel();
+    private readonly TextBox _masterGainLabel = ValueField(62);
 
     private readonly StackPanel _strips = new() { Spacing = 6 };
     private readonly List<AudioTrack> _builtOrder = new();
@@ -169,6 +174,7 @@ public sealed class MixerView : UserControl
                 e.NewValue, mergeKey: "master.gain"));
             _masterGainLabel.Text = MixerFormat.GainDbLabel(e.NewValue);
         };
+        WireMasterGainField();
 
         var fader = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Bottom };
         fader.Children.Add(new TextBlock { Text = "Master", Foreground = Palette.MutedTextBrush, FontSize = 11 });
@@ -298,16 +304,17 @@ public sealed class MixerView : UserControl
         Slider pan = Balance();
         pan.Value = track.Pan;
         WirePanFader(pan, track);
-        var panLabel = ValueLabel();
+        // 44px, not the label's old 34: the field has to fit a typed "-100" plus the box's padding.
+        TextBox panLabel = ValueField(44);
         panLabel.Text = MixerFormat.PanLabel(track.Pan);
-        panLabel.Width = 34;
+        WirePanField(panLabel, pan, track);
 
         Slider gain = Fader(horizontal: true);
         gain.Value = track.GainDb;
         WireGainFader(gain, track);
-        var gainLabel = ValueLabel();
+        TextBox gainLabel = ValueField(62);
         gainLabel.Text = MixerFormat.GainDbLabel(track.GainDb);
-        gainLabel.Width = 62;
+        WireGainField(gainLabel, gain, track);
 
         var mute = ToggleBox("M", track.Muted);
         mute.Click += (_, _) =>
@@ -503,6 +510,136 @@ public sealed class MixerView : UserControl
         };
     }
 
+    /// <summary>The master fader's counterpart to <see cref="WireGainField"/>, over
+    /// <see cref="ProjectSettings.MasterGainDb"/>.</summary>
+    private void WireMasterGainField()
+    {
+        void Commit(double db)
+        {
+            if (_project is null || _history is null)
+                return;
+            db = Math.Clamp(db, GainMinDb, GainMaxDb);
+            _history.Execute(SetPropertyCommand<double>.Create(
+                "Master gain", () => _project.Settings.MasterGainDb, v => _project.Settings.MasterGainDb = v,
+                db, mergeKey: "master.gain"));
+            _suppress = true;
+            try
+            {
+                _masterSlider.Value = db;
+                _masterGainLabel.Text = MixerFormat.GainDbLabel(db);
+            }
+            finally { _suppress = false; }
+        }
+
+        void CommitText()
+        {
+            if (_suppress || _project is null)
+                return;
+            if (!MixerFormat.TryParseGainDb(_masterGainLabel.Text, out double db))
+            {
+                _masterGainLabel.Text = MixerFormat.GainDbLabel(_project.Settings.MasterGainDb);
+                return;
+            }
+            Commit(db);
+        }
+
+        _masterGainLabel.KeyDown += (_, e) => { if (e.Key == Key.Enter) { CommitText(); e.Handled = true; } };
+        _masterGainLabel.LostFocus += (_, _) => CommitText();
+        DragNumber.Attach(_masterGainLabel, new DragNumberOptions(
+            Get: () => _project?.Settings.MasterGainDb ?? 0.0, Set: (v, _) => Commit(v),
+            Min: GainMinDb, Max: GainMaxDb, Step: GainStepDb,
+            BeginDrag: BeginDrag, EndDrag: EndDrag));
+        ToolTip.SetTip(_masterGainLabel, "Drag to scrub (Shift = coarse, Ctrl = fine) · click to type a dB value");
+    }
+
+    /// <summary>
+    /// Makes a strip's gain read-out an input: type an exact dB value (Enter or blur commits) or drag over it
+    /// to scrub, the two numeric gestures every professional mixer offers on its level field. A typed value is
+    /// one discrete undo entry; a scrub coalesces to one for the whole drag, like the fader itself. An
+    /// unparseable entry reverts rather than committing, so a typo can't silently mute a track.
+    /// </summary>
+    private void WireGainField(TextBox field, Slider fader, AudioTrack track)
+    {
+        // Whether an edit collapses into the previous undo entry is decided by the open coalescing scope
+        // (BeginDrag/EndDrag) exactly as it is for the fader, so the commit itself is the same either way.
+        void Commit(double db)
+        {
+            if (_history is null)
+                return;
+            db = Math.Clamp(db, GainMinDb, GainMaxDb);
+            _history.Execute(SetPropertyCommand<double>.Create(
+                "Track gain", () => track.GainDb, v => track.GainDb = v, db, mergeKey: (track, "GainDb")));
+            _suppress = true;
+            try
+            {
+                fader.Value = db;
+                field.Text = MixerFormat.GainDbLabel(db);
+            }
+            finally { _suppress = false; }
+        }
+
+        void CommitText()
+        {
+            if (_suppress)
+                return;
+            if (!MixerFormat.TryParseGainDb(field.Text, out double db))
+            {
+                field.Text = MixerFormat.GainDbLabel(track.GainDb); // revert to the model value
+                return;
+            }
+            Commit(db);
+        }
+
+        field.KeyDown += (_, e) => { if (e.Key == Key.Enter) { CommitText(); e.Handled = true; } };
+        field.LostFocus += (_, _) => CommitText();
+        DragNumber.Attach(field, new DragNumberOptions(
+            Get: () => track.GainDb, Set: (v, _) => Commit(v),
+            Min: GainMinDb, Max: GainMaxDb, Step: GainStepDb,
+            BeginDrag: BeginDrag, EndDrag: EndDrag));
+        ToolTip.SetTip(field, "Drag to scrub (Shift = coarse, Ctrl = fine) · click to type a dB value");
+    }
+
+    /// <summary>The pan counterpart of <see cref="WireGainField"/>: accepts <c>"C"</c> / <c>"L50"</c> /
+    /// <c>"R25"</c> or a bare -100..100, and scrubs over the same [-1, 1] the balance slider spans.</summary>
+    private void WirePanField(TextBox field, Slider fader, AudioTrack track)
+    {
+        void Commit(double pan)
+        {
+            if (_history is null)
+                return;
+            pan = Math.Clamp(pan, PanMin, PanMax);
+            _history.Execute(SetPropertyCommand<double>.Create(
+                "Track pan", () => track.Pan, v => track.Pan = v, pan, mergeKey: (track, "Pan")));
+            _suppress = true;
+            try
+            {
+                fader.Value = pan;
+                field.Text = MixerFormat.PanLabel(pan);
+            }
+            finally { _suppress = false; }
+        }
+
+        void CommitText()
+        {
+            if (_suppress)
+                return;
+            if (!MixerFormat.TryParsePan(field.Text, out double pan))
+            {
+                field.Text = MixerFormat.PanLabel(track.Pan);
+                return;
+            }
+            Commit(pan);
+        }
+
+        field.KeyDown += (_, e) => { if (e.Key == Key.Enter) { CommitText(); e.Handled = true; } };
+        field.LostFocus += (_, _) => CommitText();
+        DragNumber.Attach(field, new DragNumberOptions(
+            Get: () => track.Pan, Set: (v, _) => Commit(v),
+            Min: PanMin, Max: PanMax, Step: PanStep,
+            BeginDrag: BeginDrag, EndDrag: EndDrag));
+        ToolTip.SetTip(field, "Drag to scrub · click to type C, L50, R25 or -100..100");
+    }
+
     private void RefreshValues()
     {
         _suppress = true;
@@ -592,7 +729,27 @@ public sealed class MixerView : UserControl
     };
 
     private static TextBlock Metric() => new() { Foreground = Palette.TextBrush, FontFamily = new FontFamily("Consolas, monospace") };
-    private static TextBlock ValueLabel() => new() { Foreground = Palette.MutedTextBrush, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+
+    /// <summary>
+    /// The strip's editable value read-out: a compact <see cref="TextBox"/> rather than a label, so a level or
+    /// balance can be typed exactly instead of only dragged — the click-and-type dB field every professional
+    /// mixer has. Styled like the Inspector's numeric box (STYLE_GUIDE.md: PanelBg fill, InputEdge border,
+    /// which is the pairing that stays visible on a card).
+    /// </summary>
+    private static TextBox ValueField(double width) => new()
+    {
+        Width = width,
+        Foreground = Palette.MutedTextBrush,
+        FontSize = 11,
+        // Defeat the Fluent theme's 32px MinHeight so the field matches the fader's height.
+        MinHeight = 22,
+        Height = 22,
+        Padding = new Thickness(6, 2),
+        Background = Palette.PanelBgBrush,
+        BorderBrush = Palette.InputEdgeBrush,
+        VerticalAlignment = VerticalAlignment.Center,
+        VerticalContentAlignment = VerticalAlignment.Center,
+    };
 
     private static Control Row(string label, TextBlock value)
     {
@@ -616,7 +773,7 @@ public sealed class MixerView : UserControl
         VerticalAlignment = VerticalAlignment.Center,
     };
 
-    private sealed record StripWidgets(Slider Gain, TextBlock GainLabel, Slider Pan, TextBlock PanLabel, ToggleButton Mute, ToggleButton Solo);
+    private sealed record StripWidgets(Slider Gain, TextBox GainLabel, Slider Pan, TextBox PanLabel, ToggleButton Mute, ToggleButton Solo);
 
     /// <summary>A vertical peak meter: an instantaneous fill (green→amber→red) plus a slowly-decaying peak-hold line.</summary>
     private sealed class MeterBar : Control

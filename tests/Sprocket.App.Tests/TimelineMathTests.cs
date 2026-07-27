@@ -39,6 +39,45 @@ public class TimelineMathTests
     }
 
     [Fact]
+    public void ZoomAnchorX_Pins_The_Playhead_While_It_Is_On_Screen()
+    {
+        long fiveSeconds = Timecode.FromSeconds(5).Ticks;
+        // 5 s at 80 px/s puts the playhead 400 px past the header edge — well inside a 900 px pane.
+        Assert.Equal(
+            TimelineMath.XAtTicks(fiveSeconds, 80, 0, Header),
+            TimelineMath.ZoomAnchorX(fiveSeconds, pxPerSecond: 80, scrollX: 0, headerWidth: Header, viewportRight: 900),
+            6);
+    }
+
+    [Fact]
+    public void ZoomAnchorX_Falls_Back_To_The_Viewport_Centre_When_The_Playhead_Is_Off_Screen()
+    {
+        long fiveSeconds = Timecode.FromSeconds(5).Ticks;
+        double centre = (Header + 900) / 2;
+        // Scrolled far right, so the playhead's X is left of the header column.
+        Assert.Equal(centre, TimelineMath.ZoomAnchorX(fiveSeconds, 80, scrollX: 5000, headerWidth: Header, viewportRight: 900), 6);
+        // Parked far past the right edge (300 s × 80 px/s) with no scroll.
+        long fiveMinutes = Timecode.FromSeconds(300).Ticks;
+        Assert.Equal(centre, TimelineMath.ZoomAnchorX(fiveMinutes, 80, scrollX: 0, headerWidth: Header, viewportRight: 900), 6);
+    }
+
+    [Fact]
+    public void ZoomAnchorX_Counts_The_Viewport_Edges_As_On_Screen()
+    {
+        // Tick 0 with no scroll lands exactly on the header edge; the right edge is the symmetric case.
+        Assert.Equal(Header, TimelineMath.ZoomAnchorX(0, 80, 0, Header, viewportRight: 900), 6);
+        long atRightEdge = Timecode.FromSeconds((900 - Header) / 80.0).Ticks;
+        Assert.Equal(900, TimelineMath.ZoomAnchorX(atRightEdge, 80, 0, Header, 900), 6);
+    }
+
+    [Fact]
+    public void ZoomAnchorX_Degrades_To_The_Header_Edge_Before_Layout()
+    {
+        // No track area to anchor in yet (Bounds.Width is 0 until the control is measured).
+        Assert.Equal(Header, TimelineMath.ZoomAnchorX(Timecode.FromSeconds(5).Ticks, 80, 0, Header, viewportRight: 0), 6);
+    }
+
+    [Fact]
     public void ClampNonNegative_Floors_At_Zero()
     {
         Assert.Equal(0, TimelineMath.ClampNonNegative(-500));

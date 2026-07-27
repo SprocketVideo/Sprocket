@@ -198,6 +198,11 @@ public static class StateFormatter
         };
         if (p.Unit is { } unit)
             obj["unit"] = unit;
+        // Display-only scaling (e.g. a 0–1 opacity the editor shows as 0–100%). "default"/"min"/"max"/"step"
+        // above — and every value a tool reads or writes — stay in model units, so a client must NOT apply
+        // this: it exists only so a client can render a value the way the editor does.
+        if (p.DisplayScale != 1.0)
+            obj["display_scale"] = p.DisplayScale;
         if (p.Description is { } description)
             obj["description"] = description;
         if (p.Choices is { Count: > 0 } choices)

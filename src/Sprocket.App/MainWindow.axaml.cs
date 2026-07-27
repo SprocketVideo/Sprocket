@@ -747,8 +747,8 @@ public partial class MainWindow : Window
             this.FindControl<MenuItem>("PreferencesMenuItem")!.InputGesture = KeyGesture.Parse("Cmd+,");
 
             // Tooltips that spell out Ctrl-based shortcuts get the same treatment.
-            ToolTip.SetTip(this.FindControl<Button>("ZoomOutButton")!, "Zoom Out (Cmd+-)");
-            ToolTip.SetTip(this.FindControl<Button>("ZoomInButton")!, "Zoom In (Cmd+=)");
+            ToolTip.SetTip(this.FindControl<Button>("ZoomOutButton")!, "Zoom Out (- or Cmd+-)");
+            ToolTip.SetTip(this.FindControl<Button>("ZoomInButton")!, "Zoom In (= or Cmd+=)");
             ToolTip.SetTip(this.FindControl<Button>("MarkersButton")!,
                 "Markers panel (M adds at the playhead; Shift+M / Cmd+Shift+M navigate)");
         }
@@ -853,9 +853,9 @@ public partial class MainWindow : Window
         if (!isMac && ctrl && e.Key == Key.Y) { _history.Redo(); e.Handled = true; return; }
         // Jump to the previous marker (Ctrl+Shift+M, the convention in leading editors). Add (M) / next (Shift+M) are below the text guard.
         if (primary && shift && e.Key == Key.M) { JumpToMarker(-1); e.Handled = true; return; }
-        // Timeline zoom (the convention in professional NLEs). Ctrl++/Ctrl+- are safe with a focused text field; the bare
-        // Shift+Z "zoom to fit" is gated below the text-box guard. OemPlus/OemMinus are the main-row =/- keys;
-        // Add/Subtract are the numpad equivalents.
+        // Timeline zoom, the FCP/Resolve half of the convention (the bare -/= keys used by Premiere/After Effects
+        // are below, with Shift+Z "zoom to fit"). Ctrl++/Ctrl+- are safe with a focused text field so they stay
+        // above the guard. OemPlus/OemMinus are the main-row =/- keys; Add/Subtract are the numpad equivalents.
         if (primary && (e.Key == Key.OemPlus || e.Key == Key.Add)) { _timeline?.ZoomIn(); e.Handled = true; return; }
         if (primary && (e.Key == Key.OemMinus || e.Key == Key.Subtract)) { _timeline?.ZoomOut(); e.Handled = true; return; }
 
@@ -902,6 +902,22 @@ public partial class MainWindow : Window
         else if (shift && e.Key == Key.M) { JumpToMarker(+1); e.Handled = true; }
         else if (e.Key == Key.M) { AddMarker(); e.Handled = true; }
         else if (shift && e.Key == Key.Z) { _timeline?.ZoomToFit(); e.Handled = true; }
+        // Timeline zoom on the bare -/= keys (the Premiere / After Effects / Shotcut / Kdenlive convention; the
+        // Ctrl+± aliases above the text guard are the FCP / Resolve one). Shift is tolerated so the shifted "+"
+        // glyph zooms in as well as "="; OemPlus/OemMinus are the main-row keys, Add/Subtract the numpad ones.
+        // Deliberate departure from Premiere: these zoom the timeline globally rather than the focused panel,
+        // matching how Shift+Z / Space / M / I / O already behave in this handler. They sit below the text guard
+        // so a focused search or numeric field still types "-" and "=" literally.
+        else if (!primary && !ctrl && !alt && (e.Key == Key.OemMinus || e.Key == Key.Subtract))
+        {
+            _timeline?.ZoomOut();
+            e.Handled = true;
+        }
+        else if (!primary && !ctrl && !alt && (e.Key == Key.OemPlus || e.Key == Key.Add))
+        {
+            _timeline?.ZoomIn();
+            e.Handled = true;
+        }
         // Timeline in/out marks (PLAN.md step 32): I / O set at the playhead (the leading NLEs convention), Alt+I /
         // Alt+O clear. Ctrl+I (Import) and Ctrl+O (Open) are handled above the text guard and never reach here.
         else if (alt && e.Key == Key.I) { ClearMark(inPoint: true); e.Handled = true; }

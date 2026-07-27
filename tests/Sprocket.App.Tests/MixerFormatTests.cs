@@ -31,6 +31,84 @@ public class MixerFormatTests
     public void PanLabel_names_the_side(double pan, string expected) =>
         Assert.Equal(expected, MixerFormat.PanLabel(pan));
 
+    // ── TryParseGainDb / TryParsePan: the strip read-outs are typed into, not just dragged ───────────────
+
+    [Theory]
+    [InlineData("-6", -6.0)]
+    [InlineData("-6.0 dB", -6.0)]     // exactly what GainDbLabel renders
+    [InlineData("+3dB", 3.0)]         // no space
+    [InlineData("  +3.0 DB ", 3.0)]   // any case, surrounding whitespace
+    [InlineData("0", 0.0)]
+    [InlineData("-∞", MixerFormat.SilenceFloorDb)]      // the silence sentinel commits the fader floor…
+    [InlineData("-∞ dB", MixerFormat.SilenceFloorDb)]
+    [InlineData("-inf", MixerFormat.SilenceFloorDb)]    // …in the spellings a keyboard can produce
+    [InlineData("-Infinity", MixerFormat.SilenceFloorDb)]
+    public void TryParseGainDb_accepts_typed_and_displayed_values(string text, double expected)
+    {
+        Assert.True(MixerFormat.TryParseGainDb(text, out double db));
+        Assert.Equal(expected, db, 6);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("loud")]
+    [InlineData("dB")]     // unit only, no number
+    [InlineData("∞")]      // unsigned infinity is ambiguous, not silence
+    public void TryParseGainDb_rejects_nonsense(string? text) =>
+        Assert.False(MixerFormat.TryParseGainDb(text, out _));
+
+    [Theory]
+    [InlineData("C", 0.0)]
+    [InlineData("c", 0.0)]
+    [InlineData("L50", -0.5)]      // exactly what PanLabel renders
+    [InlineData("R25", 0.25)]
+    [InlineData("l100", -1.0)]
+    [InlineData("R 25", 0.25)]
+    [InlineData("-50", -0.5)]      // bare -100..100, the Premiere pan-field convention
+    [InlineData("25", 0.25)]
+    [InlineData("0", 0.0)]
+    [InlineData("R500", 1.0)]      // out of range clamps rather than rejecting
+    public void TryParsePan_accepts_sides_and_bare_percentages(string text, double expected)
+    {
+        Assert.True(MixerFormat.TryParsePan(text, out double pan));
+        Assert.Equal(expected, pan, 6);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("X9")]
+    [InlineData("L")]        // side with no magnitude
+    [InlineData("Lleft")]
+    [InlineData("centre")]
+    public void TryParsePan_rejects_nonsense(string? text) =>
+        Assert.False(MixerFormat.TryParsePan(text, out _));
+
+    [Theory]
+    [InlineData(-6.0)]
+    [InlineData(0.0)]
+    [InlineData(3.5)]
+    [InlineData(MixerFormat.SilenceFloorDb)]
+    public void GainDbLabel_round_trips_through_TryParseGainDb(double db)
+    {
+        Assert.True(MixerFormat.TryParseGainDb(MixerFormat.GainDbLabel(db), out double back));
+        Assert.Equal(db, back, 6);
+    }
+
+    [Theory]
+    [InlineData(-1.0)]
+    [InlineData(-0.5)]
+    [InlineData(0.0)]
+    [InlineData(0.25)]
+    [InlineData(1.0)]
+    public void PanLabel_round_trips_through_TryParsePan(double pan)
+    {
+        Assert.True(MixerFormat.TryParsePan(MixerFormat.PanLabel(pan), out double back));
+        Assert.Equal(pan, back, 6);
+    }
+
     [Theory]
     [InlineData(-14.2, "-14.2 LUFS")]
     [InlineData(double.NegativeInfinity, "-∞ LUFS")]

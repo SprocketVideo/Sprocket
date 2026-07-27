@@ -124,6 +124,36 @@ public class EffectCatalogTests
     }
 
     [Fact]
+    public void DisplayScale_And_A_Percent_Unit_Are_Declared_Together()
+    {
+        // The two halves are what make a percent parameter work: the unit renders the "%", DisplayScale does
+        // the ×100. Declaring one without the other silently shows a 0–1 ratio labelled "%", or a 0–100
+        // number with no sign of what it means.
+        foreach (EffectDescriptor d in EffectCatalog.BuiltIns)
+            foreach (EffectParameterDescriptor p in d.Parameters)
+            {
+                if (p.Unit == "%")
+                    Assert.True(p.DisplayScale == 100, $"{d.Id}.{p.Name} is a percent but does not scale by 100");
+                else
+                    Assert.True(p.DisplayScale == 1.0, $"{d.Id}.{p.Name} scales its display but has no unit");
+            }
+    }
+
+    [Fact]
+    public void Percent_Parameters_Are_Normalized_Ratios()
+    {
+        // A percent parameter's model value is the 0–1 (or 0–N) ratio, never an already-scaled 0–100 — the
+        // slider, the clamp and every command work in model units.
+        foreach (EffectDescriptor d in EffectCatalog.BuiltIns)
+            foreach (EffectParameterDescriptor p in d.Parameters.Where(p => p.Unit == "%"))
+            {
+                Assert.InRange(p.Min, -1.0, 1.0);
+                Assert.InRange(p.Max, 0.0, 4.0);
+                Assert.InRange(p.Default * p.DisplayScale, -100.0, 400.0);
+            }
+    }
+
+    [Fact]
     public void Every_BuiltIn_Parameter_Has_A_Tooltip_Description()
     {
         // The Inspector shows Description as the parameter label's tooltip; every built-in must carry one.

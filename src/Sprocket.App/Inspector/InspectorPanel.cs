@@ -9,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Sprocket.App.Controls;
 using Sprocket.App.Mixer;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
@@ -1395,6 +1396,7 @@ public sealed class InspectorPanel : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
         };
+        ToolTip.SetTip(box, "Drag to scrub (Shift = coarse, Ctrl = fine) · click to type");
         var keyButton = new Button
         {
             Content = keyGlyph,
@@ -1441,9 +1443,11 @@ public sealed class InspectorPanel : UserControl
         {
             if (_suppress)
                 return;
-            // Unit-aware parse: the box displays "1.5 EV" / "90°" (InspectorFormat.Value), which a plain
-            // double.TryParse rejects — committing back a displayed value must not silently revert.
-            if (!InspectorFormat.TryParseValue(box.Text, p.Unit, out double v))
+            // Unit-aware parse: the box displays "1.5 EV" / "90°" / "50%" (InspectorFormat.Value), which a
+            // plain double.TryParse rejects — committing back a displayed value must not silently revert.
+            // DisplayScale converts the typed number back to model units (percent box "50" → 0.5), so the
+            // clamp below and every command downstream stay unscaled.
+            if (!InspectorFormat.TryParseValue(box.Text, p.Unit, out double v, p.DisplayScale))
             {
                 RefreshValues(); // revert the text to the model value
                 return;
@@ -1470,6 +1474,18 @@ public sealed class InspectorPanel : UserControl
             }
         };
         box.LostFocus += (_, _) => CommitBox();
+
+        // Drag-to-scrub (the Premiere / After Effects numeric-field gesture): drag over the number to change
+        // it, click to type. Values here are model units — DragNumber never sees DisplayScale.
+        DragNumber.Attach(box, new DragNumberOptions(
+            Get: () => get().Evaluate(_playhead()),
+            Set: Commit,
+            Min: p.Min,
+            Max: p.Max,
+            Step: p.Step,
+            BeginDrag: BeginDrag,
+            EndDrag: EndDrag,
+            Integer: integer));
 
         keyButton.Click += (_, _) =>
         {
@@ -1537,7 +1553,7 @@ public sealed class InspectorPanel : UserControl
             double v = value.Evaluate(_playhead());
             _suppress = true;
             slider.Value = Math.Clamp(v, p.Min, p.Max);
-            box.Text = InspectorFormat.Value(v, p.Unit);
+            box.Text = InspectorFormat.Value(v, p.Unit, p.DisplayScale);
             _suppress = false;
             keyGlyph.Fill = value.IsAnimated ? Accent : Brushes.Transparent;
             keyGlyph.Stroke = value.IsAnimated ? Accent : FaintText;

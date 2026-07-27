@@ -27,7 +27,70 @@ public class InspectorTests
     public void Format_Appends_Units()
     {
         Assert.Equal("45°", InspectorFormat.Value(45, "°"));   // degrees abut the number
+        Assert.Equal("100%", InspectorFormat.Value(1.0, "%", 100)); // so does percent
         Assert.Equal("1.5 EV", InspectorFormat.Value(1.5, "EV")); // other units are spaced
+    }
+
+    // ── DisplayScale: 0–1 ratios shown as percentages (Opacity, Scale, audio mix amounts) ────────────────
+
+    [Theory]
+    [InlineData(1.0, "100%")]
+    [InlineData(0.5, "50%")]
+    [InlineData(0.0, "0%")]
+    [InlineData(0.3333, "33.33%")]   // scaling shifts what the three-decimal trim keeps
+    [InlineData(4.0, "400%")]        // Scale's top of range
+    public void Format_Scales_Percent_Parameters(double value, string expected) =>
+        Assert.Equal(expected, InspectorFormat.Value(value, "%", 100));
+
+    [Theory]
+    [InlineData(0.07)]   // 0.07 * 100 = 7.000000000000001 in binary floating point
+    [InlineData(0.29)]
+    [InlineData(0.58)]
+    public void Format_Does_Not_Leak_Float_Noise_From_Scaling(double value)
+    {
+        // The "0.###" trim has to absorb the error scaling introduces, or a 7% field reads "7.000000000000001%".
+        string text = InspectorFormat.Value(value, "%", 100);
+        Assert.Equal($"{(int)System.Math.Round(value * 100)}%", text);
+    }
+
+    [Theory]
+    [InlineData("50%", 0.5)]   // exactly what the box displays
+    [InlineData("50", 0.5)]    // the bare number a user is likelier to type
+    [InlineData("0", 0.0)]
+    [InlineData("100", 1.0)]
+    [InlineData("33.3 %", 0.333)]
+    [InlineData("-25%", -0.25)]
+    public void TryParseValue_Converts_Percent_Back_To_Model_Units(string text, double expected)
+    {
+        Assert.True(InspectorFormat.TryParseValue(text, "%", out double v, 100));
+        Assert.Equal(expected, v, 5);
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(0.5)]
+    [InlineData(0.05)]
+    [InlineData(0.335)]
+    public void Percent_Display_Round_Trips_Through_Parse(double model)
+    {
+        Assert.True(InspectorFormat.TryParseValue(InspectorFormat.Value(model, "%", 100), "%", out double back, 100));
+        Assert.Equal(model, back, 5);
+    }
+
+    [Fact]
+    public void Every_Percent_Descriptor_Round_Trips_Its_Default()
+    {
+        // Guards the catalog wiring end to end: display the default the way the Inspector does, parse it back
+        // the way a commit does, and land on the model value again.
+        foreach (EffectParameterDescriptor p in EffectCatalog.BuiltIns
+                     .SelectMany(d => d.Parameters)
+                     .Where(p => p.Unit == "%"))
+        {
+            string shown = InspectorFormat.Value(p.Default, p.Unit, p.DisplayScale);
+            Assert.True(InspectorFormat.TryParseValue(shown, p.Unit, out double back, p.DisplayScale),
+                $"{p.Name} displayed as '{shown}' but did not parse back");
+            Assert.Equal(p.Default, back, 5);
+        }
     }
 
     // ── InspectorFormat.TryParseValue: the numeric box's unit-aware commit parse ─────────────────────────

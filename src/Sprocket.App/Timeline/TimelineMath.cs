@@ -132,6 +132,21 @@ public static class TimelineMath
         => (double)ticks * pxPerSecond / Timecode.TicksPerSecond;
 
     /// <summary>
+    /// The screen X (px) a zoom step should hold fixed: the playhead while it is visible in the track area
+    /// (between the header column and <paramref name="viewportRight"/>), otherwise the centre of the visible
+    /// track area. Zooming around an off-screen playhead pins a tick nobody can see and makes the visible
+    /// content lurch sideways, so falling back to the centre keeps the view stable — as in Premiere/Resolve.
+    /// </summary>
+    public static double ZoomAnchorX(long playheadTicks, double pxPerSecond, double scrollX,
+                                     double headerWidth, double viewportRight)
+    {
+        if (viewportRight <= headerWidth)
+            return headerWidth; // no track area yet (pre-layout, or the header fills the pane)
+        double x = XAtTicks(playheadTicks, pxPerSecond, scrollX, headerWidth);
+        return x >= headerWidth && x <= viewportRight ? x : (headerWidth + viewportRight) / 2;
+    }
+
+    /// <summary>
     /// The scrollable width (px) of the timeline (PLAN.md step 12): the furthest of the content end and the
     /// playhead, plus a viewport's worth of empty runway. The runway is what keeps the timeline open-ended —
     /// there is always somewhere further out to scroll to and drop the playhead, as in Premiere/Resolve — and it
