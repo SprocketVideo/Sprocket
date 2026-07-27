@@ -29,6 +29,17 @@ public static partial class FFmpegLoader
     private static readonly object Gate = new();
     private static readonly string[] OrderedStems =
         ["avutil", "swresample", "swscale", "postproc", "avcodec", "avformat", "avfilter", "avdevice"];
+    private static readonly Dictionary<string, string> RequiredMajorByStem = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["avutil"] = "60",
+        ["swresample"] = "6",
+        ["swscale"] = "9",
+        ["postproc"] = "59",
+        ["avcodec"] = "62",
+        ["avformat"] = "62",
+        ["avfilter"] = "11",
+        ["avdevice"] = "62",
+    };
     private static readonly Dictionary<string, string> StemToPath = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, IntPtr> Loaded = new(StringComparer.OrdinalIgnoreCase);
 
@@ -142,13 +153,25 @@ public static partial class FFmpegLoader
     // whole load fails). A shipped build bundles only one OS's libs, so this is also correct there.
     private static string? FindBundledLib(string dir, string stem)
     {
+        string? requiredMajor = RequiredMajorByStem.GetValueOrDefault(stem);
         string[] patterns;
         if (OperatingSystem.IsWindows())
+        {
+            string? required = requiredMajor is null ? null : Path.Combine(dir, $"{stem}-{requiredMajor}.dll");
+            if (required is not null && File.Exists(required)) return required;
             patterns = [$"{stem}-*.dll", $"{stem}.dll"];
+        }
         else if (OperatingSystem.IsMacOS())
+        {
+            string? required = requiredMajor is null ? null : Path.Combine(dir, $"lib{stem}.{requiredMajor}.dylib");
+            if (required is not null && File.Exists(required)) return required;
             patterns = [$"lib{stem}.*.dylib", $"lib{stem}.dylib"];
+        }
         else
         {
+            string? required = requiredMajor is null ? null : Path.Combine(dir, $"lib{stem}.so.{requiredMajor}");
+            if (required is not null && File.Exists(required)) return required;
+
             // Linux: prefer the versioned soname the loader binds against (libavcodec.so.62) over a bare .so.
             string? soname = Directory.GetFiles(dir, $"lib{stem}.so.*").FirstOrDefault(f => LinuxSoname().IsMatch(f));
             if (soname is not null) return soname;

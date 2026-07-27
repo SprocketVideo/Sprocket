@@ -72,7 +72,7 @@ public sealed class ParameterKindTests
     public void ShimmerInterval_Is_The_Only_Integer()
     {
         (EffectDescriptor effect, EffectParameterDescriptor p) = Assert.Single(
-            AllBuiltInParams().Where(x => x.Param.Kind == ParameterKind.Integer));
+            AllBuiltInParams(), x => x.Param.Kind == ParameterKind.Integer);
         Assert.Equal(EffectTypeIds.AudioShimmerReverb, effect.Id);
         Assert.Equal(EffectParamNames.ShimmerInterval, p.Name);
     }
