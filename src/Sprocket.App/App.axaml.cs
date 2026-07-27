@@ -15,6 +15,7 @@ public partial class App : Application
     private ProxyService? _proxy;    // the live session's proxy service (PLAN.md step 18); swapped alongside the engine
     private McpServerService? _mcp;  // app-scoped MCP server controller (PLAN.md step 38); survives session swaps
     private UpdateService? _updates;  // app-scoped Velopack updater (PLAN.md steps 36 + 45); survives session swaps
+    private bool _tornDown;          // the session teardown has run; it must not run twice
 
     /// <summary>The MCP server controller, for the shell's status-bar indicator.</summary>
     internal McpServerService? McpService => _mcp;
@@ -93,6 +94,10 @@ public partial class App : Application
             _desktop.MainWindow = window;
             window.Show();
 
+            // The outgoing window still holds the document the user just chose to leave behind — they answered
+            // the unsaved-changes prompt in File ▸ New / Open already, so its Closing gate must not re-ask.
+            if (oldWindow is MainWindow replaced)
+                replaced.ApproveClose();
             oldWindow?.Close();
             oldProxy?.Dispose(); // stop the previous session's proxy worker before its engine tears down
             if (oldEngine is not null)
@@ -127,10 +132,69 @@ public partial class App : Application
             Console.Error.WriteLine($"mcp: failed to start on port {mcp.Port}: {mcp.LastError}");
     }
 
+    /// <summary>
+    /// The application-level quit gate, and the session teardown that follows it.
+    ///
+    /// <para>Quit is guarded <i>here</i> rather than in the shell window's <c>Closing</c> handler because macOS
+    /// does not route an app-level Quit (⌘Q, the Dock menu, log-out) through <c>windowShouldClose</c> —
+    /// cancelling a window close there does not abort the quit (Avalonia #6149). <c>applicationShouldTerminate</c>,
+    /// which Avalonia surfaces as this event, is the one hook all three platforms honour; on Windows / Linux it
+    /// covers the quit that follows the last window closing, where <see cref="MainWindow.ApproveClose"/> has
+    /// already recorded the user's answer.</para>
+    /// </summary>
     private async void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
+        // No dialog can be awaited from here, so cancel this quit, ask, and re-issue it if the user agrees.
+        // Cancel has to be set before the first await, or the shutdown runs on while the prompt is still up.
+        if (_desktop?.MainWindow is MainWindow { NeedsClosePrompt: true } window)
+        {
+            e.Cancel = true;
+            _ = ConfirmThenQuitAsync(window);
+            return;
+        }
+
+        await TeardownAsync();
+    }
+
+    /// <summary>Runs the shell's close gate, then re-issues the quit the gate above cancelled. Backing out of
+    /// either question simply leaves the editor running with the session untouched.</summary>
+    private async Task ConfirmThenQuitAsync(MainWindow window)
+    {
+        try
+        {
+            if (!await window.ConfirmCloseAsync())
+                return;
+
+            window.ApproveClose(); // also clears NeedsClosePrompt, so neither gate asks again on the way out
+
+            // Close the shell first, so its own teardown (timers, autosave, monitors — MainWindow.OnClosed)
+            // runs before the engine underneath it goes away, exactly as it does when the user closes the
+            // window directly. Under the default ShutdownMode.OnLastWindowClose that alone completes the quit
+            // (re-entering this handler, which now sails past the gate); Shutdown() is the backstop, and is
+            // needed on its own terms because it bypasses this event rather than raising it again.
+            window.Close();
+            await TeardownAsync();
+            _desktop!.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            // Nothing awaits this task. Log rather than let the failure vanish and strand the user in an
+            // editor that silently refuses to quit.
+            CrashLog.Write("Failed to quit", ex);
+        }
+    }
+
+    /// <summary>Tears the live session down: the MCP server first (stop accepting AI edits before the model it
+    /// edits goes away), then the proxy worker and the playback engine. Idempotent — the quit path runs it
+    /// explicitly, because the programmatic <c>Shutdown()</c> it then calls bypasses this event.</summary>
+    private async Task TeardownAsync()
+    {
+        if (_tornDown)
+            return;
+        _tornDown = true;
+
         if (_mcp is { } mcp)
-            await mcp.DisposeAsync(); // stop accepting AI edits before the session tears down
+            await mcp.DisposeAsync();
         _proxy?.Dispose();
         if (_engine is { } engine)
             await engine.DisposeAsync();

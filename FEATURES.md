@@ -71,7 +71,7 @@ in terms an app-side committer can check against their diff.
 | get-started/getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 972911b | ✅ current (Program-monitor bullet now links out to the new preview-and-monitors guide) |
 | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 487ace6 | ✅ current (macOS ⌘ note added, links to the full reference) |
 | get-started/keyboard-shortcuts.md (full page) | §9; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | 487ace6 | ✅ current |
-| get-started/projects-and-saving.md | §1 (Projects & saving); §9 (Autosave interval) | New/Open/Save/Save As, the discard-changes prompt, autosave + crash recovery, the autosave interval preference, or Relink Media change | 777f288 | ✅ current |
+| get-started/projects-and-saving.md | §1 (Projects & saving); §9 (Autosave interval) | New/Open/Save/Save As, the unsaved-changes prompt, autosave + crash recovery, the autosave interval preference, or Relink Media change | 777f288 | ⚠️ stale — the unsaved-changes section still describes the old two-button Discard/Cancel prompt and does not cover closing / quitting |
 | index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 972911b | ✅ current (added the Preview and monitors guide under Playback & performance) |
 | edit/editing-on-the-timeline.md | §3 (Timeline editing; Clips: speed / frame hold / frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 487ace6 | ✅ current (expanded: multi-select, cut/copy/paste, split/duplicate/enable, right-click menu, track rename/resize, on-clip fade handles, per-tool cursors) |
 | edit/marks-and-markers.md | §3 (Markers; In/Out marks; Play In to Out) | the Markers panel, in/out mark keys/overlay, or Play In to Out change | 487ace6 | ✅ current |
@@ -122,7 +122,7 @@ in terms an app-side committer can check against their diff.
 | Open Project (`Ctrl+O`) | MainWindow.axaml.cs `OpenProjectAsync` | get-started/getting-started.md#open-something-to-work-with | ✅ |
 | Open Sample Project | MainWindow.axaml.cs `OpenSampleProject` | get-started/getting-started.md#open-something-to-work-with | ✅ |
 | Save / Save As (`Ctrl+S` / `Ctrl+Shift+S`) | MainWindow.axaml.cs `Save`/`SaveAsAsync` | get-started/getting-started.md#11-save-your-project | ✅ |
-| Discard-changes confirmation when dirty | MainWindow.axaml.cs `ConfirmDiscardIfDirty` | get-started/projects-and-saving.md#the-unsaved-changes-safety-check | ✅ |
+| Unsaved-changes prompt when dirty (Save · Don't Save · Cancel) — guards New / Open / Open Sample **and** closing the window / Exit / Quit; Save that fails or is cancelled aborts the action | MainWindow.axaml.cs `ConfirmSaveIfDirtyAsync`, `ConfirmCloseAsync`, `OnClosing`; App.axaml.cs `OnShutdownRequested` | get-started/projects-and-saving.md#the-unsaved-changes-safety-check | ❌ (page documents the old two-button discard prompt, and predates the close/quit guard) |
 | Autosave + crash recovery (recover-newer-autosave prompt) | Sprocket.App/AutosaveService.cs; `ShouldRecoverAsync` | get-started/projects-and-saving.md#autosave-and-crash-recovery | ✅ |
 | Relink Media (folder pick, match preview) | MainWindow.axaml.cs `RelinkMediaAsync` | get-started/projects-and-saving.md#relink-moved-or-missing-media | ✅ |
 | Undo / Redo with named steps (`Ctrl+Z` / `Ctrl+Shift+Z`, `⌘Z` / `⌘⇧Z` on macOS; `Ctrl+Y` alias on Windows/Linux only) | UI.md; MainWindow.axaml.cs:322 | get-started/getting-started.md#10-undo-and-redo | ✅ (`Ctrl+Y` alias in the shortcut reference) |
@@ -285,6 +285,7 @@ in terms an app-side committer can check against their diff.
 | Export color handling (bake log transform vs pass-through) | Dialogs.cs:618 | export/exporting.md#choose-how-color-is-handled | ✅ |
 | Export metadata tags (title/author/copyright/comment) | Dialogs.cs:622 | export/exporting.md#add-file-details-metadata | ✅ |
 | Export progress, cancel, reveal in folder | Dialogs.cs `ExportProgressDialog` | export/exporting.md#while-it-exports | ✅ |
+| Closing / quitting mid-export prompts first (Cancel Export and Close · Keep Exporting); confirming cancels the export — single, MCP, or queue — and waits for it to unwind so the partly-written file is deleted | MainWindow.axaml.cs `ConfirmAbortExportAsync`, `BeginExport`/`EndExport` | export/exporting.md#while-it-exports | ❌ |
 | Export Queue (`Ctrl+Shift+E`): batch jobs, per-job progress | Sprocket.App/ExportQueueWindow.cs | export/export-queue-and-interchange.md#export-several-files-at-once | ✅ |
 | Interchange export: EDL (CMX3600), Final Cut XML (+ warnings) | MainWindow.axaml.cs `ExportInterchangeAsync` | export/export-queue-and-interchange.md#hand-your-edit-to-another-editor | ✅ |
 | Export in-to-out range only (Range selector in the Export Settings dialog: Entire sequence / In/Out range, defaulting to the marked range when marks are set; applies to single export and queued jobs) | Dialogs.cs `ExportSettingsDialog` Range picker; MainWindow.axaml.cs `MarkedExportRange` | export/exporting.md#export-just-part-of-the-timeline | ✅ |
@@ -338,7 +339,7 @@ Preferences or an "advanced" page.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Complete shortcut reference (on macOS the primary modifier is `⌘` wherever Windows/Linux use `Ctrl`; Ctrl does not alias it there; `Ctrl+Y` redo is Windows/Linux-only) | MainWindow.axaml.cs `OnKeyDown` key handlers; menu InputGestures (macOS gestures swapped in `WireCommandMenus`) | get-started/keyboard-shortcuts.md | ✅ (full reference page grouped by task, with macOS differences; getting-started keeps the curated teaser) |
-| Quit, per-OS native (Windows File ▸ Exit / `Alt+F4`; Linux File ▸ **Quit** / `Ctrl+Q`, the GNOME convention; macOS has no File item — AppKit's Sprocket ▸ **Quit Sprocket** `⌘Q` is the only route) | MainWindow.axaml.cs `WireMenu` quit block + `OnKeyDown`; hidden on macOS in `WireCommandMenus` | get-started/keyboard-shortcuts.md | ❌ (page predates the Linux `Ctrl+Q` / macOS-app-menu split) |
+| Quit, per-OS native (Windows File ▸ Exit / `Alt+F4`; Linux File ▸ **Quit** / `Ctrl+Q`, the GNOME convention; macOS has no File item — AppKit's Sprocket ▸ **Quit Sprocket** `⌘Q` is the only route). Quitting or closing with unsaved changes prompts first — gated at the application level so it holds on macOS, where a Quit never reaches the window's close handler | MainWindow.axaml.cs `WireMenu` quit block + `OnKeyDown` + `OnClosing`; hidden on macOS in `WireCommandMenus`; App.axaml.cs `OnShutdownRequested` | get-started/keyboard-shortcuts.md | ❌ (page predates the Linux `Ctrl+Q` / macOS-app-menu split and the save-on-quit prompt) |
 
 ### Preferences
 

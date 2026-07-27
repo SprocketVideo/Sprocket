@@ -93,6 +93,11 @@ public partial class MainWindow : Window
     private int _savedUndoCount;       // history depth at the last save; document is clean while it matches
     private string _projectName = "Untitled";
     private string? _currentProjectPath; // the file this project was loaded from / last saved to (null = untitled)
+    private bool _closeApproved;       // the close/quit gate has already been answered for this window's close
+    private bool _closePromptOpen;     // the close/quit gate is on screen — never stack a second one
+    private bool _unsavedPromptOpen;   // an unsaved-changes prompt is on screen — never stack a second one
+    private CancellationTokenSource? _exportCts;   // File ▸ Export's token, so the close/quit gate can stop it
+    private TaskCompletionSource? _exportFinished; // completes once the live export has unwound and cleaned up
 
     // Controls captured for later updates.
     private TextBlock? _statusText, _telemetryText, _engineStateText, _saveStateText, _timelineHeader;
@@ -437,6 +442,57 @@ public partial class MainWindow : Window
                 _fullScreenMenuItem.IsChecked = WindowState == WindowState.FullScreen;
         }
     }
+
+    /// <summary>Whether closing this window has to stop and ask first — a running export to abandon, or
+    /// unsaved edits to lose. False once <see cref="ApproveClose"/> has recorded the user's answer.</summary>
+    internal bool NeedsClosePrompt => DiscardGuard.NeedsPrompt(_exporting, IsDirty, _closeApproved);
+
+    /// <summary>
+    /// The close gate for this window (the title-bar close button, <c>Alt+F4</c>, File ▸ Exit / Quit).
+    /// Avalonia gives no way to await a dialog from here, so the first attempt is cancelled, the user is
+    /// asked, and the close is re-issued once they answer.
+    ///
+    /// <para>An application-level Quit is <i>not</i> gated here — <see cref="App.OnShutdownRequested"/> owns
+    /// that. macOS does not route a Quit (⌘Q, the Dock menu, log-out) through <c>windowShouldClose</c>, so
+    /// cancelling a window close there does not abort the quit (Avalonia #6149); <c>applicationShouldTerminate</c>,
+    /// which Avalonia surfaces as <c>ShutdownRequested</c>, is the hook all three platforms honour. That path
+    /// calls <see cref="ApproveClose"/> before closing us, so the two gates never both fire.</para>
+    /// </summary>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (NeedsClosePrompt)
+        {
+            e.Cancel = true;
+            _ = ConfirmThenCloseAsync();
+            return;
+        }
+        base.OnClosing(e);
+    }
+
+    /// <summary>Runs the close gate, then re-issues the close <see cref="OnClosing"/> cancelled. Backing out
+    /// of either question simply leaves the window open with the session untouched.</summary>
+    private async Task ConfirmThenCloseAsync()
+    {
+        try
+        {
+            if (!await ConfirmCloseAsync())
+                return;
+            _closeApproved = true;
+            Close();
+        }
+        catch (Exception ex)
+        {
+            // Nothing awaits this task, so an escaped exception would vanish and leave the window stuck open
+            // with no explanation. Log it and leave the session as it was — the user can retry the close.
+            CrashLog.Write("Failed to confirm closing", ex);
+        }
+    }
+
+    /// <summary>Marks this window's close as already answered, so <see cref="OnClosing"/> lets the next
+    /// <see cref="Window.Close()"/> through without prompting. Used by the two paths that ask on the window's
+    /// behalf: the app-level quit gate, and the File ▸ New / Open session swap (which closes the outgoing
+    /// window over a document the user has already answered for).</summary>
+    internal void ApproveClose() => _closeApproved = true;
 
     protected override void OnClosed(EventArgs e)
     {
@@ -2319,7 +2375,7 @@ public partial class MainWindow : Window
         _undoMenuItem.Header = _history.CanUndo ? $"_Undo {_history.UndoLabel}" : "_Undo";
         _redoMenuItem.Header = _history.CanRedo ? $"_Redo {_history.RedoLabel}" : "_Redo";
 
-        bool dirty = _history.UndoCount != _savedUndoCount;
+        bool dirty = IsDirty;
         _saveStateText!.Text = dirty ? "• unsaved changes" : "• all changes saved";
         UpdateTimelineHeader();
         RefreshKeyframeNav(); // a keyframe just added/removed on the selection toggles the jump buttons
@@ -2910,7 +2966,7 @@ public partial class MainWindow : Window
     {
         if (BlockedByExport())
             return;
-        if (!await ConfirmDiscardIfDirty())
+        if (!await ConfirmSaveIfDirtyAsync())
             return;
 
         var project = new Project();
@@ -2929,7 +2985,7 @@ public partial class MainWindow : Window
     {
         if (BlockedByExport())
             return;
-        if (!await ConfirmDiscardIfDirty())
+        if (!await ConfirmSaveIfDirtyAsync())
             return;
 
         try
@@ -2976,7 +3032,7 @@ public partial class MainWindow : Window
     {
         if (BlockedByExport())
             return;
-        if (!await ConfirmDiscardIfDirty())
+        if (!await ConfirmSaveIfDirtyAsync())
             return;
 
         IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -3056,28 +3112,29 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// File ▸ Save As: writes the current project to a newly chosen file as an independent copy — the original
-    /// file (if any) is left untouched — and re-points the document at the new file.
+    /// file (if any) is left untouched — and re-points the document at the new file. Returns whether the
+    /// project reached disk (<c>false</c> on a cancelled picker or a failed write), which is what lets the
+    /// unsaved-changes gate treat "Save, then close" as an all-or-nothing step.
     /// </summary>
-    private async Task SaveAsAsync()
+    private async Task<bool> SaveAsAsync()
     {
         if (_project is null)
-            return;
+            return false;
 
-        string suggested = (_currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath)) + ".sprocket.json";
         IStorageFile? file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Save Project As",
-            SuggestedFileName = suggested,
+            SuggestedFileName = DocumentName + ".sprocket.json",
             DefaultExtension = "json",
             FileTypeChoices = [SprocketProjectFileType],
         });
         if (file?.TryGetLocalPath() is not { } path)
-            return;
+            return false;
 
         _currentProjectPath = path;
         _projectName = ProjectDisplayName(path);
         UpdateProjectTitle();
-        SaveTo(path);
+        return SaveTo(path);
     }
 
     private bool SaveTo(string path)
@@ -3123,7 +3180,7 @@ public partial class MainWindow : Window
     internal IMonitor? McpProgramMonitor => _program;
 
     /// <summary>Whether the document has unsaved edits (the title-bar dirty indicator's condition).</summary>
-    internal bool McpIsDirty => _history.UndoCount != _savedUndoCount;
+    internal bool McpIsDirty => IsDirty;
 
     /// <summary>Saves to the current path — the MCP <c>save_project</c>. False while untitled.</summary>
     internal bool McpSave() => _currentProjectPath is { } path && SaveTo(path);
@@ -3287,7 +3344,8 @@ public partial class MainWindow : Window
 
     private async Task RunMcpExportAsync(string outputPath, ExportOptions options, ExportRange? range, CancellationTokenSource cts)
     {
-        _exporting = true;
+        BeginExport();
+        _exportCts = cts; // an MCP export has no dialog to cancel from, so the close/quit gate is its only stop
         SetEnabled(false);
         bool sourceWasActive = ReferenceEquals(_active, _source);
         _source?.Deactivate();
@@ -3317,26 +3375,112 @@ public partial class MainWindow : Window
         finally
         {
             _mcpExportCts = null;
+            EndExport(); // clears _exportCts before the dispose below, so the gate never cancels a dead source
             cts.Dispose();
             _engine?.Resume();
             if (sourceWasActive)
                 _source?.Activate();
-            _exporting = false;
             SetEnabled(true);
         }
     }
 
-    /// <summary>Asks the user to confirm discarding unsaved changes; returns <c>true</c> to proceed. A clean
-    /// document proceeds without prompting.</summary>
-    private async Task<bool> ConfirmDiscardIfDirty()
+    /// <summary>Whether the document has edits that have not been written to disk — the condition behind the
+    /// status-bar indicator and every unsaved-changes prompt.</summary>
+    internal bool IsDirty => _history.UndoCount != _savedUndoCount;
+
+    /// <summary>The document's user-facing name: its file's display name once it has one, else the untitled
+    /// project name. Used wherever the document has to be named to the user — the save prompt, the Save As
+    /// suggestion, the default export file name.</summary>
+    private string DocumentName =>
+        _currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath);
+
+    /// <summary>How long to let a cancelled export unwind before closing anyway. Cancellation is checked once
+    /// per frame, so an export that is going to stop stops well inside this; the cap is there so an encoder
+    /// wedged in native code cannot trap the user in an editor that refuses to quit.</summary>
+    private static readonly TimeSpan ExportAbortGrace = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// The full close/quit gate: abandon a running export, then answer for unsaved edits. Returns <c>true</c>
+    /// when both are cleared and the shell may close. Export goes first — it is the more urgent loss, and a
+    /// user who decides to keep exporting is never asked the save question at all.
+    /// </summary>
+    internal async Task<bool> ConfirmCloseAsync()
     {
-        if (_history.UndoCount == _savedUndoCount)
-            return true;
-        return await ConfirmDialog.Show(
-            this, "Unsaved changes",
-            "This project has unsaved changes that will be lost. Discard them and continue?",
-            "Discard", "Cancel");
+        if (_closePromptOpen)
+            return false; // already asking (a Quit can arrive while the prompt is up); don't stack a second gate
+
+        _closePromptOpen = true;
+        try
+        {
+            return await ConfirmAbortExportAsync() && await ConfirmSaveIfDirtyAsync();
+        }
+        finally
+        {
+            _closePromptOpen = false;
+        }
     }
+
+    /// <summary>
+    /// The running-export half of the gate. Closing mid-export would tear the process down around a live
+    /// in-process muxer and leave the half-written file on disk — the very thing
+    /// <see cref="VideoExporter"/> cleans up when an export is cancelled properly. So offer to cancel it, and
+    /// on a yes actually wait for the pipeline to unwind before letting the close proceed.
+    /// </summary>
+    private async Task<bool> ConfirmAbortExportAsync()
+    {
+        if (!_exporting)
+            return true;
+
+        if (!await ConfirmDialog.Show(
+                this, "Export in progress", DiscardGuard.RunningExportMessage,
+                "Cancel Export and Close", "Keep Exporting"))
+            return false;
+
+        // Signal every pipeline that could be live: File ▸ Export and the MCP export share _exportCts, the
+        // queue drains to a stop through its own cancellation.
+        Task? unwound = _exportFinished?.Task;
+        _exportCts?.Cancel();
+        _exportQueue?.CancelAll();
+        if (unwound is not null)
+            await Task.WhenAny(unwound, Task.Delay(ExportAbortGrace));
+        return true;
+    }
+
+    /// <summary>
+    /// The unsaved-changes half of the gate, also used on its own by File ▸ New / Open / Open Sample. Returns
+    /// <c>true</c> to proceed. A clean document proceeds without asking; otherwise the user gets the
+    /// Save · Don't Save · Cancel prompt, and choosing Save has to actually succeed — a cancelled Save As, or
+    /// a write that fails, aborts the action rather than losing the work it was meant to protect.
+    /// </summary>
+    private async Task<bool> ConfirmSaveIfDirtyAsync()
+    {
+        if (!IsDirty)
+            return true;
+        if (_unsavedPromptOpen)
+            return false; // a prompt is already up; treat the duplicate request as cancelled rather than stacking
+
+        _unsavedPromptOpen = true;
+        try
+        {
+            SaveChangesChoice choice = await SaveChangesDialog.Show(
+                this, DiscardGuard.UnsavedChangesMessage(DocumentName));
+            return choice switch
+            {
+                SaveChangesChoice.Save => await SaveBeforeDiscardAsync(),
+                SaveChangesChoice.Discard => true,
+                _ => false,
+            };
+        }
+        finally
+        {
+            _unsavedPromptOpen = false;
+        }
+    }
+
+    /// <summary>The Save half of the gate: straight to the document's own file, or through Save As when it has
+    /// never been saved. Reports whether the project actually reached disk.</summary>
+    private async Task<bool> SaveBeforeDiscardAsync() =>
+        _currentProjectPath is { } path ? SaveTo(path) : await SaveAsAsync();
 
     /// <summary>The display name for a project file (drops the <c>.sprocket.json</c> / <c>.json</c> suffix).</summary>
     private static string ProjectDisplayName(string path)
@@ -3383,7 +3527,7 @@ public partial class MainWindow : Window
         // file into the app's own (often read-only) install folder, where it would go unnoticed. The extension +
         // file-type filter follow the chosen container (or the audio-only format, PLAN.md step 44).
         (string extension, FilePickerFileType fileType) = ExportSaveFileType(options);
-        string baseName = _currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath);
+        string baseName = DocumentName;
         IStorageFile? target = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = options.AudioFormat is null ? "Export Video" : "Export Audio",
@@ -3394,7 +3538,7 @@ public partial class MainWindow : Window
         if (target?.TryGetLocalPath() is not { } outputPath)
             return; // user cancelled the picker — nothing exported, nothing to clean up
 
-        _exporting = true;
+        BeginExport();
         SetEnabled(false); // gate transport + tab-switching: no new in-process decode pipeline may start mid-export
 
         // The export runs an in-process FFmpeg muxer; a second concurrent libav* pipeline crashes it with a native
@@ -3407,6 +3551,7 @@ public partial class MainWindow : Window
             await _engine.SuspendAsync();
 
         using var cts = new CancellationTokenSource();
+        _exportCts = cts; // the close/quit gate stops the export the same way the dialog's Cancel button does
         var dialog = new ExportProgressDialog(Path.GetFileName(outputPath), cts);
         var progress = new Progress<double>(p => dialog.SetProgress(p));
         _ = dialog.ShowDialog(this); // modal: input-blocks the shell while exporting; dismissed in the finally
@@ -3434,7 +3579,7 @@ public partial class MainWindow : Window
             _engine?.Resume();      // restart the Program pump (feeds rebuild + re-present the current frame)
             if (sourceWasActive)
                 _source?.Activate(); // reopen the Source monitor's decoder if it was showing
-            _exporting = false;
+            EndExport();            // after CompleteAndClose, so a waiting close/quit gate resumes with no modal left up
             SetEnabled(true);
         }
 
@@ -3553,7 +3698,7 @@ public partial class MainWindow : Window
         ExportRange? range = choice.UseInOutRange ? marked : null;
 
         (string extension, FilePickerFileType fileType) = ExportSaveFileType(options);
-        string baseName = _currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath);
+        string baseName = DocumentName;
         IStorageFile? target = await owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Queue Export",
@@ -3581,7 +3726,7 @@ public partial class MainWindow : Window
         if (_project is null || _exportQueue is null || _exporting || !_exportQueue.HasPending)
             return;
 
-        _exporting = true;
+        BeginExport(); // the queue is stopped through ExportQueue.CancelAll, so it publishes no _exportCts
         SetEnabled(false);
 
         bool sourceWasActive = ReferenceEquals(_active, _source);
@@ -3598,7 +3743,7 @@ public partial class MainWindow : Window
             _engine?.Resume();
             if (sourceWasActive)
                 _source?.Activate();
-            _exporting = false;
+            EndExport();
             SetEnabled(true);
         }
 
@@ -3639,7 +3784,7 @@ public partial class MainWindow : Window
                 new FilePickerFileType("Final Cut XML") { Patterns = ["*.xml", "*.fcpxml"] }),
         };
 
-        string baseName = _currentProjectPath is null ? _projectName : ProjectDisplayName(_currentProjectPath);
+        string baseName = DocumentName;
         IStorageFile? target = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = $"Export {label}",
@@ -3772,6 +3917,24 @@ public partial class MainWindow : Window
             return false;
         SetStatus("An export is in progress — cancel or wait for it to finish first.");
         return true;
+    }
+
+    /// <summary>Marks an export pipeline live (File ▸ Export, the MCP export, or a queue run) and opens the
+    /// signal the close/quit gate waits on. Paired with <see cref="EndExport"/> in the caller's
+    /// <c>finally</c>, so an export that fails or is cancelled still releases the gate.</summary>
+    private void BeginExport()
+    {
+        _exporting = true;
+        _exportFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    /// <summary>Marks the export pipeline finished and releases anyone waiting on it to unwind.</summary>
+    private void EndExport()
+    {
+        _exporting = false;
+        _exportCts = null;
+        _exportFinished?.TrySetResult();
+        _exportFinished = null;
     }
 
     private static double Fps(Rational r) => r.Den > 0 ? (double)r.Num / r.Den : 0;

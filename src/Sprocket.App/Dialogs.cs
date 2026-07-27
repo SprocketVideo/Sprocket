@@ -317,6 +317,106 @@ internal static class ConfirmDialog
     }
 }
 
+/// <summary>What the user chose in the unsaved-changes prompt (<see cref="SaveChangesDialog"/>).</summary>
+internal enum SaveChangesChoice
+{
+    /// <summary>Abandon the action; the document stays open and dirty. Deliberately declared first so it is
+    /// <c>default</c> — that is what <c>ShowDialog&lt;T&gt;</c> hands back when the prompt is dismissed by its
+    /// title-bar close button, and "do nothing" is the only safe reading of that gesture.</summary>
+    Cancel,
+
+    /// <summary>Save the document first, then continue with the action.</summary>
+    Save,
+
+    /// <summary>Continue and lose the changes.</summary>
+    Discard,
+}
+
+/// <summary>
+/// The three-button unsaved-changes prompt shown before anything that would discard the document — closing,
+/// quitting, or replacing it via File ▸ New / Open. Save · Don't Save · Cancel is what every leading editor
+/// offers here (Premiere, Resolve, and the platform save-on-close alerts themselves): a two-button
+/// discard-or-cancel would make the user back out, save by hand, and start the action over. Mirrors
+/// <see cref="ConfirmDialog"/>'s look, with the accented default (Save) rightmost.
+/// </summary>
+internal static class SaveChangesDialog
+{
+    public static Task<SaveChangesChoice> Show(Window owner, string message)
+    {
+        var save = new Button
+        {
+            Content = "Save",
+            Padding = new Thickness(16, 5),
+            Foreground = Brushes.White,
+            Background = Palette.AccentBrush,
+            CornerRadius = new CornerRadius(5),
+            IsDefault = true, // Enter saves…
+        };
+        var cancel = new Button
+        {
+            Content = "Cancel",
+            Padding = new Thickness(16, 5),
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            CornerRadius = new CornerRadius(5),
+            IsCancel = true,  // …and Esc backs out, so this modal is never a keyboard dead end
+        };
+        var discard = new Button
+        {
+            Content = "Don't Save",
+            Padding = new Thickness(16, 5),
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            CornerRadius = new CornerRadius(5),
+        };
+
+        var dialog = new Window
+        {
+            Title = "Unsaved changes",
+            Icon = AppIcon.Window,
+            Width = 440,
+            Height = 200,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Palette.WindowBgBrush,
+            Content = new DockPanel
+            {
+                Margin = new Thickness(22),
+                Children =
+                {
+                    new StackPanel
+                    {
+                        [DockPanel.DockProperty] = Dock.Bottom,
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Margin = new Thickness(0, 16, 0, 0),
+                        // Destructive answer furthest from the default, as the platform alerts place it.
+                        Children = { discard, cancel, save },
+                    },
+                    new TextBlock
+                    {
+                        Text = message,
+                        Foreground = Palette.TextBrush,
+                        FontSize = 13,
+                        TextWrapping = TextWrapping.Wrap,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    },
+                },
+            },
+        };
+
+        save.Click += (_, _) => dialog.Close(SaveChangesChoice.Save);
+        discard.Click += (_, _) => dialog.Close(SaveChangesChoice.Discard);
+        cancel.Click += (_, _) => dialog.Close(SaveChangesChoice.Cancel);
+        // Focus Save rather than let the panel's first child (Don't Save) take it: a reflexive Enter on a
+        // prompt the user did not expect must not be the keystroke that throws their work away.
+        dialog.Opened += (_, _) => save.Focus();
+
+        return dialog.ShowDialog<SaveChangesChoice>(owner);
+    }
+}
+
 /// <summary>A single-button information dialog (e.g. "export complete / failed"). Mirrors
 /// <see cref="ConfirmDialog"/>'s look but has nothing to decide — it just acknowledges a message.</summary>
 internal static class MessageDialog
