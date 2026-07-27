@@ -65,8 +65,10 @@ back to the user's Homebrew FFmpeg 8 that the v7 bindings could not load. The ch
 proven byte-identical on Windows + Linux); hand-rolled won on footprint / NativeAOT-trim friendliness
 and **cadence control** (a ClangSharp/offset regen ≈ once per FFmpeg *major*, no maintainer dependency —
 the exact risk that stranded us on Sdcb). Recorded in `src/Sprocket.Media/Native/SPIKE_RESULTS.md` (the
-throwaway three-arm spike project itself was removed post-migration; it lives in git history on the
-`ffmpeg8-migration` branch).
+throwaway three-arm spike project `src/Sprocket.Spike.Bindings` itself was removed post-migration; it
+lives in git history on the `ffmpeg8-migration` branch). The step 1 spike project `src/Sprocket.Spike`
+was likewise deleted on **2026-07-27** — see the note on that step below. **Neither spike project exists
+in the tree; their recorded findings are the authority.**
 
 What it changed, **confined to `Sprocket.Media`** behind Core's unchanged seams (ARCHITECTURE §17):
 its own `[LibraryImport]` layer (`Native/LibAv.cs`) + explicit-layout structs pinned to FFmpeg 8.1 x64
@@ -128,7 +130,8 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
    `SKImage` on the GPU → apply a brightness `SKRuntimeEffect` → display in an Avalonia Skia
    control, with an allocation profiler confirming a clean hot loop. Do this on Linux too.
    This validates the core performance claim before building breadth.
-   - **✅ DONE on Windows 11 (`src/Sprocket.Spike`).** Result: 1920×1080 at a steady 60 fps
+   - **✅ DONE on Windows 11 (`src/Sprocket.Spike` — project deleted 2026-07-27, see the note at the
+     end of this step; it lives in git history).** Result: 1920×1080 at a steady 60 fps
      (vsync-capped), render confirmed on Avalonia's **shared `GRContext`** (GPU, not raster
      fallback). Render-loop allocation settled at **~8 KB/frame with GC gen1/gen2 = 0** — i.e.
      the small bounded shader/uniform objects only, **no per-frame pixel allocation** (a 1080p
@@ -151,6 +154,14 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
      run the same headless check + windowed compositor (Metal) on `osx-arm64`/`osx-x64` once the
      FFmpeg dylibs are bundled (step 36) — the render path is the identical managed code, so the
      risk is packaging the natives, not the pipeline.
+   - **Project removed 2026-07-27.** `src/Sprocket.Spike` was deleted from the tree and dropped from
+     `Sprocket.slnx`: the spike had done its job, the shipping code has long since superseded it (the
+     GPU lease path lives in `Sprocket.App`'s `PreviewSurface`, the headless decode→SkSL→pixels check
+     in `Sprocket.Render.Tests`/`Sprocket.Export.Tests` and `scripts/linux-check.sh`), and it was the
+     last thing in the solution still referencing the abandoned **Sdcb.FFmpeg 7** binding — so it both
+     broke the "no Sdcb anywhere" rule and cost a build every time the solution built. The results
+     above stand as the record; the code is in git history. **Do not re-add a spike project to the
+     solution** — if a measurement needs re-running, use a throwaway console app outside the tree.
 2. Timeline data model + RenderGraph in `Sprocket.Core` (unit-tested, headless).
    - **✅ DONE (`src/Sprocket.Core`, 42 headless tests in `tests/Sprocket.Core.Tests`).** Zero
      native/UI deps confirmed (output is `Sprocket.Core.dll` alone). Delivered:
@@ -214,8 +225,9 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
        buffer mid-present. Pure decisions (clamp / reached-end / promote) live in `PlaybackMath`; frame
        supply sits behind `IVideoFrameFeed` (`RingVideoFrameFeed` adapts `VideoDecodeRing`) so the engine is
        testable and a proxy/hardware feed slots in later (§17).
-     - **`Sprocket.App`** — a minimal Avalonia shell (grows into the full panelled shell at step 11; the
-       spike stays the de-risk artifact). A `PreviewSurface` custom control draws the engine's current frame
+     - **`Sprocket.App`** — a minimal Avalonia shell (grows into the full panelled shell at step 11;
+       at the time, the step 1 spike remained alongside as the de-risk artifact — since deleted). A
+       `PreviewSurface` custom control draws the engine's current frame
        inside an `ISkiaSharpApiLease` (GPU); a transport bar (play/pause, position scrubber + time readout,
        Space to toggle) drives the engine. Opens a media path from the command line or a generated 1080p
        sample, building a one-video-track project over it.
@@ -3898,9 +3910,10 @@ are tracked in [UI.md §5](UI.md).
 
 ## Verification
 
-- **Performance claim:** run the spike under a memory profiler (dotnet-counters / dotMemory);
+- **Performance claim:** run `Sprocket.App` under a memory profiler (dotnet-counters / dotMemory);
   assert ~0 Gen0 allocations per frame in the render loop; confirm GPU upload path (no CPU
-  pixel loops). Measure sustained 1080p preview fps.
+  pixel loops). Measure sustained 1080p preview fps. (Originally measured on the step 1 spike, which
+  no longer exists — the shipping app is the target now.)
 - **Cross-platform:** CI matrix builds + runs the headless tests on windows-latest, ubuntu-latest,
   and macos-latest (the latter covers `osx-arm64`); manually run the app + export on a real Linux box,
   Win 11, and a Mac. The render path is byte-identical across OSes (verified Win↔Linux via the headless

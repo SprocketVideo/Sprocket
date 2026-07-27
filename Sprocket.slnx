@@ -10,7 +10,6 @@
     <Project Path="src/Sprocket.Mcp/Sprocket.Mcp.csproj" />
     <Project Path="src/Sprocket.Plugins/Sprocket.Plugins.csproj" />
     <Project Path="src/Sprocket.App/Sprocket.App.csproj" />
-    <Project Path="src/Sprocket.Spike/Sprocket.Spike.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sprocket.Core.Tests/Sprocket.Core.Tests.csproj" />

@@ -3,8 +3,7 @@
   <!--
     Sprocket.App — the Avalonia UI shell. For the vertical slice (PLAN.md step 4) it hosts the
     Skia preview surface + a transport bar driving the PlaybackEngine (video-only, software clock).
-    It grows into the full panelled editor shell at PLAN step 11; the spike (Sprocket.Spike) stays
-    as the de-risk artifact and is not part of the app.
+    It grows into the full panelled editor shell at PLAN step 11.
   -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>

@@ -372,7 +372,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 |---|---|
 | Plugin host/SDK internals (`IVideoEffect`, load contexts) | No user-facing plugin manager yet; SDK docs are a separate deliverable |
 | FFmpeg P/Invoke binding, render graph, command stack internals | Architecture, not behavior |
-| Build/release scripts, CI, spike projects (`Sprocket.Spike`) | Developer tooling |
+| Build/release scripts, CI | Developer tooling |
 | `SPROCKET_APP_SECONDS`, `SPROCKET_HWACCEL` env vars | Diagnostics; at most a troubleshooting footnote |
 
 ---

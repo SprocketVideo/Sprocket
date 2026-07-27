@@ -18,10 +18,6 @@ respective owner and licensed under the terms noted.
 | [ModelContextProtocol.Core](https://github.com/modelcontextprotocol/csharp-sdk) 1.4.0 | MIT | The MCP server SDK used by `Sprocket.Mcp` (PLAN.md step 38). |
 | [Velopack](https://github.com/velopack/velopack) 1.2.0 | MIT | Installer + auto-update runtime (PLAN.md step 36). The matching `vpk` CLI packs the release artifacts (Windows Setup, Linux AppImage, macOS .app). |
 
-`Sprocket.Spike` also references `Sdcb.FFmpeg` (an earlier binding evaluated in the Phase-0 spike,
-MIT-licensed) — that project is a de-risk artifact only and is **not part of the shipped app** (see
-CLAUDE.md), so it is listed here for completeness but carries no distribution obligation.
-
 Build/test-only packages (`Microsoft.NET.Test.Sdk`, `xunit`, `xunit.runner.visualstudio`) are not
 distributed with the app and are omitted.
 

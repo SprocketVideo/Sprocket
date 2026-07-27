@@ -149,8 +149,12 @@ Sprocket.App ──► Sprocket.Playback ──► Sprocket.Render ──► Spr
   seam (implemented in App), whose single marshal point runs every tool on the model-owning UI thread;
   all edit tools route through `EditHistory`, so AI edits are undoable by construction. Only NuGet:
   `ModelContextProtocol.Core` (pinned; no ASP.NET Core — the HTTP front end is a plain `HttpListener`).
-- **`Sprocket.Spike`** — the standalone de-risk spike from PLAN step 1. **Not part of the app**;
-  leave it as the reference artifact.
+**No spike projects live in the tree.** Both throwaway de-risk artifacts have been deleted and live
+only in git history: the PLAN step 1 Avalonia+Skia+decode spike (`src/Sprocket.Spike`, removed
+2026-07-27) and the three-arm FFmpeg-binding spike (`src/Sprocket.Spike.Bindings`, see below). Their
+findings are the authority, not their code — recorded in PLAN.md step 1 and
+`src/Sprocket.Media/Native/SPIKE_RESULTS.md`. Don't re-add either project; write a throwaway console
+app outside the solution if you need to re-run a measurement.
 
 Cross-cutting design facts that aren't obvious from any one file:
 

@@ -50,7 +50,6 @@ Sprocket.slnx
 │   ├── Sprocket.Persistence  // versioned JSON project (de)serialization (System.Text.Json source-gen).
 │   ├── Sprocket.Plugins      // plugin host (PLAN step 33): collectible AssemblyLoadContext + effect discovery.
 │   └── Sprocket.App          // Avalonia UI (MVVM): timeline control, preview surface, panels.
-│       (Sprocket.Spike — standalone PLAN step 1 de-risk artifact, not part of the app)
 └── tests/
     ├── Sprocket.Core.Tests        // headless: render-graph resolution, trim, fades, time math.
     ├── Sprocket.Media.Tests       // decode/seek correctness against known fixtures.
