@@ -472,7 +472,19 @@ public partial class MainWindow : Window
         this.FindControl<MenuItem>("ExportQueueMenuItem")!.Click += (_, _) => OpenExportQueue();
         this.FindControl<MenuItem>("ExportEdlMenuItem")!.Click += (_, _) => _ = ExportInterchangeAsync(InterchangeKind.Edl);
         this.FindControl<MenuItem>("ExportFcpXmlMenuItem")!.Click += (_, _) => _ = ExportInterchangeAsync(InterchangeKind.FinalCutXml);
-        this.FindControl<MenuItem>("ExitMenuItem")!.Click += (_, _) => Close();
+        // Quit. Each desktop names and binds this differently, so the XAML carries the Windows form
+        // ("E_xit" / Alt+F4) and the other two are applied here:
+        //   Windows — File ▸ Exit, Alt+F4 (serviced by the window manager).
+        //   Linux   — File ▸ Quit, Ctrl+Q (GNOME HIG / freedesktop; the accelerator is in OnKeyDown).
+        //   macOS   — neither: the item is hidden below and AppKit's own "Quit Sprocket" ⌘Q in the
+        //             application menu is the only way out, which is what a Mac user reaches for.
+        MenuItem exitMenuItem = this.FindControl<MenuItem>("ExitMenuItem")!;
+        exitMenuItem.Click += (_, _) => Close();
+        if (OperatingSystem.IsLinux())
+        {
+            exitMenuItem.Header = "_Quit";
+            exitMenuItem.InputGesture = new KeyGesture(Key.Q, KeyModifiers.Control);
+        }
 
         // Edit
         _undoMenuItem!.Click += (_, _) => _history.Undo();
@@ -630,7 +642,7 @@ public partial class MainWindow : Window
             this.FindControl<MenuItem>("ImportMenuItem")!.InputGesture = Cmd(Key.I);
             this.FindControl<MenuItem>("ExportMenuItem")!.InputGesture = Cmd(Key.E);
             this.FindControl<MenuItem>("ExportQueueMenuItem")!.InputGesture = Cmd(Key.E, KeyModifiers.Shift);
-            this.FindControl<MenuItem>("ExitMenuItem")!.InputGesture = Cmd(Key.Q);
+            // No ⌘Q here: File ▸ Exit is hidden on macOS and AppKit supplies "Quit Sprocket" ⌘Q itself.
             _undoMenuItem!.InputGesture = Cmd(Key.Z);
             _redoMenuItem!.InputGesture = Cmd(Key.Z, KeyModifiers.Shift);
             _cutMenuItem.InputGesture = Cmd(Key.X);
@@ -687,13 +699,14 @@ public partial class MainWindow : Window
         if (OperatingSystem.IsMacOS())
         {
             // These three belong in the macOS application menu, not the window's menus — hide them at the
-            // source (the bridge skips invisible items) and let MacMenuBridge re-host them.
+            // source (the bridge skips invisible items). MacMenuBridge re-hosts About and Preferences;
+            // quitting is left entirely to AppKit, which appends "Quit Sprocket" ⌘Q (plus Hide / Hide Others /
+            // Show All / Services) to that menu itself. Adding our own would duplicate it.
             MenuItem aboutItem = this.FindControl<MenuItem>("AboutMenuItem")!;
             MenuItem preferencesItem = this.FindControl<MenuItem>("PreferencesMenuItem")!;
-            MenuItem exitItem = this.FindControl<MenuItem>("ExitMenuItem")!; // Avalonia supplies Quit ⌘Q itself
             aboutItem.IsVisible = false;
             preferencesItem.IsVisible = false;
-            exitItem.IsVisible = false;
+            this.FindControl<MenuItem>("ExitMenuItem")!.IsVisible = false;
 
             MacMenuBridge.Attach(this, this.FindControl<Menu>("MenuBar")!, aboutItem, preferencesItem);
         }
@@ -730,8 +743,11 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
-        // ⌘Q quit on macOS (the Exit menu item's accelerator; Alt+F4 stays the Windows convention).
-        if (isMac && meta && e.Key == Key.Q) { Close(); e.Handled = true; return; }
+        // Quit: Ctrl+Q on Linux (the GNOME/freedesktop convention, matching the File ▸ Quit label).
+        // Windows uses Alt+F4, serviced by the window manager. macOS is deliberately absent — AppKit's
+        // "Quit Sprocket" ⌘Q in the application menu owns that chord, and handling it here as well would
+        // give the platform two different ways out of the app.
+        if (OperatingSystem.IsLinux() && ctrl && e.Key == Key.Q) { Close(); e.Handled = true; return; }
         if (primary && e.Key == Key.N) { NewProject(); e.Handled = true; return; }
         if (primary && e.Key == Key.O) { _ = OpenProjectAsync(); e.Handled = true; return; }
         if (primary && shift && e.Key == Key.S) { _ = SaveAsAsync(); e.Handled = true; return; }

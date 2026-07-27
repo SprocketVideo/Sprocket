@@ -337,7 +337,8 @@ Preferences or an "advanced" page.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Complete shortcut reference (on macOS the primary modifier is `⌘` wherever Windows/Linux use `Ctrl`; Ctrl does not alias it there; `⌘Q` quits; `Ctrl+Y` redo is Windows/Linux-only) | MainWindow.axaml.cs `OnKeyDown` key handlers; menu InputGestures (macOS gestures swapped in `WireCommandMenus`) | get-started/keyboard-shortcuts.md | ✅ (full reference page grouped by task, with macOS differences; getting-started keeps the curated teaser) |
+| Complete shortcut reference (on macOS the primary modifier is `⌘` wherever Windows/Linux use `Ctrl`; Ctrl does not alias it there; `Ctrl+Y` redo is Windows/Linux-only) | MainWindow.axaml.cs `OnKeyDown` key handlers; menu InputGestures (macOS gestures swapped in `WireCommandMenus`) | get-started/keyboard-shortcuts.md | ✅ (full reference page grouped by task, with macOS differences; getting-started keeps the curated teaser) |
+| Quit, per-OS native (Windows File ▸ Exit / `Alt+F4`; Linux File ▸ **Quit** / `Ctrl+Q`, the GNOME convention; macOS has no File item — AppKit's Sprocket ▸ **Quit Sprocket** `⌘Q` is the only route) | MainWindow.axaml.cs `WireMenu` quit block + `OnKeyDown`; hidden on macOS in `WireCommandMenus` | get-started/keyboard-shortcuts.md | ❌ (page predates the Linux `Ctrl+Q` / macOS-app-menu split) |
 
 ### Preferences
 

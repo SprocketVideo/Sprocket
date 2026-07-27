@@ -457,9 +457,11 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         *mirrored* into a `NativeMenu`, so every `Click` handler and the on-open `Refresh*Menu` passes keep
         working unchanged — each submenu re-raises `SubmenuOpened` on its source and rebuilds on open, which is
         what makes the runtime-populated Effects / Clip ▸ Insert / Open Sequence submenus appear natively.
-        About / Preferences ⌘, move to the application menu (Avalonia supplies Quit ⌘Q / Hide), Window gains
-        Minimize ⌘M and Zoom, and mnemonics are stripped. Covered by `MacMenuBridgeTests` — the mirroring is
-        platform-independent, so it is unit-tested off macOS.
+        About / Preferences ⌘, move to the application menu, Window gains Minimize ⌘M and Zoom, and mnemonics
+        are stripped. **Quitting is left entirely to AppKit** — it appends *Quit Sprocket* ⌘Q (plus Hide / Hide
+        Others / Show All / Services) to the application menu itself, so File ▸ Exit is hidden on macOS and the
+        old manual ⌘Q key handler was removed rather than give the platform two different ways out.
+        Covered by `MacMenuBridgeTests` — the mirroring is platform-independent, so it is unit-tested off macOS.
       - **Splitter-resizable layout (UI.md §1):** a `GridSplitter` grid — **Project | Program | Inspector**
         across the top, a full-width **Timeline** below a horizontal splitter, with a **tool/action bar** under
         the title bar and a **status bar** at the bottom. All four panes are user-resizable.
@@ -797,7 +799,9 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
       an **App-layer step**: every operation lands on an existing Core command (`AddClip`/`RemoveClip`/
       `SetClipPlacement`/`CompositeCommand`/`SetProperty<Guid?>`/`AddEffect`) or `ProjectSerializer`, so **no Core
       change was needed**. Delivered:
-      - **File — New / Open / Save / Save As / Import / Export / Exit.** **New** (empty 1V+1A project) and **Open**
+      - **File — New / Open / Save / Save As / Import / Export / Exit.** (Quit is per-OS native: Windows keeps
+        **Exit** / `Alt+F4`; Linux shows **Quit** / `Ctrl+Q` per the GNOME convention; macOS hides the item
+        entirely and relies on AppKit's **Quit Sprocket** `⌘Q` in the application menu.) **New** (empty 1V+1A project) and **Open**
         (a project JSON via `ProjectSerializer.Load`, offline-tolerant §15) hand a fully-built project to the
         composition root through a new `MainWindow.SessionRequested` event; `App` builds a fresh engine over it
         (`MediaBootstrap.CreateForProject`, which opens decoders + an audio master clock for an *existing* project
