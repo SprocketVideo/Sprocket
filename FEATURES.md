@@ -103,7 +103,7 @@ in terms an app-side committer can check against their diff.
 | Resizable panels (splitters) | MainWindow.axaml GridSplitters | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Show/hide Project & Inspector panels (View menu) | MainWindow.axaml.cs `SetPanelVisible` | — | ❌ |
 | Reset Layout | MainWindow.axaml.cs `ResetLayout` | — | ❌ |
-| Window-state persistence (reopens maximized/centered) | Sprocket.App/WindowStateStore.cs | — | ➖ (invisible; mention only if asked) |
+| Window-state persistence (reopens maximized/centered; size, position and maximized/full-screen state also survive opening a project) | Sprocket.App/WindowStateStore.cs (`WindowStateStore`, `WindowPlacement`) | — | ➖ (invisible; mention only if asked) |
 | Project name + saved/unsaved indicator in title bar | MainWindow.axaml.cs:1609 | get-started/getting-started.md#11-save-your-project | ✅ |
 | Status bar (engine state, messages, live fps/size/duration) | UI.md §3.7; MainWindow.axaml.cs `RenderTelemetry` | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Help ▸ About (version, open logs folder) | Sprocket.App/Dialogs.cs `AboutDialog` | — | ❌ |

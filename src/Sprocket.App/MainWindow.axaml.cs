@@ -196,8 +196,10 @@ public partial class MainWindow : Window
     // Parameterless ctor for the XAML designer / tooling.
     public MainWindow() : this(null, null, string.Empty, null) { }
 
-    public MainWindow(PlaybackEngine? engine, Project? project, string status, string? projectPath = null,
-        Proxy.ProxyService? proxy = null, Sprocket.Audio.AudioEngine? audioClock = null)
+    // Internal (not public) only because WindowPlacement is: the composition root is the sole caller.
+    internal MainWindow(PlaybackEngine? engine, Project? project, string status, string? projectPath = null,
+        Proxy.ProxyService? proxy = null, Sprocket.Audio.AudioEngine? audioClock = null,
+        WindowPlacement? placement = null)
     {
         AvaloniaXamlLoader.Load(this);
         _engine = engine;
@@ -229,8 +231,20 @@ public partial class MainWindow : Window
         // MainWindow on File ▸ New/Open, so the constructor is the right hook).
         ConfigureWindowChrome();
 
-        // Reopen the way the user left it: centred (WindowStartupLocation in XAML) unless they had it maximized.
-        WindowState = WindowStateStore.Load();
+        // Reopen the way the user left it. A session swap (File ▸ New / Open / Open Sample builds a replacement
+        // window) hands us the outgoing window's live geometry, so opening a project never moves or resizes the
+        // shell; the persisted maximized-or-not is only the fresh-launch fallback, and the position then comes
+        // from WindowStartupLocation="CenterScreen" in the XAML.
+        if (placement is { } carried)
+        {
+            carried.ApplyTo(this);
+            _stateBeforeFullScreen = carried.StateBeforeFullScreen;
+            _lastNonMinimizedState = carried.PersistableState;
+        }
+        else
+        {
+            WindowState = WindowStateStore.Load();
+        }
 
         WireWindowChrome();
         WireMenu();
@@ -413,6 +427,14 @@ public partial class MainWindow : Window
             WindowState = WindowState.FullScreen;
         }
     }
+
+    /// <summary>Snapshots this window's live geometry for the replacement window a session swap builds (see
+    /// <see cref="WindowPlacement"/>). A minimized shell reopens at the state it was minimized from.</summary>
+    internal WindowPlacement CapturePlacement() => new(
+        WindowPlacement.StateToCarry(WindowState, _lastNonMinimizedState),
+        _stateBeforeFullScreen,
+        Position,
+        ClientSize);
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {

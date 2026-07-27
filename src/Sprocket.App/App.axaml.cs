@@ -63,11 +63,11 @@ public partial class App : Application
     /// <summary>Builds a shell window over a session and tracks the session engine + proxy service for teardown / reload.</summary>
     private MainWindow BuildWindow(
         PlaybackEngine? engine, Project? project, string status, string? projectPath, ProxyService? proxy,
-        Sprocket.Audio.AudioEngine? audioClock)
+        Sprocket.Audio.AudioEngine? audioClock, WindowPlacement? placement = null)
     {
         _engine = engine;
         _proxy = proxy;
-        var window = new MainWindow(engine, project, status, projectPath, proxy, audioClock);
+        var window = new MainWindow(engine, project, status, projectPath, proxy, audioClock, placement);
         window.SessionRequested += OnSessionRequested;
         _mcp?.AttachSession(window.CreateMcpSession()); // re-point the MCP server at the new session
         return window;
@@ -89,8 +89,13 @@ public partial class App : Application
 
         try
         {
+            // Carry the outgoing window's live geometry, or the shell would jump to the persisted (last-close)
+            // maximized-or-not at the XAML default size — a window maximized or resized since launch visibly
+            // shrank on Open Sample Project. Opening a project must never move the window (WindowPlacement).
+            WindowPlacement? placement = (oldWindow as MainWindow)?.CapturePlacement();
+
             MediaBootstrap.Result result = MediaBootstrap.CreateForProject(request.Project, request.Status);
-            MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath, result.Proxy, result.AudioClock);
+            MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath, result.Proxy, result.AudioClock, placement);
             _desktop.MainWindow = window;
             window.Show();
 
