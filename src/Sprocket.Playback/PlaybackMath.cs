@@ -9,32 +9,40 @@ namespace Sprocket.Playback;
 /// </summary>
 internal static class PlaybackMath
 {
-    /// <summary>Clamps a raw clock position to the playable range <c>[0, <paramref name="duration"/>]</c>.</summary>
-    public static Timecode ClampToTimeline(Timecode position, Timecode duration)
+    /// <summary>
+    /// Clamps a raw clock position to the transport's navigable range <c>[0, <paramref name="end"/>]</c>.
+    /// <paramref name="end"/> is the transport's <i>navigable</i> end, which is not always the content end: the
+    /// sequence timeline of leading editors (Premiere, Resolve, Vegas — Final Cut is the outlier) lets the playhead
+    /// park in the empty space past the last clip, so edits can be targeted there. The Source monitor's transport
+    /// passes the media duration, since nothing exists past the end of a source file.
+    /// </summary>
+    public static Timecode ClampToTimeline(Timecode position, Timecode end)
     {
         if (position.Ticks < 0)
             return Timecode.Zero;
-        return position > duration ? duration : position;
+        return position > end ? end : position;
     }
 
     /// <summary>
     /// The timeline position <paramref name="delta"/> whole frames away from <paramref name="position"/> at
-    /// <paramref name="fps"/>, clamped to <c>[0, <paramref name="duration"/>]</c> (PLAN.md step 17 frame-step
-    /// transport). The current position is floored to its containing frame index first, so stepping is always
-    /// on exact frame boundaries regardless of where a scrub left the playhead.
+    /// <paramref name="fps"/>, clamped to <c>[0, <paramref name="end"/>]</c> (PLAN.md step 17 frame-step transport;
+    /// see <see cref="ClampToTimeline"/> for what <paramref name="end"/> means). The current position is floored to
+    /// its containing frame index first, so stepping is always on exact frame boundaries regardless of where a
+    /// scrub left the playhead.
     /// </summary>
-    public static Timecode StepFrame(Timecode position, Rational fps, int delta, Timecode duration)
+    public static Timecode StepFrame(Timecode position, Rational fps, int delta, Timecode end)
     {
         if (fps.Num <= 0 || fps.Den <= 0)
-            return ClampToTimeline(position, duration);
+            return ClampToTimeline(position, end);
 
         long target = position.ToFrameIndex(fps) + delta;
         if (target < 0)
             target = 0;
-        return ClampToTimeline(Timecode.FromFrames(target, fps), duration);
+        return ClampToTimeline(Timecode.FromFrames(target, fps), end);
     }
 
-    /// <summary>Whether playback has reached the end of the timeline at <paramref name="position"/>.</summary>
+    /// <summary>Whether playback has reached the end of the timeline's <i>content</i> at
+    /// <paramref name="position"/> — the auto-stop point, regardless of how far the transport may be navigated.</summary>
     public static bool ReachedEnd(Timecode position, Timecode duration) =>
         duration.Ticks > 0 && position >= duration;
 

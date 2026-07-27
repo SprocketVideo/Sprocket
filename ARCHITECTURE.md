@@ -329,6 +329,16 @@ decode-and-discard frames until PTS >= targetPTS               // land frame-acc
 Cache a keyframe index per source so scrubbing doesn't re-probe. Decoded frames near the
 playhead are cached (small LRU) so single-frame scrubbing is responsive.
 
+**Content end vs navigable end.** `Timeline.Duration` is the **content** end (the latest clip end) and
+governs export, jump-to-end, Zoom to Fit and the playback auto-stop. It is *not* the limit of where the
+playhead may go: a sequence timeline is **open-ended**, so the playhead can be parked in the empty space
+past the last clip the way leading editors allow (Premiere, Resolve, Vegas — Final Cut's magnetic timeline
+is the outlier), letting an edit or a mark be targeted after a gap. That limit is `PlaybackEngine.NavigableEnd`,
+opt-in per engine via `AllowPlayheadPastEnd`: the Program engine sets it; the **Source monitor deliberately
+does not**, because nothing exists past the end of a source file. Out there the render graph plans no layers
+and the preview shows black — so the pump must raise a present on the composite's non-empty→empty
+transition, or the surface would keep displaying the last frame it had.
+
 ---
 
 ## 9. Effect parameters & animation

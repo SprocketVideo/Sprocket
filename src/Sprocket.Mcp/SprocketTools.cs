@@ -72,7 +72,8 @@ public sealed partial class SprocketTools(IEditorSession session)
     // ── Transport tools ─────────────────────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "seek", Idempotent = true)]
-    [Description("Moves the playhead to the given tick position (clamped to the sequence).")]
+    [Description("Moves the playhead to the given tick position. The playhead may also be parked in the empty " +
+                 "space after the last clip, so this is not clamped to the sequence duration.")]
     public Task<string> Seek([Description("Target position in ticks (240000 per second).")] long positionTicks) =>
         _session.OnModelThreadAsync(api =>
         {

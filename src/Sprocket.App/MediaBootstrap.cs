@@ -140,7 +140,10 @@ internal static class MediaBootstrap
         project.Timeline.Tracks.Add(new AudioTrack { Name = "A1" });
 
         var proxy = new ProxyService(project.Settings.UseProxies, project.Settings.ProxyTier);
-        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), (IMasterClock?)null);
+        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), (IMasterClock?)null)
+        {
+            AllowPlayheadPastEnd = true, // sequence timelines are open-ended past the last clip
+        };
         proxy.ProxyReady += engine.InvalidateSource;
         engine.Start();
 
@@ -163,7 +166,10 @@ internal static class MediaBootstrap
 
         (AudioEngine? clock, _) = TryCreateAudioClockForProject(project);
         var proxy = new ProxyService(project.Settings.UseProxies, project.Settings.ProxyTier);
-        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), clock); // engine owns + disposes the clock
+        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), clock) // engine owns + disposes the clock
+        {
+            AllowPlayheadPastEnd = true, // sequence timelines are open-ended past the last clip
+        };
         proxy.ProxyReady += engine.InvalidateSource;
         engine.Start();
         proxy.Enqueue(project);

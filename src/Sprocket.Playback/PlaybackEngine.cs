@@ -133,6 +133,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private VideoTrackPlayer? _cachePlayer;          // guarded by _frameGate for reads; swapped on the pump thread
     private CachedRenderSegment? _cacheSegment;      // the segment _cachePlayer decodes; guarded by _frameGate
     private bool _wasInCache;                        // pump thread only: whether the previous pump played the cache
+    private bool _hadComposite;                      // pump thread only: whether the previous pump had anything to show
     private MediaRefId? _deadCacheId;                // pump thread only: last segment whose file failed to open
 
     private readonly object _invalidateGate = new();
@@ -243,11 +244,31 @@ public sealed class PlaybackEngine : IAsyncDisposable
         get { lock (_transportGate) return _state; }
     }
 
-    /// <summary>The current playhead position, clamped to the timeline.</summary>
-    public Timecode Position => PlaybackMath.ClampToTimeline(_clock.Now, Duration);
+    /// <summary>The current playhead position, clamped to <see cref="NavigableEnd"/>.</summary>
+    public Timecode Position => PlaybackMath.ClampToTimeline(_clock.Now, NavigableEnd);
 
     /// <summary>The total timeline duration.</summary>
     public Timecode Duration => _project.Timeline.Duration;
+
+    /// <summary>
+    /// Whether the playhead may be positioned in the empty space past the last clip, as the sequence timeline of
+    /// leading editors is (Premiere, Resolve, Vegas — Final Cut's magnetic timeline is the outlier). <c>false</c>
+    /// (the default) clamps it to <see cref="Duration"/>, which is what the Source monitor needs: nothing exists
+    /// past the end of a media file. Navigation only — export, jump-to-end, Zoom to Fit and the playback end-stop
+    /// all continue to mean the content end.
+    /// </summary>
+    public bool AllowPlayheadPastEnd { get; init; }
+
+    /// <summary>How far past <see cref="Duration"/> an open-ended transport may be positioned. Not a feature
+    /// bound — 24 h is unreachable by scrolling and dwarfs any real sequence — but a sanity rail, so a
+    /// programmatic seek (the MCP <c>seek</c> tool takes a raw tick count) can never plant the playhead at a tick
+    /// value the timeline's frame-index and pixel math would have to handle near <see cref="long.MaxValue"/>.</summary>
+    public static readonly Timecode MaxTrailingSpace = Timecode.FromSeconds(24 * 60 * 60);
+
+    /// <summary>The furthest position the transport may be moved to. <see cref="Duration"/> stays the <i>content</i>
+    /// end — export, jump-to-end, Zoom to Fit and the playback end-stop all use that; this is the <i>navigable</i>
+    /// end, which for an open-ended timeline sits past the content.</summary>
+    public Timecode NavigableEnd => AllowPlayheadPastEnd ? Duration + MaxTrailingSpace : Duration;
 
     /// <summary>The active sequence's target frame rate — the cadence the preview aims to present at.</summary>
     public Rational FrameRate => _project.Timeline.FrameRate;
@@ -306,14 +327,17 @@ public sealed class PlaybackEngine : IAsyncDisposable
         SeekTo(Timecode.Zero); // position the feeds at the active clips' in-points and load frame 0
     }
 
-    /// <summary>Begins (or resumes) playback. Replays from the start if currently parked at the end. Normal play
-    /// is unconstrained — it clears any <see cref="PlayInToOut"/> range and runs to the timeline end.</summary>
+    /// <summary>Begins (or resumes) playback. Replays from the start if currently parked at (or past) the end.
+    /// Normal play is unconstrained — it clears any <see cref="PlayInToOut"/> range and runs to the timeline end.</summary>
     public void Play()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_transportGate)
             _rangeStop = null;
-        if (PlaybackMath.ReachedEnd(Position, Duration))
+        // The `> Duration` arm also covers a playhead parked past the content end of an empty timeline, where
+        // ReachedEnd is false because there is no content to have reached the end of.
+        Timecode pos = Position;
+        if (PlaybackMath.ReachedEnd(pos, Duration) || pos > Duration)
             SeekTo(Timecode.Zero);
         BeginPlaySpan();
     }
@@ -376,14 +400,20 @@ public sealed class PlaybackEngine : IAsyncDisposable
     }
 
     /// <summary>
-    /// Moves the playhead to <paramref name="position"/> (clamped to the timeline). The pump sees the bumped
+    /// Moves the playhead to <paramref name="position"/> (clamped to the navigable range). The pump sees the bumped
     /// generation, re-seeks every track's feed, and force-presents the post-seek frames. Keeps the running/paused
     /// state. Safe to call while playing (scrub).
     /// </summary>
     public void SeekTo(Timecode position)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        Timecode clamped = PlaybackMath.ClampToTimeline(position, Duration);
+        Timecode clamped = PlaybackMath.ClampToTimeline(position, NavigableEnd);
+
+        // Nothing exists past the content end, so a scrub out there stops playback where the user dropped the
+        // playhead instead of letting the pump's end-stop park it back on the last frame. Pause before moving the
+        // clock so the pump can't slip an end-stop in between. Only reachable when AllowPlayheadPastEnd.
+        if (clamped > Duration && State == PlaybackState.Playing)
+            Pause();
 
         _clock.Seek(clamped);
         Interlocked.Increment(ref _seekGeneration);
@@ -424,14 +454,14 @@ public sealed class PlaybackEngine : IAsyncDisposable
     /// <summary>
     /// Steps the playhead <paramref name="delta"/> whole frames (PLAN.md step 17): pauses playback if running,
     /// then seeks to the frame-aligned position. The pump force-presents the post-seek frame so a single step is
-    /// frame-accurate. Negative <paramref name="delta"/> steps backward; clamped to the timeline ends.
+    /// frame-accurate. Negative <paramref name="delta"/> steps backward; clamped to the navigable range.
     /// </summary>
     public void StepFrame(int delta)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (State == PlaybackState.Playing)
             Pause();
-        SeekTo(PlaybackMath.StepFrame(Position, _project.Timeline.FrameRate, delta, Duration));
+        SeekTo(PlaybackMath.StepFrame(Position, _project.Timeline.FrameRate, delta, NavigableEnd));
     }
 
     /// <summary>
@@ -658,7 +688,9 @@ public sealed class PlaybackEngine : IAsyncDisposable
 
         ApplyInvalidations();
 
-        Timecode pos = PlaybackMath.ClampToTimeline(_clock.Now, Duration);
+        // Must stay the same expression as Position: UseLayers/UseCurrentFrame (UI thread) resolve the active clip
+        // off Position while the pump decoded for `pos`, and a divergence would resolve a different clip.
+        Timecode pos = PlaybackMath.ClampToTimeline(_clock.Now, NavigableEnd);
 
         // Render cache (ARCHITECTURE.md §20): inside a valid pre-rendered segment, decode the cached intermediate
         // through the synthetic cache player and let the per-track decoders idle; everywhere else composite live.
@@ -689,6 +721,15 @@ public sealed class PlaybackEngine : IAsyncDisposable
         // (a scrub onto a title). A static synthetic clip while paused doesn't repaint every idle tick.
         bool synthetic = (State == PlaybackState.Playing || force) && !inCache && HasActiveSyntheticVideoClip(pos);
 
+        // The composite can go EMPTY without any player promoting a frame: the playhead moved into a gap between
+        // clips, or past the last clip into the empty space an open-ended timeline lets it park in. Nothing is
+        // promoted there (every player just clears), so without this the preview would keep showing the last frame
+        // it had. Raise exactly one present on the non-empty→empty transition so the surface repaints to black.
+        bool composite = HasComposite(pos, inCache);
+        bool blanked = _hadComposite && !composite;
+        _hadComposite = composite;
+        bool present = promoted || synthetic || blanked;
+
         // Dropped frames = timeline frames the pump failed to service on time and had to skip to keep pace with
         // the clock (ARCHITECTURE.md §8). Measured per pump tick off the playhead's timeline-frame index — a tick
         // that merely *holds* the on-screen frame still serviced its timeline frame (a slow-motion clip's source
@@ -703,7 +744,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
         // counting.
         long frame = pos.ToFrameIndex(_project.Timeline.FrameRate);
         bool rebaseline = force || _dropBaselineReset;
-        if (_dropBaselineReset && (promoted || synthetic))
+        if (_dropBaselineReset && present)
             _dropBaselineReset = false; // startup catch-up ends at the first real present of the play span
 
         if (rebaseline || _lastServicedFrame < 0 || frame < _lastServicedFrame)
@@ -725,7 +766,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
         }
         // frame == _lastServicedFrame: paused/idle tick or intra-frame jitter — nothing to account.
 
-        if (promoted || synthetic)
+        if (present)
         {
             Interlocked.Increment(ref _presentCount); // a new composite was produced → the preview repaints
             FramePresented?.Invoke();
@@ -811,6 +852,32 @@ public sealed class PlaybackEngine : IAsyncDisposable
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Whether the composite at <paramref name="pos"/> would yield any layer at all — i.e. whether
+    /// <see cref="UseLayers"/> would hand out a non-empty list. Mirrors that method's per-track resolution, so the
+    /// pump can spot the composite emptying out (a gap, or the open-ended space past the last clip) and repaint.
+    /// Pump thread only: it reads each player's <c>Current</c>, which only the pump writes.
+    /// </summary>
+    private bool HasComposite(Timecode pos, bool inCache)
+    {
+        if (inCache && _cachePlayer?.Current is not null)
+            return true;
+
+        foreach (VideoTrack track in _project.Timeline.VideoTracks)
+        {
+            if (!track.Enabled)
+                continue;
+            if (track.ResolveActiveClip(pos) is not { } clip)
+                continue;
+            // Decoder-less clips contribute a layer on their own; a media clip only once its frame has decoded.
+            if (clip.Kind is ClipKind.Generator or ClipKind.Adjustment or ClipKind.Sequence)
+                return true;
+            if (FindPlayer(track)?.Current is not null)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>Whether any enabled video track has a decoder-less clip — generator, adjustment, or nested
@@ -972,6 +1039,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
             // pump rebuilds it from the (unchanged, content-addressed) segment on Resume.
             await TearDownCachePlayerAsync().ConfigureAwait(false);
             _wasInCache = false;
+            _hadComposite = false; // the players' frames went with them; the first pump after Resume re-establishes it
         }
     }
 

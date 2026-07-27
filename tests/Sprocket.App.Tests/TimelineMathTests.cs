@@ -46,6 +46,36 @@ public class TimelineMathTests
     }
 
     [Fact]
+    public void ScrollExtentPx_Adds_One_Viewport_Of_Runway_Past_The_Content()
+    {
+        long tenSeconds = Timecode.FromSeconds(10).Ticks;
+        // 10 s at 80 px/s = 800 px of content, plus a 600 px viewport of empty runway to scroll into.
+        Assert.Equal(1400, TimelineMath.ScrollExtentPx(tenSeconds, 0, pxPerSecond: 80, viewportWidth: 600), 6);
+    }
+
+    [Fact]
+    public void ScrollExtentPx_Grows_To_Reach_A_Playhead_Past_The_Content()
+    {
+        long tenSeconds = Timecode.FromSeconds(10).Ticks;
+        long thirtySeconds = Timecode.FromSeconds(30).Ticks;
+        // The playhead parked past the last clip dominates: 30 s × 80 px/s = 2400 px, plus the viewport runway.
+        Assert.Equal(3000, TimelineMath.ScrollExtentPx(tenSeconds, thirtySeconds, 80, 600), 6);
+        // The runway is what keeps the timeline open-ended: the extent always reaches a full viewport past the
+        // playhead, so wherever it is parked there is still empty space to scroll into and push it further.
+        Assert.Equal(
+            TimelineMath.WidthOfTicks(thirtySeconds, 80) + 600,
+            TimelineMath.ScrollExtentPx(tenSeconds, thirtySeconds, 80, 600),
+            6);
+    }
+
+    [Fact]
+    public void ScrollExtentPx_Keeps_A_Minimum_Runway_In_A_Tiny_Viewport()
+    {
+        // A viewport narrower than the 200 px floor still gets the floor's worth of slack.
+        Assert.Equal(200, TimelineMath.ScrollExtentPx(0, 0, pxPerSecond: 80, viewportWidth: 30), 6);
+    }
+
+    [Fact]
     public void Snap_Pulls_To_A_Candidate_Within_Tolerance()
     {
         long target = Timecode.FromSeconds(5).Ticks;

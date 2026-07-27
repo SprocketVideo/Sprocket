@@ -539,6 +539,24 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         can't host children) positioned over the name — Enter / lost-focus commit via `CommitTrackRename`
         (one undoable `SetPropertyCommand<string>`, mirroring the M/S/enable toggles), Esc cancels. Over-long
         names are **clipped and show the full name as a hover tooltip** ([UI.md §3.6](UI.md)).
+      - **✅ Open-ended playhead (2026-07-27).** The playhead can now be parked in the **empty space past the
+        last clip**, as the sequence timeline of leading editors is (Premiere, Resolve, Vegas; Final Cut's
+        magnetic timeline is the outlier) — you can target an overwrite/paste after a gap, or drop a mark ahead
+        of the content. `Timeline.Duration` **keeps meaning the content end**; the new concept is
+        `PlaybackEngine.NavigableEnd`, gated by an opt-in `AllowPlayheadPastEnd` that only the Program engines
+        set (`MediaBootstrap`) — the **Source monitor stays clamped to its media**, since nothing exists past the
+        end of a source file. Export, jump-to-end, Zoom to Fit and the playback auto-stop all still use
+        `Duration`. `TimelineMath.ScrollExtentPx` replaces the old fixed +200 px scroll slack with
+        *max(content, playhead) + one viewport*, so there is always empty timeline to scroll into, and a scrub
+        held against the viewport edge **auto-scrolls** (timer-driven) to carry the playhead out. Scrubbing past
+        the content end *while playing* stops the transport where the playhead was dropped instead of letting the
+        end-stop park it back; pressing Play out there replays from the start. Also fixed a latent bug this made
+        prominent: the pump raised `FramePresented` only when a player promoted a frame, so moving the playhead
+        into a gap (or past the last clip) left the **stale last frame** on the preview — it now raises one
+        present on the composite's non-empty→empty transition so the surface clears to black.
+        (`PlaybackMath`/`PlaybackEngine`/`MediaBootstrap`/`TimelineMath`/`TimelineControl`/`Sprocket.Mcp`;
+        11 new tests in `tests/Sprocket.Playback.Tests/OpenEndedTransportTests.cs`, `PlaybackMathTests`,
+        `tests/Sprocket.App.Tests/TimelineMathTests.cs`.)
 13. **Editing tools.** **Select / Blade (razor split) / Slip** tools and **Linked A/V** (move a
     clip and its companion audio together) — a clip-link relation in the model.
     - **✅ DONE (`Sprocket.Core/Model` + `Sprocket.Core/Commands` + `Sprocket.App/Timeline` + persistence; 16 new

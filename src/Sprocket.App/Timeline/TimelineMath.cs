@@ -131,6 +131,16 @@ public static class TimelineMath
     public static double WidthOfTicks(long ticks, double pxPerSecond)
         => (double)ticks * pxPerSecond / Timecode.TicksPerSecond;
 
+    /// <summary>
+    /// The scrollable width (px) of the timeline (PLAN.md step 12): the furthest of the content end and the
+    /// playhead, plus a viewport's worth of empty runway. The runway is what keeps the timeline open-ended —
+    /// there is always somewhere further out to scroll to and drop the playhead, as in Premiere/Resolve — and it
+    /// grows with the playhead so walking outward never hits a wall. The 200 px floor keeps a usable margin in a
+    /// very narrow window.
+    /// </summary>
+    public static double ScrollExtentPx(long contentTicks, long playheadTicks, double pxPerSecond, double viewportWidth)
+        => WidthOfTicks(Math.Max(contentTicks, playheadTicks), pxPerSecond) + Math.Max(viewportWidth, 200);
+
     /// <summary>Clamps a tick value to be non-negative (the timeline starts at 0).</summary>
     public static long ClampNonNegative(long ticks) => ticks < 0 ? 0 : ticks;
 

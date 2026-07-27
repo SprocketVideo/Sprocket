@@ -36,6 +36,8 @@ public sealed class TimelineControl : Control
     private const double MinPxPerSecond = 8;
     private const double MaxPxPerSecond = 600;
     private const double SnapTolerancePx = 8;
+    private const double EdgeScrollMarginPx = 24;  // how close to the viewport edge a scrub starts auto-scrolling
+    private const double EdgeScrollStepPx = 14;    // scroll per tick at 1× (scales with how far past the edge)
 
     // Fade handles + opacity rubber-band (PLAN.md step 39): the vertical inset of the band's 0/1 levels inside
     // the clip body, the grab tolerance around the band line, and the corner-handle geometry (its grip radius
@@ -128,6 +130,13 @@ public sealed class TimelineControl : Control
     private readonly ClipSelection _selection = new();
     private Clip? _selected;
     private bool _scrubbing;
+
+    // Edge auto-scroll: dragging the playhead against a viewport edge scrolls the timeline under it, as in
+    // Premiere/Resolve. This is what makes the open-ended space past the last clip reachable in one gesture —
+    // each tick moves the view out and drags the playhead with it. Timer-driven so a pointer held still at the
+    // edge keeps scrolling rather than stalling until the next pointer move.
+    private DispatcherTimer? _edgeScrollTimer;
+    private double _edgeScrollPointerX;
 
     // Scrub-latency state (frame-snapped seeks): the last frame column sent to the engine during the
     // current scrub (so same-column pointer moves don't re-seek), and the tick value of the seek whose
@@ -330,6 +339,7 @@ public sealed class TimelineControl : Control
             _history.Changed -= OnHistoryChanged;
         if (_engine is not null)
             _engine.PositionChanged -= OnEnginePosition;
+        StopEdgeScroll();
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -1953,6 +1963,7 @@ public sealed class TimelineControl : Control
         if (_scrubbing)
         {
             SeekToX(p.X);
+            UpdateEdgeScroll(p.X);
             return;
         }
         if (_marquee)
@@ -2039,6 +2050,7 @@ public sealed class TimelineControl : Control
     {
         base.OnPointerReleased(e);
         _scrubbing = false;
+        StopEdgeScroll();
         _lastSeekFrame = -1;   // a fresh scrub must always issue its first seek
         _pendingSeekTicks = -1; // a running clock re-takes ownership of the playhead after a scrub-while-playing
         _panning = false;
@@ -3093,11 +3105,13 @@ public sealed class TimelineControl : Control
         // so a drag issues one seek per frame crossed (and repeats hit VideoTrackPlayer's repeat-frame
         // fast path) instead of a sub-frame-unique seek per pointer move.
         Timecode t = new Timecode(raw).SnapToFrame(fps);
-        if (_project is not null)
-            t = Timecode.Min(t, _project.Timeline.Duration); // match the engine's clamp so its echo equals t
 
         if (_engine is not null)
         {
+            // Clamp to the transport's NAVIGABLE end, not the content end: the playhead may be parked in the empty
+            // space past the last clip. Still clamped to exactly what the engine will clamp to, so its echo equals
+            // t and the _pendingSeekTicks suppression below releases on the first echo.
+            t = Timecode.Min(t, _engine.NavigableEnd);
             long frame = fps.Num > 0 ? t.ToFrameIndex(fps) : t.Ticks;
             if (_scrubbing && frame == _lastSeekFrame)
                 return; // still in the same frame column — nothing new to seek or repaint
@@ -3127,12 +3141,67 @@ public sealed class TimelineControl : Control
         InvalidateVisual();
     }
 
+    /// <summary>Starts, steers, or stops the scrub edge auto-scroll for a pointer at <paramref name="x"/>.</summary>
+    private void UpdateEdgeScroll(double x)
+    {
+        _edgeScrollPointerX = x;
+        if (EdgeScrollVelocity(x) == 0)
+        {
+            StopEdgeScroll();
+            return;
+        }
+        if (_edgeScrollTimer is not null)
+            return;
+        _edgeScrollTimer = new DispatcherTimer(
+            TimeSpan.FromMilliseconds(16), DispatcherPriority.Background, (_, _) => EdgeScrollTick());
+        _edgeScrollTimer.Start();
+    }
+
+    /// <summary>How far (px, signed) one auto-scroll tick should move the view for a pointer at <paramref name="x"/>;
+    /// 0 when the pointer is clear of both edges. Scales with how far past the edge the pointer is, so the drag has
+    /// a slow zone near the edge and accelerates as it is pushed further out.</summary>
+    private double EdgeScrollVelocity(double x)
+    {
+        double left = _headerWidth + EdgeScrollMarginPx;
+        double right = Bounds.Width - EdgeScrollMarginPx;
+        double over = x > right ? x - right
+                    : x < left ? x - left
+                    : 0;
+        if (over == 0 || (over < 0 && _scrollX <= 0))
+            return 0; // already hard left — nothing to scroll back to
+        return Math.Clamp(over / EdgeScrollMarginPx, -3, 3) * EdgeScrollStepPx;
+    }
+
+    private void EdgeScrollTick()
+    {
+        double velocity = _scrubbing ? EdgeScrollVelocity(_edgeScrollPointerX) : 0;
+        if (velocity == 0)
+        {
+            StopEdgeScroll();
+            return;
+        }
+        double before = _scrollX;
+        _scrollX = Math.Max(0, _scrollX + velocity);
+        ClampScroll();
+        if (Math.Abs(_scrollX - before) < 1e-6)
+            return; // the extent hasn't given us any more room this tick
+        SeekToX(_edgeScrollPointerX); // keep the playhead pinned under the pointer as the view moves out
+        InvalidateVisual();
+    }
+
+    private void StopEdgeScroll()
+    {
+        _edgeScrollTimer?.Stop();
+        _edgeScrollTimer = null;
+    }
+
     private void ClampScroll()
     {
         if (_project is null)
             return;
-        double content = TimelineMath.WidthOfTicks(_project.Timeline.Duration.Ticks, _pxPerSecond) + 200;
         double view = Math.Max(0, Bounds.Width - _headerWidth);
+        double content = TimelineMath.ScrollExtentPx(
+            _project.Timeline.Duration.Ticks, _playhead.Ticks, _pxPerSecond, view);
         _scrollX = Math.Clamp(_scrollX, 0, Math.Max(0, content - view));
     }
 

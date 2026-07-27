@@ -52,7 +52,9 @@ internal sealed class FakeEditorSession : IEditorSession, IEditorApi
 
     public Task<T> OnModelThreadAsync<T>(Func<IEditorApi, T> fn) => Task.FromResult(fn(this));
 
-    public void Seek(long ticks) => PlayheadTicks = Math.Clamp(ticks, 0, DurationTicks);
+    // Floor only, mirroring McpEditorSession.Seek: the playhead may be parked past the last clip, and the far
+    // end is clamped by the engine's navigable end rather than by the sequence duration.
+    public void Seek(long ticks) => PlayheadTicks = Math.Max(0, ticks);
     public void Play() => IsPlaying = true;
     public void Pause() => IsPlaying = false;
 

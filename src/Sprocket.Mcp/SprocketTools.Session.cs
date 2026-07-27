@@ -212,7 +212,9 @@ public sealed partial class SprocketTools
                 throw new McpException("the sequence has no valid frame rate.");
             api.Pause();
             long currentFrame = api.PlayheadTicks / frameTicks;
-            long target = Math.Clamp((currentFrame + frames) * frameTicks, 0, api.DurationTicks);
+            // Floor only: like the arrow keys, stepping forward can walk into the empty space past the last clip.
+            // The session clamps the far end to the transport's navigable end.
+            long target = Math.Max(0, (currentFrame + frames) * frameTicks);
             api.Seek(target);
             return StateFormatter.PlayheadState(api.PlayheadTicks, api.DurationTicks, api.IsPlaying);
         });

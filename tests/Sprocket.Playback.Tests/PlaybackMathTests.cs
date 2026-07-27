@@ -22,6 +22,20 @@ public class PlaybackMathTests
     }
 
     [Fact]
+    public void ClampToTimeline_Allows_Past_The_Content_End_When_Given_An_Open_Ended_Bound()
+    {
+        // The sequence transport passes its NAVIGABLE end, which sits past the content end, so the playhead can
+        // be parked in the empty space after the last clip.
+        Timecode navigableEnd = Duration + Timecode.FromSeconds(5);
+        Assert.Equal(
+            Timecode.FromSeconds(12).Ticks,
+            PlaybackMath.ClampToTimeline(Timecode.FromSeconds(12), navigableEnd).Ticks);
+        // Still bounded — the navigable end is a sanity rail, not "no limit at all".
+        Assert.Equal(navigableEnd.Ticks, PlaybackMath.ClampToTimeline(Timecode.FromSeconds(99), navigableEnd).Ticks);
+        Assert.Equal(Timecode.Zero.Ticks, PlaybackMath.ClampToTimeline(Timecode.FromSeconds(-1), navigableEnd).Ticks);
+    }
+
+    [Fact]
     public void ReachedEnd_Is_True_At_Or_Past_Duration()
     {
         Assert.False(PlaybackMath.ReachedEnd(Timecode.FromSeconds(9.99), Duration));
@@ -78,6 +92,18 @@ public class PlaybackMathTests
         // 10 s at 30 fps = frame 300; stepping forward at the end clamps to the duration.
         Timecode end = Timecode.FromFrames(300, Fps30);
         Assert.Equal(Duration.Ticks, PlaybackMath.StepFrame(end, Fps30, +1, Duration).Ticks);
+    }
+
+    [Fact]
+    public void StepFrame_Steps_Past_The_Content_End_With_An_Open_Ended_Bound()
+    {
+        Timecode navigableEnd = Duration + Timecode.FromSeconds(5);
+        Timecode end = Timecode.FromFrames(300, Fps30); // 10 s at 30 fps — the content end
+        Assert.Equal(
+            Timecode.FromFrames(301, Fps30).Ticks,
+            PlaybackMath.StepFrame(end, Fps30, +1, navigableEnd).Ticks);
+        // Backward still floors at zero regardless of how far the far end reaches.
+        Assert.Equal(Timecode.Zero.Ticks, PlaybackMath.StepFrame(Timecode.Zero, Fps30, -1, navigableEnd).Ticks);
     }
 
     [Fact]
