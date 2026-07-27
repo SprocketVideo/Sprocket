@@ -145,6 +145,12 @@ public sealed class TimelineControl : Control
     private long _lastSeekFrame = -1;
     private long _pendingSeekTicks = -1;
 
+    // The playhead position the auto-scroll last acted on. The pump raises PositionChanged at ~60 Hz even while
+    // stopped, so without this a stopped reveal would re-centre the view every 16 ms and make scrolling a paused
+    // timeline by hand impossible. Locally-driven playhead moves (SeekToX) record it too, so a scrub's own echo
+    // never pages the view out from under the pointer.
+    private long _lastFollowTicks = -1;
+
     // Rubber-band marquee state (PLAN.md step 54): a Select-tool drag on empty lane area selects every clip
     // the band touches (live, as it moves); Ctrl/Shift at the press adds to the existing selection. A press
     // released below the drag threshold stays a plain click — clear the selection and move the playhead.
@@ -269,6 +275,10 @@ public sealed class TimelineControl : Control
 
     /// <summary>Whether linked A/V move and blade together (UI.md §3.2, PLAN.md step 13).</summary>
     public bool Linked { get; set; } = true;
+
+    /// <summary>How the view follows the playhead during playback (View ▸ Playback Auto-Scroll; persisted in
+    /// <c>UserSettings</c>). Premiere's default, Page Scroll, is ours too.</summary>
+    public TimelineAutoScroll AutoScroll { get; set; } = TimelineAutoScroll.Page;
 
     /// <summary>The active timeline tool (Select / Blade / Slip / Hand / Zoom).</summary>
     public EditTool ActiveTool
@@ -400,7 +410,36 @@ public sealed class TimelineControl : Control
             _pendingSeekTicks = -1;
         }
         _playhead = t;
-        Dispatcher.UIThread.Post(InvalidateVisual, DispatcherPriority.Render);
+        // The follow has to run on the UI thread with the rest of the view state — it reads Bounds and writes
+        // _scrollX. Coalescing with the repaint keeps it at one computation per painted frame.
+        Dispatcher.UIThread.Post(() => { FollowPlayhead(); InvalidateVisual(); }, DispatcherPriority.Render);
+    }
+
+    /// <summary>
+    /// Scrolls the view to keep the playhead visible (View ▸ Playback Auto-Scroll). Runs on the UI thread for every
+    /// engine position update: during playback it applies the chosen <see cref="AutoScroll"/> policy; while stopped
+    /// it reveals the playhead after a transport jump (End, keyframe/marker nav) even in
+    /// <see cref="TimelineAutoScroll.None"/> — as in Premiere, whose preference is scoped to playback and still
+    /// brings the playhead into view on a jump. Yields to the user whenever a pointer gesture owns the view or the
+    /// playhead, so it never fights a scrub, pan, drag or header resize.
+    /// </summary>
+    private void FollowPlayhead()
+    {
+        if (_project is null || _scrubbing || _panning || _resizingHeader
+            || _dragKind != DragKind.None || _edgeScrollTimer is not null)
+            return;
+
+        bool playing = _engine?.State == PlaybackState.Playing;
+        if (!playing && _playhead.Ticks == _lastFollowTicks)
+            return; // the stopped pump's idle echo — the playhead hasn't actually moved, so leave the view put
+
+        TimelineAutoScroll mode = playing || AutoScroll == TimelineAutoScroll.Smooth
+            ? AutoScroll
+            : TimelineAutoScroll.Page;
+        _lastFollowTicks = _playhead.Ticks;
+        _scrollX = TimelineMath.AutoScrollX(
+            mode, _playhead.Ticks, _pxPerSecond, _scrollX, _headerWidth, Bounds.Width);
+        ClampScroll();
     }
 
     /// <summary>
@@ -411,6 +450,7 @@ public sealed class TimelineControl : Control
     public void OnActiveSequenceChanged()
     {
         _scrollX = 0;
+        _lastFollowTicks = -1;
         OnSelectionMutated(_selection.Clear());
         _selectedTransition = null;
         _selectedTransitionTrack = null;
@@ -3120,12 +3160,14 @@ public sealed class TimelineControl : Control
             _lastSeekFrame = frame;
             _pendingSeekTicks = t.Ticks;
             _playhead = t; // move the indicator immediately; the engine echo reconciles asynchronously
+            _lastFollowTicks = t.Ticks; // pointer-driven: this move must not trigger an auto-scroll reveal
             InvalidateVisual();
             _engine.SeekTo(t);
         }
         else
         {
             _playhead = t;
+            _lastFollowTicks = t.Ticks;
             InvalidateVisual();
         }
     }

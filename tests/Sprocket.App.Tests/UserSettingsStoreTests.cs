@@ -77,6 +77,42 @@ public class UserSettingsStoreTests
     }
 
     [Fact]
+    public void Timeline_Auto_Scroll_Defaults_To_Page_Scroll()
+    {
+        // Premiere's default, and ours; an old settings file written before the field existed gets it too.
+        Assert.Equal(nameof(TimelineAutoScroll.Page), new UserSettings().TimelineAutoScroll);
+        Assert.Equal(nameof(TimelineAutoScroll.Page),
+            UserSettingsStore.Deserialize("""{"McpEnabled": true}""").TimelineAutoScroll);
+    }
+
+    [Fact]
+    public void Timeline_Auto_Scroll_Round_Trips()
+    {
+        var settings = new UserSettings(TimelineAutoScroll: nameof(TimelineAutoScroll.Smooth));
+        Assert.Equal(nameof(TimelineAutoScroll.Smooth),
+            UserSettingsStore.Deserialize(UserSettingsStore.Serialize(settings)).TimelineAutoScroll);
+    }
+
+    [Theory]
+    [InlineData("Sideways")]
+    [InlineData("")]
+    [InlineData(null)]
+    [InlineData("99")] // Enum.TryParse accepts bare numbers — an undefined mode must not survive
+    public void Clamp_Normalizes_An_Unknown_Timeline_Auto_Scroll_Mode(string? stored) =>
+        Assert.Equal(nameof(TimelineAutoScroll.Page),
+            UserSettingsStore.Clamp(new UserSettings(TimelineAutoScroll: stored!)).TimelineAutoScroll);
+
+    [Theory]
+    [InlineData("None", TimelineAutoScroll.None)]
+    [InlineData("Page", TimelineAutoScroll.Page)]
+    [InlineData("Smooth", TimelineAutoScroll.Smooth)]
+    [InlineData("smooth", TimelineAutoScroll.Smooth)]
+    [InlineData("nonsense", TimelineAutoScroll.Page)]
+    [InlineData(null, TimelineAutoScroll.Page)]
+    public void ParseAutoScroll_Maps_Names_And_Falls_Back_To_Page(string? stored, TimelineAutoScroll expected) =>
+        Assert.Equal(expected, UserSettingsStore.ParseAutoScroll(stored));
+
+    [Fact]
     public void NewToken_Is_Long_Unique_And_Header_Safe()
     {
         string a = UserSettingsStore.NewToken();

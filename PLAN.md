@@ -563,6 +563,28 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         (`PlaybackMath`/`PlaybackEngine`/`MediaBootstrap`/`TimelineMath`/`TimelineControl`/`Sprocket.Mcp`;
         11 new tests in `tests/Sprocket.Playback.Tests/OpenEndedTransportTests.cs`, `PlaybackMathTests`,
         `tests/Sprocket.App.Tests/TimelineMathTests.cs`.)
+      - **✅ FOLLOW-ON (2026-07-27): playback auto-scroll (the view follows the playhead).** The timeline used to
+        sit still during playback, so the playhead simply left the viewport and you watched a frozen picture of the
+        timeline. It now follows, with **Premiere's three modes and its wording and default** verbatim
+        (Preferences ▸ Timeline ▸ *Timeline Playback Auto-Scroll*) surfaced as a radio submenu at **View ▸ Playback
+        Auto-Scroll**: **No Scroll**, **Page Scroll** (default — the view jumps a screen at a time and the playhead
+        reappears just inside the opposite edge, with a 5% lead-in margin so it isn't flush against the boundary)
+        and **Smooth Scroll** (the view slides continuously with the playhead centred; Avid calls this continuous,
+        Audacity a pinned play head). Backward paging is symmetric, so a replay-from-start or a backward jump lands
+        the playhead near the *right* edge and keeps its run-up visible. All the geometry is one pure
+        `TimelineMath.AutoScrollX` (new `TimelineAutoScroll` enum); `TimelineControl.FollowPlayhead` calls it inside
+        the UI-thread post that `OnEnginePosition` already makes — no new timer, and one computation per painted
+        frame. Two behaviours worth recording: (1) a transport jump made **while stopped** (`End`, `[`/`]` keyframe
+        nav, `Shift+M` marker nav) always reveals the playhead, even in No Scroll, because Premiere's preference is
+        scoped to *playback* and still brings the playhead into view on a jump; (2) that reveal is gated on a
+        `_lastFollowTicks` guard, because the pump raises `PositionChanged` at ~60 Hz even while stopped — without it
+        every idle echo would re-reveal the playhead 60 times a second and make scrolling a paused timeline by hand
+        impossible. `SeekToX` records the same guard so a scrub's own engine echo can't page the view out from under
+        the pointer, and the follow yields entirely while a scrub, pan, clip drag, header resize or the existing
+        scrub edge-scroll owns the view. The mode is **persisted** (`UserSettings.TimelineAutoScroll`, held as a name
+        so an unknown value degrades to Page) — the first view-behaviour preference; `Snapping`/`Guides` remain
+        session-only. (`TimelineMath`/`TimelineControl`/`UserSettingsStore`/`MainWindow`; 14 new tests in
+        `tests/Sprocket.App.Tests/{TimelineMathTests,UserSettingsStoreTests}.cs`.)
 13. **Editing tools.** **Select / Blade (razor split) / Slip** tools and **Linked A/V** (move a
     clip and its companion audio together) — a clip-link relation in the model.
     - **✅ DONE (`Sprocket.Core/Model` + `Sprocket.Core/Commands` + `Sprocket.App/Timeline` + persistence; 16 new

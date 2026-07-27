@@ -112,6 +112,25 @@ public enum FadeHandleKind
 }
 
 /// <summary>
+/// How the timeline view follows the playhead during playback (View ▸ Playback Auto-Scroll). The three modes and
+/// the <see cref="Page"/> default are Premiere's (Preferences ▸ Timeline ▸ Timeline Playback Auto-Scroll: No Scroll
+/// / Page Scroll / Smooth Scroll); Avid, Reaper and Audacity offer the same page-vs-continuous choice.
+/// </summary>
+public enum TimelineAutoScroll
+{
+    /// <summary>The view never moves during playback — the playhead simply leaves the viewport.</summary>
+    None,
+
+    /// <summary>Jump a screen at a time: when the playhead reaches an edge, the view pages so it reappears
+    /// just inside the opposite one. The default, as in Premiere/FCP.</summary>
+    Page,
+
+    /// <summary>Slide the view continuously, keeping the playhead centred (Avid's "continuous",
+    /// Audacity's pinned play head).</summary>
+    Smooth,
+}
+
+/// <summary>
 /// Pure geometry for the timeline control (PLAN.md step 12): tick↔pixel mapping, snapping, edge hit-testing,
 /// and ruler-interval selection. Kept free of Avalonia types so it is unit-tested headlessly — the rendering
 /// and pointer interaction in <see cref="TimelineControl"/> rest on this and on manual verification.
@@ -155,6 +174,48 @@ public static class TimelineMath
     /// </summary>
     public static double ScrollExtentPx(long contentTicks, long playheadTicks, double pxPerSecond, double viewportWidth)
         => WidthOfTicks(Math.Max(contentTicks, playheadTicks), pxPerSecond) + Math.Max(viewportWidth, 200);
+
+    /// <summary>The narrowest track area worth auto-scrolling — below this we are pre-layout or the header column
+    /// fills the pane, and there is no meaningful "next screen" to page to.</summary>
+    private const double MinAutoScrollViewportPx = 40;
+
+    /// <summary>
+    /// The horizontal scroll (px) the view should hold so the playhead stays visible, given the auto-scroll
+    /// <paramref name="mode"/> — the geometry behind View ▸ Playback Auto-Scroll. Returns
+    /// <paramref name="scrollX"/> unchanged when the mode is <see cref="TimelineAutoScroll.None"/>, when there is
+    /// no usable track area, or (in <see cref="TimelineAutoScroll.Page"/>) while the playhead is still on screen.
+    /// The result is floored at 0; the caller still clamps it to <see cref="ScrollExtentPx"/>.
+    /// </summary>
+    /// <param name="mode">The follow policy.</param>
+    /// <param name="playheadTicks">Where the playhead is now.</param>
+    /// <param name="pxPerSecond">Current zoom.</param>
+    /// <param name="scrollX">Current horizontal scroll.</param>
+    /// <param name="headerWidth">Width of the fixed track-header column (the left edge of the track area).</param>
+    /// <param name="viewportRight">The right edge of the track area (the control's width).</param>
+    public static double AutoScrollX(TimelineAutoScroll mode, long playheadTicks, double pxPerSecond,
+                                     double scrollX, double headerWidth, double viewportRight)
+    {
+        double track = viewportRight - headerWidth;
+        if (mode == TimelineAutoScroll.None || track < MinAutoScrollViewportPx)
+            return scrollX;
+
+        double playheadPx = WidthOfTicks(playheadTicks, pxPerSecond);
+
+        // Smooth: centre the playhead. The floor at 0 is what makes the head of the sequence behave — the view
+        // holds still until the playhead reaches the centre, then slides with it.
+        if (mode == TimelineAutoScroll.Smooth)
+            return Math.Max(0, playheadPx - track / 2);
+
+        // Page: land the playhead just inside the edge rather than flush against it, so it is unambiguously
+        // visible and a little context comes with it. 5% of the track area, bounded for very narrow/wide panes.
+        double margin = Math.Clamp(track * 0.05, 4, 48);
+        double x = XAtTicks(playheadTicks, pxPerSecond, scrollX, headerWidth);
+        if (x >= viewportRight)
+            return Math.Max(0, playheadPx - margin);          // off the right → reappear near the left edge
+        if (x < headerWidth)
+            return Math.Max(0, playheadPx - track + margin);  // off the left (backward jump) → near the right edge
+        return scrollX;                                       // still on screen — leave the view alone
+    }
 
     /// <summary>Clamps a tick value to be non-negative (the timeline starts at 0).</summary>
     public static long ClampNonNegative(long ticks) => ticks < 0 ? 0 : ticks;

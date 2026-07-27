@@ -114,6 +114,82 @@ public class TimelineMathTests
         Assert.Equal(200, TimelineMath.ScrollExtentPx(0, 0, pxPerSecond: 80, viewportWidth: 30), 6);
     }
 
+    // ── Playback auto-scroll (View ▸ Playback Auto-Scroll) ──────────────────────────────────────────
+    // A 900 px pane over a 132 px header leaves a 768 px track area, so Page's 5% lead-in margin is 38.4 px.
+    private const double Viewport = 900;
+    private const double Track = Viewport - Header;
+    private const double PageMargin = Track * 0.05;
+
+    [Fact]
+    public void AutoScrollX_Pages_So_A_Playhead_Off_The_Right_Reappears_Near_The_Left_Edge()
+    {
+        long tenSeconds = Timecode.FromSeconds(10).Ticks; // 800 px in, past the 768 px track area
+        double scrollX = TimelineMath.AutoScrollX(
+            TimelineAutoScroll.Page, tenSeconds, pxPerSecond: 80, scrollX: 0, headerWidth: Header, viewportRight: Viewport);
+        Assert.Equal(Header + PageMargin, TimelineMath.XAtTicks(tenSeconds, 80, scrollX, Header), 6);
+    }
+
+    [Fact]
+    public void AutoScrollX_Pages_Backward_So_A_Playhead_Off_The_Left_Lands_Near_The_Right_Edge()
+    {
+        // Scrolled far right, so the playhead's X is left of the header column (a backward jump / replay). 30 s at
+        // 80 px/s is 2400 px in — far enough along that a full screen of run-up fits to its left.
+        long thirtySeconds = Timecode.FromSeconds(30).Ticks;
+        double scrollX = TimelineMath.AutoScrollX(
+            TimelineAutoScroll.Page, thirtySeconds, 80, scrollX: 5000, headerWidth: Header, viewportRight: Viewport);
+        Assert.Equal(Viewport - PageMargin, TimelineMath.XAtTicks(thirtySeconds, 80, scrollX, Header), 6);
+    }
+
+    [Fact]
+    public void AutoScrollX_Leaves_The_View_Alone_While_The_Playhead_Is_On_Screen()
+    {
+        // 5 s at 80 px/s is 400 px past the header edge — comfortably inside the track area.
+        long fiveSeconds = Timecode.FromSeconds(5).Ticks;
+        Assert.Equal(120, TimelineMath.AutoScrollX(TimelineAutoScroll.Page, fiveSeconds, 80, scrollX: 120, Header, Viewport), 6);
+    }
+
+    [Fact]
+    public void AutoScrollX_Smooth_Centres_The_Playhead()
+    {
+        long thirtySeconds = Timecode.FromSeconds(30).Ticks;
+        double scrollX = TimelineMath.AutoScrollX(TimelineAutoScroll.Smooth, thirtySeconds, 80, scrollX: 0, Header, Viewport);
+        Assert.Equal(Header + Track / 2, TimelineMath.XAtTicks(thirtySeconds, 80, scrollX, Header), 6);
+    }
+
+    [Fact]
+    public void AutoScrollX_Smooth_Holds_At_The_Head_Until_The_Playhead_Reaches_The_Centre()
+    {
+        // Before the centre there is nothing to scroll back to, so the floor at 0 keeps the sequence head in view
+        // (rather than scrolling negative) and the view only starts sliding once the playhead passes the middle.
+        long oneSecond = Timecode.FromSeconds(1).Ticks;
+        Assert.Equal(0, TimelineMath.AutoScrollX(TimelineAutoScroll.Smooth, oneSecond, 80, scrollX: 0, Header, Viewport), 6);
+    }
+
+    [Fact]
+    public void AutoScrollX_None_Never_Moves_The_View()
+    {
+        long fiveMinutes = Timecode.FromSeconds(300).Ticks; // far off the right edge
+        Assert.Equal(0, TimelineMath.AutoScrollX(TimelineAutoScroll.None, fiveMinutes, 80, scrollX: 0, Header, Viewport), 6);
+        Assert.Equal(250, TimelineMath.AutoScrollX(TimelineAutoScroll.None, fiveMinutes, 80, scrollX: 250, Header, Viewport), 6);
+    }
+
+    [Fact]
+    public void AutoScrollX_Does_Nothing_Before_Layout()
+    {
+        // No usable track area yet (Bounds.Width is 0 until the control is measured), so there is no "next screen".
+        long fiveMinutes = Timecode.FromSeconds(300).Ticks;
+        Assert.Equal(75, TimelineMath.AutoScrollX(TimelineAutoScroll.Page, fiveMinutes, 80, scrollX: 75, Header, viewportRight: 0), 6);
+        Assert.Equal(75, TimelineMath.AutoScrollX(TimelineAutoScroll.Smooth, fiveMinutes, 80, scrollX: 75, Header, Header + 20), 6);
+    }
+
+    [Fact]
+    public void AutoScrollX_Never_Scrolls_Past_The_Start()
+    {
+        // Paging backward near the head would want a negative scroll; it floors at 0 instead.
+        long halfSecond = Timecode.FromSeconds(0.5).Ticks;
+        Assert.Equal(0, TimelineMath.AutoScrollX(TimelineAutoScroll.Page, halfSecond, 80, scrollX: 5000, Header, Viewport), 6);
+    }
+
     [Fact]
     public void Snap_Pulls_To_A_Candidate_Within_Tolerance()
     {

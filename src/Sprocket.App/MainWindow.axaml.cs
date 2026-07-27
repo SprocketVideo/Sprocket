@@ -150,6 +150,8 @@ public partial class MainWindow : Window
     private MenuItem? _nestMenuItem, _openSequenceMenuItem; // Sequence menu (PLAN.md step 23)
     private MenuItem? _snappingMenuItem, _guidesMenuItem, _showProjectMenuItem, _showInspectorMenuItem, _showStatsMenuItem;
     private MenuItem? _fullScreenMenuItem; // View ▸ Full Screen (checked while fullscreen)
+    // View ▸ Playback Auto-Scroll (radio group; the timeline's AutoScroll property is the source of truth)
+    private MenuItem? _autoScrollNoneMenuItem, _autoScrollPageMenuItem, _autoScrollSmoothMenuItem;
     private PlaybackStatsOverlay? _statsOverlay; // floating playback-diagnostics window (View ▸ Playback Statistics)
     private MenuItem? _effectsMenu;
     private ToggleButton? _snappingToggle, _guidesToggle;
@@ -710,6 +712,12 @@ public partial class MainWindow : Window
         _guidesMenuItem.Click += (_, _) => { if (_guidesToggle is not null) _guidesToggle.IsChecked = _guidesMenuItem.IsChecked; };
         _showProjectMenuItem.Click += (_, _) => SetPanelVisible(project: true, _showProjectMenuItem.IsChecked == true);
         _showInspectorMenuItem.Click += (_, _) => SetPanelVisible(project: false, _showInspectorMenuItem.IsChecked == true);
+        _autoScrollNoneMenuItem = this.FindControl<MenuItem>("AutoScrollNoneMenuItem")!;
+        _autoScrollPageMenuItem = this.FindControl<MenuItem>("AutoScrollPageMenuItem")!;
+        _autoScrollSmoothMenuItem = this.FindControl<MenuItem>("AutoScrollSmoothMenuItem")!;
+        _autoScrollNoneMenuItem.Click += (_, _) => SetAutoScroll(TimelineAutoScroll.None);
+        _autoScrollPageMenuItem.Click += (_, _) => SetAutoScroll(TimelineAutoScroll.Page);
+        _autoScrollSmoothMenuItem.Click += (_, _) => SetAutoScroll(TimelineAutoScroll.Smooth);
         _showStatsMenuItem = this.FindControl<MenuItem>("ShowStatsMenuItem")!;
         _showStatsMenuItem.Click += (_, _) => ShowStatsOverlay(_showStatsMenuItem.IsChecked == true);
         _fullScreenMenuItem = this.FindControl<MenuItem>("FullScreenMenuItem")!;
@@ -1978,6 +1986,9 @@ public partial class MainWindow : Window
         timeline.Linked = linked.IsChecked == true;
         linked.IsCheckedChanged += (_, _) => timeline.Linked = linked.IsChecked == true;
 
+        // Playback auto-scroll is a persisted preference (View ▸ Playback Auto-Scroll), not a session toggle.
+        timeline.AutoScroll = UserSettingsStore.ParseAutoScroll(_userSettings.TimelineAutoScroll);
+
         // Tool palette (radio group): each button selects the matching timeline tool.
         WireTool("SelectTool", EditTool.Select, timeline);
         WireTool("BladeTool", EditTool.Blade, timeline);
@@ -2557,6 +2568,25 @@ public partial class MainWindow : Window
         if (_showInspectorMenuItem is not null) _showInspectorMenuItem.IsChecked = _inspectorPane?.IsVisible != false;
         if (_showStatsMenuItem is not null) _showStatsMenuItem.IsChecked = _statsOverlay is not null;
         if (_fullScreenMenuItem is not null) _fullScreenMenuItem.IsChecked = WindowState == WindowState.FullScreen;
+        // The timeline owns the mode; re-check the matching item rather than trusting the radio group's own state.
+        TimelineAutoScroll autoScroll = _timeline?.AutoScroll ?? TimelineAutoScroll.Page;
+        if (_autoScrollNoneMenuItem is not null) _autoScrollNoneMenuItem.IsChecked = autoScroll == TimelineAutoScroll.None;
+        if (_autoScrollPageMenuItem is not null) _autoScrollPageMenuItem.IsChecked = autoScroll == TimelineAutoScroll.Page;
+        if (_autoScrollSmoothMenuItem is not null) _autoScrollSmoothMenuItem.IsChecked = autoScroll == TimelineAutoScroll.Smooth;
+    }
+
+    /// <summary>
+    /// View ▸ Playback Auto-Scroll: sets how the timeline follows the playhead during playback and persists the
+    /// choice, so it survives a restart the way Premiere's equivalent preference does.
+    /// </summary>
+    private void SetAutoScroll(TimelineAutoScroll mode)
+    {
+        if (_timeline is not null)
+            _timeline.AutoScroll = mode;
+        if (UserSettingsStore.ParseAutoScroll(_userSettings.TimelineAutoScroll) == mode)
+            return;
+        _userSettings = _userSettings with { TimelineAutoScroll = mode.ToString() };
+        UserSettingsFile.Save(_userSettings);
     }
 
     /// <summary>

@@ -27,6 +27,10 @@ namespace Sprocket.App;
 /// <param name="StillImageDefaultSeconds">Default on-timeline duration for a newly imported still image, in
 /// seconds (PLAN.md step 42; the industry-convention default is 5 s). A still's media headroom is unbounded, so this is only
 /// the initial drop length.</param>
+/// <param name="TimelineAutoScroll">How the timeline view follows the playhead during playback — a
+/// <see cref="Sprocket.App.TimelineAutoScroll"/> name ("None" / "Page" / "Smooth"), defaulting to Premiere's
+/// Page Scroll. Held as a string so the file stays readable and a hand-edited/unknown value degrades to the
+/// default instead of throwing; <see cref="UserSettingsStore.ParseAutoScroll"/> is the one conversion point.</param>
 public sealed record UserSettings(
     string ExportTitle = "",
     string ExportAuthor = "",
@@ -39,7 +43,8 @@ public sealed record UserSettings(
     string McpToken = "",
     bool UpdateCheckEnabled = true,
     string UpdateDismissedTag = "",
-    double StillImageDefaultSeconds = 5);
+    double StillImageDefaultSeconds = 5,
+    string TimelineAutoScroll = nameof(Sprocket.App.TimelineAutoScroll.Page));
 
 /// <summary>
 /// The pure, headlessly-tested (de)serialization and validation logic for <see cref="UserSettings"/> —
@@ -105,7 +110,19 @@ public static class UserSettingsStore
         McpToken = settings.McpToken ?? "",
         UpdateDismissedTag = settings.UpdateDismissedTag ?? "",
         StillImageDefaultSeconds = Math.Clamp(settings.StillImageDefaultSeconds, MinStillSeconds, MaxStillSeconds),
+        TimelineAutoScroll = ParseAutoScroll(settings.TimelineAutoScroll).ToString(),
     };
+
+    /// <summary>
+    /// Parses a persisted <see cref="UserSettings.TimelineAutoScroll"/> name, falling back to the
+    /// <see cref="TimelineAutoScroll.Page"/> default for anything missing or unrecognized. The
+    /// <see cref="Enum.IsDefined{T}(T)"/> check matters: <see cref="Enum.TryParse{T}(string,bool,out T)"/> also
+    /// accepts a bare number, so a hand-edited "99" would otherwise survive as an undefined mode.
+    /// </summary>
+    public static TimelineAutoScroll ParseAutoScroll(string? name) =>
+        Enum.TryParse(name, ignoreCase: true, out TimelineAutoScroll mode) && Enum.IsDefined(mode)
+            ? mode
+            : TimelineAutoScroll.Page;
 
     /// <summary>Generates a fresh MCP bearer token: 32 random bytes, base64url (no padding, URL/header safe).</summary>
     public static string NewToken()

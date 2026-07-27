@@ -189,6 +189,14 @@
             <Separator />
             <MenuItem x:Name="SnappingMenuItem" Header="_Snapping" ToggleType="CheckBox" />
             <MenuItem x:Name="GuidesMenuItem" Header="_Guides" ToggleType="CheckBox" />
+            <!-- Playback auto-scroll: Premiere's three modes and its Page Scroll default (Preferences ▸ Timeline ▸
+                 Timeline Playback Auto-Scroll). No accelerator — the leading editors don't bind one either.
+                 RefreshViewMenu re-checks the active mode each time the View menu opens. -->
+            <MenuItem x:Name="AutoScrollMenuItem" Header="Playback _Auto-Scroll">
+              <MenuItem x:Name="AutoScrollNoneMenuItem" Header="_No Scroll" ToggleType="Radio" GroupName="AutoScroll" />
+              <MenuItem x:Name="AutoScrollPageMenuItem" Header="_Page Scroll" ToggleType="Radio" GroupName="AutoScroll" />
+              <MenuItem x:Name="AutoScrollSmoothMenuItem" Header="_Smooth Scroll" ToggleType="Radio" GroupName="AutoScroll" />
+            </MenuItem>
             <Separator />
             <MenuItem x:Name="ShowProjectMenuItem" Header="_Project Panel" ToggleType="CheckBox" IsChecked="True" />
             <MenuItem x:Name="ShowInspectorMenuItem" Header="I_nspector Panel" ToggleType="CheckBox" IsChecked="True" />
