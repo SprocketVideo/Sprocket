@@ -78,6 +78,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- MacMenuBridge's mirroring is internal but platform-independent, so it is unit-tested off macOS. -->
+    <InternalsVisibleTo Include="Sprocket.App.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
     <ProjectReference Include="..\Sprocket.Media\Sprocket.Media.csproj" />
     <ProjectReference Include="..\Sprocket.Render\Sprocket.Render.csproj" />

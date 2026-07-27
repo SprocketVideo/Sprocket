@@ -428,7 +428,7 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         the editing **UI** through the stack arrives with the timeline control + editing tools (steps 12–13);
         the App's current bootstrap builds the slice project directly (no in-app edit actions to undo yet). Full
         suite: **153 tests green** (Core 61, Media 24, Render 8, Audio 16, Playback 27, Export 6, Persistence 11).
-11. **App UI shell.** Frameless Avalonia window with custom chrome + inline menu bar
+11. **App UI shell.** Avalonia window with custom, per-OS-native chrome + inline menu bar
     (`File · Edit · Clip · Sequence · Effects · View · Window · Help`); **splitter-resizable**
     Project / Program / Inspector / Timeline panes ([UI.md §1](UI.md)); project title + autosave
     / dirty-state indicator.
@@ -436,12 +436,30 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
       into the full panelled shell of [UI.md §1/§2](UI.md), keeping playback/preview/export/save live. The
       *structure* is complete; the pane **contents** (media bin, timeline control, inspector) are their own
       steps (12–16) and show clearly-labelled placeholders for now. Delivered:
-      - **Frameless window + custom chrome:** `WindowDecorations="BorderOnly"` (Avalonia 12 renamed/dropped the
-        v11 `ExtendClientAreaChromeHints` model — `BorderOnly` keeps a resize border with no OS title bar) plus
-        a custom title bar — logo, **inline menu bar** (`File · Edit · Clip · Sequence · Effects · View · Window
-        · Help`), centred project title + save-state, and custom **min / max / close** glyphs. The bar is
-        draggable (`BeginMoveDrag`), double-click maximizes, and a maximized window is inset by `OffScreenMargin`
-        so nothing clips under the screen edges.
+      - **Custom chrome, native per OS** (`MainWindow.ConfigureWindowChrome`): a custom title bar — logo,
+        **inline menu bar** (`File · Edit · Clip · Sequence · Effects · View · Window · Help`), centred project
+        title + save-state, and custom **min / max / close** glyphs — with the platform seam chosen per OS.
+        **Windows:** `WindowDecorations.BorderOnly` **plus** `ExtendClientAreaToDecorationsHint`, which activates
+        the Avalonia 12 `WindowDecorationProperties.ElementRole` annotations in the XAML (`TitleBar` on the bar,
+        `MinimizeButton`/`MaximizeButton`/`CloseButton` on the glyphs, `User` on the menu). The bar is then a real
+        Win32 caption — snap-layouts flyout, Aero Shake, right-click system menu, double-click restore. (`Full`
+        is deliberately avoided: with the client area extended, Avalonia draws a *second* icon/title/caption glyph
+        over ours.) **macOS:** `WindowDecorations.Full` + the extend hint — the unified-titlebar arrangement, so
+        AppKit's traffic lights stay and are the close/minimise/zoom/full-screen affordance; our caption buttons
+        are hidden, the leading edge is inset 78 px to clear the lights, the bar is 38 px, and the menu bar moves
+        to the **system menu bar** (`MacMenuBridge`, below). `BorderOnly` there was the double-title-bar bug: it
+        left the `NSWindow` titled but suppressed the lights, so an empty AppKit strip sat above our own bar.
+        **Linux:** `WindowDecorations.BorderOnly` client-side decorations as before, the GNOME/KDE convention.
+        A `BeginMoveDrag` handler stays wired everywhere as the move fallback (a press consumed as non-client
+        never reaches it), and a maximized window is inset by `OffScreenMargin` so nothing clips under the
+        screen edges / taskbar.
+      - **macOS system menu bar (`MacMenuBridge`):** the inline `Menu` stays the single source of truth and is
+        *mirrored* into a `NativeMenu`, so every `Click` handler and the on-open `Refresh*Menu` passes keep
+        working unchanged — each submenu re-raises `SubmenuOpened` on its source and rebuilds on open, which is
+        what makes the runtime-populated Effects / Clip ▸ Insert / Open Sequence submenus appear natively.
+        About / Preferences ⌘, move to the application menu (Avalonia supplies Quit ⌘Q / Hide), Window gains
+        Minimize ⌘M and Zoom, and mnemonics are stripped. Covered by `MacMenuBridgeTests` — the mirroring is
+        platform-independent, so it is unit-tested off macOS.
       - **Splitter-resizable layout (UI.md §1):** a `GridSplitter` grid — **Project | Program | Inspector**
         across the top, a full-width **Timeline** below a horizontal splitter, with a **tool/action bar** under
         the title bar and a **status bar** at the bottom. All four panes are user-resizable.

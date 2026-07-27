@@ -34,7 +34,8 @@ using ShapesPath = Avalonia.Controls.Shapes.Path;
 namespace Sprocket.App;
 
 /// <summary>
-/// The editor shell (PLAN.md step 11, UI.md §1/§2): a frameless window with custom chrome + inline menu bar,
+/// The editor shell (PLAN.md step 11, UI.md §1/§2): a custom-chrome window (per-OS — see
+/// <see cref="ConfigureWindowChrome"/>) with an inline menu bar (the system menu bar on macOS),
 /// splitter-resizable Project / Program / Inspector panes over a full-width Timeline, and a status bar with
 /// live telemetry. The full menu / command surface is wired in step 16c — File (New / Open / Open Sample /
 /// Save / Save As / Import / Export / Exit), Edit (undo/redo + clip cut/copy/paste/delete), Clip (unlink / nudge), Effects
@@ -219,6 +220,10 @@ public partial class MainWindow : Window
         _maxButton = this.FindControl<Button>("MaxButton")!;
         _maxButtonIcon = this.FindControl<ShapesPath>("MaxButtonIcon")!;
 
+        // Per-OS chrome must be settled before the window is shown (App.OnSessionRequested builds a fresh
+        // MainWindow on File ▸ New/Open, so the constructor is the right hook).
+        ConfigureWindowChrome();
+
         // Reopen the way the user left it: centred (WindowStartupLocation in XAML) unless they had it maximized.
         WindowState = WindowStateStore.Load();
 
@@ -281,11 +286,72 @@ public partial class MainWindow : Window
         WireTransport();
     }
 
-    // ── Window chrome (frameless): drag, double-click maximize, min/max/close ──────────────────────
+    // ── Window chrome (per-OS): drag, double-click maximize, min/max/close ─────────────────────────
+
+    /// <summary>Left inset reserved for the macOS traffic lights. AppKit places the three standard window
+    /// buttons at a fixed offset inside the titlebar and exposes no width for them, so this is the
+    /// conventional value (the same one Electron's <c>hiddenInset</c> and VS Code use).</summary>
+    private const double MacTrafficLightInset = 78;
+
+    /// <summary>Title-bar height on macOS. Taller than the Windows/Linux 34 px so the traffic lights, which
+    /// AppKit centres in the system's 28 pt titlebar band at the top of the window, sit comfortably.</summary>
+    private const double MacTitleBarHeight = 38;
+
+    /// <summary>Picks the window chrome for the host OS. All three platforms draw Sprocket's own title bar,
+    /// but they get there differently:
+    /// <list type="bullet">
+    /// <item><b>Windows</b> — <see cref="WindowDecorations.BorderOnly"/> (native frame, no system titlebar)
+    /// <i>plus</i> the extend hint, which is what activates the <c>WindowDecorationProperties.ElementRole</c>
+    /// annotations in the XAML: the bar and its caption buttons become real non-client regions (verified:
+    /// double-clicking the bar restores a maximized window), giving the snap-layouts flyout on the maximize
+    /// button, Aero Shake and the right-click system menu. <see cref="WindowDecorations.Full"/> is deliberately
+    /// <i>not</i> used here — with the client area extended, Avalonia then renders its own client-side
+    /// decorations (a second icon, title and caption glyph) on top of ours.</item>
+    /// <item><b>macOS</b> — <see cref="WindowDecorations.Full"/> plus the extend hint, the standard "unified
+    /// titlebar" arrangement. AppKit keeps drawing the traffic lights, which are the platform's
+    /// close/minimise/zoom and full-screen affordance, and our content runs underneath them; the system draws
+    /// the decorations, so Avalonia does not add its own. Our caption buttons are hidden, the leading edge is
+    /// inset to clear the lights, and the menu bar moves to the system menu bar (<see cref="MacMenuBridge"/>).
+    /// <see cref="WindowDecorations.BorderOnly"/> is what produced the double title bar: it leaves the
+    /// <c>NSWindow</c> titled but suppresses the traffic lights, so AppKit's empty strip sat above our own bar.</item>
+    /// <item><b>Linux</b> — <see cref="WindowDecorations.BorderOnly"/> client-side decorations, the long-standing
+    /// GNOME/KDE convention for app-drawn headers, and no extend hint. The <c>ElementRole</c> annotations are
+    /// inert there, so <see cref="WireWindowChrome"/>'s <see cref="Window.BeginMoveDrag"/> handler does the work.</item>
+    /// </list></summary>
+    private void ConfigureWindowChrome()
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            WindowDecorations = WindowDecorations.BorderOnly;
+            return;
+        }
+
+        bool mac = OperatingSystem.IsMacOS();
+        WindowDecorations = mac ? WindowDecorations.Full : WindowDecorations.BorderOnly;
+        ExtendClientAreaToDecorationsHint = true;
+        ExtendClientAreaTitleBarHeightHint = -1; // OS default; the drag area is the ElementRole.TitleBar element
+
+        if (!mac)
+            return;
+
+        this.FindControl<Border>("TitleBar")!.Height = MacTitleBarHeight;
+        this.FindControl<StackPanel>("TitleBarLeading")!.Margin = new Thickness(MacTrafficLightInset, 0, 6, 0);
+        this.FindControl<StackPanel>("CaptionButtons")!.IsVisible = false;
+        _maxButton = null;     // hidden — nothing to re-glyph on WindowState changes
+        _maxButtonIcon = null;
+        // The menus move to the system menu bar; MacMenuBridge.Attach mirrors this same control at the end of
+        // WireCommandMenus, so it stays the source of truth even though it is never shown.
+        this.FindControl<Menu>("MenuBar")!.IsVisible = false;
+    }
 
     private void WireWindowChrome()
     {
         var titleBar = this.FindControl<Border>("TitleBar")!;
+
+        // Move-drag. Where the client area is extended, ElementRole.TitleBar already makes the bar a real
+        // caption and the platform runs the move loop itself — a press consumed as non-client never surfaces
+        // as a pointer event, so this handler simply doesn't run there. It stays wired on every platform as
+        // the fallback that guarantees the window is movable.
         titleBar.PointerPressed += (_, e) =>
         {
             // The menu bar lives inside this draggable title-bar Border, and a drop-down item's press
@@ -298,7 +364,18 @@ public partial class MainWindow : Window
             if (e.GetCurrentPoint(titleBar).Properties.IsLeftButtonPressed)
                 BeginMoveDrag(e);
         };
-        titleBar.DoubleTapped += (_, _) => ToggleMaximize();
+
+        // Double-click to maximize/restore, in contrast, is NOT a fallback: on the extended path the platform
+        // is verified to service it (Windows restores a maximized window from a double-click on the caption),
+        // and handling it here as well would toggle twice.
+        if (!ExtendClientAreaToDecorationsHint)
+            titleBar.DoubleTapped += (_, _) => ToggleMaximize();
+
+        // macOS has no caption buttons of ours to wire (the traffic lights are AppKit's). Elsewhere these
+        // handlers stay wired even under non-client hit-testing, where Win32 may service the click itself:
+        // whichever path fires, the outcome is the same.
+        if (OperatingSystem.IsMacOS())
+            return;
 
         this.FindControl<Button>("MinButton")!.Click += (_, _) => WindowState = WindowState.Minimized;
         _maxButton!.Click += (_, _) => ToggleMaximize();
@@ -316,8 +393,8 @@ public partial class MainWindow : Window
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     }
 
-    /// <summary>View ▸ Full Screen (F11; ⌃⌘F on macOS, where the frameless window has no native green-button
-    /// affordance): toggles <see cref="WindowState.FullScreen"/>, restoring the pre-fullscreen Normal/Maximized
+    /// <summary>View ▸ Full Screen (F11; ⌃⌘F on macOS, matching the system shortcut alongside the native
+    /// green button): toggles <see cref="WindowState.FullScreen"/>, restoring the pre-fullscreen Normal/Maximized
     /// state on exit. Esc also exits (OnKeyDown). Fullscreen is transient — never persisted by WindowStateStore.</summary>
     private void ToggleWindowFullScreen()
     {
@@ -337,9 +414,13 @@ public partial class MainWindow : Window
         base.OnPropertyChanged(change);
         if (change.Property == WindowStateProperty && _root is not null)
         {
-            // In frameless (NoChrome) mode a maximized window extends past the work area by OffScreenMargin;
-            // inset the content so nothing is clipped under the screen edges / taskbar.
-            _root.Margin = WindowState == WindowState.Maximized ? OffScreenMargin : default;
+            // With the client area extended (or frameless), a maximized window extends past the work area by
+            // OffScreenMargin; inset the content so nothing is clipped under the screen edges / taskbar. This
+            // is a Windows artifact — OffScreenMargin is always zero on macOS, but skipping it there keeps the
+            // intent obvious.
+            _root.Margin = WindowState == WindowState.Maximized && !OperatingSystem.IsMacOS()
+                ? OffScreenMargin
+                : default;
             if (_maxButton is not null)
             {
                 bool zoomed = WindowState is WindowState.Maximized or WindowState.FullScreen;
@@ -598,6 +679,24 @@ public partial class MainWindow : Window
 
         // ── Window ──
         this.FindControl<MenuItem>("ResetLayoutMenuItem")!.Click += (_, _) => ResetLayout();
+
+        // ── macOS: publish the whole menu to the system menu bar ──
+        // Everything above stays the source of truth; MacMenuBridge only mirrors it (and forwards clicks back),
+        // so the Refresh*Menu passes and every Click handler keep working. Done last, once the menu is fully
+        // wired and the ⌘ gestures above have replaced the Ctrl labels.
+        if (OperatingSystem.IsMacOS())
+        {
+            // These three belong in the macOS application menu, not the window's menus — hide them at the
+            // source (the bridge skips invisible items) and let MacMenuBridge re-host them.
+            MenuItem aboutItem = this.FindControl<MenuItem>("AboutMenuItem")!;
+            MenuItem preferencesItem = this.FindControl<MenuItem>("PreferencesMenuItem")!;
+            MenuItem exitItem = this.FindControl<MenuItem>("ExitMenuItem")!; // Avalonia supplies Quit ⌘Q itself
+            aboutItem.IsVisible = false;
+            preferencesItem.IsVisible = false;
+            exitItem.IsVisible = false;
+
+            MacMenuBridge.Attach(this, this.FindControl<Menu>("MenuBar")!, aboutItem, preferencesItem);
+        }
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)

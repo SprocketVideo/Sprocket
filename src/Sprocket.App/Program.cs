@@ -146,5 +146,14 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            // Stated explicitly because MacMenuBridge depends on it: the native menu bar must stay enabled, and
+            // Avalonia's default application-menu items are what supply Quit ⌘Q / Hide alongside the
+            // About / Preferences entries the bridge contributes.
+            .With(new MacOSPlatformOptions
+            {
+                ShowInDock = true,
+                DisableNativeMenus = false,
+                DisableDefaultApplicationMenuItems = false,
+            })
             .LogToTrace();
 }

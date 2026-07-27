@@ -18,9 +18,13 @@ north-star layout; the vertical slice implements a subset of it without changing
   The normative token values and per-surface usage rules live in [STYLE_GUIDE.md](STYLE_GUIDE.md).
 - **Single accent**: an indigo/violet (`#6c5ce7`-ish) used for the active tool, primary
   buttons (Export), selection highlights, slider fills, and the playhead.
-- **Custom window chrome** (frameless): the app draws its own title bar with the menu bar
-  inline and custom minimize / maximize / close glyphs at top-right. Implies a borderless
-  Avalonia window with a custom caption + hit-test region, not the OS title bar.
+- **Custom window chrome, native per OS**: the app draws its own title bar instead of using the
+  OS one, but defers to each platform's conventions for what lives in it. **Windows/Linux**: the
+  menu bar inline and custom minimize / maximize / close glyphs at top-right. **macOS**: the real
+  traffic lights (close / minimise / zoom / full-screen) sit over the bar's leading edge, our
+  caption glyphs are hidden, and the menus move to the system menu bar at the top of the screen —
+  so the bar carries only the app mark and the centred project title. Implies an Avalonia window
+  with the client area extended over the caption and a non-client hit-test map, not the OS title bar.
 - **Three-pane workspace** over a full-width timeline: Project (left) · Monitor (center) ·
   Inspector (right), with the Timeline spanning the bottom and a thin status bar beneath it.
   Panels are titled, with tabs and collapsible sections.
@@ -77,7 +81,8 @@ north-star layout; the vertical slice implements a subset of it without changing
   named project with **autosave / dirty-state tracking** surfaced in chrome. **[new]** —
   persistence exists ([ARCHITECTURE §12](ARCHITECTURE.md)); the *autosave + dirty indicator*
   is a UI/state addition.
-- **Custom window controls** (min/max/close) → frameless window (see §1).
+- **Custom window controls** (min/max/close) → custom chrome (see §1); on macOS these are the
+  native traffic lights instead, and the menu bar is the system one.
 
 ### 3.2 Tool + action bar
 - **Tool palette** (radio group, one active): **Select · Blade · Ripple · Roll · Slip · Slide · Hand · Zoom**
@@ -216,7 +221,7 @@ dropped frames, GPU path).
 
 | Feature | Tag | Maps to |
 |---|---|---|
-| Frameless window + custom chrome/menu | new | `Sprocket.App` window shell |
+| Custom per-OS-native chrome/menu (macOS traffic lights + system menu bar) | new | `Sprocket.App` window shell |
 | Named project, autosave, dirty indicator | new | Persistence §12 + app state |
 | Tool palette: Select / Blade / Ripple / Roll / Slip / Slide / Hand / Zoom | mixed | timeline edit ops (Select/Slip/Ripple/Roll/Slide in-model [step 22]; Blade [new]; Hand/Zoom view-only) |
 | Snapping, Linked A/V | new | timeline edit behavior + clip-link relation |

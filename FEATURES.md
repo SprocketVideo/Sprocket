@@ -68,11 +68,11 @@ in terms an app-side committer can check against their diff.
 | Page / section | Draws from | Staleness trigger | Audited @ | Status |
 |---|---|---|---|---|
 | get-started/getting-started.md (whole guide) | §§1–4, 6–7 (everyday subset) | a *common-task* workflow changes, or a new feature belongs in the everyday path | 92226ec | ✅ current |
-| get-started/getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 92226ec | ✅ current |
+| get-started/getting-started.md#a-quick-tour-of-the-main-screen | §1 (all visible chrome) | anything visible in the main window changes: toolbar, panels, status bar, menus | 972911b | ✅ current (Program-monitor bullet now links out to the new preview-and-monitors guide) |
 | get-started/getting-started.md#keyboard-shortcuts-worth-knowing | §9 (Keyboard shortcuts) | any shortcut in the curated table changes | 487ace6 | ✅ current (macOS ⌘ note added, links to the full reference) |
 | get-started/keyboard-shortcuts.md (full page) | §9; MainWindow.axaml.cs key handlers + menu InputGestures | any key handler or InputGesture added/changed | 487ace6 | ✅ current |
 | get-started/projects-and-saving.md | §1 (Projects & saving); §9 (Autosave interval) | New/Open/Save/Save As, the discard-changes prompt, autosave + crash recovery, the autosave interval preference, or Relink Media change | 777f288 | ✅ current |
-| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 0e665cb | ✅ current (added the Aspect ratio and framing guide under Edit) |
+| index.md (landing page) | guide list + group structure | a guide is added/renamed, or a sidebar group changes | 972911b | ✅ current (added the Preview and monitors guide under Playback & performance) |
 | edit/editing-on-the-timeline.md | §3 (Timeline editing; Clips: speed / frame hold / frame edits) | any timeline tool/behavior changes, or the Speed/Duration or Frame Hold dialogs change | 487ace6 | ✅ current (expanded: multi-select, cut/copy/paste, split/duplicate/enable, right-click menu, track rename/resize, on-clip fade handles, per-tool cursors) |
 | edit/marks-and-markers.md | §3 (Markers; In/Out marks; Play In to Out) | the Markers panel, in/out mark keys/overlay, or Play In to Out change | 487ace6 | ✅ current |
 | edit/titles-and-generators.md | §3 (Titles, generators & layers) | the Clip ▸ Insert generator set, the title Inspector sections, or adjustment-layer placement change | 487ace6 | ✅ current |
@@ -86,6 +86,7 @@ in terms an app-side committer can check against their diff.
 | audio/audio-effects.md | §5 (audio-effect library: Gain/Pan, EQ, Compressor, Noise Gate, reverbs, delays; preset picker; Freeze/Unfreeze Clip Audio) | an audio effect is added/changed, the audio-effect Inspector UI or preset picker changes, or Freeze/Unfreeze Clip Audio changes | 9e7bc4d | ✅ current (new guide) |
 | export/exporting.md | §6 (Export Settings; format matrix; audio-only; presets; burn-ins; handles; encoding; color; metadata; progress/reveal) | the Export Settings dialog, its defaults, the format/codec matrix, the built-in preset list, or the audio-only formats change | ddf153b | ✅ current (quality/encoding section rewritten for the two-mode Rate control; portrait/square resolutions added; export-settings.png re-captured + new export-rate-bitrate.png) |
 | export/export-queue-and-interchange.md | §6 (Export Queue; EDL/Final Cut XML interchange) | the Export Queue window controls/statuses, or the interchange formats/warnings change | 48acaf5 | ✅ current (new guide) |
+| performance/preview-and-monitors.md | §7 (Source monitor; Preview zoom; Guides overlay; Full-screen preview) | the Program/Source tabs, the Fit ▾ zoom levels, the Guides overlay, or full-screen preview change | 972911b | ✅ current (new guide) |
 | ai/ai-control.md | §8 (+ §9 Preferences MCP settings, §4 effect tags) | the MCP tool surface, Preferences AI section, setup command, status-bar indicator, or effect-tag UI changes | c86c921 | ✅ current |
 
 ## 1. Get started
@@ -96,8 +97,9 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|
 | Supported platforms (Windows 10 & 11 — Win10 floor 64-bit, version 1809+ — Linux, macOS; self-contained builds, no .NET/FFmpeg install) | README.md platform table; PLAN.md step 56 | get-started/getting-started.md#system-requirements | ✅ |
 | Main screen layout (menu bar, toolbar, panels, timeline, status bar) | UI.md §3; Sprocket.App/MainWindow.axaml | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
-| Frameless window chrome (drag, double-click maximize, caption buttons) | MainWindow.axaml.cs `WireWindowChrome` | — | ❌ |
-| Full-screen window (View ▸ Full Screen; `F11`, `⌃⌘F` on macOS; `Esc` exits; title bar/menu stays visible; never persisted across launches) | MainWindow.axaml.cs `ToggleWindowFullScreen` | — | ❌ |
+| Custom window chrome, native per OS (drag, double-click maximize; Windows/Linux caption buttons — on Windows a real Win32 caption, so the maximize button shows the snap-layouts flyout; macOS uses the native traffic lights instead) | MainWindow.axaml.cs `ConfigureWindowChrome` / `WireWindowChrome` | — | ❌ |
+| macOS system menu bar (File…Help at the top of the screen; About / Preferences ⌘, in the Sprocket application menu; Window ▸ Minimize ⌘M / Zoom) | MacMenuBridge.cs | — | ❌ |
+| Full-screen window (View ▸ Full Screen; `F11`, `⌃⌘F` and the native green button on macOS; `Esc` exits; title bar/menu stays visible; never persisted across launches) | MainWindow.axaml.cs `ToggleWindowFullScreen` | — | ❌ |
 | Resizable panels (splitters) | MainWindow.axaml GridSplitters | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Show/hide Project & Inspector panels (View menu) | MainWindow.axaml.cs `SetPanelVisible` | — | ❌ |
 | Reset Layout | MainWindow.axaml.cs `ResetLayout` | — | ❌ |
@@ -295,10 +297,10 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|
 | Transport: play/pause (`Space`), jump start/end, frame step | MainWindow.axaml.cs:899–903 | get-started/getting-started.md#1-play-and-preview-your-video | ✅ |
 | Scrubber + timeline-ruler scrubbing (frame-snapped; the playhead tracks the pointer immediately, one seek per frame crossed) | MainWindow.axaml.cs:910; TimelineControl.cs:1406 | get-started/getting-started.md#1-play-and-preview-your-video | ✅ |
-| Source monitor (preview a bin clip; Program/Source tabs) | Sprocket.App/Monitors.cs; `WireMonitorTabs` | — | ❌ (guides only cover Program) |
-| Preview zoom: Fit / 50 / 100 / 200% | MainWindow.axaml.cs `WireZoomAndGuides` | get-started/getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained) |
-| Guides overlay (frame outline / safe areas / framing grid; the frame's empty canvas shows black, matching export) | PreviewSurface.ShowGuides; Sprocket.Render/MonitorOverlay.cs | get-started/getting-started.md#a-quick-tour-of-the-main-screen | 🟡 (named, not explained; portrait-canvas fix 2026-07-16 — re-shoot Guides screenshots for the aspect-ratio guide) |
-| Full-screen preview (View ▸ Full Screen Preview; `Ctrl+F`, `⌘F` on macOS; `Esc` or the shortcut exits; transport keys stay live; works for Program and Source) | MainWindow.axaml.cs `EnterFullscreenPreview`; PreviewSurface.cs | — | ❌ |
+| Source monitor (preview a clip's raw footage; Program/Source tabs) | Sprocket.App/Monitors.cs; `WireMonitorTabs` | performance/preview-and-monitors.md#program-vs-source-the-two-monitors | ✅ |
+| Preview zoom: Fit / 50 / 100 / 200% | MainWindow.axaml.cs `WireZoomAndGuides` | performance/preview-and-monitors.md#zoom-the-preview | ✅ |
+| Guides overlay (frame outline / safe areas / framing grid; the frame's empty canvas shows black, matching export) | PreviewSurface.ShowGuides; Sprocket.Render/MonitorOverlay.cs | performance/preview-and-monitors.md#overlay-framing-guides | ✅ (portrait-canvas fix 2026-07-16 covered; aspect-ratio-and-framing.md's Fit/Fill shot still predates the fix — re-shoot with Guides on) |
+| Full-screen preview (View ▸ Full Screen Preview; `Ctrl+F`, `⌘F` on macOS; `Esc` or the shortcut exits; transport keys stay live; works for Program and Source) | MainWindow.axaml.cs `EnterFullscreenPreview`; PreviewSurface.cs | performance/preview-and-monitors.md#full-screen-preview | ✅ |
 | Timecode readouts (position / duration) | MainWindow.axaml:360 | get-started/getting-started.md#1-play-and-preview-your-video | ✅ |
 | Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | performance/troubleshooting-playback.md | 🟡 stale — dropped-frame/preview-rate semantics now speed-aware (slow-motion holds count as delivered, never as drops); re-verify the metric descriptions |
 

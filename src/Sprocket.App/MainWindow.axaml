@@ -3,18 +3,19 @@
         xmlns:local="clr-namespace:Sprocket.App"
         xmlns:mb="clr-namespace:Sprocket.App.MediaBrowser"
         xmlns:insp="clr-namespace:Sprocket.App.Inspector"
+        xmlns:chrome="clr-namespace:Avalonia.Controls.Chrome;assembly=Avalonia.Controls"
         x:Class="Sprocket.App.MainWindow"
         Width="1280" Height="800"
         MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Title="Sprocket"
         Icon="/Assets/sprocket.png"
-        Background="{DynamicResource WindowBg}"
-        WindowDecorations="BorderOnly">
+        Background="{DynamicResource WindowBg}">
 
   <!--
-    PLAN.md step 11 — the app UI shell (UI.md §1/§2): a frameless window with custom chrome + inline menu
-    bar, splitter-resizable Project / Program / Inspector panes over a full-width Timeline, and a status bar.
+    PLAN.md step 11 — the app UI shell (UI.md §1/§2): a custom-chrome window with an inline menu bar,
+    splitter-resizable Project / Program / Inspector panes over a full-width Timeline, and a status bar.
+    The chrome is per-OS and configured in code (MainWindow.ConfigureWindowChrome), not here.
     The pane *contents* (media bin, timeline control, inspector) arrive in steps 12–16; this is the structure,
     with the Program monitor + transport + Export + Save + Edit→Undo/Redo fully live.
   -->
@@ -25,12 +26,22 @@
   <Panel>
   <DockPanel x:Name="Root">
 
-    <!-- ── Title bar: logo · menu · project title/save-state · window controls ─────────────────── -->
+    <!-- ── Title bar: logo · menu · project title/save-state · window controls ─────────────────────
+         The WindowDecorationProperties.ElementRole annotations below are the cross-platform non-client
+         hit-test map: the bar itself is the caption (platform move-drag, double-click zoom, Windows
+         right-click system menu), the caption buttons map to HTMINBUTTON/HTMAXBUTTON/HTCLOSE on Win32
+         (which is what gives the maximize button the Windows 11 snap-layouts flyout), and the menu is
+         marked User so its drop-downs still receive input. Roles only take effect where
+         ExtendClientAreaToDecorationsHint is set — i.e. Windows and macOS; on Linux they are inert and
+         MainWindow.WireWindowChrome falls back to BeginMoveDrag. See MainWindow.ConfigureWindowChrome. -->
     <Border x:Name="TitleBar" DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Height="34"
-            BorderBrush="{DynamicResource Edge}" BorderThickness="0,0,0,1">
+            BorderBrush="{DynamicResource Edge}" BorderThickness="0,0,0,1"
+            chrome:WindowDecorationProperties.ElementRole="TitleBar">
       <Grid ColumnDefinitions="Auto,Auto,*,Auto">
 
-        <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="12,0,6,0" VerticalAlignment="Center">
+        <!-- Left margin is widened on macOS to clear the native traffic lights (ConfigureWindowChrome). -->
+        <StackPanel x:Name="TitleBarLeading" Grid.Column="0" Orientation="Horizontal" Margin="12,0,6,0"
+                    VerticalAlignment="Center">
           <Image Source="/Assets/sprocket.png" Width="22" Height="22" Margin="0,0,8,0"
                  VerticalAlignment="Center" />
 
@@ -41,8 +52,11 @@
         <!-- Inline menu bar (UI.md §2): every item bound to its command in MainWindow.WireMenu / WireCommandMenus
              (PLAN.md step 16c). Items whose feature lands in a later step stay visibly
              disabled rather than silently dead. Accelerators are also handled in
-             OnKeyDown (the InputGesture text here is the display label). -->
-        <Menu Grid.Column="1" VerticalAlignment="Center" Background="Transparent" Margin="6,0,0,0" FontSize="12">
+             OnKeyDown (the InputGesture text here is the display label).
+             On macOS this control is hidden and MacMenuBridge mirrors it into the system menu bar. -->
+        <Menu x:Name="MenuBar" Grid.Column="1" VerticalAlignment="Center" Background="Transparent"
+              Margin="6,0,0,0" FontSize="12"
+              chrome:WindowDecorationProperties.ElementRole="User">
           <MenuItem Header="_File">
             <MenuItem x:Name="NewMenuItem" Header="_New Project" InputGesture="Ctrl+N" />
             <MenuItem x:Name="OpenMenuItem" Header="_Open Project…" InputGesture="Ctrl+O" />
@@ -208,8 +222,10 @@
                      VerticalAlignment="Center" Text="• all changes saved" />
         </StackPanel>
 
-        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Top">
+        <!-- Hidden on macOS, where the native traffic lights do this job (ConfigureWindowChrome). -->
+        <StackPanel x:Name="CaptionButtons" Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Top">
           <Button x:Name="MinButton" Classes="caption"
+                  chrome:WindowDecorationProperties.ElementRole="MinimizeButton"
                   AutomationProperties.Name="Minimize" ToolTip.Tip="Minimize">
             <!-- Height is Minimize's own 14:2 aspect ratio at the Chrome reference width — see IconSizes. -->
             <Path Data="{x:Static local:Icons.Minimize}" Fill="{DynamicResource MutedText}"
@@ -217,12 +233,14 @@
           </Button>
           <!-- MaxButtonIcon's Data + the button's accessible name toggle Maximize/Restore in OnPropertyChanged. -->
           <Button x:Name="MaxButton" Classes="caption"
+                  chrome:WindowDecorationProperties.ElementRole="MaximizeButton"
                   AutomationProperties.Name="Maximize" ToolTip.Tip="Maximize">
             <Path x:Name="MaxButtonIcon" Data="{x:Static local:Icons.Maximize}" Stroke="{DynamicResource MutedText}"
                   StrokeThickness="1.2" StrokeLineCap="Round" StrokeJoin="Round"
                   Width="{x:Static local:IconSizes.Chrome}" Height="{x:Static local:IconSizes.Chrome}" Stretch="Uniform" />
           </Button>
           <Button x:Name="CloseButton" Classes="caption close"
+                  chrome:WindowDecorationProperties.ElementRole="CloseButton"
                   AutomationProperties.Name="Close" ToolTip.Tip="Close">
             <Path Data="{x:Static local:Icons.Close}" Stroke="{DynamicResource MutedText}"
                   StrokeThickness="1.2" StrokeLineCap="Round" StrokeJoin="Round"
