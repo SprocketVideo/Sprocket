@@ -3928,7 +3928,7 @@ public partial class MainWindow : Window
         // Premiere / Resolve export-dialog convention); Entire sequence otherwise.
         Resolution res = _project.Timeline.Resolution;
         ExportRange? marked = MarkedExportRange();
-        if (await ExportSettingsDialog.Show(this, res.Width, res.Height, hasMarkedRange: marked is not null)
+        if (await ExportSettingsDialog.Show(this, res.Width, res.Height, projectName: DocumentName, hasMarkedRange: marked is not null)
                 is not { } choice)
             return; // user cancelled the settings dialog
         ExportOptions options = choice.Options;

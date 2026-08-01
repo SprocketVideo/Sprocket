@@ -181,6 +181,9 @@ internal static class PreferencesDialog
                                 Labeled("Author", author),
                                 Labeled("Copyright", copyright),
                                 Labeled("Comment", comment),
+                                Hint("Tokens {project}, {username}, {year} and {date} are replaced when you export. "
+                                    + "Leave Comment blank and every export still carries “Created with Sprocket” "
+                                    + "plus the Sprocket version."),
 
                                 Section("Autosave"),
                                 Labeled($"Interval (seconds, {UserSettingsStore.MinAutosaveSeconds}–{UserSettingsStore.MaxAutosaveSeconds})", autosave),
@@ -279,6 +282,16 @@ internal static class PreferencesDialog
         Foreground = Palette.MutedTextBrush,
         FontSize = 12,
         VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    /// <summary>A wrapping muted caption under a settings section (e.g. the metadata-token legend).</summary>
+    private static TextBlock Hint(string text) => new()
+    {
+        Text = text,
+        Foreground = Palette.MutedTextBrush,
+        FontSize = 11,
+        TextWrapping = TextWrapping.Wrap,
+        Margin = new Thickness(0, 2, 0, 0),
     };
 
     private static Button SmallButton(string label) => new()

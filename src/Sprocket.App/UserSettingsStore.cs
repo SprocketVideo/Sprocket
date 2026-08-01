@@ -9,10 +9,14 @@ namespace Sprocket.App;
 /// (PLAN.md step 38). Additive by construction: every member has a constructor default, so an old
 /// settings file deserializes cleanly after new fields are added and unknown fields are ignored.
 /// </summary>
-/// <param name="ExportTitle">Default value for the export dialog's Title metadata field ("" = none).</param>
-/// <param name="ExportAuthor">Default value for the export dialog's Author metadata field ("" = none).</param>
-/// <param name="ExportCopyright">Default value for the export dialog's Copyright metadata field ("" = none).</param>
-/// <param name="ExportComment">Default value for the export dialog's Comment metadata field ("" = none).</param>
+/// <param name="ExportTitle">Default value for the export dialog's Title metadata field ("" = none). May contain
+/// <see cref="MetadataTokens"/> placeholders (e.g. <c>{project}</c>) resolved when the dialog prefills the box.</param>
+/// <param name="ExportAuthor">Default value for the export dialog's Author metadata field ("" = none). May contain
+/// <see cref="MetadataTokens"/> placeholders (e.g. <c>{username}</c>) resolved when the dialog prefills the box.</param>
+/// <param name="ExportCopyright">Default value for the export dialog's Copyright metadata field ("" = none). May contain
+/// <see cref="MetadataTokens"/> placeholders (e.g. <c>© {year} {username}</c>) resolved when the dialog prefills the box.</param>
+/// <param name="ExportComment">Default value for the export dialog's Comment metadata field ("" = none). Left blank by
+/// default so the encoder's auto <c>comment = "Created with Sprocket"</c> provenance tag isn't overridden.</param>
 /// <param name="AutosaveIntervalSeconds">Autosave debounce interval in seconds (step 20's fixed 5 s made tunable).</param>
 /// <param name="McpEnabled">Whether the loopback MCP server runs. Off by default — enabling it makes the
 /// open project inspectable and editable by local AI clients.</param>
@@ -36,9 +40,9 @@ namespace Sprocket.App;
 /// offer never nags across launches; the Help ▸ Add/Remove items remain available regardless. No effect off
 /// Linux / off the AppImage build.</param>
 public sealed record UserSettings(
-    string ExportTitle = "",
-    string ExportAuthor = "",
-    string ExportCopyright = "",
+    string ExportTitle = "{project}",
+    string ExportAuthor = "{username}",
+    string ExportCopyright = "© {year} {username}",
     string ExportComment = "",
     int AutosaveIntervalSeconds = 5,
     bool McpEnabled = false,

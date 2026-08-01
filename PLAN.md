@@ -2672,7 +2672,11 @@ Tags reference the [UI.md §4 checklist](UI.md).
       - **Export metadata defaults:** `ExportOptions.MetaTitle/Author/Copyright/Comment` → written by
         `MediaEncoder` via the already-bound `av_dict_set` (after the provenance tags, so a user comment
         wins) with FFmpeg generic keys (`title`/`artist`/`copyright`/`comment`); export-dialog "Metadata"
-        section prefills from the defaults; verified end-to-end against the `ffmpeg -i` banner.
+        section prefills from the defaults; verified end-to-end against the `ffmpeg -i` banner. The stored
+        defaults ship as **resolvable `{token}` templates** (`Title = {project}`, `Author = {username}`,
+        `Copyright = © {year} {username}`; Comment blank) — `MetadataTokens.Resolve` (pure, tested)
+        substitutes the live user/year/project/date when the export dialog prefills, so users see final,
+        editable text and the copyright year never goes stale.
       - **`Sprocket.Mcp`** (references Core + Persistence + pinned **`ModelContextProtocol.Core` 1.4.0**
         — the official SDK's no-ASP.NET-Core package): **stateless Streamable HTTP** on a plain
         `HttpListener` bound to `http://127.0.0.1:{port}/mcp/` (`McpServerHost`, mirroring the SDK's own

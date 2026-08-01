@@ -353,7 +353,7 @@ Preferences or an "advanced" page.
 |---|---|---|---|
 | Preferences dialog (`Ctrl+,`) | Sprocket.App/PreferencesDialog.cs | — | ❌ |
 | Cache management (clear proxy / render caches) | PreferencesDialog.cs | — | ❌ |
-| Export metadata defaults | PreferencesDialog.cs | — | ❌ |
+| Export metadata defaults (with `{project}`/`{username}`/`{year}`/`{date}` tokens) | PreferencesDialog.cs; Sprocket.App/MetadataTokens.cs | — | ❌ |
 | Autosave interval | PreferencesDialog.cs | get-started/projects-and-saving.md#change-how-often-sprocket-autosaves | ✅ |
 | Update check settings (enable/disable) | PreferencesDialog.cs; Sprocket.App/UpdateService.cs | — | ❌ |
 | AI control (MCP) settings | PreferencesDialog.cs | ai/ai-control.md#turn-on-ai-control | ✅ |

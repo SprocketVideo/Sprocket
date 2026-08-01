@@ -796,7 +796,7 @@ internal static class ExportSettingsDialog
         ("60", new Rational(60, 1)),
     ];
 
-    public static Task<Result?> Show(Window owner, int sequenceWidth, int sequenceHeight, bool hasMarkedRange = false)
+    public static Task<Result?> Show(Window owner, int sequenceWidth, int sequenceHeight, string projectName = "", bool hasMarkedRange = false)
     {
         // Range selector (the Premiere / Resolve export-dialog convention): Entire sequence vs. the timeline's
         // in/out-marked range, defaulting to the marked range when marks are set. Kept out of presets (it is
@@ -1057,11 +1057,18 @@ internal static class ExportSettingsDialog
 
         // Container metadata tags (PLAN.md step 38), prefilled from the user-settings defaults set in
         // Edit ▸ Preferences. Per-export values, not preset state (they describe the work, not the format).
+        // The stored defaults may carry {token} placeholders (© {year} {username}, {project}); resolve them
+        // to concrete text against the live user/year/project so the boxes show final, editable values.
         UserSettings metaDefaults = UserSettingsFile.Load();
-        TextBox metaTitle = MakeMetaBox(metaDefaults.ExportTitle);
-        TextBox metaAuthor = MakeMetaBox(metaDefaults.ExportAuthor);
-        TextBox metaCopyright = MakeMetaBox(metaDefaults.ExportCopyright);
-        TextBox metaComment = MakeMetaBox(metaDefaults.ExportComment);
+        var tokenCtx = new MetadataTokenContext(
+            Environment.UserName,
+            DateTime.Now.Year,
+            projectName,
+            DateTime.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+        TextBox metaTitle = MakeMetaBox(MetadataTokens.Resolve(metaDefaults.ExportTitle, tokenCtx));
+        TextBox metaAuthor = MakeMetaBox(MetadataTokens.Resolve(metaDefaults.ExportAuthor, tokenCtx));
+        TextBox metaCopyright = MakeMetaBox(MetadataTokens.Resolve(metaDefaults.ExportCopyright, tokenCtx));
+        TextBox metaComment = MakeMetaBox(MetadataTokens.Resolve(metaDefaults.ExportComment, tokenCtx));
 
         var savePreset = new Button
         {

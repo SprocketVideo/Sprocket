@@ -77,6 +77,18 @@ public class UserSettingsStoreTests
     }
 
     [Fact]
+    public void Export_Metadata_Defaults_Are_Resolvable_Token_Templates()
+    {
+        // Fresh installs get token defaults (resolved when the export dialog prefills); Comment stays blank
+        // so the encoder's auto "Created with Sprocket" provenance tag isn't overridden.
+        var s = new UserSettings();
+        Assert.Equal("{project}", s.ExportTitle);
+        Assert.Equal("{username}", s.ExportAuthor);
+        Assert.Equal("© {year} {username}", s.ExportCopyright);
+        Assert.Equal("", s.ExportComment);
+    }
+
+    [Fact]
     public void Timeline_Auto_Scroll_Defaults_To_Page_Scroll()
     {
         // Premiere's default, and ours; an old settings file written before the field existed gets it too.
