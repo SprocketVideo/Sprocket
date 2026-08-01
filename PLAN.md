@@ -3372,6 +3372,15 @@ Tags reference the [UI.md §4 checklist](UI.md).
       dismissal. Velopack's own version/channel logic replaced the hand-rolled SemVer parser, GitHub
       list parsing, per-RID asset targeting, and the channel-policy preference (the channel is baked
       into each install at pack time).
+    - **✅ Notification UX refinement (later pass).** The non-modal notification was made *discoverable
+      without nagging* (the status-bar badge alone was too easy to miss): a **Help-menu dot** mirrors the
+      badge (Chrome/VS Code pattern), the badge **escalates colour by age** (muted → accent → amber
+      "Update recommended", from a persisted first-seen timestamp — `UpdateEscalation.cs`, pure/tested),
+      a **one-time first-run toast** fires **once per version** (persisted `UpdateToastShownTag`, so future
+      launches stay quiet — the user chose "persistent badge only" cadence), and the Update dialog shows
+      **inline "what's new"** notes (`UpdateService.AvailableNotes` from Velopack's feed, populated by
+      `release.ps1 --releaseNotes`; falls back to the GitHub "Full Release Notes" link when absent). Still
+      no launch-time modal. Additive `UserSettings` fields; 15 new tests.
 
 46. **Delay effects (tape / digital / multi-tap / stereo).** Four new built-in `IAudioEffect`
     implementations in `Sprocket.Audio/Effects` alongside the existing `ReverbEffect` /

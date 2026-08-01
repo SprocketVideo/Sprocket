@@ -108,6 +108,10 @@ public partial class MainWindow : Window
     private StackPanel? _mcpStatusPanel;
     private StackPanel? _updateBadge;
     private TextBlock? _updateBadgeLabel;
+    private Ellipse? _updateBadgeDot, _helpMenuUpdateDot, _checkUpdatesMenuDot;
+    private Border? _updateToast;
+    private TextBlock? _updateToastText;
+    private DispatcherTimer? _updateToastTimer;
     private UpdateService? _updateService;
     private Ellipse? _mcpDot;
     private TextBlock? _mcpLabel;
@@ -232,6 +236,11 @@ public partial class MainWindow : Window
         _mcpLabel = this.FindControl<TextBlock>("McpLabel");
         _updateBadge = this.FindControl<StackPanel>("UpdateBadge");
         _updateBadgeLabel = this.FindControl<TextBlock>("UpdateBadgeLabel");
+        _updateBadgeDot = this.FindControl<Ellipse>("UpdateBadgeDot");
+        _helpMenuUpdateDot = this.FindControl<Ellipse>("HelpMenuUpdateDot");
+        _checkUpdatesMenuDot = this.FindControl<Ellipse>("CheckUpdatesMenuDot");
+        _updateToast = this.FindControl<Border>("UpdateToast");
+        _updateToastText = this.FindControl<TextBlock>("UpdateToastText");
         _timelineHeader = this.FindControl<TextBlock>("TimelineHeader")!;
         _undoMenuItem = this.FindControl<MenuItem>("UndoMenuItem")!;
         _redoMenuItem = this.FindControl<MenuItem>("RedoMenuItem")!;
@@ -285,11 +294,15 @@ public partial class MainWindow : Window
         if (Application.Current is App { UpdateService: { } updateService })
         {
             _updateService = updateService;
-            updateService.StateChanged += RefreshUpdateBadge;
-            RefreshUpdateBadge();
+            updateService.StateChanged += RefreshUpdateAffordances;
+            RefreshUpdateAffordances();
         }
         if (_updateBadge is not null)
             _updateBadge.PointerPressed += (_, _) => _ = ShowUpdateDialogAsync();
+        if (this.FindControl<Button>("UpdateToastViewButton") is { } toastView)
+            toastView.Click += (_, _) => { HideUpdateToast(); _ = ShowUpdateDialogAsync(); };
+        if (this.FindControl<Button>("UpdateToastDismissButton") is { } toastDismiss)
+            toastDismiss.Click += (_, _) => HideUpdateToast();
 
         // Autosave (PLAN.md step 20): a debounced sidecar write driven off the dirty signal. Beside the project
         // file once it has one, else a per-user untitled slot — so a crash before the first manual save is still
@@ -536,7 +549,8 @@ public partial class MainWindow : Window
         if (_mcpService is { } mcpService)
             mcpService.StateChanged -= UpdateMcpStatus; // the service outlives this window (session swaps)
         if (_updateService is { } updateService)
-            updateService.StateChanged -= RefreshUpdateBadge; // likewise app-scoped (PLAN.md step 45)
+            updateService.StateChanged -= RefreshUpdateAffordances; // likewise app-scoped (PLAN.md step 45)
+        _updateToastTimer?.Stop();
         WindowStateStore.Save(_lastNonMinimizedState); // remember maximized-or-not for next launch
         _telemetryTimer?.Stop(); // stop the status-bar poll (harmless if already idle)
         _statsOverlay?.Close(); // tear down the diagnostics overlay's poll timer
@@ -1429,18 +1443,95 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>The status-bar update badge (PLAN.md steps 36 + 45): visible only while the checker found
-    /// a newer release the user hasn't dismissed. Deliberately non-modal — nothing interrupts editing.</summary>
-    private void RefreshUpdateBadge()
+    /// <summary>The non-modal update affordances (PLAN.md steps 36 + 45, refined): the status-bar badge, the
+    /// Help-menu discoverability dot, and the one-time first-run toast. All hang off the app-scoped checker's
+    /// result; deliberately non-modal — nothing interrupts editing. The badge/dot deepen colour the longer a
+    /// known update stays uninstalled (age-based escalation), and the toast fires once per version.</summary>
+    private void RefreshUpdateAffordances()
     {
-        if (_updateBadge is null)
-            return;
         string? version = _updateService?.AvailableVersion;
-        // The no-nagging rule: hide the badge for exactly the version the user chose to skip.
-        bool show = version is not null && !string.Equals(version, _userSettings.UpdateDismissedTag, StringComparison.Ordinal);
-        _updateBadge.IsVisible = show;
-        if (show && _updateBadgeLabel is not null)
-            _updateBadgeLabel.Text = $"Update {version}";
+        // The no-nagging rule: suppress everything for exactly the version the user chose to skip.
+        bool show = version is not null &&
+            !string.Equals(version, _userSettings.UpdateDismissedTag, StringComparison.Ordinal);
+
+        // Stamp when this version was first seen so the escalation clock starts (persist only on change, so
+        // this isn't a write on every StateChanged). A newer version resets the clock and re-arms the toast.
+        if (show && !string.Equals(version, _userSettings.UpdateFirstSeenVersion, StringComparison.Ordinal))
+        {
+            _userSettings = _userSettings with
+            {
+                UpdateFirstSeenVersion = version!,
+                UpdateFirstSeenUtc = UpdateEscalation.Format(DateTimeOffset.UtcNow),
+            };
+            UserSettingsFile.Save(_userSettings);
+        }
+
+        UpdateTier tier = show
+            ? UpdateEscalation.TierFor(_userSettings.UpdateFirstSeenUtc, DateTimeOffset.UtcNow)
+            : UpdateTier.Fresh;
+        IBrush dotBrush = tier switch
+        {
+            UpdateTier.Stale => Palette.WarnBrush,
+            UpdateTier.Aging => Palette.AccentBrush,
+            _ => Palette.MutedTextBrush,
+        };
+
+        if (_updateBadge is not null)
+            _updateBadge.IsVisible = show;
+        if (show)
+        {
+            if (_updateBadgeDot is not null)
+                _updateBadgeDot.Fill = dotBrush;
+            if (_updateBadgeLabel is not null)
+                _updateBadgeLabel.Text = tier == UpdateTier.Stale ? "Update recommended" : $"Update {version}";
+        }
+
+        // Help-menu discoverability dot (+ the in-menu Check-for-Updates dot), same show flag + tier colour.
+        foreach (Ellipse? menuDot in new[] { _helpMenuUpdateDot, _checkUpdatesMenuDot })
+        {
+            if (menuDot is null)
+                continue;
+            menuDot.IsVisible = show;
+            menuDot.Fill = dotBrush;
+        }
+
+        // First-run toast: once per version, gated by the persisted tag so future launches stay quiet.
+        if (show && UpdateEscalation.ShouldToast(version, _userSettings.UpdateToastShownTag,
+                _userSettings.UpdateDismissedTag, _updateService?.IsInstalled == true))
+        {
+            _userSettings = _userSettings with { UpdateToastShownTag = version! };
+            UserSettingsFile.Save(_userSettings);
+            ShowUpdateToast(version!);
+        }
+        else if (!show)
+        {
+            HideUpdateToast();
+        }
+    }
+
+    /// <summary>Shows the first-run toast and arms its ~9 s auto-dismiss. Non-modal; it always collapses to
+    /// the still-present status-bar badge.</summary>
+    private void ShowUpdateToast(string version)
+    {
+        if (_updateToast is null)
+            return;
+        if (_updateToastText is not null)
+            _updateToastText.Text = $"Sprocket {version} is available.";
+        _updateToast.IsVisible = true;
+        _updateToastTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(9) };
+        _updateToastTimer.Tick -= OnUpdateToastTick;
+        _updateToastTimer.Tick += OnUpdateToastTick;
+        _updateToastTimer.Stop();
+        _updateToastTimer.Start();
+    }
+
+    private void OnUpdateToastTick(object? sender, EventArgs e) => HideUpdateToast();
+
+    private void HideUpdateToast()
+    {
+        _updateToastTimer?.Stop();
+        if (_updateToast is not null)
+            _updateToast.IsVisible = false;
     }
 
     /// <summary>Help ▸ Check for Updates: an explicit user request, so it bypasses the enable switch
@@ -1450,7 +1541,7 @@ public partial class MainWindow : Window
         if (_updateService is not { } service)
             return;
         UpdateService.Outcome outcome = await service.CheckAsync(_userSettings, force: true);
-        RefreshUpdateBadge();
+        RefreshUpdateAffordances();
         switch (outcome)
         {
             case UpdateService.Outcome.UpdateAvailable:
@@ -1481,7 +1572,7 @@ public partial class MainWindow : Window
         {
             _userSettings = _userSettings with { UpdateDismissedTag = version };
             UserSettingsFile.Save(_userSettings);
-            RefreshUpdateBadge();
+            RefreshUpdateAffordances();
         }
     }
 

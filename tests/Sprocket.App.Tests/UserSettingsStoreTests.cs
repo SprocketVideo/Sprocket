@@ -19,6 +19,37 @@ public class UserSettingsStoreTests
         Assert.Equal(settings, UserSettingsStore.Deserialize(UserSettingsStore.Serialize(settings)));
     }
 
+    [Fact]
+    public void Round_Trips_Update_Notification_Fields()
+    {
+        var settings = new UserSettings(
+            UpdateDismissedTag: "0.2.0-alpha.1",
+            UpdateToastShownTag: "0.2.0-alpha.2",
+            UpdateFirstSeenVersion: "0.2.0-alpha.2",
+            UpdateFirstSeenUtc: "2026-08-01T12:00:00.0000000+00:00");
+        Assert.Equal(settings, UserSettingsStore.Deserialize(UserSettingsStore.Serialize(settings)));
+    }
+
+    [Fact]
+    public void Old_Settings_File_Without_Update_Fields_Defaults_Them()
+    {
+        // A settings file written before these fields existed must still load (additive contract).
+        UserSettings s = UserSettingsStore.Deserialize("""{"UpdateCheckEnabled": true, "McpPort": 5000}""");
+        Assert.Equal("", s.UpdateToastShownTag);
+        Assert.Equal("", s.UpdateFirstSeenVersion);
+        Assert.Equal("", s.UpdateFirstSeenUtc);
+    }
+
+    [Fact]
+    public void Clamp_Normalizes_Null_Update_Fields_To_Empty()
+    {
+        UserSettings s = UserSettingsStore.Clamp(new UserSettings(
+            UpdateToastShownTag: null!, UpdateFirstSeenVersion: null!, UpdateFirstSeenUtc: null!));
+        Assert.Equal("", s.UpdateToastShownTag);
+        Assert.Equal("", s.UpdateFirstSeenVersion);
+        Assert.Equal("", s.UpdateFirstSeenUtc);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

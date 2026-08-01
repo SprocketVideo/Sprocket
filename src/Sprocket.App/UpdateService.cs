@@ -50,6 +50,11 @@ internal sealed class UpdateService
     /// when up to date, disabled, not installed, or never checked.</summary>
     public string? AvailableVersion { get; private set; }
 
+    /// <summary>The "what's new" notes Velopack carries on the target release (Markdown), shown inline in
+    /// the update dialog — <see langword="null"/>/empty when the release was packed without notes, in which
+    /// case the dialog falls back to the "Full Release Notes" link to GitHub.</summary>
+    public string? AvailableNotes { get; private set; }
+
     /// <summary>The failure message when the last check <see cref="Outcome.Failed"/>.</summary>
     public string? LastError { get; private set; }
 
@@ -107,7 +112,7 @@ internal sealed class UpdateService
 
         LastError = null;
         _update = update;
-        SetAvailable(update?.TargetFullRelease.Version.ToString());
+        SetAvailable(update?.TargetFullRelease.Version.ToString(), update?.TargetFullRelease.NotesMarkdown);
         return update is null ? Outcome.UpToDate : Outcome.UpdateAvailable;
     }
 
@@ -129,9 +134,10 @@ internal sealed class UpdateService
         _manager.ApplyUpdatesAndRestart(_update);
     }
 
-    private void SetAvailable(string? version)
+    private void SetAvailable(string? version, string? notes = null)
     {
         AvailableVersion = version;
+        AvailableNotes = notes;
         StateChanged?.Invoke();
     }
 }

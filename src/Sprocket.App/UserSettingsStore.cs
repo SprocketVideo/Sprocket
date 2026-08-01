@@ -28,6 +28,14 @@ namespace Sprocket.App;
 /// Only Velopack-installed builds can also download/apply; a portable build never checks.</param>
 /// <param name="UpdateDismissedTag">The release version the user dismissed ("Skip This Version") — the
 /// badge stays hidden for exactly that version, so a result never nags across startups.</param>
+/// <param name="UpdateToastShownTag">The release version whose one-time "heads up" toast has already been
+/// shown. Gated per-version (not per-session) so future launches show only the quiet status-bar badge —
+/// the toast never re-appears for a version once seen.</param>
+/// <param name="UpdateFirstSeenVersion">The available release version we first detected — paired with
+/// <see cref="UpdateFirstSeenUtc"/> to drive the badge's age-based escalation. Reset when a newer version appears.</param>
+/// <param name="UpdateFirstSeenUtc">ISO-8601 (round-trip "O") timestamp of when <see cref="UpdateFirstSeenVersion"/>
+/// was first detected. The status-bar badge deepens color the longer a known update stays uninstalled. Held as
+/// a string so a hand-edited/garbage value degrades safely at the single parse point (<see cref="UpdateEscalation"/>).</param>
 /// <param name="StillImageDefaultSeconds">Default on-timeline duration for a newly imported still image, in
 /// seconds (PLAN.md step 42; the industry-convention default is 5 s). A still's media headroom is unbounded, so this is only
 /// the initial drop length.</param>
@@ -51,6 +59,9 @@ public sealed record UserSettings(
     string McpToken = "",
     bool UpdateCheckEnabled = true,
     string UpdateDismissedTag = "",
+    string UpdateToastShownTag = "",
+    string UpdateFirstSeenVersion = "",
+    string UpdateFirstSeenUtc = "",
     double StillImageDefaultSeconds = 5,
     string TimelineAutoScroll = nameof(Sprocket.App.TimelineAutoScroll.Page),
     bool LinuxDesktopIntegrationPrompted = false);
@@ -118,6 +129,9 @@ public static class UserSettingsStore
         McpPort = Math.Clamp(settings.McpPort, MinPort, MaxPort),
         McpToken = settings.McpToken ?? "",
         UpdateDismissedTag = settings.UpdateDismissedTag ?? "",
+        UpdateToastShownTag = settings.UpdateToastShownTag ?? "",
+        UpdateFirstSeenVersion = settings.UpdateFirstSeenVersion ?? "",
+        UpdateFirstSeenUtc = settings.UpdateFirstSeenUtc ?? "",
         StillImageDefaultSeconds = Math.Clamp(settings.StillImageDefaultSeconds, MinStillSeconds, MaxStillSeconds),
         TimelineAutoScroll = ParseAutoScroll(settings.TimelineAutoScroll).ToString(),
     };

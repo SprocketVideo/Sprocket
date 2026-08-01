@@ -452,6 +452,13 @@ function Add-VelopackPackage([string] $rid, [string] $publishDir) {
         '--channel', $rid,
         '--outputDir', $vpkOut
     )
+    # Ship the release notes in the feed so the in-app "Update Available" dialog can show "what's new"
+    # inline (UpdateService.AvailableNotes -> UpdateAvailableDialog). Absent file = notes-less package,
+    # and the dialog falls back to its "Full Release Notes" link. RELEASE_NOTES.md lives at repo root.
+    $releaseNotesPath = Join-Path $repoRoot 'RELEASE_NOTES.md'
+    if (Test-Path $releaseNotesPath) {
+        $vpkArgs += @('--releaseNotes', $releaseNotesPath)
+    }
     if ($rid -like 'win-*') {
         $vpkArgs += @('--icon', (Join-Path $repoRoot 'src/Sprocket.App/Assets/sprocket.ico'))
     }

@@ -39,7 +39,7 @@ internal static class UpdateAvailableDialog
         };
         var releaseNotes = new Button
         {
-            Content = "Release Notes",
+            Content = "Full Release Notes",
             Padding = new Thickness(14, 5),
             Foreground = Palette.TextBrush,
             Background = Palette.PanelBgBrush,
@@ -77,12 +77,41 @@ internal static class UpdateAvailableDialog
             TextWrapping = TextWrapping.Wrap,
         };
 
+        // "What's new", when the release was packed with notes (Velopack carries them on the feed). Rendered
+        // as lightly-softened plain text — no markdown NuGet, keeping the managed footprint small. Absent
+        // notes → the region collapses and the "Full Release Notes" button (GitHub) is the only path.
+        string notes = SoftenMarkdown(service.AvailableNotes);
+        bool hasNotes = notes.Length > 0;
+        var notesRegion = new Border
+        {
+            [DockPanel.DockProperty] = Dock.Top,
+            IsVisible = hasNotes,
+            Margin = new Thickness(0, 12, 0, 0),
+            Padding = new Thickness(12, 10),
+            Background = Palette.SectionBgBrush,
+            BorderBrush = Palette.EdgeBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(5),
+            Child = new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                Content = new SelectableTextBlock
+                {
+                    Text = notes,
+                    Foreground = Palette.TextBrush,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                },
+            },
+        };
+
         var dialog = new Window
         {
             Title = "Update Available",
             Icon = AppIcon.Window,
             Width = 640,
-            Height = 240,
+            Height = hasNotes ? 440 : 240,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
@@ -102,8 +131,8 @@ internal static class UpdateAvailableDialog
                     },
                     new StackPanel
                     {
+                        [DockPanel.DockProperty] = Dock.Top,
                         Spacing = 8,
-                        VerticalAlignment = VerticalAlignment.Center,
                         Children =
                         {
                             new TextBlock
@@ -119,10 +148,18 @@ internal static class UpdateAvailableDialog
                                 Foreground = Palette.MutedTextBrush,
                                 FontSize = 12,
                             },
-                            status,
-                            progress,
                         },
                     },
+                    // Bottom-docked so it sits just above the buttons; the notes region (Dock.Top) then fills
+                    // the middle. Order in the tree matters for DockPanel — last un-docked child fills.
+                    new StackPanel
+                    {
+                        [DockPanel.DockProperty] = Dock.Bottom,
+                        Spacing = 8,
+                        Margin = new Thickness(0, 12, 0, 0),
+                        Children = { status, progress },
+                    },
+                    notesRegion,
                 },
             },
         };
@@ -152,6 +189,34 @@ internal static class UpdateAvailableDialog
         later.Click += (_, _) => dialog.Close(UpdateDialogResult.Close);
 
         return dialog.ShowDialog<UpdateDialogResult>(owner);
+    }
+
+    /// <summary>
+    /// Turns release-notes Markdown into readable plain text for the inline "what's new" box — we render
+    /// with a plain <see cref="SelectableTextBlock"/> (no markdown NuGet), so soften the common syntax:
+    /// strip heading hashes and bullet/emphasis markers, drop leading/trailing blank lines, and normalize
+    /// line endings. Not a full parser — just enough that raw Markdown doesn't read as noise.
+    /// </summary>
+    internal static string SoftenMarkdown(string? md)
+    {
+        if (string.IsNullOrWhiteSpace(md))
+            return "";
+        var sb = new System.Text.StringBuilder(md.Length);
+        foreach (string rawLine in md.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+        {
+            string line = rawLine.TrimEnd();
+            string trimmed = line.TrimStart();
+            // Headings: drop the leading '#'s, keep the text (as its own line).
+            if (trimmed.StartsWith('#'))
+                trimmed = trimmed.TrimStart('#').TrimStart();
+            // Bullets: normalize '*'/'+'/'-' list markers to a bullet glyph, preserving indentation.
+            else if (trimmed.StartsWith("- ") || trimmed.StartsWith("* ") || trimmed.StartsWith("+ "))
+                trimmed = "• " + trimmed[2..];
+            // Inline emphasis/code markers: strip the noise characters (leave the words).
+            trimmed = trimmed.Replace("**", "").Replace("`", "");
+            sb.Append(trimmed).Append('\n');
+        }
+        return sb.ToString().Trim('\n');
     }
 
     /// <summary>Best-effort browser launch, like About's Open Logs Folder: no launcher / a malformed

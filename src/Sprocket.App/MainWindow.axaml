@@ -212,8 +212,27 @@
           <MenuItem x:Name="WindowMenu" Header="_Window">
             <MenuItem x:Name="ResetLayoutMenuItem" Header="_Reset Layout" />
           </MenuItem>
-          <MenuItem x:Name="HelpMenu" Header="_Help">
-            <MenuItem x:Name="CheckUpdatesMenuItem" Header="Check for _Updates…" />
+          <MenuItem x:Name="HelpMenu">
+            <!-- Custom header keeps the Alt+H mnemonic (AccessText) while adding a discoverability dot
+                 (RefreshUpdateAffordances toggles HelpMenuUpdateDot): the update badge lives in the status
+                 bar, easy to miss, so an update is also surfaced here (Chrome/VS Code pattern). The dot
+                 colour tracks the same escalation tier as the badge. -->
+            <MenuItem.Header>
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <AccessText Text="_Help" />
+                <Ellipse x:Name="HelpMenuUpdateDot" Width="6" Height="6" Margin="5,0,0,0"
+                         Fill="{DynamicResource Accent}" VerticalAlignment="Center" IsVisible="False" />
+              </StackPanel>
+            </MenuItem.Header>
+            <MenuItem x:Name="CheckUpdatesMenuItem">
+              <MenuItem.Header>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                  <AccessText Text="Check for _Updates…" />
+                  <Ellipse x:Name="CheckUpdatesMenuDot" Width="6" Height="6" Margin="7,0,0,0"
+                           Fill="{DynamicResource Accent}" VerticalAlignment="Center" IsVisible="False" />
+                </StackPanel>
+              </MenuItem.Header>
+            </MenuItem>
             <!-- Linux AppImage only: shown/hidden in WireMenu per install state (an AppImage does not
                  register itself in the applications menu — these let the user add/remove that entry). -->
             <MenuItem x:Name="AddToApplicationsMenuMenuItem" Header="Add to _Applications Menu" IsVisible="False" />
@@ -329,7 +348,7 @@
                       Margin="10,0,0,0" IsVisible="False" Cursor="Hand" Background="Transparent"
                       ToolTip.Tip="A newer version of Sprocket is available — click for details.">
             <Border Width="1" Height="12" Background="{DynamicResource Edge}" Margin="0,0,4,0" />
-            <Ellipse Width="8" Height="8" Fill="{DynamicResource Accent}" VerticalAlignment="Center" />
+            <Ellipse x:Name="UpdateBadgeDot" Width="8" Height="8" Fill="{DynamicResource Accent}" VerticalAlignment="Center" />
             <TextBlock x:Name="UpdateBadgeLabel" Foreground="{DynamicResource MutedText}" FontSize="11"
                        VerticalAlignment="Center" Text="" />
           </StackPanel>
@@ -585,5 +604,28 @@
     </Grid>
   </DockPanel>
   <Grid x:Name="FullscreenPreviewHost" IsVisible="False" Background="Black" />
+
+  <!-- First-run update toast: a lightweight, non-modal "heads up" shown once per version (gated by the
+       persisted UpdateToastShownTag), then auto-dismissed to the quiet status-bar badge. Never on launch
+       as a modal — this is the deliberate anti-nag alternative to VS Code's restart prompt. Driven by
+       RefreshUpdateAffordances(); View opens the update dialog, Dismiss/timeout just hides it. -->
+  <Border x:Name="UpdateToast" IsVisible="False" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+          Margin="0,0,16,38" Padding="14,10" MaxWidth="360"
+          Background="{DynamicResource RaisedBg}" BorderBrush="{DynamicResource Edge}" BorderThickness="1"
+          CornerRadius="6" BoxShadow="0 6 20 0 #66000000">
+    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+      <Ellipse Width="8" Height="8" Fill="{DynamicResource Accent}" VerticalAlignment="Center" />
+      <TextBlock x:Name="UpdateToastText" Foreground="{DynamicResource Text}" FontSize="12"
+                 VerticalAlignment="Center" TextWrapping="Wrap" Text="" />
+      <Button x:Name="UpdateToastViewButton" Classes="primary" Content="View" Padding="12,3"
+              VerticalAlignment="Center" />
+      <Button x:Name="UpdateToastDismissButton" Classes="caption" VerticalAlignment="Center"
+              AutomationProperties.Name="Dismiss" ToolTip.Tip="Dismiss">
+        <Path Data="{x:Static local:Icons.Close}" Stroke="{DynamicResource MutedText}"
+              StrokeThickness="1.2" StrokeLineCap="Round" StrokeJoin="Round"
+              Width="{x:Static local:IconSizes.Chrome}" Height="{x:Static local:IconSizes.Chrome}" Stretch="Uniform" />
+      </Button>
+    </StackPanel>
+  </Border>
   </Panel>
 </Window>
