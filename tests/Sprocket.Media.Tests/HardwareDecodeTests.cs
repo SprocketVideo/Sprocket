@@ -82,4 +82,24 @@ public class HardwareDecodeTests
         if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
             Assert.NotEmpty(preferred);
     }
+
+    [Fact]
+    public void LibVa_Preflight_Never_Blocks_Vaapi_Off_Linux()
+    {
+        // The pre-flight guards only the Linux VAAPI-via-bundled-FFmpeg path; on Windows/macOS VAAPI is not in
+        // the probe list and the pre-flight must be an unconditional pass so it never masks another OS's devices.
+        if (!OperatingSystem.IsLinux())
+            Assert.True(LibVaPreflight.VaapiUsable);
+    }
+
+    [Fact]
+    public void TryCreate_Vaapi_Is_Null_When_Libva_Is_Unusable()
+    {
+        // The core safety property: when the system libva is too old/absent, opening a VAAPI device returns null
+        // (degrade to software) instead of reaching FFmpeg's VAAPI init, which would abort the process natively.
+        // When libva IS usable, TryCreate may still return null (no GPU/driver present) — both are non-crashing,
+        // so we only assert the guaranteed direction.
+        if (!LibVaPreflight.VaapiUsable)
+            Assert.Null(HardwareDevice.TryCreate(HardwareDeviceType.Vaapi));
+    }
 }

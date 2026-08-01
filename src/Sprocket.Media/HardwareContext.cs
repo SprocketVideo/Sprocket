@@ -20,6 +20,8 @@ public enum HardwareAccelMode
 /// decode stack is unstable enough to crash the process (notably a broken VAAPI driver on Linux, which can
 /// segfault natively inside FFmpeg where no managed handler can catch it). Any other value, or leaving it
 /// unset, keeps the default hardware-with-software-fallback probe (<see cref="HardwareAccelMode.Auto"/>).
+/// The most common such crash — a system <c>libva</c> too old for the bundled FFmpeg — is already caught
+/// automatically by <see cref="LibVaPreflight"/>, so this override is only needed for other unstable stacks.
 /// </summary>
 public static class HardwareAccelSettings
 {
@@ -102,6 +104,12 @@ public sealed unsafe class HardwareDevice : IHardwareContext
     /// <summary>Attempts to open a device of <paramref name="type"/>. Returns <c>null</c> if it is unavailable.</summary>
     public static HardwareDevice? TryCreate(HardwareDeviceType type)
     {
+        // A too-old / absent system libva makes FFmpeg's VAAPI init abort the process natively (uncatchable)
+        // rather than fail — pre-flight it and treat "unusable" as "unavailable" so callers degrade to the
+        // next device / software instead of crashing (see LibVaPreflight). Off Linux this is always true.
+        if (type == HardwareDeviceType.Vaapi && !LibVaPreflight.VaapiUsable)
+            return null;
+
         int rc = LibAv.av_hwdevice_ctx_create(out IntPtr ctx, (int)type, null, IntPtr.Zero, 0);
         if (rc < 0 || ctx == IntPtr.Zero)
         {

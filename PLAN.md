@@ -308,11 +308,19 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
      - **Verified on this Windows machine:** the bundled FFmpeg exposes CUDA/VAAPI/DXVA2/QSV/D3D11VA/Vulkan/
        D3D12VA; `Auto` selected **D3D11VA** and decoded the fixture on the GPU. Linux/macOS rest on the same
        managed code + bundled libs (steps 35–36) + on-device verification.
-     - **Tests (6, deterministic regardless of GPU):** software mode uses no device and decodes in order; auto
+     - **VAAPI libva pre-flight (`src/Sprocket.Media/LibVaPreflight.cs`, added post-alpha):** the bundled BtbN
+       FFmpeg links `libva` via lazy trampolines that **`abort()` the process** (not return an error) when the
+       system `libva.so.2` lacks a symbol they need — an old distro without `vaMapBuffer2` (libva 2.17) crashes
+       the app on launch, natively, below the managed software-fallback handler. `HardwareDevice.TryCreate`
+       now pre-flights VAAPI by `dlopen`ing the system `libva` and probing that sentinel symbol; when it is
+       missing/absent it returns `null` (skip VAAPI → next device / software) **before** FFmpeg's VAAPI init can
+       trip the trampoline. Loads the system `libva` directly, so the probe itself can't abort. The manual
+       `SPROCKET_HWACCEL=off` override remains the blanket escape hatch for other unstable stacks.
+     - **Tests (8, deterministic regardless of GPU):** software mode uses no device and decodes in order; auto
        mode decodes whether or not hardware engages; **the hardware and software paths produce identical frame
        PTS** (so the GPU path never breaks frame-accuracy — this comparison ran hardware-vs-software here);
-       compiled/preferred type lists are populated. Full suite: **109 tests green** (Core 42, Media 24, Audio
-       16, Playback 27).
+       compiled/preferred type lists are populated; **the libva pre-flight passes unconditionally off Linux and,
+       when libva is unusable, `TryCreate(Vaapi)` returns null instead of crashing.**
 7. Effects (brightness, fade) + audio volume/fade in mixer.
    - **✅ DONE (`src/Sprocket.Render/SkiaEffectPipeline.cs`; 8 tests in `tests/Sprocket.Render.Tests`).** The
      slice's effects now run as real SkSL on the GPU preview, and the audio half (gain/fade) was already

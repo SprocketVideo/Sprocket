@@ -317,7 +317,7 @@ in terms an app-side committer can check against their diff.
 | Render In to Out / Selection / Audio (Sequence menu) | MainWindow.axaml.cs `RenderRangeAsync` | performance/proxies-and-render-cache.md#render-a-range-for-smooth-playback | ✅ |
 | Render bar (green/yellow/red cache states) | RenderCache/RenderBarModel.cs | performance/proxies-and-render-cache.md#the-render-bar-what-needs-rendering | ✅ |
 | Delete Render Files (with disk footprint) | MainWindow.axaml.cs `DeleteRenderFilesAsync` | performance/proxies-and-render-cache.md#reclaim-disk-space | ✅ |
-| Hardware-accelerated decode (automatic; software fallback) | Sprocket.Media/HardwareContext.cs; PLAN.md step 6; README | performance/troubleshooting-playback.md#if-the-preview-cant-keep-up | ➖ (automatic; covered only as a troubleshooting note) |
+| Hardware-accelerated decode (automatic; software fallback, incl. auto-skip of VAAPI when the Linux system libva is too old for the bundled FFmpeg) | Sprocket.Media/HardwareContext.cs; Sprocket.Media/LibVaPreflight.cs; PLAN.md step 6; README | performance/troubleshooting-playback.md#if-the-preview-cant-keep-up | ➖ (automatic; covered only as a troubleshooting note) |
 
 ## 8. AI control (MCP) & command line
 
