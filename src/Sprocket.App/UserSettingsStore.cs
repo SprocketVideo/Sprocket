@@ -31,6 +31,10 @@ namespace Sprocket.App;
 /// <see cref="Sprocket.App.TimelineAutoScroll"/> name ("None" / "Page" / "Smooth"), defaulting to Premiere's
 /// Page Scroll. Held as a string so the file stays readable and a hand-edited/unknown value degrades to the
 /// default instead of throwing; <see cref="UserSettingsStore.ParseAutoScroll"/> is the one conversion point.</param>
+/// <param name="LinuxDesktopIntegrationPrompted">Whether the Linux AppImage first-run "add to applications
+/// menu?" prompt has already been shown (PLAN.md step 36). Set once the user has answered either way, so the
+/// offer never nags across launches; the Help ▸ Add/Remove items remain available regardless. No effect off
+/// Linux / off the AppImage build.</param>
 public sealed record UserSettings(
     string ExportTitle = "",
     string ExportAuthor = "",
@@ -44,7 +48,8 @@ public sealed record UserSettings(
     bool UpdateCheckEnabled = true,
     string UpdateDismissedTag = "",
     double StillImageDefaultSeconds = 5,
-    string TimelineAutoScroll = nameof(Sprocket.App.TimelineAutoScroll.Page));
+    string TimelineAutoScroll = nameof(Sprocket.App.TimelineAutoScroll.Page),
+    bool LinuxDesktopIntegrationPrompted = false);
 
 /// <summary>
 /// The pure, headlessly-tested (de)serialization and validation logic for <see cref="UserSettings"/> —

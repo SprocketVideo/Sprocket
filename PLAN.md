@@ -2522,7 +2522,13 @@ Tags reference the [UI.md §4 checklist](UI.md).
       generated on the fly from the 1024px PNG; FFmpeg dylibs `@loader_path`-resolved beside the
       binary) — plus full/delta update packages and `releases.<rid>.json` feeds. **Auto-update** is in
       the app (`UpdateService.cs` on Velopack `UpdateManager` + GitHub releases; Install & Restart from
-      the update dialog). The tag-triggered CI matrix (`.github/workflows/release.yml`, cut locally by
+      the update dialog). **Linux AppImage desktop integration** is also in-app
+      (`LinuxDesktopIntegration.cs`): because an AppImage never registers itself, a running AppImage
+      offers on first launch to add Sprocket to the applications menu (writing
+      `~/.local/share/applications/sprocket.desktop` with `Exec` resolved from `$APPIMAGE`, plus the
+      hicolor/pixmaps icon, then refreshing the caches) — the in-app equivalent of the portable zip's
+      `packaging/linux/install.sh`; the same add/remove actions live under **Help** and the one-time
+      offer is remembered in `UserSettings.LinuxDesktopIntegrationPrompted`. The tag-triggered CI matrix (`.github/workflows/release.yml`, cut locally by
       the `scripts/gh-release.ps1` tag-cutter) builds win/linux/macos (arm64 + `macos-15-intel`) on
       native runners, **smoke-launches every artifact headlessly** (`--version` / `--ffmpeg-check` /
       `--audio-check`; Windows additionally does a real silent install), and a single final job

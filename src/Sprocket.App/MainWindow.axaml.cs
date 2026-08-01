@@ -593,6 +593,21 @@ public partial class MainWindow : Window
         this.FindControl<MenuItem>("ThirdPartyNoticesMenuItem")!.Click += (_, _) => _ = ThirdPartyNoticesDialog.Show(this);
         this.FindControl<MenuItem>("AboutMenuItem")!.Click += (_, _) => _ = AboutDialog.Show(this);
 
+        // Linux AppImage desktop integration (PLAN.md step 36): the two items are hidden by default and only
+        // ever surface on a running AppImage, one at a time per whether the launcher is already installed —
+        // refreshed each time the Help menu opens (a Help-menu Add/Remove or the first-run prompt flips it).
+        MenuItem addAppMenuItem = this.FindControl<MenuItem>("AddToApplicationsMenuMenuItem")!;
+        MenuItem removeAppMenuItem = this.FindControl<MenuItem>("RemoveFromApplicationsMenuMenuItem")!;
+        addAppMenuItem.Click += (_, _) => _ = AddToApplicationsMenuAsync();
+        removeAppMenuItem.Click += (_, _) => _ = RemoveFromApplicationsMenuAsync();
+        if (LinuxDesktopIntegration.IsAvailable)
+            this.FindControl<MenuItem>("HelpMenu")!.SubmenuOpened += (_, _) =>
+            {
+                bool installed = LinuxDesktopIntegration.IsInstalled;
+                addAppMenuItem.IsVisible = !installed;
+                removeAppMenuItem.IsVisible = installed;
+            };
+
         KeyDown += OnKeyDown;
     }
 
@@ -1042,7 +1057,11 @@ public partial class MainWindow : Window
         // Park focus in the default work area (the timeline) once the shell is up. Two reasons: the accent edge
         // shouldn't claim an area nothing is focused in, and a key event with no focused element is raised on the
         // window rather than routed up through ShellRoot — so the first Tab would miss the handler above.
-        Opened += (_, _) => FocusWorkArea(_activeArea);
+        Opened += (_, _) =>
+        {
+            FocusWorkArea(_activeArea);
+            _ = MaybeOfferLinuxDesktopIntegrationAsync();
+        };
     }
 
     /// <summary>
@@ -1464,6 +1483,67 @@ public partial class MainWindow : Window
             UserSettingsFile.Save(_userSettings);
             RefreshUpdateBadge();
         }
+    }
+
+    // Guards the first-run integration offer to once per process: MainWindow is rebuilt on File ▸ New / Open
+    // session swaps, and each new window's Opened would otherwise re-ask before the settings flag is written.
+    private static bool _linuxIntegrationOffered;
+
+    /// <summary>
+    /// First-run only (PLAN.md step 36): on a Linux AppImage that hasn't been integrated yet, offers to add
+    /// Sprocket to the applications menu — an AppImage never registers itself, so without this it only ever
+    /// runs by double-clicking the file. A no-op everywhere else (other OSes, portable/dev runs, or once the
+    /// user has already answered). The answer is persisted either way so the prompt never nags again; the
+    /// Help ▸ Add/Remove items remain the way in afterwards.
+    /// </summary>
+    private async Task MaybeOfferLinuxDesktopIntegrationAsync()
+    {
+        if (_linuxIntegrationOffered)
+            return;
+        _linuxIntegrationOffered = true;
+
+        if (!LinuxDesktopIntegration.IsAvailable || _userSettings.LinuxDesktopIntegrationPrompted)
+            return;
+
+        // Already integrated (e.g. the user added it from the Help menu on a prior run): record that there is
+        // nothing to ask and move on, rather than offering to add what is already there.
+        if (LinuxDesktopIntegration.IsInstalled)
+        {
+            _userSettings = _userSettings with { LinuxDesktopIntegrationPrompted = true };
+            UserSettingsFile.Save(_userSettings);
+            return;
+        }
+
+        bool add = await ConfirmDialog.Show(this, "Add to Applications Menu",
+            "Add Sprocket to your applications menu so you can launch it like any installed app? "
+            + "This adds a launcher and icon for your user account — you can remove it later from the Help menu.",
+            "Add", "Not Now");
+
+        _userSettings = _userSettings with { LinuxDesktopIntegrationPrompted = true };
+        UserSettingsFile.Save(_userSettings);
+
+        if (add)
+            await AddToApplicationsMenuAsync();
+    }
+
+    /// <summary>Help ▸ Add to Applications Menu (and the accepted first-run offer): writes the launcher + icon
+    /// off the UI thread, then reports the outcome.</summary>
+    private async Task AddToApplicationsMenuAsync()
+    {
+        bool ok = await Task.Run(LinuxDesktopIntegration.Install);
+        await MessageDialog.Show(this, "Applications Menu", ok
+            ? "Sprocket was added to your applications menu. If it doesn't appear right away, log out and back "
+              + "in (or restart the desktop shell) to refresh the menu."
+            : "Sprocket could not be added to the applications menu. See Help ▸ About ▸ Open Logs Folder for details.");
+    }
+
+    /// <summary>Help ▸ Remove from Applications Menu: removes the launcher + icon this user installed.</summary>
+    private async Task RemoveFromApplicationsMenuAsync()
+    {
+        bool ok = await Task.Run(LinuxDesktopIntegration.Uninstall);
+        await MessageDialog.Show(this, "Applications Menu", ok
+            ? "Sprocket was removed from your applications menu."
+            : "Sprocket could not be removed from the applications menu. See Help ▸ About ▸ Open Logs Folder for details.");
     }
 
     /// <summary>

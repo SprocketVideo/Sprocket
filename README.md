@@ -99,7 +99,8 @@ themselves in-app. The alpha builds are **not code-signed yet**, so each OS show
 warning — the release notes on every release walk through it.
 
 - **Windows** — run `Sprocket-win-x64-Setup.exe` (SmartScreen: *More info → Run anyway*).
-- **Linux** — `chmod +x Sprocket-linux-x64.AppImage && ./Sprocket-linux-x64.AppImage`.
+- **Linux** — `chmod +x Sprocket-linux-x64.AppImage && ./Sprocket-linux-x64.AppImage`. On first launch it
+  offers to add itself to your applications menu (also available anytime under **Help**).
 - **macOS** — unzip `Sprocket-osx-arm64-Portable.zip` (Apple Silicon) or `…-osx-x64-…` (Intel),
   drag `Sprocket.app` to Applications. macOS will claim the app is "damaged" (it isn't — it's
   unsigned); clear it with `xattr -dr com.apple.quarantine /Applications/Sprocket.app` — details

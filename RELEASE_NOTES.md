@@ -71,7 +71,12 @@ chmod +x Sprocket-linux-x64.AppImage
 ./Sprocket-linux-x64.AppImage
 ```
 
-- The AppImage integrates a launcher icon and updates itself.
+- On first launch Sprocket offers to **add itself to your applications menu** (a per-user launcher +
+  icon, no root needed), so you can start it like any installed app afterwards. You can add or remove
+  that entry anytime from the **Help** menu. The AppImage also updates itself in place.
+- Prefer to keep it fully portable, or want it to integrate automatically? Installing
+  [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) makes your system prompt to
+  integrate any AppImage on first run — an alternative to Sprocket's built-in offer.
 - If it won't start, your distro may need FUSE for AppImages (e.g. Ubuntu ≥ 22.04:
   `sudo apt install libfuse2`), or use the portable zip instead: unzip, `chmod +x Sprocket`, run
   `./Sprocket` (the included `install.sh` adds a launcher icon; portable builds don't self-update).

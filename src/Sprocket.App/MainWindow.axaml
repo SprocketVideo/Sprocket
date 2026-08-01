@@ -212,8 +212,12 @@
           <MenuItem x:Name="WindowMenu" Header="_Window">
             <MenuItem x:Name="ResetLayoutMenuItem" Header="_Reset Layout" />
           </MenuItem>
-          <MenuItem Header="_Help">
+          <MenuItem x:Name="HelpMenu" Header="_Help">
             <MenuItem x:Name="CheckUpdatesMenuItem" Header="Check for _Updates…" />
+            <!-- Linux AppImage only: shown/hidden in WireMenu per install state (an AppImage does not
+                 register itself in the applications menu — these let the user add/remove that entry). -->
+            <MenuItem x:Name="AddToApplicationsMenuMenuItem" Header="Add to _Applications Menu" IsVisible="False" />
+            <MenuItem x:Name="RemoveFromApplicationsMenuMenuItem" Header="Remove from Applications _Menu" IsVisible="False" />
             <Separator />
             <MenuItem x:Name="DocsMenuItem" Header="_Documentation" />
             <MenuItem x:Name="WebsiteMenuItem" Header="Sprocket _Website" />
