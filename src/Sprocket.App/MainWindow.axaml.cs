@@ -1530,7 +1530,18 @@ public partial class MainWindow : Window
     /// off the UI thread, then reports the outcome.</summary>
     private async Task AddToApplicationsMenuAsync()
     {
-        bool ok = await Task.Run(LinuxDesktopIntegration.Install);
+        bool ok;
+        try
+        {
+            // Render the icon sizes on the UI thread (Avalonia bitmap scaling), then do the file/cache IO off it.
+            IReadOnlyDictionary<int, byte[]> icons = LinuxDesktopIntegration.RenderIcons();
+            ok = await Task.Run(() => LinuxDesktopIntegration.Install(icons));
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("Linux desktop integration install failed", ex);
+            ok = false;
+        }
         await MessageDialog.Show(this, "Applications Menu", ok
             ? "Sprocket was added to your applications menu. If it doesn't appear right away, log out and back "
               + "in (or restart the desktop shell) to refresh the menu."

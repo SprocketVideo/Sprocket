@@ -1,6 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using Avalonia;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 
 namespace Sprocket.App;
@@ -53,31 +57,43 @@ internal static class LinuxDesktopIntegration
 
     private static string AppsDir => Path.Combine(DataHome, "applications");
     private static string DesktopFilePath => Path.Combine(AppsDir, ResourceName + ".desktop");
-    private static string IconThemeDir => Path.Combine(DataHome, "icons", "hicolor", "1024x1024", "apps");
     private static string HicolorRoot => Path.Combine(DataHome, "icons", "hicolor");
     private static string PixmapsDir => Path.Combine(DataHome, "pixmaps");
+
+    // The standard hicolor buckets the icon is installed into. A single 1024x1024 file is invisible to GTK /
+    // Cinnamon icon lookup: 1024x1024 is not a size declared in the hicolor index.theme, and the menu only
+    // searches the indexed buckets — so we render one PNG per size below (see RenderIcons).
+    private static readonly int[] IconSizes = { 16, 24, 32, 48, 64, 128, 256, 512 };
+
+    private static string IconAppsDir(int size) => Path.Combine(HicolorRoot, $"{size}x{size}", "apps");
 
     /// <summary>
     /// Writes the launcher <c>.desktop</c> and installs the app icon for the current user, then refreshes the
     /// desktop/icon caches so the entry appears without a re-login. Returns <see langword="false"/> (and logs)
     /// if anything went wrong or this is not an AppImage run.
     /// </summary>
-    public static bool Install()
+    public static bool Install(IReadOnlyDictionary<int, byte[]> icons)
     {
-        if (AppImagePath is not { Length: > 0 } appImage)
+        if (AppImagePath is not { Length: > 0 } appImage || icons.Count == 0)
             return false;
 
         try
         {
             Directory.CreateDirectory(AppsDir);
-            Directory.CreateDirectory(IconThemeDir);
             Directory.CreateDirectory(PixmapsDir);
 
-            // The icon comes from the embedded avares resource (the same Assets/sprocket.png the window uses),
-            // so integration never depends on a stray file next to the AppImage payload.
-            byte[] icon = ReadEmbeddedIcon();
-            File.WriteAllBytes(Path.Combine(IconThemeDir, ResourceName + ".png"), icon);
-            File.WriteAllBytes(Path.Combine(PixmapsDir, ResourceName + ".png"), icon);
+            // One PNG per indexed hicolor bucket, so the menu / panel / window-switcher each find a crisp icon
+            // at the size they ask for. The bytes are pre-rendered by RenderIcons (which needs the UI thread).
+            foreach ((int size, byte[] png) in icons)
+            {
+                string dir = IconAppsDir(size);
+                Directory.CreateDirectory(dir);
+                File.WriteAllBytes(Path.Combine(dir, ResourceName + ".png"), png);
+            }
+
+            // A broad legacy fallback for panels / file managers that bypass the icon theme entirely.
+            byte[] pixmap = icons.TryGetValue(256, out byte[]? p) ? p : icons.Values.Last();
+            File.WriteAllBytes(Path.Combine(PixmapsDir, ResourceName + ".png"), pixmap);
 
             File.WriteAllText(DesktopFilePath, BuildDesktopEntry(appImage));
 
@@ -98,7 +114,10 @@ internal static class LinuxDesktopIntegration
         try
         {
             File.Delete(DesktopFilePath);
-            File.Delete(Path.Combine(IconThemeDir, ResourceName + ".png"));
+            foreach (int size in IconSizes)
+                File.Delete(Path.Combine(IconAppsDir(size), ResourceName + ".png"));
+            // Also sweep the pre-fix single 1024x1024 icon, so upgrading users don't leave one behind.
+            File.Delete(Path.Combine(HicolorRoot, "1024x1024", "apps", ResourceName + ".png"));
             File.Delete(Path.Combine(PixmapsDir, ResourceName + ".png"));
             RefreshCaches();
             return true;
@@ -140,12 +159,24 @@ internal static class LinuxDesktopIntegration
         return "\"" + escaped + "\"";
     }
 
-    private static byte[] ReadEmbeddedIcon()
+    /// <summary>
+    /// Renders the embedded app icon (the same <c>avares://Sprocket/Assets/sprocket.png</c> the window uses)
+    /// to a PNG for each <see cref="IconSizes"/> bucket, high-quality-downscaled from the 1024px source. Uses
+    /// Avalonia bitmap APIs, so <b>call it on the UI thread</b>; the resulting bytes are then written by the
+    /// thread-agnostic <see cref="Install(IReadOnlyDictionary{int, byte[]})"/> off the UI thread.
+    /// </summary>
+    public static Dictionary<int, byte[]> RenderIcons()
     {
-        using Stream s = AssetLoader.Open(new Uri("avares://Sprocket/Assets/sprocket.png"));
-        using var ms = new MemoryStream();
-        s.CopyTo(ms);
-        return ms.ToArray();
+        using var source = new Bitmap(AssetLoader.Open(new Uri("avares://Sprocket/Assets/sprocket.png")));
+        var result = new Dictionary<int, byte[]>(IconSizes.Length);
+        foreach (int size in IconSizes)
+        {
+            using Bitmap scaled = source.CreateScaledBitmap(new PixelSize(size, size), BitmapInterpolationMode.HighQuality);
+            using var ms = new MemoryStream();
+            scaled.Save(ms);
+            result[size] = ms.ToArray();
+        }
+        return result;
     }
 
     // Best-effort cache refresh so the entry/icon appear without a re-login; both tools are optional and a
