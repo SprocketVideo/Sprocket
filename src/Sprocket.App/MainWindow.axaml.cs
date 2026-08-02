@@ -1895,11 +1895,15 @@ public partial class MainWindow : Window
         // ready (wired in the bootstrap); here we just reflect progress in the status bar without interrupting flow.
         if (_proxy is { Enabled: true })
         {
-            _proxy.ProxyReady += _ => Dispatcher.UIThread.Post(() =>
+            _proxy.ProgressChanged += () => Dispatcher.UIThread.Post(() =>
             {
                 if (_proxy.StatusSummary() is { } summary)
                     SetStatus(summary);
             });
+            // The bootstrap enqueues the loaded project's sources before this window exists, so that first
+            // ProgressChanged is raised with nobody listening — read the tally once to catch up.
+            if (_proxy.StatusSummary() is { } initial)
+                SetStatus(initial);
         }
 
         // Optional timed auto-exit for unattended profiling runs: SPROCKET_APP_SECONDS=12

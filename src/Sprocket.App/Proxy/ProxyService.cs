@@ -45,6 +45,15 @@ public sealed class ProxyService : IDisposable
     /// found already cached. Subscribers must marshal to their own thread.</summary>
     public event Action<MediaRefId>? ProxyReady;
 
+    /// <summary>
+    /// Raised whenever the aggregate picture <see cref="StatusSummary"/> reports changes — work queued, a build
+    /// started, a build finished (including a failure). <see cref="ProxyReady"/> alone is not enough to drive a
+    /// progress readout: it fires only on success, so a build that is merely <em>starting</em> would go unannounced
+    /// and a run whose last source failed would leave a stale "pending" message on screen. Raised on the enqueueing
+    /// or worker thread — subscribers must marshal to their own.
+    /// </summary>
+    public event Action? ProgressChanged;
+
     public ProxyService(bool enabled, ProxyTier tier)
     {
         _enabled = enabled;
@@ -78,12 +87,12 @@ public sealed class ProxyService : IDisposable
         _entries.TryGetValue(id, out Entry? entry) ? entry.State : ProxyState.NotNeeded;
 
     /// <summary>A one-line summary of proxy progress for the status bar, or <see langword="null"/> when there is
-    /// nothing to report (proxies off, or every source resolved).</summary>
+    /// nothing to report (proxies off, or no source ever needed one).</summary>
     public string? StatusSummary()
     {
         if (!_enabled)
             return null;
-        int building = 0, queued = 0, ready = 0;
+        int building = 0, queued = 0, ready = 0, failed = 0;
         foreach (Entry e in _entries.Values)
         {
             switch (e.State)
@@ -91,12 +100,28 @@ public sealed class ProxyService : IDisposable
                 case ProxyState.Building: building++; break;
                 case ProxyState.Queued: queued++; break;
                 case ProxyState.Ready: ready++; break;
+                case ProxyState.Failed: failed++; break;
             }
         }
-        int pending = building + queued;
-        if (pending == 0)
-            return ready > 0 ? $"proxies ready ({ready})" : null;
-        return $"building proxies… {ready} ready, {pending} pending";
+        return FormatSummary(ready, building + queued, failed);
+    }
+
+    /// <summary>
+    /// The pure status-bar wording for a proxy tally. Returns <see langword="null"/> only when there is genuinely
+    /// nothing to say — no proxy was ever wanted. Failures are always surfaced: a source that stays on its original
+    /// because <c>ffmpeg</c> isn't on PATH (§15) previews slower than the user expects, and silence would leave
+    /// that unexplained.
+    /// </summary>
+    internal static string? FormatSummary(int ready, int pending, int failed)
+    {
+        string failedSuffix = failed > 0 ? $", {failed} failed" : "";
+        if (pending > 0)
+            return $"building proxies… {ready} ready, {pending} pending{failedSuffix}";
+        if (ready > 0)
+            return $"proxies ready ({ready}){failedSuffix}";
+        if (failed > 0)
+            return $"proxy generation failed ({failed}) — previewing originals";
+        return null;
     }
 
     /// <summary>
@@ -115,6 +140,7 @@ public sealed class ProxyService : IDisposable
         var onTimeline = new HashSet<MediaRefId>(
             project.Timeline.Tracks.SelectMany(t => t.Clips).Select(c => c.MediaRefId));
 
+        bool queuedAny = false;
         foreach (MediaRef media in project.MediaPool.Items)
         {
             if (_entries.ContainsKey(media.Id))
@@ -149,7 +175,13 @@ public sealed class ProxyService : IDisposable
             lock (_queueGate)
                 _queue.Add(new WorkItem(media.Id, media, target, path, priority));
             _signal.Release();
+            queuedAny = true;
         }
+
+        // Announce the new backlog before any of it finishes — a first 4K build can take minutes, and until now
+        // the user saw nothing at all until the first proxy landed.
+        if (queuedAny)
+            ProgressChanged?.Invoke();
     }
 
     private static string? TryResolveCachePath(MediaRef media, Resolution target)
@@ -186,6 +218,7 @@ public sealed class ProxyService : IDisposable
                 continue;
 
             _entries[item.Id] = new Entry(ProxyState.Building, item.Path, item.Target);
+            ProgressChanged?.Invoke();
             bool ok;
             try
             {
@@ -203,6 +236,7 @@ public sealed class ProxyService : IDisposable
 
             if (ok)
                 ProxyReady?.Invoke(item.Id);
+            ProgressChanged?.Invoke(); // also on failure, so the tally never strands a stale "pending" readout
         }
     }
 

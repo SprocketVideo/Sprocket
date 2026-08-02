@@ -314,7 +314,7 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Proxy media (automatic background proxies; status-bar indicator) | Sprocket.App/Proxy/*.cs; PLAN.md step 18 | performance/proxies-and-render-cache.md#proxies-automatic-help-with-heavy-footage | ✅ (automatic behavior + status-bar messages; the internal tier/resolution/CRF numbers stay undocumented) |
+| Proxy media (automatic background proxies; status-bar indicator) | Sprocket.App/Proxy/*.cs; PLAN.md step 18 | performance/proxies-and-render-cache.md#proxies-automatic-help-with-heavy-footage | 🟡 (automatic behavior + the ready/pending messages are covered; the internal tier/resolution/CRF numbers stay undocumented. **Needs amending:** the status bar now also announces a build *starting* and reports failures — `proxy generation failed (n) — previewing originals`, the message a user sees when `ffmpeg` isn't on PATH) |
 | Render In to Out / Selection / Audio (Sequence menu) | MainWindow.axaml.cs `RenderRangeAsync` | performance/proxies-and-render-cache.md#render-a-range-for-smooth-playback | ✅ |
 | Render bar (green/yellow/red cache states) | RenderCache/RenderBarModel.cs | performance/proxies-and-render-cache.md#the-render-bar-what-needs-rendering | ✅ |
 | Delete Render Files (with disk footprint) | MainWindow.axaml.cs `DeleteRenderFilesAsync` | performance/proxies-and-render-cache.md#reclaim-disk-space | ✅ |
