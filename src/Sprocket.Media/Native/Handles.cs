@@ -188,6 +188,10 @@ internal sealed unsafe class CodecContextHandle : IDisposable
     public AvRational TimeBase { get => C->time_base; set => C->time_base = value; }
     public AvRational Framerate { get => C->framerate; set => C->framerate = value; }
     public AvChannelLayout* ChLayout => (AvChannelLayout*)((byte*)_p + 352);
+    /// <summary>Decode/encode worker threads. FFmpeg defaults this to <b>1</b> (verified against the bundled
+    /// FFmpeg 8: <c>threads</c> reads 1 both before and after <c>avcodec_open2</c>) — set 0 for "auto", which
+    /// lets libavcodec size the pool from the CPU count.</summary>
+    public int ThreadCount { get => C->thread_count; set => C->thread_count = value; }
     public IntPtr GetFormat { set => C->get_format = value; }
     public IntPtr HwDeviceCtx { set => C->hw_device_ctx = value; }
     public IntPtr HwFramesCtx { set => C->hw_frames_ctx = value; }

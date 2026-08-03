@@ -269,6 +269,16 @@ public sealed unsafe class MediaSource : IDisposable
                 decoder.GetFormat = (IntPtr)(delegate* unmanaged<IntPtr, int*, int>)&PickFormat;
                 decoder.HwDeviceCtx = LibAv.av_buffer_ref(hw.DeviceContextRef);
             }
+            else
+            {
+                // FFmpeg's default thread_count is 1, so a software decoder left alone runs single-threaded and
+                // wastes every core but one on the CPU fallback path — exactly where the headroom is needed.
+                // 0 = auto (libavcodec sizes the pool from the CPU count). Software-path only: hardware decode runs
+                // on fixed-function silicon that gains nothing from worker threads, and frame threading would hand
+                // get_format per-thread context copies whose pointers miss the WantHwFormat entry keyed above —
+                // silently downgrading the GPU path to software.
+                decoder.ThreadCount = 0;
+            }
 
             decoder.Open(codec);
             return decoder;

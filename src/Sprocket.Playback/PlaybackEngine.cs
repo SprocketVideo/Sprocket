@@ -113,11 +113,13 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private readonly Project _project;
     private readonly IMasterClock _clock;
 
-    // Frame-pacing state (pump thread only). The pump presents on an absolute wall-clock schedule
-    // (_nextPresentTs) so the cadence is regular regardless of per-iteration work; _delay1Ms tracks the real
-    // Task.Delay(1) duration so the sleep/spin split adapts to the OS timer granularity (see WaitForNextFrameAsync).
+    // Frame-pacing state (pump thread only). Each tick's deadline (_nextPresentTs) is derived from the master
+    // clock's next frame boundary, so the pump stays phase-locked to the grid it is scored against rather than
+    // free-running beside it; _lastPacedClockTicks detects a clock that is not advancing (audio not started yet)
+    // and _delay1Ms tracks the real Task.Delay(1) duration so the sleep/spin split adapts to the OS timer
+    // granularity (see WaitForNextFrameAsync).
     private long _nextPresentTs;
-    private bool _pacingAnchored;
+    private long _lastPacedClockTicks = -1;
     private double _delay1Ms = 2.0;
 
     private readonly Func<MediaRefId, IVideoFrameFeed?>? _feedFactory;
@@ -615,19 +617,35 @@ public sealed class PlaybackEngine : IAsyncDisposable
     }
 
     /// <summary>
-    /// Waits until the next frame's scheduled present time, pacing the pump on an <b>absolute</b> wall-clock
-    /// schedule (one frame-interval apart) so the present cadence is regular regardless of how long a pump
-    /// iteration takes. A fixed sub-frame poll instead aliases against the true frame grid and produces visible
-    /// judder even when no frames are dropped (ARCHITECTURE.md §8); A/V sync is still maintained because each
-    /// iteration's <see cref="PumpOnceAsync"/> presents the frame matching the master clock (drop/hold).
+    /// Waits until the next frame's scheduled present time, <b>phase-locked to the master clock</b>: the deadline
+    /// is the clock's next frame boundary plus a small lead, recomputed every tick, so each iteration lands just
+    /// inside a new timeline frame and services exactly one. A/V sync is maintained because each iteration's
+    /// <see cref="PumpOnceAsync"/> presents the frame matching the master clock (drop/hold).
     /// </summary>
     /// <remarks>
-    /// The wait sleeps in 1&#160;ms steps only while comfortably far from the deadline, then busy-spins the final
-    /// few ms. Because a step is taken only when the remaining time exceeds the observed <see cref="_delay1Ms"/>
-    /// granularity, a coarse OS timer (Windows can ignore <c>timeBeginPeriod</c> for background processes, making
-    /// <c>Task.Delay(1)</c> ~15.6&#160;ms) cannot overshoot the deadline — it just spins a little longer. When the
-    /// timer is fine the spin is ~2&#160;ms. If the pump falls more than two frames behind it re-anchors instead of
-    /// bursting to catch up.
+    /// <para>
+    /// Pacing on an independent <b>wall-clock</b> grid instead — even an absolute one, one frame-interval apart —
+    /// runs two grids of the same frequency with free-running relative phase. Ticks then land arbitrarily close to
+    /// a boundary, and ordinary jitter puts some of them on the wrong side: the tick re-services the frame it
+    /// already did (a hold, presenting nothing) and the following tick lands past the next boundary, which the
+    /// accounting in <see cref="PumpOnceAsync"/> scores as a skipped frame. Those (hold, skip) pairs are pure
+    /// aliasing — the playhead is advancing at exactly real time and nothing is late — but they put a permanent
+    /// floor under the dropped-frame counter, recognisable as <c>pump rate − delivered rate ≈ drop rate</c> while
+    /// the pump rate still meets the sequence rate. Locking to the clock removes the free-running phase, so a
+    /// jump of more than one frame index now means the pump genuinely could not keep up.
+    /// </para>
+    /// <para>
+    /// A tick that lands early (jitter exceeding the lead) costs one extra pump iteration and skips nothing: the
+    /// next deadline is recomputed from the clock, which is still inside the same frame, so it simply waits out
+    /// the remainder. The schedule is self-correcting rather than accumulating phase error.
+    /// </para>
+    /// <para>
+    /// The wait itself sleeps in 1&#160;ms steps only while comfortably far from the deadline, then busy-spins the
+    /// final few ms. Because a step is taken only when the remaining time exceeds the observed
+    /// <see cref="_delay1Ms"/> granularity, a coarse OS timer (Windows can ignore <c>timeBeginPeriod</c> for
+    /// background processes, making <c>Task.Delay(1)</c> ~15.6&#160;ms) cannot overshoot the deadline — it just
+    /// spins a little longer. When the timer is fine the spin is ~2&#160;ms.
+    /// </para>
     /// </remarks>
     private async Task WaitForNextFrameAsync(CancellationToken ct)
     {
@@ -636,11 +654,12 @@ public sealed class PlaybackEngine : IAsyncDisposable
         long frameTicks = Math.Max(1, (long)(frameSec * Stopwatch.Frequency));
         long now = Stopwatch.GetTimestamp();
 
-        if (!_pacingAnchored || now - _nextPresentTs > 2 * frameTicks)
-            _nextPresentTs = now + frameTicks; // first frame of a play span, or fell >2 frames behind → re-anchor
-        else
-            _nextPresentTs += frameTicks;
-        _pacingAnchored = true;
+        // A clock that has not advanced since the last tick (audio output not started yet) offers no boundary to
+        // lock to; free-run at the sequence rate until it does rather than busy-looping on a frozen instant.
+        Timecode clockNow = _clock.Now;
+        bool clockAdvancing = clockNow.Ticks != _lastPacedClockTicks;
+        _lastPacedClockTicks = clockNow.Ticks;
+        _nextPresentTs = now + (clockAdvancing ? NextBoundaryWaitTicks(clockNow, fps, frameTicks) : frameTicks);
 
         while (true)
         {
@@ -662,6 +681,27 @@ public sealed class PlaybackEngine : IAsyncDisposable
                 Thread.SpinWait(40);
             }
         }
+    }
+
+    /// <summary>
+    /// How long to wait, in <see cref="Stopwatch"/> ticks, for the pump tick that services the frame <b>after</b>
+    /// the one <paramref name="clockNow"/> is in: the distance to that frame's boundary on the master clock, plus a
+    /// lead of 1/16 frame (~2&#160;ms at 30&#160;fps) so ordinary spin/sleep jitter cannot land the tick on the near
+    /// side of the boundary and re-service the frame just done. The defining property — and what
+    /// <see cref="WaitForNextFrameAsync"/> relies on to keep the pump phase-locked — is that advancing the clock by
+    /// the returned wait always lands exactly one frame index further on, from anywhere within a frame.
+    /// </summary>
+    /// <remarks>A clock that jumped (seek, resync) can put the boundary further out than a frame; the wait is capped
+    /// at two frame intervals so a bad reading costs one slow tick rather than stalling the pump.</remarks>
+    internal static long NextBoundaryWaitTicks(Timecode clockNow, Rational fps, long frameTicks)
+    {
+        if (fps.Num <= 0)
+            return frameTicks;
+
+        long boundaryTicks = Timecode.FromFrames(clockNow.ToFrameIndex(fps) + 1, fps).Ticks;
+        double remSec = (boundaryTicks - clockNow.Ticks) / (double)Timecode.TicksPerSecond;
+        long wait = (long)(remSec * Stopwatch.Frequency) + Math.Max(1, frameTicks / 16);
+        return wait > 0 && wait <= 2 * frameTicks ? wait : frameTicks;
     }
 
     /// <summary>One pump iteration: reconcile players to the tracks, catch each up to the playhead, then report
