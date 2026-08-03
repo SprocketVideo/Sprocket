@@ -236,7 +236,7 @@ function Get-BtbnAsset([string] $platform) {
     $signature = "gh:id=$($asset.id);updated=$($asset.updated_at);size=$($asset.size)"
     if ($UpdateFFmpegLock) {
         Save-FFmpegLockEntry $platform $asset.name $signature
-        Write-Host "    [pin] recorded FFmpeg pin for $platform: $($asset.name)" -ForegroundColor Cyan
+        Write-Host "    [pin] recorded FFmpeg pin for ${platform}: $($asset.name)" -ForegroundColor Cyan
     }
     else {
         $locked = (Get-FFmpegLock).$platform
@@ -252,7 +252,7 @@ BtbN overwrote its rolling 'latest' assets. Review the change, then to accept it
 -UpdateFFmpegLock and commit the updated scripts/ffmpeg.lock.json.
 "@
             }
-            Write-Host "    [pin] FFmpeg pin OK for $platform: $($asset.name)"
+            Write-Host "    [pin] FFmpeg pin OK for ${platform}: $($asset.name)"
         }
         else {
             Write-Host "    [pin] WARNING: no FFmpeg pin recorded for $platform — run once with -UpdateFFmpegLock to pin ($($asset.name))." -ForegroundColor Yellow
