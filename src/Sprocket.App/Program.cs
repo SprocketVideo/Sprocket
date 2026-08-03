@@ -67,6 +67,12 @@ internal static class Program
         if (args.Contains("--doctor"))
             return Doctor.Run();
 
+        // Headless MCP smoke check (PLAN.md step 38): start the loopback MCP server and drive one real
+        // JSON-RPC exchange (initialize + tools/list), proving the packaged endpoint binds and responds
+        // without the UI. Exercised by the Linux release smoke so a shipped build's MCP is verified.
+        if (args.Contains("--mcp-check"))
+            return McpCheck.Run();
+
         // Diagnostic: open a media file through the real MediaSource path and report what happened
         // (or the full failure), without starting the UI.  --probe "C:\path\to\file.mp4"
         int probeIdx = Array.IndexOf(args, "--probe");

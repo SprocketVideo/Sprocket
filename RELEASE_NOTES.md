@@ -146,9 +146,10 @@ macOS builds is experimental; if an update fails, just download the new zip.
   runners). Linux and macOS run the *identical* managed code, but windowed-GPU and on-device
   verification there is still in progress — treat those builds as experimental.
 - **Linux support is experimental and scoped to modern glibc desktops (glibc ≥ 2.31);** musl distros
-  (Alpine) are unsupported. Release CI currently smoke-tests on Ubuntu only, so other distros are
-  best-effort — run `./Sprocket --doctor` to confirm your host and see any missing dependencies.
-  `linux-arm64` is not yet runtime-smoked in CI.
+  (Alpine) are unsupported. Release CI runs the full build + smoke on Ubuntu and additionally runs an
+  informational headless smoke of the published zips across several distros (Ubuntu 20.04, Debian,
+  Fedora, openSUSE, Arch) and an emulated `linux-arm64` — but these are best-effort signals, not a
+  release gate. Run `./Sprocket --doctor` to confirm your own host and see any missing dependencies.
 - The windowed GPU preview and audio output are display/device-bound and rest on manual verification.
 - The bundled FFmpeg is a **GPL build** (it provides the H.264/H.265 export encoders); its
   corresponding source is linked in

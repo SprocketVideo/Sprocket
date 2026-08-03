@@ -319,6 +319,10 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
 - **Code-signing & notarization** — packaging itself ships today (Windows installer, Linux
   AppImage, macOS `.app`, auto-update, CI matrix builds with per-artifact smoke tests); the alpha
   artifacts are unsigned, so Windows signing and macOS notarization remain.
+- **Linux support hardening** — an experimental modern-glibc (≥ 2.31) baseline ships today, with a
+  `--doctor` environment self-check and informational multi-distro + arm64 release smokes; verifying
+  real VAAPI/NVENC hardware acceleration on Intel/AMD/NVIDIA machines remains (software encode/decode
+  is the dependable fallback).
 - **Native plugin & color hosting** — VST3/AU audio plugins and OpenColorIO / OFX. The managed
   plugin host (collectible `AssemblyLoadContext`) and the built-in managed effects ship today.
 - **Advanced retime** — variable/ramped speed and reverse (constant-speed retime, freeze frames,

@@ -3,9 +3,13 @@
 # Triggered by pushing a v* tag (scripts/gh-release.ps1 is the local tag-cutter). Each OS job builds
 # its own RIDs with scripts/release.ps1 (self-contained folder publish + FFmpeg/OpenAL natives +
 # Velopack packages + portable zips), smoke-launches every runnable artifact headlessly
-# (--version / --ffmpeg-check / --audio-check), and uploads the results as workflow artifacts. The
-# final job assembles ONE GitHub release with everything attached — single-writer, so parallel jobs
-# never race on release creation, and a failed smoke anywhere blocks the whole release.
+# (--version / --ffmpeg-check / --audio-check / --mcp-check), and uploads the results as workflow
+# artifacts. The final job assembles ONE GitHub release with everything attached — single-writer, so
+# parallel jobs never race on release creation, and a failed smoke anywhere blocks the whole release.
+#
+# `linux-distro-smoke` additionally runs the published Linux zips inside clean multi-distro containers
+# (plus an emulated arm64 one) as an INFORMATIONAL signal — it is not a release gate (Linux is
+# experimental for the alpha). See its job comment and scripts/linux-distro-smoke.sh.
 #
 # The vpk CLI version installed here must match the Velopack NuGet in Sprocket.App.csproj and
 # $VpkVersion in scripts/release.ps1 — bump all three together.
@@ -100,7 +104,7 @@ jobs:
           $zip = Get-ChildItem dist -Filter 'Sprocket-*-win-x64.zip' | Select-Object -First 1
           $dir = Join-Path $env:RUNNER_TEMP 'smoke-win-x64'
           Expand-Archive $zip.FullName -DestinationPath $dir -Force
-          foreach ($check in '--version', '--ffmpeg-check', '--audio-check') {
+          foreach ($check in '--version', '--ffmpeg-check', '--audio-check', '--mcp-check') {
             $out = Join-Path $env:RUNNER_TEMP 'check-out.txt'
             $err = Join-Path $env:RUNNER_TEMP 'check-err.txt'
             $p = Start-Process -FilePath "$dir/Sprocket.exe" -ArgumentList $check -Wait -PassThru `
@@ -184,6 +188,8 @@ jobs:
           "$dir/Sprocket" --version
           "$dir/Sprocket" --ffmpeg-check
           "$dir/Sprocket" --audio-check
+          "$dir/Sprocket" --doctor
+          "$dir/Sprocket" --mcp-check
 
       # --appimage-extract-and-run avoids needing FUSE on the runner.
       - name: Smoke linux-x64 (AppImage)
@@ -194,6 +200,7 @@ jobs:
           chmod +x "$appimage"
           "$appimage" --appimage-extract-and-run --ffmpeg-check
           "$appimage" --appimage-extract-and-run --audio-check
+          "$appimage" --appimage-extract-and-run --mcp-check
 
       - uses: actions/upload-artifact@v4
         with:
@@ -256,6 +263,7 @@ jobs:
           "$dir/Sprocket" --version
           "$dir/Sprocket" --ffmpeg-check
           "$dir/Sprocket" --audio-check
+          "$dir/Sprocket" --mcp-check
 
       # The Velopack portable zip carries the actual .app bundle — smoke its inner binary too.
       - name: Smoke ${{ matrix.rid }} (.app)
@@ -269,6 +277,7 @@ jobs:
           unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
           "$app/Contents/MacOS/Sprocket" --ffmpeg-check
           "$app/Contents/MacOS/Sprocket" --audio-check
+          "$app/Contents/MacOS/Sprocket" --mcp-check
 
       - uses: actions/upload-artifact@v4
         with:
@@ -277,6 +286,50 @@ jobs:
             dist/*.zip
             dist/velopack/**
           if-no-files-found: error
+
+  # Widen Linux coverage beyond the single Ubuntu build runner: run the published zips inside clean
+  # distro containers (and an arm64 container via QEMU), installing only the DOCUMENTED runtime deps,
+  # then running the headless self-checks. Deliberately NOT in `release`'s needs — Linux is experimental
+  # for the alpha, so this is an informational signal (a red leg is a "look into this distro", not a
+  # release blocker). `fail-fast: false` so one distro's failure doesn't hide the others. Promote a leg
+  # into the release gate once it is reliably green. See scripts/linux-distro-smoke.sh.
+  linux-distro-smoke:
+    needs: [version, linux]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: 'ubuntu:20.04'      # the declared support baseline (glibc 2.31)
+            platform: linux/amd64
+          - image: 'debian:12'
+            platform: linux/amd64
+          - image: 'fedora:latest'
+            platform: linux/amd64
+          - image: 'opensuse/leap:15'
+            platform: linux/amd64
+          - image: 'archlinux:latest'
+            platform: linux/amd64
+          - image: 'ubuntu:22.04'      # arm64 runtime coverage (emulated) — closes the arm64 smoke gap
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@v5
+
+      # binfmt/QEMU so the arm64 container's Sprocket binary can execute on the x64 runner.
+      - name: Set up QEMU
+        if: matrix.platform == 'linux/arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: artifacts/linux
+
+      - name: Smoke ${{ matrix.image }} (${{ matrix.platform }})
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "$PWD:/repo" -w /repo -e HOME=/root \
+            ${{ matrix.image }} bash /repo/scripts/linux-distro-smoke.sh /repo/artifacts/linux
 
   # Single writer: only this job touches the GitHub release, after every build + smoke passed.
   release:
