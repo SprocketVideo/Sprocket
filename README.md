@@ -124,7 +124,7 @@ you can support continued development — new features, codecs, and platform sup
 | OS | Runtime IDs | Status |
 |---|---|---|
 | **Windows 10 & 11** | `win-x64`, `win-arm64` | Primary development platform (Windows 11); Windows 10 supported from 64-bit version 1809+; installer + portable zip; FFmpeg 8 natives bundled. |
-| **Linux** | `linux-x64`, `linux-arm64` | **Experimental**, glibc-based, baseline **glibc ≥ 2.31** (Ubuntu 20.04+); musl/Alpine unsupported. Render path verified byte-identical to Windows (headless); AppImage (`x64`) + portable zips. Run `./Sprocket --doctor` to check a host and list missing deps. |
+| **Linux** | `linux-x64`, `linux-arm64` | **Experimental**, glibc-based, baseline **glibc ≥ 2.35** (Ubuntu 22.04+); musl/Alpine unsupported. Render path verified byte-identical to Windows (headless); AppImage (`x64`) + portable zips. Run `./Sprocket --doctor` to check a host and list missing deps. |
 | **macOS** | `osx-x64`, `osx-arm64` | Same managed code; `.app` bundle per arch, built on macOS CI runners with FFmpeg 8 bundled (unsigned during the alpha). |
 
 The managed assemblies are identical on every OS — only the bundled native libraries differ per RID.
@@ -319,7 +319,7 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
 - **Code-signing & notarization** — packaging itself ships today (Windows installer, Linux
   AppImage, macOS `.app`, auto-update, CI matrix builds with per-artifact smoke tests); the alpha
   artifacts are unsigned, so Windows signing and macOS notarization remain.
-- **Linux support hardening** — an experimental modern-glibc (≥ 2.31) baseline ships today, with a
+- **Linux support hardening** — an experimental modern-glibc (≥ 2.35) baseline ships today, with a
   `--doctor` environment self-check and informational multi-distro + arm64 release smokes; verifying
   real VAAPI/NVENC hardware acceleration on Intel/AMD/NVIDIA machines remains (software encode/decode
   is the dependable fallback).

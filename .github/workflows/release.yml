@@ -300,7 +300,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: 'ubuntu:20.04'      # the declared support baseline (glibc 2.31)
+          - image: 'ubuntu:22.04'      # the declared support baseline (glibc 2.35)
             platform: linux/amd64
           - image: 'debian:12'
             platform: linux/amd64

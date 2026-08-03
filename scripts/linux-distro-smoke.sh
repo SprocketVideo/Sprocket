@@ -11,7 +11,7 @@
 # It is deliberately best-effort / informational: `--doctor` runs first purely to report the host and any
 # still-missing libraries, and only the hard checks (--ffmpeg-check / --audio-check / --mcp-check) decide
 # PASS/FAIL. Intended to run in CI (one distro container per matrix leg); usable locally too, e.g.:
-#   docker run --rm -v "$PWD:/repo" -w /repo ubuntu:20.04 bash /repo/scripts/linux-distro-smoke.sh /repo/dist
+#   docker run --rm -v "$PWD:/repo" -w /repo ubuntu:22.04 bash /repo/scripts/linux-distro-smoke.sh /repo/dist
 #
 # $1 = directory holding the Sprocket-*-linux-{x64,arm64}.zip artifacts (default /repo/artifacts/linux).
 set -uo pipefail

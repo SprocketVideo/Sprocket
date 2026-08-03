@@ -4049,10 +4049,11 @@ Tags reference the [UI.md §4 checklist](UI.md).
 57. **Linux support (verify + declare, like step 56).** Move the Linux builds from "runs the same
     managed code" toward a defensible support statement. The build/packaging groundwork is done — the
     remaining gap is *verification breadth*, and the honest interim posture is **experimental on modern
-    glibc-based desktops (glibc ≥ 2.31 / Ubuntu 20.04+), software encode/decode dependable, hardware
+    glibc-based desktops (glibc ≥ 2.35 / Ubuntu 22.04+), software encode/decode dependable, hardware
     accel driver-dependent; musl/Alpine unsupported.** Two phases, most of it landed:
     - **✅ DONE (2026-08-03) — baseline, diagnostics, reproducibility, and CI breadth (plan Phases 1–4).**
-      A declared **glibc 2.31 baseline** (musl/Alpine detected and reported unsupported); a headless
+      A declared **glibc 2.35 baseline** (raised from the initial 2.31/20.04 floor once the bundled
+      OpenAL Soft failed to load on Ubuntu 20.04 — newer libstdc++ ABI; musl/Alpine detected and reported unsupported); a headless
       **`--doctor`** self-check (`src/Sprocket.App/Doctor.cs`) reporting libc/distro, loading the bundled
       FFmpeg/OpenAL, and `dlopen`-probing the host libraries the bundled build needs with per-distro
       (apt/dnf/pacman/zypper) install hints — run automatically by `packaging/linux/install.sh`; a
@@ -4061,7 +4062,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
       via `release.ps1 -UpdateFFmpegLock`) that fails a release on BtbN "latest" drift so the tested
       system-library baseline can't change silently; and a **multi-distro + emulated-arm64 smoke**
       (`scripts/linux-distro-smoke.sh` + the `linux-distro-smoke` job in `.github/workflows/release.yml`)
-      running the published zips in clean Ubuntu 20.04 / Debian / Fedora / openSUSE / Arch containers and
+      running the published zips in clean Ubuntu 22.04 / Debian / Fedora / openSUSE / Arch containers and
       a QEMU `linux-arm64` one — `--mcp-check` also wired into every OS's release smoke. Docs updated
       (`RELEASE_NOTES.md` baseline + dependency table + reframed limitations, `README.md` platform row,
       `FEATURES.md` diagnostics row). The distro matrix is deliberately **informational, not a release

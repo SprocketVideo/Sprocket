@@ -13,6 +13,11 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Drop the ICU dependency: the self-contained build otherwise aborts at startup on distros whose
+         base image lacks libicu (Fedora, openSUSE) — .NET needs ICU for CurrentCulture, which Velopack's
+         version parse touches before Main runs. Invariant culture also suits a deterministic editor (time
+         is exact ticks, formatting is culture-independent), so no user needs to install libicu. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>

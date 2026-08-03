@@ -24,9 +24,10 @@ namespace Sprocket.App;
 /// </summary>
 internal static class Doctor
 {
-    /// <summary>The oldest glibc Sprocket declares support for: glibc 2.31 (Ubuntu 20.04 LTS), the common
-    /// .NET 10 Linux floor. Below this the host is out of the supported baseline (reported, not blocked).</summary>
-    private static readonly Version GlibcBaseline = new(2, 31);
+    /// <summary>The oldest glibc Sprocket declares support for: glibc 2.35 (Ubuntu 22.04 LTS). The prior
+    /// 2.31 (20.04) floor was dropped once the bundled OpenAL Soft failed to load there (newer libstdc++
+    /// ABI). Below this the host is out of the supported baseline (reported, not blocked).</summary>
+    private static readonly Version GlibcBaseline = new(2, 35);
 
     // Host shared libraries the bundled build reaches for at runtime (the BtbN gpl-shared FFmpeg dlopen's
     // the media/HW ones lazily; Avalonia needs the GUI ones). None is asserted here as hard-required —
@@ -125,7 +126,7 @@ internal static class Doctor
             }
 
             if (v < GlibcBaseline)
-                Warn($"libc    : glibc {v} is BELOW the supported baseline {GlibcBaseline} (Ubuntu 20.04) — Sprocket may run but is unsupported here.");
+                Warn($"libc    : glibc {v} is BELOW the supported baseline {GlibcBaseline} (Ubuntu 22.04) — Sprocket may run but is unsupported here.");
             else
                 Ok($"libc    : glibc {v} (baseline {GlibcBaseline}+)");
             return false;

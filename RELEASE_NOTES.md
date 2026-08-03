@@ -83,7 +83,7 @@ chmod +x Sprocket-linux-x64.AppImage
 - `linux-arm64` is portable-zip only for now.
 
 **Supported Linux baseline.** The Linux builds are **glibc**-based and target **modern desktop
-distributions with glibc 2.31 or newer** (Ubuntu 20.04 LTS and later, Debian 11+, Fedora, recent
+distributions with glibc 2.35 or newer** (Ubuntu 22.04 LTS and later, Debian 12+, Fedora, recent
 Arch/openSUSE). **musl-based distributions (Alpine, etc.) are not supported.** Treat Linux as
 **experimental** for this alpha: software decode/encode is the dependable path, and GPU acceleration
 depends on your host drivers (see below).
@@ -145,9 +145,9 @@ macOS builds is experimental; if an update fails, just download the new zip.
   its coverage is a manual smoke checklist rather than CI (GitHub Actions has no Windows 10
   runners). Linux and macOS run the *identical* managed code, but windowed-GPU and on-device
   verification there is still in progress — treat those builds as experimental.
-- **Linux support is experimental and scoped to modern glibc desktops (glibc ≥ 2.31);** musl distros
+- **Linux support is experimental and scoped to modern glibc desktops (glibc ≥ 2.35);** musl distros
   (Alpine) are unsupported. Release CI runs the full build + smoke on Ubuntu and additionally runs an
-  informational headless smoke of the published zips across several distros (Ubuntu 20.04, Debian,
+  informational headless smoke of the published zips across several distros (Ubuntu 22.04, Debian,
   Fedora, openSUSE, Arch) and an emulated `linux-arm64` — but these are best-effort signals, not a
   release gate. Run `./Sprocket --doctor` to confirm your own host and see any missing dependencies.
 - The windowed GPU preview and audio output are display/device-bound and rest on manual verification.
