@@ -225,6 +225,18 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
        buffer mid-present. Pure decisions (clamp / reached-end / promote) live in `PlaybackMath`; frame
        supply sits behind `IVideoFrameFeed` (`RingVideoFrameFeed` adapts `VideoDecodeRing`) so the engine is
        testable and a proxy/hardware feed slots in later (§17).
+     - **⚠️ Pump pacing phase-locked to the master clock (2026-08-03).** The pump previously scheduled each tick on
+       its own absolute wall-clock grid one sequence frame-interval apart. That grid free-runs in phase against the
+       **master clock's** frame grid the drop accounting scores it against, so ticks drift across boundaries: one
+       lands short and re-services the frame just done (a hold, presenting nothing), the next lands past the
+       following boundary and is charged a skip. The (hold, skip) pairs are pure aliasing — the playhead advances
+       at exactly real time and nothing is late — but they floored the overlay's dropped-frame counter at roughly
+       **1/s** on hardware that was keeping up, recognisable as `pump rate − delivered rate ≈ drop rate` while the
+       pump rate still meets the sequence rate. `WaitForNextFrameAsync` now derives each deadline from
+       `NextBoundaryWaitTicks(clock.Now, fps, frameTicks)` — the distance to the clock's next frame boundary plus a
+       1/16-frame lead — recomputed every tick, so each tick lands one frame index further on and a jump of >1 once
+       again means the pump genuinely could not keep up. An early tick (jitter beyond the lead) costs one extra
+       iteration and skips nothing; a non-advancing clock (audio not started) free-runs at the sequence rate.
      - **`Sprocket.App`** — a minimal Avalonia shell (grows into the full panelled shell at step 11;
        at the time, the step 1 spike remained alongside as the de-risk artifact — since deleted). A
        `PreviewSurface` custom control draws the engine's current frame
@@ -237,7 +249,13 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
        ahead, drops to catch up, reaches end → stops + signals); `FramePresenter.ComputeFitRect` letterbox
        math; plus a **live-pump integration** pair running the real `Start()` → background pump →
        `FramePresenter` offscreen-raster render → `DisposeAsync` and asserting a non-blank frame + a different
-       frame after a live seek (all waits bounded so a stuck pump/worker fails fast rather than hanging).
+       frame after a live seek (all waits bounded so a stuck pump/worker fails fast rather than hanging). Plus
+       **7 pacing tests** (`PumpPacingTests`) pinning the phase-lock invariant deterministically — sweeping every
+       tick offset within a frame at 30/29.97/24/60/25 fps and asserting the scheduled wait always lands exactly one
+       frame index on. Asserted directly rather than by counting drops in real time: under test-harness load the
+       scheduler noise swamps the effect (measured 0–3 drops per 2.5 s with the fix against 0–9 without, using a
+       10 ms-quantised stand-in for the audio device clock — overlapping distributions), so a timing-based test
+       would be flaky in both directions.
      - **Note:** the windowed GPU preview is display-bound and rests on the spike's proven Avalonia+Skia
        lease path (step 1); the offscreen-raster integration test covers the decode→pump→present→dispose
        pipeline headlessly. (A no-GUI CLI smoke was dropped — `Sprocket.App` is a `WinExe` with no reliable
@@ -308,19 +326,43 @@ Linux and macOS rest on bundling the native libs + on-device verification — se
      - **Verified on this Windows machine:** the bundled FFmpeg exposes CUDA/VAAPI/DXVA2/QSV/D3D11VA/Vulkan/
        D3D12VA; `Auto` selected **D3D11VA** and decoded the fixture on the GPU. Linux/macOS rest on the same
        managed code + bundled libs (steps 35–36) + on-device verification.
-     - **VAAPI libva pre-flight (`src/Sprocket.Media/LibVaPreflight.cs`, added post-alpha):** the bundled BtbN
-       FFmpeg links `libva` via lazy trampolines that **`abort()` the process** (not return an error) when the
-       system `libva.so.2` lacks a symbol they need — an old distro without `vaMapBuffer2` (libva 2.17) crashes
-       the app on launch, natively, below the managed software-fallback handler. `HardwareDevice.TryCreate`
-       now pre-flights VAAPI by `dlopen`ing the system `libva` and probing that sentinel symbol; when it is
-       missing/absent it returns `null` (skip VAAPI → next device / software) **before** FFmpeg's VAAPI init can
-       trip the trampoline. Loads the system `libva` directly, so the probe itself can't abort. The manual
-       `SPROCKET_HWACCEL=off` override remains the blanket escape hatch for other unstable stacks.
-     - **Tests (8, deterministic regardless of GPU):** software mode uses no device and decodes in order; auto
+     - **VAAPI libva pre-flight (`src/Sprocket.Media/LibVaPreflight.cs`, added post-alpha; reworked 2026-08-03):**
+       the bundled BtbN FFmpeg does not link `libva` normally (no `DT_NEEDED`, no undefined `va*` symbols) — it
+       `dlopen`s it through `implib-gen` lazy trampolines that **`abort()` the process** (not return an error)
+       when the system `libva.so.2` lacks a symbol they *call*, natively, below the managed software-fallback
+       handler. `HardwareDevice.TryCreate` pre-flights VAAPI by `dlopen`ing the system `libva` itself (so the
+       probe cannot trip a trampoline) and `dlsym`ing **the bundled FFmpeg's entire trampoline table** —
+       enumerated straight out of `libavutil` (a contiguous run of NUL-separated strings; regen procedure in the
+       class doc, a mechanical step on an FFmpeg major bump like the `AvStructs.cs` offsets) — **minus two classes
+       that never resolve even on a working stack**: libva-private `va_*` names (exported by no released libva),
+       and the per-windowing-system display getters (`vaGetDisplayDRM`/`vaGetDisplay`/`vaGetDisplayWl` live in
+       `libva-drm`/`-x11`/`-wayland.so.2`, and **any one** of those backends resolving is required instead). A
+       miss returns `null` (skip VAAPI → next device / software). `SPROCKET_HWACCEL=off` remains the blanket
+       escape hatch.
+     - **⚠️ Hard-won facts behind that design (2026-08-03), measured on an Intel N100 / iHD box, libva 2.20
+       (Ubuntu 24.04 LTS):** (a) the original doc note claiming `vaMapBuffer2` is "libva 2.17" was wrong — it is
+       **libva 2.21** (Mar 2024), so the sentinel-only first version silently forced software decode on 2.20 and
+       every older distro. (b) **`vaMapBuffer2` must nevertheless stay gated**: it *is* reached — from the decode /
+       `av_hwframe_transfer_data` path, not device-init — and a gate without it let the Media/Playback/Export
+       suites crash (`implib-gen: libva.so.2: failed to resolve symbol 'vaMapBuffer2' via dlsym`). (c) Do **not**
+       trust a device-open probe as evidence a symbol is unused: `av_hwdevice_ctx_create(VAAPI)` returns `rc=0`
+       on that box and the process dies a frame later. On libva &lt; 2.21, VAAPI is correctly skipped — those
+       users keep software decode until their distro ships a newer libva; there is no way to hardware-decode
+       safely under this FFmpeg build without the symbol.
+     - **⚠️ Decoder thread count (2026-08-03).** `AVCodecContext.thread_count` was never assigned, and FFmpeg
+       defaults it to **1** (verified against the bundled FFmpeg 8: `threads` reads 1 both before and after
+       `avcodec_open2`), so every software decode ran single-threaded. `CreateDecoder` now sets `0` (auto) on the
+       **software path only** — hardware decode gains nothing from worker threads, and frame threading would hand
+       `get_format` per-thread context copies whose pointers miss the `WantHwFormat` entry, silently downgrading
+       the GPU path to software.
+     - **Tests (11, deterministic regardless of GPU):** software mode uses no device and decodes in order; auto
        mode decodes whether or not hardware engages; **the hardware and software paths produce identical frame
        PTS** (so the GPU path never breaks frame-accuracy — this comparison ran hardware-vs-software here);
        compiled/preferred type lists are populated; **the libva pre-flight passes unconditionally off Linux and,
-       when libva is unusable, `TryCreate(Vaapi)` returns null instead of crashing.**
+       when libva is unusable, `TryCreate(Vaapi)` returns null instead of crashing**; and — the regression guards —
+       `vaMapBuffer2` stays in the gate (fact (b) above), the gate excludes the never-exported classes (private
+       `va_*`, sibling-library display getters), and the verdict **must agree** with what the system `libva`
+       actually exports in both directions (missing symbol ⇒ skipped; all resolve + a display backend ⇒ allowed).
 7. Effects (brightness, fade) + audio volume/fade in mixer.
    - **✅ DONE (`src/Sprocket.Render/SkiaEffectPipeline.cs`; 8 tests in `tests/Sprocket.Render.Tests`).** The
      slice's effects now run as real SkSL on the GPU preview, and the audio half (gain/fade) was already

@@ -102,4 +102,43 @@ public class HardwareDecodeTests
         if (!LibVaPreflight.VaapiUsable)
             Assert.Null(HardwareDevice.TryCreate(HardwareDeviceType.Vaapi));
     }
+
+    [Fact]
+    public void LibVa_Preflight_Gates_On_vaMapBuffer2()
+    {
+        // vaMapBuffer2 (libva 2.21+) is the symbol that actually aborts the process on an older libva, and it is
+        // reached from the decode / av_hwframe_transfer_data path — NOT from av_hwdevice_ctx_create, which returns
+        // rc=0 on a libva 2.20 box that then dies a frame later. It was dropped from the gate once on the strength
+        // of that misleading device-open probe, and the whole Media/Playback/Export suites crashed with
+        // "implib-gen: libva.so.2: failed to resolve symbol 'vaMapBuffer2' via dlsym". It must stay gated.
+        Assert.Contains("vaMapBuffer2", LibVaPreflight.RequiredSymbols);
+    }
+
+    [Fact]
+    public void LibVa_Preflight_Does_Not_Gate_On_Symbols_No_Libva_Exports()
+    {
+        // The gate is the bundled FFmpeg's whole trampoline table, so it must exclude the two classes of referenced
+        // name that never resolve even on a fully working stack: libva-private va_* symbols, and the display getters
+        // that live one-per-windowing-system in sibling libraries (any one of which is enough — see DisplayBackends).
+        Assert.DoesNotContain(LibVaPreflight.RequiredSymbols, s => s.StartsWith("va_", StringComparison.Ordinal));
+        Assert.Empty(LibVaPreflight.RequiredSymbols.Intersect(
+            LibVaPreflight.DisplayBackends.Select(b => b.Symbol)));
+        Assert.All(LibVaPreflight.RequiredSymbols, s => Assert.StartsWith("va", s, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void LibVa_Preflight_Verdict_Matches_What_The_System_Libva_Actually_Exports()
+    {
+        // Both directions of the safety property, against the real system libva: a missing symbol must be reported
+        // (so TryCreate skips VAAPI before a trampoline can abort), and a libva that resolves the whole table with a
+        // display backend present must be accepted (so hardware decode is not silently lost on a capable machine).
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        string? missing = LibVaPreflight.FirstMissingSymbol();
+        if (missing is null && LibVaPreflight.HasDisplayBackend())
+            Assert.True(LibVaPreflight.VaapiUsable, "every referenced symbol resolves, so VAAPI must be allowed");
+        else
+            Assert.False(LibVaPreflight.VaapiUsable, $"'{missing}' is unresolvable, so VAAPI must be skipped");
+    }
 }

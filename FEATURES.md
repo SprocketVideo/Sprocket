@@ -308,7 +308,7 @@ in terms an app-side committer can check against their diff.
 | Guides overlay (frame outline / safe areas / framing grid; the frame's empty canvas shows black, matching export) | PreviewSurface.ShowGuides; Sprocket.Render/MonitorOverlay.cs | performance/preview-and-monitors.md#overlay-framing-guides | ✅ (portrait-canvas fix 2026-07-16 covered; aspect-ratio-and-framing.md's Fit/Fill shot still predates the fix — re-shoot with Guides on) |
 | Full-screen preview (View ▸ Full Screen Preview; `Ctrl+F`, `⌘F` on macOS; `Esc` or the shortcut exits; transport keys stay live; works for Program and Source) | MainWindow.axaml.cs `EnterFullscreenPreview`; PreviewSurface.cs | performance/preview-and-monitors.md#full-screen-preview | ✅ |
 | Timecode readouts (position / duration) | MainWindow.axaml:360 | get-started/getting-started.md#1-play-and-preview-your-video | ✅ |
-| Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | performance/troubleshooting-playback.md | 🟡 stale — dropped-frame/preview-rate semantics now speed-aware (slow-motion holds count as delivered, never as drops); re-verify the metric descriptions |
+| Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | performance/troubleshooting-playback.md | 🟡 stale — dropped-frame/preview-rate semantics now speed-aware (slow-motion holds count as delivered, never as drops), and pump pacing is phase-locked to the master clock so the counter reads 0 during healthy playback instead of ~1/s of aliasing; re-verify the metric descriptions |
 
 ### Performance: proxies & render cache
 
@@ -318,7 +318,7 @@ in terms an app-side committer can check against their diff.
 | Render In to Out / Selection / Audio (Sequence menu) | MainWindow.axaml.cs `RenderRangeAsync` | performance/proxies-and-render-cache.md#render-a-range-for-smooth-playback | ✅ |
 | Render bar (green/yellow/red cache states) | RenderCache/RenderBarModel.cs | performance/proxies-and-render-cache.md#the-render-bar-what-needs-rendering | ✅ |
 | Delete Render Files (with disk footprint) | MainWindow.axaml.cs `DeleteRenderFilesAsync` | performance/proxies-and-render-cache.md#reclaim-disk-space | ✅ |
-| Hardware-accelerated decode (automatic; software fallback, incl. auto-skip of VAAPI when the Linux system libva is too old for the bundled FFmpeg) | Sprocket.Media/HardwareContext.cs; Sprocket.Media/LibVaPreflight.cs; PLAN.md step 6; README | performance/troubleshooting-playback.md#if-the-preview-cant-keep-up | ➖ (automatic; covered only as a troubleshooting note) |
+| Hardware-accelerated decode (automatic; software fallback, incl. auto-skip of VAAPI when the Linux system libva lacks a symbol the bundled FFmpeg trampolines — needs libva ≥ 2.21; software decode is multi-threaded) | Sprocket.Media/HardwareContext.cs; Sprocket.Media/LibVaPreflight.cs; PLAN.md step 6; README | performance/troubleshooting-playback.md#if-the-preview-cant-keep-up | ➖ (automatic; covered only as a troubleshooting note) |
 
 ## 8. AI control (MCP) & command line
 

@@ -18,6 +18,11 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- The live-pump present-integration tests render through FramePresenter on an offscreen raster surface,
+         so they need the native libSkiaSharp. SkiaSharp (via Sprocket.Render) carries the Windows/macOS natives
+         transitively but NOT Linux — same reason Sprocket.Render.Tests declares this package. Pinned to the
+         SkiaSharp version locked by ARCHITECTURE §14. -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.4" />
   </ItemGroup>
 
   <ItemGroup>
