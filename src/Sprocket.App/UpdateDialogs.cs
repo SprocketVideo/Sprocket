@@ -194,13 +194,20 @@ internal static class UpdateAvailableDialog
     /// <summary>
     /// Turns release-notes Markdown into readable plain text for the inline "what's new" box — we render
     /// with a plain <see cref="SelectableTextBlock"/> (no markdown NuGet), so soften the common syntax:
-    /// strip heading hashes and bullet/emphasis markers, drop leading/trailing blank lines, and normalize
-    /// line endings. Not a full parser — just enough that raw Markdown doesn't read as noise.
+    /// strip HTML comments, heading hashes and bullet/emphasis markers, drop leading/trailing blank lines,
+    /// and normalize line endings. Not a full parser — just enough that raw Markdown doesn't read as noise.
+    /// HTML comments matter especially: RELEASE_NOTES.md (the file Velopack ships as the notes) opens with
+    /// a multi-line authoring-guidance comment that GitHub hides but a plain text render would otherwise
+    /// show verbatim, reading like the instructions used to write the notes.
     /// </summary>
     internal static string SoftenMarkdown(string? md)
     {
         if (string.IsNullOrWhiteSpace(md))
             return "";
+        // Drop HTML comments (possibly multi-line) before the per-line pass — the line loop can't see
+        // across lines, and GitHub-rendered Markdown never shows these.
+        md = System.Text.RegularExpressions.Regex.Replace(
+            md, "<!--.*?-->", "", System.Text.RegularExpressions.RegexOptions.Singleline);
         var sb = new System.Text.StringBuilder(md.Length);
         foreach (string rawLine in md.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
         {

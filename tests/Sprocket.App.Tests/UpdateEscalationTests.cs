@@ -103,4 +103,15 @@ public class UpdateEscalationTests
         string text = UpdateAvailableDialog.SoftenMarkdown(md);
         Assert.Equal("What's New\n\n• Fixed a crash\n• Added export", text);
     }
+
+    // RELEASE_NOTES.md (what Velopack ships as the in-app notes) opens with a multi-line HTML
+    // authoring-guidance comment that GitHub hides; without stripping it, the "what's new" box shows
+    // it verbatim and it reads like the prompt used to generate the notes.
+    [Fact]
+    public void SoftenMarkdown_Strips_Html_Comments()
+    {
+        string md = "<!--\r\n  Authoring guidance: keep this version-agnostic.\r\n-->\r\n\r\n# Sprocket\r\n\r\n- A change\r\n";
+        string text = UpdateAvailableDialog.SoftenMarkdown(md);
+        Assert.Equal("Sprocket\n\n• A change", text);
+    }
 }
