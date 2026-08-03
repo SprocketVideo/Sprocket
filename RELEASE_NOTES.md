@@ -82,6 +82,40 @@ chmod +x Sprocket-linux-x64.AppImage
   `./Sprocket` (the included `install.sh` adds a launcher icon; portable builds don't self-update).
 - `linux-arm64` is portable-zip only for now.
 
+**Supported Linux baseline.** The Linux builds are **glibc**-based and target **modern desktop
+distributions with glibc 2.31 or newer** (Ubuntu 20.04 LTS and later, Debian 11+, Fedora, recent
+Arch/openSUSE). **musl-based distributions (Alpine, etc.) are not supported.** Treat Linux as
+**experimental** for this alpha: software decode/encode is the dependable path, and GPU acceleration
+depends on your host drivers (see below).
+
+**Check your system in one command.** The build ships a self-check that reports your glibc version,
+loads the bundled FFmpeg/OpenAL, and lists any missing system libraries with the exact package to
+install for your distro. The portable zip's `install.sh` runs it automatically; you can also run it
+anytime:
+
+```bash
+./Sprocket --doctor
+```
+
+**Runtime dependencies.** Self-contained builds bundle .NET, FFmpeg 8, and OpenAL, but the bundled
+FFmpeg loads a few host libraries at runtime and the GUI needs the usual desktop libraries. Most
+desktop installs already have these; on a **minimal** install, `--doctor` tells you which are missing.
+Install by family:
+
+| Library | Used for | Debian/Ubuntu (`apt`) | Fedora (`dnf`) | Arch (`pacman`) | openSUSE (`zypper`) |
+|---|---|---|---|---|---|
+| `libxml2.so.2` | FFmpeg XML/DASH | `libxml2` | `libxml2` | `libxml2` | `libxml2-2` |
+| `libdrm.so.2` | DRM / VAAPI paths | `libdrm2` | `libdrm` | `libdrm` | `libdrm2` |
+| `libva.so.2`, `libva-drm.so.2` | VAAPI HW accel (optional) | `libva2 libva-drm2` | `libva` | `libva` | `libva2 libva-drm2` |
+| `libvdpau.so.1` | VDPAU HW accel (optional) | `libvdpau1` | `libvdpau` | `libvdpau` | `libvdpau1` |
+| `libfontconfig.so.1` | GUI text | `libfontconfig1` | `fontconfig` | `fontconfig` | `fontconfig` |
+| `libX11.so.6` | GUI (X11) | `libx11-6` | `libX11` | `libx11` | `libX11-6` |
+
+**Hardware acceleration is opt-in and driver-dependent.** VAAPI (Intel/AMD) and NVENC (NVIDIA) require
+matching host drivers (Mesa/intel-media-driver, or the NVIDIA driver with `libnvidia-encode`). When they
+are absent or unstable, Sprocket falls back to software encode/decode — the reliable path. See the
+VAAPI-crash note under *Known limitations* for the `SPROCKET_HWACCEL=off` escape hatch.
+
 ### 🍎 macOS
 
 Download the **`Sprocket-osx-arm64-Portable.zip`** (Apple Silicon) or **`Sprocket-osx-x64-Portable.zip`**
@@ -111,6 +145,10 @@ macOS builds is experimental; if an update fails, just download the new zip.
   its coverage is a manual smoke checklist rather than CI (GitHub Actions has no Windows 10
   runners). Linux and macOS run the *identical* managed code, but windowed-GPU and on-device
   verification there is still in progress — treat those builds as experimental.
+- **Linux support is experimental and scoped to modern glibc desktops (glibc ≥ 2.31);** musl distros
+  (Alpine) are unsupported. Release CI currently smoke-tests on Ubuntu only, so other distros are
+  best-effort — run `./Sprocket --doctor` to confirm your host and see any missing dependencies.
+  `linux-arm64` is not yet runtime-smoked in CI.
 - The windowed GPU preview and audio output are display/device-bound and rest on manual verification.
 - The bundled FFmpeg is a **GPL build** (it provides the H.264/H.265 export encoders); its
   corresponding source is linked in
@@ -140,4 +178,5 @@ Two things that help us pin it down (please include them in a bug report):
 ```
 
 This prints the media's details (resolution, codec, whether hardware decode was used) — or the full
-error if it fails.
+error if it fails. For a full environment report (glibc baseline, bundled-native load, and any missing
+system libraries with per-distro install hints), run `./Sprocket --doctor`.

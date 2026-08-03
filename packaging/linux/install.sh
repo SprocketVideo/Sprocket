@@ -44,6 +44,23 @@ echo "Installed Sprocket desktop integration:"
 echo "  launcher: $apps/sprocket.desktop"
 echo "  icon:     $icondir/sprocket.png"
 echo
+
+# Run the built-in environment self-check so a minimal/unusual host is diagnosed at install time — it
+# reports the glibc baseline, loads the bundled FFmpeg/OpenAL natives, and lists any missing system
+# libraries with per-distro install hints. Best-effort and non-fatal: desktop integration is already
+# installed; a non-zero result just means Sprocket may not run until the reported deps are satisfied.
+echo "Running environment check (./Sprocket --doctor):"
+echo "----------------------------------------------------------------------"
+if "$bin" --doctor; then
+    echo "----------------------------------------------------------------------"
+    echo "Environment check passed."
+else
+    echo "----------------------------------------------------------------------"
+    echo "Environment check reported problems (see above). Sprocket is installed but may not run"
+    echo "until the missing dependencies are resolved. Re-run './Sprocket --doctor' at any time."
+fi
+echo
+
 echo "Sprocket should now appear in your applications menu. If the icon does not show up"
 echo "immediately, log out and back in (or restart the desktop shell) to refresh the caches."
 echo "To remove it later, run ./uninstall.sh."

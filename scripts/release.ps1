@@ -19,6 +19,7 @@
 #   pwsh scripts/release.ps1 -NoFFmpeg                  # publish only, skip FFmpeg native bundling
 #   pwsh scripts/release.ps1 -NoReadyToRun              # skip ReadyToRun AOT precompile (faster/smaller build)
 #   pwsh scripts/release.ps1 -FFmpegCacheDir <dir>      # override the FFmpeg download cache (default ./.ffmpeg-cache)
+#   pwsh scripts/release.ps1 -UpdateFFmpegLock          # accept the current upstream FFmpeg build as the pin
 #
 # Velopack packaging (-Package velopack) needs the `vpk` CLI on PATH, at the SAME version as the
 # Velopack NuGet in Sprocket.App.csproj ($VpkVersion below): dotnet tool install -g vpk --version <v>.
@@ -56,6 +57,14 @@
 # matches the remote's — the GitHub asset id/updated_at/size for Windows+Linux (already in the releases API
 # response, no extra request), or a HEAD ETag/Last-Modified/Content-Length for the caller-supplied macOS
 # URLs. A signature mismatch (new upstream build) re-downloads automatically.
+#
+# FFmpeg pin (reproducibility) — BtbN publishes only a rolling "latest" tag, so a release cannot pin
+# FFmpeg by tag. Instead scripts/ffmpeg.lock.json records each platform's resolved asset signature
+# (id/updated_at/size). A normal release ENFORCES the pin and FAILS if upstream drifts from it, so the
+# system-library baseline the release was tested against can't change silently under a shipped build.
+# Accept a new upstream build deliberately with -UpdateFFmpegLock, then commit the updated lock. (BtbN
+# overwrites assets in place, so the pin detects drift but cannot itself re-fetch a superseded build;
+# mirror the archive if you need bit-for-bit reconstruction of an old release.)
 
 [CmdletBinding()]
 param(
@@ -108,7 +117,14 @@ param(
     # Where to cache downloaded FFmpeg archives between runs. Defaults to ./.ffmpeg-cache at the repo
     # root (git-ignored) — deliberately OUTSIDE the dist output, which is wiped on every run. Override
     # to share one cache across checkouts (e.g. a CI cache mount).
-    [string] $FFmpegCacheDir
+    [string] $FFmpegCacheDir,
+
+    # Record the resolved BtbN FFmpeg asset signatures into scripts/ffmpeg.lock.json (the FFmpeg "pin")
+    # instead of enforcing them. BtbN publishes only a rolling "latest" tag, so a release cannot pin by
+    # tag; instead we lock each platform's resolved asset id/updated_at/size and FAIL a later release if
+    # upstream drifts, making a baseline change a deliberate, reviewed commit. Use this switch to accept
+    # a new upstream build (then commit the updated lock).
+    [switch] $UpdateFFmpegLock
 )
 
 $ErrorActionPreference = 'Stop'
@@ -129,6 +145,28 @@ $VpkRepoUrl = 'https://github.com/SprocketVideo/Sprocket'
 # what makes it persist between releases.
 $ffCache = if ($FFmpegCacheDir) { $FFmpegCacheDir } else { Join-Path $repoRoot '.ffmpeg-cache' }
 $propsFile = Join-Path $repoRoot 'Directory.Build.props'
+# The FFmpeg pin (see -UpdateFFmpegLock): a committed record of each platform's locked BtbN asset,
+# so a shipped release is reproducible and an upstream "latest" overwrite fails loudly instead of
+# silently changing the bundled FFmpeg's system-library baseline.
+$ffmpegLockFile = Join-Path $PSScriptRoot 'ffmpeg.lock.json'
+
+# Read the FFmpeg pin as a PSCustomObject keyed by BtbN platform token, or $null if not yet created.
+function Get-FFmpegLock {
+    if (Test-Path $ffmpegLockFile) { return Get-Content $ffmpegLockFile -Raw | ConvertFrom-Json }
+    return $null
+}
+
+# Merge one platform's resolved asset into the pin file and write it back (stable key order for clean
+# diffs), preserving entries for platforms not built this run.
+function Save-FFmpegLockEntry([string] $platform, [string] $name, [string] $signature) {
+    $map = [ordered]@{}
+    $existing = Get-FFmpegLock
+    if ($existing) { foreach ($p in $existing.PSObject.Properties) { $map[$p.Name] = $p.Value } }
+    $map[$platform] = [ordered]@{ name = $name; signature = $signature }
+    $sorted = [ordered]@{}
+    foreach ($k in ($map.Keys | Sort-Object)) { $sorted[$k] = $map[$k] }
+    $sorted | ConvertTo-Json -Depth 5 | Set-Content -Path $ffmpegLockFile -NoNewline
+}
 
 # Read the X.Y.Z version from Directory.Build.props (<VersionPrefix>).
 function Get-BaseVersion {
@@ -192,6 +230,34 @@ function Get-BtbnAsset([string] $platform) {
         Where-Object { $_.name -match "$platform-gpl-shared" -and $_.name -match 'n8\.' -and $_.name -notmatch '\.sha256$' } |
         Select-Object -First 1
     if (-not $asset) { throw "No BtbN FFmpeg 8 gpl-shared asset found for platform '$platform'." }
+
+    # Enforce (or record) the FFmpeg pin. The signature is the same id/updated_at/size tuple the cache
+    # uses — a stable fingerprint of this exact upstream build.
+    $signature = "gh:id=$($asset.id);updated=$($asset.updated_at);size=$($asset.size)"
+    if ($UpdateFFmpegLock) {
+        Save-FFmpegLockEntry $platform $asset.name $signature
+        Write-Host "    [pin] recorded FFmpeg pin for $platform: $($asset.name)" -ForegroundColor Cyan
+    }
+    else {
+        $locked = (Get-FFmpegLock).$platform
+        if ($locked) {
+            if ($locked.signature -ne $signature) {
+                throw @"
+FFmpeg build drift for platform '$platform' — the bundled FFmpeg's system-library baseline may have changed:
+  locked:   $($locked.name)
+            $($locked.signature)
+  upstream: $($asset.name)
+            $signature
+BtbN overwrote its rolling 'latest' assets. Review the change, then to accept it re-run with
+-UpdateFFmpegLock and commit the updated scripts/ffmpeg.lock.json.
+"@
+            }
+            Write-Host "    [pin] FFmpeg pin OK for $platform: $($asset.name)"
+        }
+        else {
+            Write-Host "    [pin] WARNING: no FFmpeg pin recorded for $platform — run once with -UpdateFFmpegLock to pin ($($asset.name))." -ForegroundColor Yellow
+        }
+    }
     return $asset
 }
 

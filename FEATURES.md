@@ -335,7 +335,7 @@ Preferences or an "advanced" page.
 | Address effects by reference tag (effect_tag, e.g. RV-1 — stable across reorders; shown as the Inspector tag chip) | Sprocket.Core/Model/EffectTags.cs; Sprocket.Mcp/SprocketTools*.cs `ResolveEffect` | ai/ai-control.md#effect-reference-tags | ✅ |
 | MCP status in the status bar | MainWindow.axaml.cs `UpdateMcpStatus` | ai/ai-control.md#the-status-bar-tells-you-when-its-on | ✅ (also named in the quick tour) |
 | Open a media file from the command line (bare arg) | Sprocket.App/Program.cs | — | ❌ |
-| Diagnostics: `--version`, `--ffmpeg-check`, `--probe` | Program.cs | — | 🟡 (`--probe` appears in RELEASE_NOTES bug-report instructions only; docs site says nothing) |
+| Diagnostics: `--version`, `--ffmpeg-check`, `--audio-check`, `--probe`, `--doctor` (Linux env self-check: glibc baseline ≥ 2.31, bundled-native load, missing system libs with per-distro install hints; run by `install.sh`) | Program.cs; Doctor.cs | — | 🟡 (`--probe`/`--doctor` appear in RELEASE_NOTES bug-report + Linux-setup instructions only; docs site says nothing) |
 
 ## 9. Reference
 

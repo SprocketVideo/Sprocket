@@ -60,6 +60,13 @@ internal static class Program
         if (args.Contains("--audio-check"))
             return RunAudioCheck();
 
+        // Headless environment self-check (PLAN.md — Linux support): report host libc/distro, load the
+        // bundled FFmpeg + OpenAL natives, and probe the system libraries the bundled build dlopen's, with
+        // per-distro install hints for any that are missing. Bounds the "experimental modern-glibc Linux"
+        // support claim with an actionable diagnosis instead of an opaque native loader crash.
+        if (args.Contains("--doctor"))
+            return Doctor.Run();
+
         // Diagnostic: open a media file through the real MediaSource path and report what happened
         // (or the full failure), without starting the UI.  --probe "C:\path\to\file.mp4"
         int probeIdx = Array.IndexOf(args, "--probe");

@@ -54,4 +54,23 @@ public static unsafe class FFmpegDiagnostics
         uint c = LibAv.avcodec_version();
         return $"FFmpeg (libavcodec {c >> 16}.{(c >> 8) & 0xFF}.{c & 0xFF})";
     }
+
+    /// <summary>
+    /// A human-readable VAAPI hardware-decode readiness verdict for the <c>--doctor</c> diagnostic,
+    /// derived from <see cref="LibVaPreflight"/> without opening a device (opening one can
+    /// <c>abort()</c> natively on a mismatched libva — see that type's remarks). Always the "n/a"
+    /// string off Linux, where VAAPI is not in the platform-preferred probe list.
+    /// </summary>
+    public static string VaapiStatus()
+    {
+        if (!OperatingSystem.IsLinux())
+            return "n/a (VAAPI is Linux-only)";
+
+        string? missing = LibVaPreflight.FirstMissingSymbol();
+        if (missing is not null)
+            return $"unavailable — system libva is missing '{missing}'; software decode will be used";
+        if (!LibVaPreflight.HasDisplayBackend())
+            return "unavailable — no libva display backend (drm/x11/wayland) found; software decode will be used";
+        return "available — system libva resolves every symbol the bundled FFmpeg needs";
+    }
 }
