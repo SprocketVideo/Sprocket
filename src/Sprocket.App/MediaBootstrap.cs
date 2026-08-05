@@ -35,7 +35,7 @@ internal static class MediaBootstrap
     /// opening a command-line file fails the app still degrades to an empty project rather than dead-ending, with
     /// the reason shown in the status line.
     /// </summary>
-    public static Result Create(string? mediaPath)
+    public static Result Create(string? mediaPath, string audioDevice = "")
     {
         string? path = mediaPath is not null && File.Exists(mediaPath) ? mediaPath : null;
         if (path is null)
@@ -43,7 +43,7 @@ internal static class MediaBootstrap
         try
         {
             Project project = BuildProjectFromMedia(path);
-            return CreateForProject(project, DescribeMedia(path, project.Timeline));
+            return CreateForProject(project, DescribeMedia(path, project.Timeline), audioDevice);
         }
         catch (Exception ex)
         {
@@ -160,11 +160,11 @@ internal static class MediaBootstrap
     /// (no tracks/clips are added) — it just opens decoders for whatever the project already references and an
     /// audio master clock when an audio-bearing source is present.
     /// </summary>
-    public static Result CreateForProject(Project project, string status)
+    public static Result CreateForProject(Project project, string status, string audioDevice = "")
     {
         ArgumentNullException.ThrowIfNull(project);
 
-        (AudioEngine? clock, bool audioWired) = TryCreateAudioClockForProject(project);
+        (AudioEngine? clock, bool audioWired) = TryCreateAudioClockForProject(project, audioDevice);
         // The project has audio but no output device could be opened — the software clock still drives video, but
         // say so rather than dropping audio silently. (A device lost mid-session is surfaced separately by the
         // engine's OutputStatusChanged event.)
@@ -190,7 +190,7 @@ internal static class MediaBootstrap
     /// audio track references an audio-bearing source, or no audio device is available. The mixer resolves a PCM
     /// reader per source on demand, so it already mixes N audio tracks; offline sources mix as silence (§15).
     /// </summary>
-    private static (AudioEngine? clock, bool audioWired) TryCreateAudioClockForProject(Project project)
+    private static (AudioEngine? clock, bool audioWired) TryCreateAudioClockForProject(Project project, string audioDevice)
     {
         int sampleRate = project.Timeline.SampleRate > 0 ? project.Timeline.SampleRate : 48000;
         const int channels = 2; // stereo output; sources are up/downmixed at decode
@@ -207,7 +207,7 @@ internal static class MediaBootstrap
                 sampleRate, channels, id => OpenPcmReader(project, id, sampleRate, channels),
                 PluginService.AudioEffectFactory); // plugin audio effects first, then built-ins (step 33)
             output = new OpenAlAudioOutput();
-            output.Configure(sampleRate, channels);
+            output.Configure(sampleRate, channels, audioDevice);
             var engine = new AudioEngine(output, mixer, project); // the engine takes ownership
             engine.FeedError += ex => CrashLog.Write("Audio feeder error", ex); // don't let audio faults vanish
             return (engine, true);

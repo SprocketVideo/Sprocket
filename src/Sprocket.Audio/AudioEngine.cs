@@ -202,6 +202,36 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Repoints the running clock at a different output device in place (the Preferences device picker) —
+    /// <paramref name="deviceSpecifier"/> null/"" = system default, otherwise a name from
+    /// <see cref="OpenAlAudioOutput.EnumerateOutputDevices"/>. The playhead is preserved: it re-anchors at the
+    /// current position exactly as loss-recovery does, so playback continues seamlessly. Returns
+    /// <see langword="false"/> (a no-op) when the engine is mid-recovery or in software fallback, or when the
+    /// reopen fails — in which case the current device keeps playing. Safe to call from the UI thread; device
+    /// access is serialised by the output's own lock (lock order <c>_gate → output</c>, matching the feeder).
+    /// </summary>
+    public bool SwitchOutputDevice(string? deviceSpecifier)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_gate)
+        {
+            if (_mode != Mode.Device)
+                return false;
+            Timecode pos = NowLocked();
+            if (!_output.TryReopenDevice(deviceSpecifier))
+                return false;
+            _output.Flush();
+            _writeCursor = pos;
+            _anchorTimeline = pos;
+            _anchorPlayedFrames = _output.PlayedFrames;
+            _pausedAt = pos;
+            _generation++;      // drop any in-flight mix aimed at the old device
+            _meter.RequestReset();
+            return true;
+        }
+    }
+
     private Timecode NowLocked()
     {
         switch (_mode)

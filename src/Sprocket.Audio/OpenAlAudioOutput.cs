@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Silk.NET.OpenAL;
 
 namespace Sprocket.Audio;
@@ -18,8 +19,10 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
 {
     private const int BufferCount = 8;
 
-    // ALC_CONNECTED (ALC_EXT_disconnect) — not in Silk.NET's GetContextInteger enum, so query it by raw token.
-    private const int AlcConnected = 0x313;
+    // Raw ALC tokens Silk.NET's managed enums don't cover — queried by value.
+    private const int AlcConnected = 0x313;             // ALC_CONNECTED (ALC_EXT_disconnect)
+    private const int AlcAllDevicesSpecifier = 0x1013;  // ALC_ALL_DEVICES_SPECIFIER (ALC_ENUMERATE_ALL_EXT)
+    private const int AlcDeviceSpecifier = 0x1005;      // ALC_DEVICE_SPECIFIER (ALC_ENUMERATION_EXT)
 
     // alcReopenDeviceSOFT(device, deviceName, attribs) → ALCboolean; resolved by name at runtime (no binding NuGet).
     private delegate* unmanaged[Cdecl]<Device*, byte*, int*, byte> _reopenDevice;
@@ -49,7 +52,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     public int SampleRate { get; private set; }
 
     /// <inheritdoc />
-    public void Configure(int sampleRate, int channels)
+    public void Configure(int sampleRate, int channels, string? deviceSpecifier = null)
     {
         if (_configured)
             throw new InvalidOperationException("Output already configured.");
@@ -64,7 +67,11 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
         {
             _alc = ALContext.GetApi();
             _api = AL.GetApi();
-            _device = _alc.OpenDevice("");
+            // Open the named device; if a previously-chosen device is gone (unplugged/renamed) fall back to the
+            // system default rather than failing the whole audio path (Premiere/FCP behavior).
+            _device = string.IsNullOrEmpty(deviceSpecifier) ? _alc.OpenDevice("") : _alc.OpenDevice(deviceSpecifier);
+            if (_device is null && !string.IsNullOrEmpty(deviceSpecifier))
+                _device = _alc.OpenDevice("");
             if (_device is null)
                 throw new InvalidOperationException("No OpenAL output device available.");
 
@@ -221,29 +228,25 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     }
 
     /// <inheritdoc />
-    public bool TryReopenDefaultDevice()
+    public bool TryReopenDefaultDevice() => TryReopenDevice(null);
+
+    /// <inheritdoc />
+    public bool TryReopenDevice(string? deviceSpecifier)
     {
         lock (_al)
         {
             if (!_configured || _device is null)
                 return false;
+            if (!EnsureReopenResolvedLocked())
+                return false; // extension/entry point unavailable — caller keeps the current device / software timing
 
-            if (!_reopenProbed)
-            {
-                _reopenProbed = true;
-                if (_alc.IsExtensionPresent(_device, "ALC_SOFT_reopen_device"))
-                {
-                    void* proc = _alc.GetProcAddress(_device, "alcReopenDeviceSOFT");
-                    if (proc is not null)
-                        _reopenDevice = (delegate* unmanaged[Cdecl]<Device*, byte*, int*, byte>)proc;
-                }
-            }
-            if (_reopenDevice is null)
-                return false; // extension/entry point unavailable — caller falls back to software timing
-
-            // null name = current system default device; null attribs = keep the existing/default format. Per-buffer
-            // BufferData carries its own sample rate, so a format change on reopen doesn't affect correctness.
-            byte ok = _reopenDevice(_device, null, null);
+            // null/"" name = current system default device; null attribs = keep the existing/default format.
+            // Per-buffer BufferData carries its own sample rate, so a format change on reopen doesn't affect
+            // correctness. The name is marshalled to a NUL-terminated UTF-8 string for the native call.
+            nint namePtr = string.IsNullOrEmpty(deviceSpecifier) ? 0 : Marshal.StringToCoTaskMemUTF8(deviceSpecifier);
+            byte ok;
+            try { ok = _reopenDevice(_device, (byte*)namePtr, null); }
+            finally { if (namePtr != 0) Marshal.FreeCoTaskMem(namePtr); }
             if (ok == 0)
                 return false;
 
@@ -251,6 +254,67 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
             // telling the caller the device is usable again.
             return IsConnectedLocked();
         }
+    }
+
+    private bool EnsureReopenResolvedLocked()
+    {
+        if (_reopenProbed)
+            return _reopenDevice is not null;
+        _reopenProbed = true;
+        if (_alc.IsExtensionPresent(_device, "ALC_SOFT_reopen_device"))
+        {
+            void* proc = _alc.GetProcAddress(_device, "alcReopenDeviceSOFT");
+            if (proc is not null)
+                _reopenDevice = (delegate* unmanaged[Cdecl]<Device*, byte*, int*, byte>)proc;
+        }
+        return _reopenDevice is not null;
+    }
+
+    /// <summary>
+    /// The output devices OpenAL can open, as specifier strings suitable for <see cref="Configure"/> — the same
+    /// names the platform reports, most-preferred first. Prefers the per-endpoint <c>ALC_ENUMERATE_ALL_EXT</c>
+    /// list, falls back to the basic <c>ALC_ENUMERATION_EXT</c> list, and returns empty when neither extension is
+    /// present (the caller then offers only the system default). Static so the Preferences dialog can enumerate
+    /// without an open device; never throws (a missing/broken OpenAL yields an empty list).
+    /// </summary>
+    public static IReadOnlyList<string> EnumerateOutputDevices()
+    {
+        var devices = new List<string>();
+        try
+        {
+            ALContext alc = ALContext.GetApi();
+            try
+            {
+                int token = alc.IsExtensionPresent(null, "ALC_ENUMERATE_ALL_EXT") ? AlcAllDevicesSpecifier
+                    : alc.IsExtensionPresent(null, "ALC_ENUMERATION_EXT") ? AlcDeviceSpecifier
+                    : 0;
+                if (token == 0)
+                    return devices;
+
+                // The device list is a double-NUL-terminated sequence of C strings; the managed GetContextProperty
+                // overload stops at the first NUL, so resolve alcGetString and walk the raw buffer ourselves.
+                void* proc = alc.GetProcAddress(null, "alcGetString");
+                if (proc is null)
+                    return devices;
+                var getString = (delegate* unmanaged[Cdecl]<Device*, int, byte*>)proc;
+                byte* p = getString(null, token);
+                if (p is null)
+                    return devices;
+                for (byte* cur = p; *cur != 0;)
+                {
+                    int len = 0;
+                    while (cur[len] != 0)
+                        len++;
+                    string name = Marshal.PtrToStringUTF8((nint)cur, len);
+                    if (name.Length > 0)
+                        devices.Add(name);
+                    cur += len + 1;
+                }
+            }
+            finally { alc.Dispose(); }
+        }
+        catch { /* no usable OpenAL → no devices to list; the caller still offers the system default */ }
+        return devices;
     }
 
     private void RecycleProcessedLocked()

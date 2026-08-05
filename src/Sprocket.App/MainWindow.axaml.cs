@@ -211,6 +211,10 @@ public partial class MainWindow : Window
     /// <param name="ProjectPath">The file it was loaded from, or <see langword="null"/> for an untitled project.</param>
     public readonly record struct SessionRequest(Project Project, string Status, string? ProjectPath);
 
+    /// <summary>The chosen audio output device (an OpenAL specifier, "" = system default) for this window's
+    /// settings — read by the composition root so a session swap opens on the same device.</summary>
+    internal string AudioDeviceSetting => _userSettings.AudioOutputDevice;
+
     // Parameterless ctor for the XAML designer / tooling.
     public MainWindow() : this(null, null, string.Empty, null) { }
 
@@ -995,14 +999,27 @@ public partial class MainWindow : Window
             // falls back to the bare cache sweep.
             clearProxyCache: () => _proxy is { } proxy ? proxy.DeleteAllProxies() : Proxy.ProxyCache.DeleteAll(),
             renderCacheSize: () => _renderCache?.SizeBytes() ?? 0,
-            clearRenderCache: () => _renderCache?.DeleteAll());
+            clearRenderCache: () => _renderCache?.DeleteAll(),
+            audioDevices: Sprocket.Audio.OpenAlAudioOutput.EnumerateOutputDevices());
         if (updated is null)
             return;
 
         bool autosaveChanged = updated.AutosaveIntervalSeconds != _userSettings.AutosaveIntervalSeconds;
         bool updatePolicyChanged = updated.UpdateCheckEnabled != _userSettings.UpdateCheckEnabled;
+        bool audioDeviceChanged = !string.Equals(updated.AudioOutputDevice, _userSettings.AudioOutputDevice, StringComparison.Ordinal);
         _userSettings = updated;
         UserSettingsFile.Save(updated);
+
+        // Repoint the live master clock at the newly chosen device in place — seamless, no session rebuild, the
+        // playhead is kept (AudioEngine.SwitchOutputDevice). With no audio clock (a project with no audio, or the
+        // software-clock fallback) the choice just persists and takes effect the next time a session opens audio.
+        if (audioDeviceChanged && _audioClock is { } audioClock)
+        {
+            bool switched = audioClock.SwitchOutputDevice(updated.AudioOutputDevice);
+            SetStatus(switched
+                ? (updated.AudioOutputDevice.Length == 0 ? "Audio output: System Default" : $"Audio output: {updated.AudioOutputDevice}")
+                : "Could not switch the audio output device — keeping the current one.");
+        }
 
         // A changed update setting takes effect now, not next launch: re-check when just enabled,
         // or clear the badge when checks were just switched off.

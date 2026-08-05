@@ -156,6 +156,26 @@ public class UserSettingsStoreTests
         Assert.Equal(expected, UserSettingsStore.ParseAutoScroll(stored));
 
     [Fact]
+    public void Audio_Output_Device_Round_Trips()
+    {
+        var settings = new UserSettings(AudioOutputDevice: "Speakers (Steam Streaming Speakers)");
+        Assert.Equal("Speakers (Steam Streaming Speakers)",
+            UserSettingsStore.Deserialize(UserSettingsStore.Serialize(settings)).AudioOutputDevice);
+    }
+
+    [Fact]
+    public void Audio_Output_Device_Defaults_To_System_Default()
+    {
+        // Fresh install and an old settings file written before the field existed both mean "system default" ("").
+        Assert.Equal("", new UserSettings().AudioOutputDevice);
+        Assert.Equal("", UserSettingsStore.Deserialize("""{"McpEnabled": true}""").AudioOutputDevice);
+    }
+
+    [Fact]
+    public void Clamp_Normalizes_A_Null_Audio_Output_Device_To_Empty() =>
+        Assert.Equal("", UserSettingsStore.Clamp(new UserSettings(AudioOutputDevice: null!)).AudioOutputDevice);
+
+    [Fact]
     public void NewToken_Is_Long_Unique_And_Header_Safe()
     {
         string a = UserSettingsStore.NewToken();

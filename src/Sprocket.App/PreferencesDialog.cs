@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -29,8 +30,34 @@ internal static class PreferencesDialog
     /// </summary>
     public static Task<UserSettings?> Show(Window owner, UserSettings current,
         Func<long> proxyCacheSize, Func<int> clearProxyCache,
-        Func<long> renderCacheSize, Action clearRenderCache)
+        Func<long> renderCacheSize, Action clearRenderCache,
+        IReadOnlyList<string> audioDevices)
     {
+        // ── Audio output device ─────────────────────────────────────────────────────────────────
+        // "System Default" ("" specifier) plus the enumerated devices. Keep the persisted device selectable even
+        // when it isn't currently enumerated (unplugged) so leaving the dialog doesn't silently discard the choice.
+        var deviceLabels = new List<string> { "System Default" };
+        var deviceSpecs = new List<string> { "" };
+        foreach (string d in audioDevices)
+        {
+            deviceLabels.Add(d);
+            deviceSpecs.Add(d);
+        }
+        if (current.AudioOutputDevice.Length > 0 && !deviceSpecs.Contains(current.AudioOutputDevice))
+        {
+            deviceLabels.Add($"{current.AudioOutputDevice} (not connected)");
+            deviceSpecs.Add(current.AudioOutputDevice);
+        }
+        var audioDevice = new ComboBox
+        {
+            ItemsSource = deviceLabels,
+            SelectedIndex = Math.Max(0, deviceSpecs.IndexOf(current.AudioOutputDevice)),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            FontSize = 12,
+        };
+
         // ── Caches ──────────────────────────────────────────────────────────────────────────────
         var proxySizeText = Muted(PreferencesFormat.Bytes(proxyCacheSize()));
         var renderSizeText = Muted(PreferencesFormat.Bytes(renderCacheSize()));
@@ -191,6 +218,12 @@ internal static class PreferencesDialog
                                 Section("Import"),
                                 Labeled("Still image default duration (seconds)", stillDuration),
 
+                                Section("Audio"),
+                                Labeled("Output device", audioDevice),
+                                Hint("Choose where playback is monitored. A change applies immediately without "
+                                    + "interrupting playback; if the chosen device is later unavailable, Sprocket "
+                                    + "uses the system default."),
+
                                 Section("Updates"),
                                 updatesEnabled,
                                 updatesNote,
@@ -261,6 +294,7 @@ internal static class PreferencesDialog
             McpRequireToken = requireToken.IsChecked == true,
             McpToken = token,
             UpdateCheckEnabled = updatesEnabled.IsChecked == true,
+            AudioOutputDevice = deviceSpecs[audioDevice.SelectedIndex >= 0 ? audioDevice.SelectedIndex : 0],
         }));
         cancel.Click += (_, _) => dialog.Close((UserSettings?)null);
 

@@ -41,14 +41,15 @@ public partial class App : Application
             CliOptions cli = CliOptions.Parse(desktop.Args ?? []);
             if (cli.Error is not null)
                 Console.Error.WriteLine($"mcp: {cli.Error}");
-            MediaBootstrap.Result result = MediaBootstrap.Create(cli.MediaPath);
+            UserSettings baseSettings = UserSettingsFile.Load();
+            MediaBootstrap.Result result = MediaBootstrap.Create(cli.MediaPath, baseSettings.AudioOutputDevice);
             desktop.MainWindow = BuildWindow(result.Engine, result.Project, result.Status, projectPath: null, result.Proxy, result.AudioClock);
 
             // Start the MCP server only on an explicit user switch (PLAN.md step 38): the persisted Preferences
             // toggle, or the --mcp / --mcp-port scripting flags. The CLI override is session-only — it is never
             // written back to the settings file, and a later Preferences apply supersedes it.
             UserSettings startupSettings = cli.ApplyTo(
-                UserSettingsFile.Load(), Environment.GetEnvironmentVariable(CliOptions.McpTokenEnvVar));
+                baseSettings, Environment.GetEnvironmentVariable(CliOptions.McpTokenEnvVar));
             _ = StartMcpAsync(_mcp, startupSettings, announce: cli.McpRequested);
 
             // Update check (PLAN.md steps 36 + 45): fire-and-forget after the shell is handed to the
@@ -94,7 +95,9 @@ public partial class App : Application
             // shrank on Open Sample Project. Opening a project must never move the window (WindowPlacement).
             WindowPlacement? placement = (oldWindow as MainWindow)?.CapturePlacement();
 
-            MediaBootstrap.Result result = MediaBootstrap.CreateForProject(request.Project, request.Status);
+            // The new session opens on the current window's chosen output device (the persisted Preferences pick).
+            string audioDevice = (oldWindow as MainWindow)?.AudioDeviceSetting ?? "";
+            MediaBootstrap.Result result = MediaBootstrap.CreateForProject(request.Project, request.Status, audioDevice);
             MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath, result.Proxy, result.AudioClock, placement);
             _desktop.MainWindow = window;
             window.Show();

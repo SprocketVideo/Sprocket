@@ -47,6 +47,9 @@ namespace Sprocket.App;
 /// menu?" prompt has already been shown (PLAN.md step 36). Set once the user has answered either way, so the
 /// offer never nags across launches; the Help ▸ Add/Remove items remain available regardless. No effect off
 /// Linux / off the AppImage build.</param>
+/// <param name="AudioOutputDevice">The chosen audio output device, as an OpenAL device specifier (a name from
+/// <see cref="Sprocket.Audio.OpenAlAudioOutput.EnumerateOutputDevices"/>). "" = the system default. A saved
+/// device that is no longer present falls back to the default automatically when a session opens.</param>
 public sealed record UserSettings(
     string ExportTitle = "{project}",
     string ExportAuthor = "{username}",
@@ -64,7 +67,8 @@ public sealed record UserSettings(
     string UpdateFirstSeenUtc = "",
     double StillImageDefaultSeconds = 5,
     string TimelineAutoScroll = nameof(Sprocket.App.TimelineAutoScroll.Page),
-    bool LinuxDesktopIntegrationPrompted = false);
+    bool LinuxDesktopIntegrationPrompted = false,
+    string AudioOutputDevice = "");
 
 /// <summary>
 /// The pure, headlessly-tested (de)serialization and validation logic for <see cref="UserSettings"/> —
@@ -134,6 +138,7 @@ public static class UserSettingsStore
         UpdateFirstSeenUtc = settings.UpdateFirstSeenUtc ?? "",
         StillImageDefaultSeconds = Math.Clamp(settings.StillImageDefaultSeconds, MinStillSeconds, MaxStillSeconds),
         TimelineAutoScroll = ParseAutoScroll(settings.TimelineAutoScroll).ToString(),
+        AudioOutputDevice = settings.AudioOutputDevice ?? "",
     };
 
     /// <summary>

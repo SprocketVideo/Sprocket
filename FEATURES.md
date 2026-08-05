@@ -271,6 +271,7 @@ in terms an app-side committer can check against their diff.
 | Shelving EQ (standalone low + high shelves: freq/gain/slope, per-shelf enable) | Sprocket.Audio/Effects/ShelvingEqEffect.cs; EffectCatalog.cs | audio/audio-effects.md#equalizers | ✅ |
 | Shimmer Reverb (pitch-shifted feedback wash; interval control; presets Classic–Dark–Fifth–Drone) | Sprocket.Audio/Effects/ShimmerReverbEffect.cs; EffectCatalog.cs | audio/audio-effects.md#reverb | ✅ |
 | Freeze / Unfreeze Clip Audio (pre-render heavy audio chains; Sequence menu) | MainWindow.axaml.cs `UnfreezeClipAudio`; RenderCacheService.cs | audio/audio-effects.md#freeze-a-heavy-audio-chain | ✅ |
+| Audio output device (Edit ▸ Preferences ▸ Audio): pick where playback is monitored; applies immediately without interrupting playback; survives restart; auto-recovers to the system default if a device is lost or unavailable | UserSettings.AudioOutputDevice; PreferencesDialog.cs; Sprocket.Audio/OpenAlAudioOutput.cs `EnumerateOutputDevices`; AudioEngine `SwitchOutputDevice`/device-loss recovery | — | ❌ |
 
 ## 6. Export & share
 

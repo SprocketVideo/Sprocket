@@ -25,10 +25,11 @@ internal sealed class FakeAudioOutput : IAudioOutput
     /// <summary>A thread-safe copy of every buffer enqueued so far (the feeder writes from its own thread).</summary>
     public float[][] EnqueuedSnapshot() { lock (_gate) return _enqueued.ToArray(); }
 
-    public void Configure(int sampleRate, int channels)
+    public void Configure(int sampleRate, int channels, string? deviceSpecifier = null)
     {
         SampleRate = sampleRate;
         Channels = channels;
+        LastReopenSpecifier = deviceSpecifier;
     }
 
     public long PlayedFrames { get { lock (_gate) return _played; } }
@@ -86,14 +87,24 @@ internal sealed class FakeAudioOutput : IAudioOutput
     /// <see cref="OpenAlAudioOutput"/> collapses that native case to false before the engine ever sees it.</summary>
     public void SetReopenResult(Func<bool> result) { lock (_gate) _reopenResult = result; }
 
+    /// <summary>The device specifier passed to the most recent <see cref="Configure"/> / <see cref="TryReopenDevice"/>.</summary>
+    public string? LastReopenSpecifier { get; private set; }
+
     /// <inheritdoc />
-    public bool TryReopenDefaultDevice()
+    public bool TryReopenDefaultDevice() => TryReopenDevice(null);
+
+    /// <inheritdoc />
+    public bool TryReopenDevice(string? deviceSpecifier)
     {
         lock (_gate)
         {
             ReopenCalls++;
+            LastReopenSpecifier = deviceSpecifier;
             bool ok = _reopenResult?.Invoke() ?? true;
-            _connected = ok;
+            // A successful reopen yields a live device; a failed one leaves the current device untouched (OpenAL
+            // Soft keeps the original device open when alcReopenDeviceSOFT fails), so don't force it disconnected.
+            if (ok)
+                _connected = true;
             return ok;
         }
     }

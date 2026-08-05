@@ -16,8 +16,10 @@ namespace Sprocket.Audio;
 public interface IAudioOutput : IDisposable
 {
     /// <summary>Opens the device for the given output format. Call once before any other member. Throws if no
-    /// device is available (the caller falls back to a software clock).</summary>
-    void Configure(int sampleRate, int channels);
+    /// device is available (the caller falls back to a software clock). <paramref name="deviceSpecifier"/> names a
+    /// specific output device (as reported by <see cref="OpenAlAudioOutput.EnumerateOutputDevices"/>); null or ""
+    /// opens the system default, and a named device that can no longer be opened falls back to the default.</summary>
+    void Configure(int sampleRate, int channels, string? deviceSpecifier = null);
 
     /// <summary>Output channel count (valid after <see cref="Configure"/>).</summary>
     int Channels { get; }
@@ -65,4 +67,13 @@ public interface IAudioOutput : IDisposable
     /// still gone, so the caller falls back to software timing. Called only from the feeder/clock thread.
     /// </summary>
     bool TryReopenDefaultDevice();
+
+    /// <summary>
+    /// Repoints the output at a specific device in place (the Preferences device picker) via
+    /// <c>ALC_SOFT_reopen_device</c> — <paramref name="deviceSpecifier"/> null/"" = system default, otherwise a
+    /// name from <see cref="OpenAlAudioOutput.EnumerateOutputDevices"/>. Same success contract as
+    /// <see cref="TryReopenDefaultDevice"/> (true only if reopened and connected); on false the previous device
+    /// keeps playing. Serialised with the feeder's device access by the implementation.
+    /// </summary>
+    bool TryReopenDevice(string? deviceSpecifier);
 }

@@ -195,6 +195,60 @@ public class AudioEngineRecoveryTests
     }
 
     [Fact]
+    public async Task SwitchOutputDevice_Repoints_In_Place_Keeping_The_Playhead()
+    {
+        var output = NewOutput();
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+
+        engine.Start();
+        output.SetPlayedFrames(Rate * 2); // 2 s heard on the current device
+
+        bool switched = engine.SwitchOutputDevice("Speakers (USB Audio)");
+
+        Assert.True(switched);
+        Assert.Equal("Speakers (USB Audio)", output.LastReopenSpecifier); // the named device was requested
+        Assert.Equal(1, output.ReopenCalls);
+        Assert.Equal(Timecode.FromSeconds(2.0).Ticks, engine.Now.Ticks); // playhead preserved across the switch
+        // Still on the (reopened) device: further played frames advance Now.
+        output.SetPlayedFrames(Rate * 3);
+        Assert.Equal(Timecode.FromSeconds(3.0).Ticks, engine.Now.Ticks);
+    }
+
+    [Fact]
+    public async Task SwitchOutputDevice_Returns_False_And_Keeps_Playing_When_Reopen_Fails()
+    {
+        var output = NewOutput();
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        output.SetReopenResult(() => false); // the requested device can't be opened
+
+        engine.Start();
+        output.SetPlayedFrames(Rate);
+
+        Assert.False(engine.SwitchOutputDevice("Nonexistent Device"));
+        // The current device keeps driving the clock (no software fallback, no freeze).
+        output.SetPlayedFrames(Rate * 2);
+        Assert.Equal(Timecode.FromSeconds(2.0).Ticks, engine.Now.Ticks);
+    }
+
+    [Fact]
+    public async Task SwitchOutputDevice_Is_A_No_Op_In_Software_Fallback()
+    {
+        var output = NewOutput();
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        var log = new List<AudioEngine.OutputStatus>();
+        engine.OutputStatusChanged += s => { lock (log) log.Add(s); };
+        output.SetReopenResult(() => false);
+
+        engine.Start();
+        output.SetConnected(false);
+        Assert.True(await WaitUntil(() => Snapshot(log).Contains(AudioEngine.OutputStatus.SoftwareFallback), Timeout));
+
+        int reopenCallsBefore = output.ReopenCalls;
+        Assert.False(engine.SwitchOutputDevice("Speakers (USB Audio)")); // can't switch a dead session's device
+        Assert.Equal(reopenCallsBefore, output.ReopenCalls);            // and it didn't even attempt a reopen
+    }
+
+    [Fact]
     public async Task Dispose_After_Device_Loss_Does_Not_Hang()
     {
         var output = NewOutput();
