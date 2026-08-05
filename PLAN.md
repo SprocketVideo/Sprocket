@@ -2791,7 +2791,7 @@ Tags reference the [UI.md §4 checklist](UI.md).
         `Copyright = © {year} {username}`; Comment blank) — `MetadataTokens.Resolve` (pure, tested)
         substitutes the live user/year/project/date when the export dialog prefills, so users see final,
         editable text and the copyright year never goes stale.
-      - **`Sprocket.Mcp`** (references Core + Persistence + pinned **`ModelContextProtocol.Core` 1.4.0**
+      - **`Sprocket.Mcp`** (references Core + Persistence + pinned **`ModelContextProtocol.Core` 1.4.1**
         — the official SDK's no-ASP.NET-Core package): **stateless Streamable HTTP** on a plain
         `HttpListener` bound to `http://127.0.0.1:{port}/mcp/` (`McpServerHost`, mirroring the SDK's own
         AspNetCore stateless handler sequence — the documented fallback if ever needed); **22 tools** —

@@ -38,7 +38,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Pinned to the SkiaSharp version Avalonia 12.0.5 is built against so the types
+    <!-- Pinned to the SkiaSharp version Avalonia 12.1.1 is built against so the types
          produced here match the ones the ISkiaSharpApiLeaseFeature hands back in the app
          (ARCHITECTURE.md §14). A mismatched feed would load a second, incompatible assembly. -->
     <PackageReference Include="SkiaSharp" Version="3.119.4" />

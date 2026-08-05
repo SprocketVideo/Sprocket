@@ -180,8 +180,8 @@ Cross-cutting design facts that aren't obvious from any one file:
 ## Version pinning (do not bump casually)
 
 Versions were verified together by the spike (ARCHITECTURE §14). In particular **SkiaSharp is
-pinned to 3.119.4 to match Avalonia 12.0.5's transitive SkiaSharp** — a newer SkiaSharp loads a
-second, incompatible Skia assembly and the GPU lease's types stop matching. Avalonia 12.0.5 and
+pinned to 3.119.4 to match Avalonia 12.1.1's transitive SkiaSharp** — a newer SkiaSharp loads a
+second, incompatible Skia assembly and the GPU lease's types stop matching. Avalonia 12.1.1 and
 Silk.NET.OpenAL 2.23 round out the locked stack.
 
 **FFmpeg 8 via a hand-rolled binding (migrated off the dormant Sdcb.FFmpeg 2026-06-29).** `Sprocket.Media`

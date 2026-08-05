@@ -1,0 +1,19 @@
+<Project>
+
+  <!--
+    MSBuild only auto-imports the NEAREST Directory.Build.props, so this stub chains to the repo-root
+    one (version/product metadata) and then adds the test-runner package trio shared by every
+    *.Tests project. Single place to bump Test.Sdk / xunit / runner versions — the per-project
+    csproj files deliberately carry no copy of these three references.
+
+    The name condition keeps the packages out of non-runner fixtures under tests/ (Sprocket.TestPlugin).
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)../Directory.Build.props" />
+
+  <ItemGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+</Project>

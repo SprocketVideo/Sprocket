@@ -11,11 +11,11 @@ respective owner and licensed under the terms noted.
 
 | Component | License | Notes |
 |---|---|---|
-| [Avalonia](https://avaloniaui.net/) 12.0.5 (`Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent`) | MIT | Cross-platform UI framework — the app shell. |
+| [Avalonia](https://avaloniaui.net/) 12.1.1 (`Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent`) | MIT | Cross-platform UI framework — the app shell. |
 | [SkiaSharp](https://github.com/mono/SkiaSharp) 3.119.4 (`SkiaSharp` + `SkiaSharp.NativeAssets.{Win32,Linux,Linux.NoDependencies,macOS}`) | MIT | GPU compositing / effects (ARCHITECTURE.md §1). Bundles Google's Skia graphics engine (BSD-3-Clause) as a native dependency. |
 | [Silk.NET.OpenAL](https://github.com/dotnet/Silk.NET) 2.23.0 | MIT | Managed OpenAL bindings for audio output. |
 | [Silk.NET.OpenAL.Soft.Native](https://github.com/dotnet/Silk.NET) 1.23.1 | MIT (wrapper) — bundles **OpenAL Soft**, LGPL-2.1 | See "Native libraries" below for the OpenAL Soft license itself. |
-| [ModelContextProtocol.Core](https://github.com/modelcontextprotocol/csharp-sdk) 1.4.0 | MIT | The MCP server SDK used by `Sprocket.Mcp` (PLAN.md step 38). |
+| [ModelContextProtocol.Core](https://github.com/modelcontextprotocol/csharp-sdk) 1.4.1 | Apache-2.0 | The MCP server SDK used by `Sprocket.Mcp` (PLAN.md step 38). |
 | [Velopack](https://github.com/velopack/velopack) 1.2.0 | MIT | Installer + auto-update runtime (PLAN.md step 36). The matching `vpk` CLI packs the release artifacts (Windows Setup, Linux AppImage, macOS .app). |
 
 Build/test-only packages (`Microsoft.NET.Test.Sdk`, `xunit`, `xunit.runner.visualstudio`) are not

@@ -173,7 +173,7 @@ internal static class LinuxDesktopIntegration
         {
             using Bitmap scaled = source.CreateScaledBitmap(new PixelSize(size, size), BitmapInterpolationMode.HighQuality);
             using var ms = new MemoryStream();
-            scaled.Save(ms);
+            scaled.Save(ms, PngBitmapEncoderOptions.Default);
             result[size] = ms.ToArray();
         }
         return result;

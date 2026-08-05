@@ -34,9 +34,9 @@
 
   <ItemGroup>
     <!-- The official MCP C# SDK, Core package only (no ASP.NET Core). Pinned like the rest of the stack
-         (CLAUDE.md "Version pinning"): 1.4.0 is the current stable 1.x; 2.0 previews change transport
-         contracts — do not bump casually. -->
-    <PackageReference Include="ModelContextProtocol.Core" Version="1.4.0" />
+         (CLAUDE.md "Version pinning"): 1.4.1 is the current stable 1.x; 2.x changes transport
+         contracts and is a separate migration — do not bump casually. -->
+    <PackageReference Include="ModelContextProtocol.Core" Version="1.4.1" />
   </ItemGroup>
 
 </Project>

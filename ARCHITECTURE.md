@@ -365,7 +365,7 @@ Even the slice's fade needs time-varying parameters, so the model bakes this in 
 
 ## 10. Avalonia ↔ Skia GPU integration (the load-bearing seam)
 
-Verified mechanism (Avalonia 12 / SkiaSharp 4.x):
+Verified mechanism (Avalonia 12 / SkiaSharp 3.119.4):
 
 - Implement an `ICustomDrawOperation` (or a `CompositionCustomVisualHandler` for continuous
   render-thread callbacks). Inside `Render`, get
@@ -584,8 +584,8 @@ directory and preferred when present; missing media loads offline rather than fa
 | Component | Version | Notes |
 |---|---|---|
 | .NET | 10 (LTS) | Server/Background GC; `Span`, SIMD intrinsics, source-gen JSON. Single managed build runs on `win-x64`/`linux-x64`/`osx-x64`/`osx-arm64`. |
-| Avalonia | 12.0.5 | `ISkiaSharpApiLeaseFeature.Lease()` → `GrContext`+`SkCanvas`; `CompositionCustomVisualHandler`. Native desktop on Windows/Linux/**macOS** (Metal/OpenGL); Vulkan supported. |
-| SkiaSharp | **3.119.4** | Pinned to Avalonia 12.0.5's transitive SkiaSharp so the lease's Skia types match (a newer feed loads a 2nd incompatible assembly). `SKRuntimeEffect.CreateShader` (SkSL), `SKImage.FromTexture`/`FromPixels`, GPU surfaces. Natives per RID via `SkiaSharp.NativeAssets.{Win32,Linux,macOS}`. |
+| Avalonia | 12.1.1 | `ISkiaSharpApiLeaseFeature.Lease()` → `GrContext`+`SkCanvas`; `CompositionCustomVisualHandler`. Native desktop on Windows/Linux/**macOS** (Metal/OpenGL); Vulkan supported. |
+| SkiaSharp | **3.119.4** | Pinned to Avalonia 12.1.1's transitive SkiaSharp so the lease's Skia types match (a newer feed loads a 2nd incompatible assembly). `SKRuntimeEffect.CreateShader` (SkSL), `SKImage.FromTexture`/`FromPixels`, GPU surfaces. Natives per RID via `SkiaSharp.NativeAssets.{Win32,Linux,macOS}`. |
 | FFmpeg | **8.1** via a **hand-rolled binding** | Sprocket's own source-generated `[LibraryImport]` P/Invoke (`Native/LibAv.cs`) + explicit-layout structs pinned to FFmpeg 8.1 x64 (`Native/AvStructs.cs`); sonames avcodec 62 / avutil 60 / avformat 62 / swscale 9 / swresample 6. **No FFmpeg binding or runtime NuGet on any RID** — natives bundled per-RID (see §11), version-guarded on libavcodec major 62. Migrated off the dormant Sdcb.FFmpeg 7.0.0 (2026-06-29) after a three-arm spike chose hand-rolled for footprint/AOT + cadence control (`Native/SPIKE_RESULTS.md`; the spike project lives in git history). |
 | Silk.NET.OpenAL | 2.23 | Cross-platform audio out behind `IAudioOutput`; `Silk.NET.OpenAL.Soft.Native` 1.23.1 ships `win`/`linux`/**`osx-x64`+`osx-arm64`** binaries. (Silk.NET 2.x in limited maintenance — abstracted; macOS CoreAudio is an optional later swap.) |
 

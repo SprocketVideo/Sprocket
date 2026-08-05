@@ -5,8 +5,9 @@ metadata:
   type: reference
 ---
 
-The Avalonia source (matching the pinned 12.0.5 stack) is checked out locally at
-`C:\Users\darcy\source\repos\_Experiments\Avalonia`.
+The Avalonia source is checked out locally at
+`C:\Users\darcy\source\repos\_Experiments\Avalonia`. The app pins Avalonia 12.1.1 (bumped from
+12.0.5 on 2026-08-05) — check out the matching tag there before trusting template details.
 
 Use it to verify Fluent control-theme part names and resource keys before writing `/template/`
 style overrides — the NuGet package ships only compiled DLLs. Useful files:
