@@ -28,6 +28,13 @@ public enum ProxyState
     /// <summary>No proxy is needed (the source is already light enough to preview in real time).</summary>
     NotNeeded,
 
+    /// <summary>
+    /// A proxy <em>is</em> wanted, none is on disk, and none is scheduled — the resting state when proxies are
+    /// off or paused, and where a source lands after its proxy is deleted or its tier changes. Distinct from
+    /// <see cref="NotNeeded"/>, which means no proxy would ever help.
+    /// </summary>
+    NotGenerated,
+
     /// <summary>A proxy is wanted but not yet started.</summary>
     Queued,
 

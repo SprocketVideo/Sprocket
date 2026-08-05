@@ -1,11 +1,39 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Threading;
 using Sprocket.Core.Model;
+using Sprocket.Core.Timing;
 
 namespace Sprocket.App.Proxy;
+
+/// <summary>
+/// The seam <see cref="ProxyService"/> builds proxies through (PLAN.md step 18). Production is
+/// <see cref="FfmpegProxyTranscoder"/>, which shells out to the <c>ffmpeg</c> CLI; tests substitute a fake so the
+/// service's state machine — pause/cancel/requeue, stale-completion guards, progress throttling — is exercised
+/// headlessly without an encoder on PATH.
+/// </summary>
+public interface IProxyTranscoder
+{
+    /// <summary>
+    /// Builds the proxy for <paramref name="media"/> at <paramref name="target"/> resolution, writing it to
+    /// <paramref name="outputPath"/> and reporting a 0..1 completion fraction to <paramref name="progress"/>.
+    /// Returns <see langword="true"/> only on a clean, complete build. Must honour
+    /// <paramref name="cancellationToken"/> promptly and must never throw for an ordinary failure (a bad source, no
+    /// encoder available) — it returns <see langword="false"/> so the source keeps previewing on its original (§15).
+    /// </summary>
+    bool Generate(MediaRef media, Resolution target, string outputPath, IProgress<double>? progress, CancellationToken cancellationToken);
+}
+
+/// <summary>The production <see cref="IProxyTranscoder"/>: a thin adapter over <see cref="ProxyTranscoder"/>.</summary>
+public sealed class FfmpegProxyTranscoder : IProxyTranscoder
+{
+    /// <inheritdoc />
+    public bool Generate(MediaRef media, Resolution target, string outputPath, IProgress<double>? progress, CancellationToken cancellationToken) =>
+        ProxyTranscoder.Generate(media, target, outputPath, progress, cancellationToken);
+}
 
 /// <summary>
 /// Generates one lower-resolution preview proxy for a source by invoking the <c>ffmpeg</c> CLI out-of-process
@@ -28,9 +56,17 @@ namespace Sprocket.App.Proxy;
 /// runs precisely when the user is watching the preview: the decode ring, the GPU compositor, and the audio
 /// callback all compete with it, and audio is the master clock (§6), so an underrun there desyncs video too.
 /// Proxy generation is background work — finishing a minute later is invisible, a stuttering preview is not.</para>
+/// <para><b>Both child streams are drained asynchronously.</b> <c>-progress pipe:1</c> makes <c>ffmpeg</c> write
+/// to stdout continuously for the whole encode; an unread pipe buffer fills and blocks the child forever, which
+/// would deadlock against the <see cref="Process.WaitForExit(int)"/> poll below. Reading stdout also happens to be
+/// where per-file progress comes from, and stderr is kept as a short ring for failure diagnostics.</para>
 /// </remarks>
 internal static class ProxyTranscoder
 {
+    /// <summary>How many trailing stderr lines to keep for a failure message (ffmpeg's last words are the useful
+    /// ones; the stream is drained regardless of whether we keep any of it).</summary>
+    private const int StderrRingSize = 8;
+
     /// <summary>
     /// How many encoder threads a proxy child process may use on a machine with <paramref name="processorCount"/>
     /// cores: half of them, floored at 1 and capped at 8. Half leaves the live decode/render/audio pipelines room
@@ -40,12 +76,41 @@ internal static class ProxyTranscoder
     internal static int EncodeThreadCount(int processorCount) => Math.Clamp(processorCount / 2, 1, 8);
 
     /// <summary>
-    /// Builds the proxy for <paramref name="media"/> at <paramref name="target"/> resolution, writing it to
-    /// <paramref name="outputPath"/>. Returns <see langword="true"/> on success. Honours
-    /// <paramref name="cancellationToken"/> (kills the child); any failure — bad source, no <c>ffmpeg</c> on PATH,
-    /// non-zero exit — returns <see langword="false"/> so the source keeps previewing on its original (§15).
+    /// The 0..1 completion fraction implied by one <c>-progress</c> line from <c>ffmpeg</c>, or
+    /// <see langword="null"/> when the line carries no usable position (any other key, an <c>N/A</c> value, or an
+    /// unknown source duration). <c>ffmpeg</c> writes one <c>key=value</c> per line and repeats the block every
+    /// reporting interval; only <c>out_time_us</c> (microseconds of output written) tells us how far along it is.
+    /// Pure and testable — the microsecond→tick conversion goes through the global time base (§3), never
+    /// <c>double</c> seconds.
     /// </summary>
-    public static bool Generate(MediaRef media, Resolution target, string outputPath, CancellationToken cancellationToken)
+    internal static double? ProgressFraction(string? line, long durationTicks)
+    {
+        if (line is null || durationTicks <= 0)
+            return null;
+
+        const string key = "out_time_us=";
+        if (!line.StartsWith(key, StringComparison.Ordinal))
+            return null;
+        if (!long.TryParse(line.AsSpan(key.Length).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long microseconds)
+            || microseconds < 0)
+        {
+            return null; // "N/A" before the first frame is written, or a malformed line
+        }
+
+        // us → ticks: 240000 ticks/s ÷ 1e6 us/s. Int128 keeps a multi-hour source exact.
+        long ticks = (long)((Int128)microseconds * Timecode.TicksPerSecond / 1_000_000);
+        return Math.Clamp((double)ticks / durationTicks, 0, 1);
+    }
+
+    /// <summary>
+    /// Builds the proxy for <paramref name="media"/> at <paramref name="target"/> resolution, writing it to
+    /// <paramref name="outputPath"/> and reporting a 0..1 fraction to <paramref name="progress"/>. Returns
+    /// <see langword="true"/> on success. Honours <paramref name="cancellationToken"/> (kills the child); any
+    /// failure — bad source, no <c>ffmpeg</c> on PATH, non-zero exit — returns <see langword="false"/> so the
+    /// source keeps previewing on its original (§15).
+    /// </summary>
+    public static bool Generate(
+        MediaRef media, Resolution target, string outputPath, IProgress<double>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(media);
         ArgumentException.ThrowIfNullOrEmpty(outputPath);
@@ -53,13 +118,15 @@ internal static class ProxyTranscoder
             return false;
 
         string tempPath = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp.mp4";
+        long durationTicks = media.Info.Duration.Ticks;
 
         // -an: video-only (audio mixes from the original). scale to the fixed proxy tier; ultrafast/CRF 28 = speed.
         // -threads: leave cores for the live preview (see the class remarks) rather than letting ffmpeg take all.
+        // -progress pipe:1 -nostats: machine-readable progress on stdout (both streams are drained below).
         string scale = string.Create(CultureInfo.InvariantCulture, $"scale={target.Width}:{target.Height}:flags=bilinear");
         int threads = EncodeThreadCount(Environment.ProcessorCount);
         var psi = new ProcessStartInfo("ffmpeg",
-            $"-y -nostdin -loglevel error -i \"{media.AbsolutePath}\" -an -vf {scale} " +
+            $"-y -nostdin -loglevel error -progress pipe:1 -nostats -i \"{media.AbsolutePath}\" -an -vf {scale} " +
             $"-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p -threads {threads.ToString(CultureInfo.InvariantCulture)} \"{tempPath}\"")
         {
             UseShellExecute = false,
@@ -69,15 +136,39 @@ internal static class ProxyTranscoder
         };
 
         Process? process = null;
+        var stderrTail = new Queue<string>(StderrRingSize);
         try
         {
             process = Process.Start(psi);
             if (process is null)
                 return false;
 
+            double lastReported = -1;
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (ProgressFraction(e.Data, durationTicks) is not { } fraction || fraction <= lastReported)
+                    return;
+                lastReported = fraction;
+                progress?.Report(fraction);
+            };
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (string.IsNullOrWhiteSpace(e.Data))
+                    return;
+                lock (stderrTail)
+                {
+                    if (stderrTail.Count == StderrRingSize)
+                        stderrTail.Dequeue();
+                    stderrTail.Enqueue(e.Data);
+                }
+            };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
             TryLowerPriority(process);
 
-            // Wait for completion, but bail out promptly (killing the child) if the session is torn down.
+            // Wait for completion, but bail out promptly (killing the child) if the build is cancelled — a pause,
+            // a tier change, or session teardown.
             while (!process.WaitForExit(200))
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -91,6 +182,7 @@ internal static class ProxyTranscoder
                 return false;
 
             File.Move(tempPath, outputPath, overwrite: true); // promote atomically, replacing any stale file
+            progress?.Report(1.0);
             return true;
         }
         catch

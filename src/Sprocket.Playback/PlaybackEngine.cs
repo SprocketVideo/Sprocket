@@ -440,10 +440,11 @@ public sealed class PlaybackEngine : IAsyncDisposable
     }
 
     /// <summary>
-    /// Signals that <paramref name="id"/>'s best-available source file has changed (a preview proxy became ready,
-    /// PLAN.md step 18). The next pump rebuilds the feed of any track currently decoding that source, so the
-    /// preview transparently switches to the proxy without a seek or a clip edit. Safe to call from any thread;
-    /// a no-op for the fixed-feed (slice/test) engine.
+    /// Signals that <paramref name="id"/>'s best-available source file has changed (PLAN.md step 18) — in either
+    /// direction: a preview proxy became ready, or one stopped applying (proxies switched off, the tier changed, the
+    /// proxy was deleted). The next pump rebuilds the feed of any track currently decoding that source through the
+    /// feed factory, so the preview transparently switches over without a seek or a clip edit. Safe to call from any
+    /// thread; a no-op for the fixed-feed (slice/test) engine.
     /// </summary>
     public void InvalidateSource(MediaRefId id)
     {

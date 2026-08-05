@@ -315,6 +315,7 @@ in terms an app-side committer can check against their diff.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Proxy media (automatic background proxies; status-bar indicator) | Sprocket.App/Proxy/*.cs; PLAN.md step 18 | performance/proxies-and-render-cache.md#proxies-automatic-help-with-heavy-footage | 🟡 (automatic behavior + the ready/pending messages are covered; the internal tier/resolution/CRF numbers stay undocumented. **Needs amending:** the status bar now also announces a build *starting* and reports failures — `proxy generation failed (n) — previewing originals`, the message a user sees when `ffmpeg` isn't on PATH) |
+| Proxy window (View ▸ Proxy): per-asset proxy state with live progress + ETA and on-disk size, plus live controls — Use proxies on/off, resolution tier (Quarter / Half / Full), Pause/Resume, Rebuild All, Delete All Proxies, and per-row Delete / Generate | Sprocket.App/ProxyStatusWindow.cs; Sprocket.App/ProxySettingsOps.cs; PLAN.md step 18 | — | ❌ |
 | Render In to Out / Selection / Audio (Sequence menu) | MainWindow.axaml.cs `RenderRangeAsync` | performance/proxies-and-render-cache.md#render-a-range-for-smooth-playback | ✅ |
 | Render bar (green/yellow/red cache states) | RenderCache/RenderBarModel.cs | performance/proxies-and-render-cache.md#the-render-bar-what-needs-rendering | ✅ |
 | Delete Render Files (with disk footprint) | MainWindow.axaml.cs `DeleteRenderFilesAsync` | performance/proxies-and-render-cache.md#reclaim-disk-space | ✅ |
@@ -352,7 +353,7 @@ Preferences or an "advanced" page.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Preferences dialog (`Ctrl+,`) | Sprocket.App/PreferencesDialog.cs | — | ❌ |
-| Cache management (clear proxy / render caches) | PreferencesDialog.cs | — | ❌ |
+| Cache management (clear proxy / render caches; "Clear proxy cache" routes through the proxy service so View ▸ Proxy stays consistent) | PreferencesDialog.cs | — | ❌ |
 | Export metadata defaults (with `{project}`/`{username}`/`{year}`/`{date}` tokens) | PreferencesDialog.cs; Sprocket.App/MetadataTokens.cs | — | ❌ |
 | Autosave interval | PreferencesDialog.cs | get-started/projects-and-saving.md#change-how-often-sprocket-autosaves | ✅ |
 | Update check settings (enable/disable) | PreferencesDialog.cs; Sprocket.App/UpdateService.cs | — | ❌ |

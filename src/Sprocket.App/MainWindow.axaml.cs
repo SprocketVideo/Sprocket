@@ -152,11 +152,13 @@ public partial class MainWindow : Window
     private MenuItem? _clipFrameHoldOptionsMenuItem, _clipAddFrameHoldMenuItem, _clipInsertFrameHoldSegmentMenuItem;
     private MenuItem? _clipDuplicateFrameMenuItem, _clipRemoveFrameMenuItem;
     private MenuItem? _nestMenuItem, _openSequenceMenuItem; // Sequence menu (PLAN.md step 23)
-    private MenuItem? _snappingMenuItem, _guidesMenuItem, _showProjectMenuItem, _showInspectorMenuItem, _showStatsMenuItem;
+    private MenuItem? _snappingMenuItem, _guidesMenuItem, _showProjectMenuItem, _showInspectorMenuItem, _showStatsMenuItem,
+        _showProxyStatusMenuItem;
     private MenuItem? _fullScreenMenuItem; // View ▸ Full Screen (checked while fullscreen)
     // View ▸ Playback Auto-Scroll (radio group; the timeline's AutoScroll property is the source of truth)
     private MenuItem? _autoScrollNoneMenuItem, _autoScrollPageMenuItem, _autoScrollSmoothMenuItem;
     private PlaybackStatsOverlay? _statsOverlay; // floating playback-diagnostics window (View ▸ Playback Statistics)
+    private ProxyStatusWindow? _proxyWindow; // proxy status + live control window (View ▸ Proxy, PLAN.md step 18)
     private MenuItem? _effectsMenu;
     private ToggleButton? _snappingToggle, _guidesToggle;
     private Grid? _workspaceGrid, _outerGrid;
@@ -554,6 +556,7 @@ public partial class MainWindow : Window
         WindowStateStore.Save(_lastNonMinimizedState); // remember maximized-or-not for next launch
         _telemetryTimer?.Stop(); // stop the status-bar poll (harmless if already idle)
         _statsOverlay?.Close(); // tear down the diagnostics overlay's poll timer
+        _proxyWindow?.Close(); // unsubscribes from the proxy service, which outlives this window (session swaps)
         _autosave?.Dispose(); // stop the autosave timer for this session
         _renderCacheRefresh?.Stop();
         _renderCache?.Dispose(); // releases any open cached-audio readers (PLAN.md step 32)
@@ -749,6 +752,9 @@ public partial class MainWindow : Window
         _autoScrollSmoothMenuItem.Click += (_, _) => SetAutoScroll(TimelineAutoScroll.Smooth);
         _showStatsMenuItem = this.FindControl<MenuItem>("ShowStatsMenuItem")!;
         _showStatsMenuItem.Click += (_, _) => ShowStatsOverlay(_showStatsMenuItem.IsChecked == true);
+        _showProxyStatusMenuItem = this.FindControl<MenuItem>("ShowProxyStatusMenuItem")!;
+        _showProxyStatusMenuItem.IsEnabled = _proxy is not null && _project is not null;
+        _showProxyStatusMenuItem.Click += (_, _) => ShowProxyWindow(_showProxyStatusMenuItem.IsChecked == true);
         _fullScreenMenuItem = this.FindControl<MenuItem>("FullScreenMenuItem")!;
         _fullScreenMenuItem.Click += (_, _) => ToggleWindowFullScreen();
         var fullScreenPreviewMenuItem = this.FindControl<MenuItem>("FullScreenPreviewMenuItem")!;
@@ -984,7 +990,10 @@ public partial class MainWindow : Window
     {
         UserSettings? updated = await PreferencesDialog.Show(this, _userSettings,
             proxyCacheSize: Proxy.ProxyCache.SizeBytes,
-            clearProxyCache: Proxy.ProxyCache.DeleteAll,
+            // Route through the service so its per-asset state (and the Proxy window showing it) can't be left
+            // claiming a Ready proxy whose file has just been deleted underneath it. Only a session with no project
+            // falls back to the bare cache sweep.
+            clearProxyCache: () => _proxy is { } proxy ? proxy.DeleteAllProxies() : Proxy.ProxyCache.DeleteAll(),
             renderCacheSize: () => _renderCache?.SizeBytes() ?? 0,
             clearRenderCache: () => _renderCache?.DeleteAll());
         if (updated is null)
@@ -1893,7 +1902,10 @@ public partial class MainWindow : Window
 
         // Preview proxies (PLAN.md step 18): the engine already switches onto a proxy transparently when one is
         // ready (wired in the bootstrap); here we just reflect progress in the status bar without interrupting flow.
-        if (_proxy is { Enabled: true })
+        // Subscribed whenever there is a service at all, not only when it starts out enabled: proxies can now be
+        // switched on mid-session from View ▸ Proxy, and a gate here would leave the status bar silent for the rest
+        // of the session in exactly that case.
+        if (_proxy is not null)
         {
             _proxy.ProgressChanged += () => Dispatcher.UIThread.Post(() =>
             {
@@ -2753,6 +2765,7 @@ public partial class MainWindow : Window
         if (_showProjectMenuItem is not null) _showProjectMenuItem.IsChecked = _projectPane?.IsVisible != false;
         if (_showInspectorMenuItem is not null) _showInspectorMenuItem.IsChecked = _inspectorPane?.IsVisible != false;
         if (_showStatsMenuItem is not null) _showStatsMenuItem.IsChecked = _statsOverlay is not null;
+        if (_showProxyStatusMenuItem is not null) _showProxyStatusMenuItem.IsChecked = _proxyWindow is not null;
         if (_fullScreenMenuItem is not null) _fullScreenMenuItem.IsChecked = WindowState == WindowState.FullScreen;
         // The timeline owns the mode; re-check the matching item rather than trusting the radio group's own state.
         TimelineAutoScroll autoScroll = _timeline?.AutoScroll ?? TimelineAutoScroll.Page;
@@ -2800,6 +2813,57 @@ public partial class MainWindow : Window
         else
         {
             _statsOverlay?.Close(); // Closed handler clears the field + unchecks the menu item
+        }
+    }
+
+    /// <summary>
+    /// View ▸ Proxy (PLAN.md step 18): opens or closes the proxy status + control window — per-asset state with live
+    /// progress and ETA, plus the on/off, resolution-tier, pause/resume and delete controls (Final Cut Pro's
+    /// Background Tasks window, and its delete-generated-media commands, in one place). Non-modal so it can stay open
+    /// while editing; a single instance.
+    /// </summary>
+    /// <remarks>The two <em>settings</em> it exposes are project state, so they route back through
+    /// <see cref="ProxySettingsOps"/> + <see cref="_history"/> rather than being set directly: that keeps them
+    /// undoable and marks the document dirty, which is what makes them survive a save/reload. The service transition
+    /// happens inside the command's setter, so undo/redo reconfigures the live service too.</remarks>
+    private void ShowProxyWindow(bool show)
+    {
+        if (show)
+        {
+            if (_proxyWindow is not null)
+                return;
+            if (_proxy is null || _project is null)
+            {
+                if (_showProxyStatusMenuItem is not null)
+                    _showProxyStatusMenuItem.IsChecked = false;
+                return;
+            }
+
+            ProjectSettings settings = _project.Settings;
+            var window = new ProxyStatusWindow(
+                _proxy, _project,
+                enabled =>
+                {
+                    if (ProxySettingsOps.BuildEnableCommand(settings, _proxy.SetEnabled, enabled) is { } command)
+                        _history.Execute(command);
+                },
+                tier =>
+                {
+                    if (ProxySettingsOps.BuildTierCommand(settings, _proxy.SetTier, tier) is { } command)
+                        _history.Execute(command);
+                });
+            window.Closed += (_, _) =>
+            {
+                _proxyWindow = null;
+                if (_showProxyStatusMenuItem is not null)
+                    _showProxyStatusMenuItem.IsChecked = false;
+            };
+            _proxyWindow = window;
+            window.Show(this); // non-modal child window
+        }
+        else
+        {
+            _proxyWindow?.Close(); // Closed handler clears the field + unchecks the menu item
         }
     }
 

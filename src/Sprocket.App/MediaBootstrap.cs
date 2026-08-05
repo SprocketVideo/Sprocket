@@ -144,7 +144,7 @@ internal static class MediaBootstrap
         {
             AllowPlayheadPastEnd = true, // sequence timelines are open-ended past the last clip
         };
-        proxy.ProxyReady += engine.InvalidateSource;
+        proxy.ProxyPathChanged += engine.InvalidateSource;
         engine.Start();
 
         string status = attemptedPath is not null
@@ -170,7 +170,7 @@ internal static class MediaBootstrap
         {
             AllowPlayheadPastEnd = true, // sequence timelines are open-ended past the last clip
         };
-        proxy.ProxyReady += engine.InvalidateSource;
+        proxy.ProxyPathChanged += engine.InvalidateSource;
         engine.Start();
         proxy.Enqueue(project);
         return new Result(engine, project, status, proxy, clock);

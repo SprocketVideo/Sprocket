@@ -1242,6 +1242,67 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         **hardware / all-intra** proxy codecs (step 32), **zoom-to-100/200% falling back to the original** when a
         view out-resolves the proxy (the resolver would need the live zoom), and **Source-monitor proxying** (it
         previews on originals today) — none requires a redesign.
+    - **✅ ADDENDUM — proxy status window + live runtime control (`View ▸ Proxy`; 26 new tests — App +25, Core
+      unaffected; full suite 1920 green, clean build).** Generation was background *and invisible*: the only feedback
+      was one terse status-bar line, and the two settings (`UseProxies` / `ProxyTier`) had **no UI at all** — read
+      once at session construction, changeable only by hand-editing the project file. This adds the window and the
+      runtime state machine underneath it, following **Final Cut Pro's Background Tasks** window (per-task progress
+      while you keep editing) + its delete-generated-media commands, and **DaVinci Resolve's** per-asset proxy status
+      + per-project tier. Delivered:
+      - **A specified runtime state machine (`ProxyService`).** The load-bearing part — the window is a thin view over
+        it. `_enabled`/`_paused`/`_tier` became live runtime state, and **the worker now always starts** (it used to
+        be `Task.CompletedTask` when constructed disabled, which is why nothing could be switched on mid-session); a
+        disabled or paused service parks on the semaphore. New public surface: `SetEnabled` / `SetPaused` / `SetTier`
+        / `Generate(id)` / `RebuildAll` / `Snapshot()` / `DeleteProxy(id)` / `DeleteAllProxies()`.
+      - **Inventory split from scheduling.** `Enqueue(Project)` keeps its name and signature (so **both** call sites —
+        the composition root and the post-import call in `MainWindow` — get the change for free) but the
+        disabled early-return moved *inside*: inventory always runs, only queueing is gated on enabled/not-paused. A
+        project loaded or media imported with proxies **off** therefore still yields a complete `Snapshot()`, so the
+        window shows what *would* be built. New `ProxyState.NotGenerated` ("wanted, none on disk, none scheduled")
+        distinguishes that from `NotNeeded` ("no proxy would ever help").
+      - **Per-entry stale-completion fencing.** Every entry carries a generation counter that invalidating actions
+        bump **for the affected entries only**; each queued item remembers the generation it was queued at, and a
+        completion whose generation has moved on is discarded. Per-entry rather than one global counter because a
+        global one makes `DeleteProxy(A)` throw away B's in-flight build (both the per-entry case and the ABA case —
+        delete → `Generate` re-queues the same path while the old build still runs — are pinned by tests).
+      - **Pause = cancel-and-requeue**, effective immediately rather than after the current (possibly multi-minute)
+        source; the partial output is discarded (`ProxyTranscoder` only promotes on a clean exit) and the build
+        restarts from zero on resume. Cross-process suspension is deliberately not attempted. The semaphore
+        accounting is the subtle half: while paused the worker parks *before* dequeuing (swallowing permits without
+        consuming items) and a pause-cancelled item requeues without a permit, so **resume releases exactly
+        `_queue.Count`** — tested with 3 queued + 1 building.
+      - **Per-file progress + ETA.** `ProxyTranscoder` gained `-progress pipe:1 -nostats` and an injectable
+        `IProxyTranscoder` seam (production `FfmpegProxyTranscoder`), which is what makes the state machine testable
+        without `ffmpeg` on PATH. **Both child streams are now drained asynchronously** (`BeginOutputReadLine` /
+        `BeginErrorReadLine`) — with `-progress` writing to stdout continuously, the previously-redirected-but-never-read
+        pipes would fill and **deadlock** the child against the `WaitForExit(200)` poll. `ProgressChanged` is
+        **throttled to ≤4 Hz for progress ticks** (state transitions always fire), and the window derives ETA from
+        progress velocity across ticks — the same delta technique `PlaybackStatsOverlay` uses for rates.
+      - **`ProxyReady` → `ProxyPathChanged`.** Same shape and wiring, but it now fires whenever `BestPath`'s answer
+        may have changed in **either** direction — proxy ready, *or* proxy stopped applying (disable / tier change /
+        delete). `PlaybackEngine.InvalidateSource` re-opens the feed through the factory, so reverting the Program
+        preview to originals needed no new engine API.
+      - **Undoable, persisted settings (`ProxySettingsOps`).** The enable + tier controls are **not** direct
+        assignments: each is a `SetPropertyCommand<T>` whose setter mutates `ProjectSettings` *and* drives the live
+        service transition. Because `Apply`/`Revert` share the setter, **undo/redo reconfigures the running service**,
+        and routing through `EditHistory` marks the document dirty so the change actually survives a save/reload
+        (a direct set left the document clean and the change silently vanished).
+      - **Deletion has one owner.** `DeleteProxy` / `DeleteAllProxies` leave entries `NotGenerated` and do **not**
+        auto-rebuild; `Generate` / `RebuildAll` / a re-enable / the next project load do. Preferences' "Clear proxy
+        cache" now routes through `DeleteAllProxies()` instead of `ProxyCache.DeleteAll()` so no surface is left
+        reporting a `Ready` proxy whose file is gone. Re-enabling **does** rebuild explicitly deleted proxies — a
+        deliberate, tested semantic: deletion isn't persisted, so a reload would rebuild them anyway, and the
+        window's Delete tooltip says so.
+      - **Window (`ProxyStatusWindow`, modelled on `ExportQueueWindow`).** Imperative code-behind, `Palette` tokens,
+        no MVVM; header (state label · tier dropdown · enable toggle · Pause/Resume · Rebuild All · Delete All
+        Proxies), a "currently building" panel with a progress bar + % + ETA, and one row per source (name, target
+        resolution, state, on-disk size, per-row Delete / Generate). Rows are **diffed by `MediaRefId`** so progress
+        ticks update in place, and `SizeBytes` is captured by the service when an entry becomes `Ready` — a
+        per-refresh `FileInfo` read on the UI thread would stall the window on a network share. State colours reuse
+        the `Palette` health tokens exactly as `JobRow` does. The status-bar subscription is no longer gated on
+        `Enabled` at window construction, so switching proxies on mid-session updates it.
+      - **Scope:** resolution **tier only** (codec stays the fixed fast x264), and everything targets the **Program**
+        monitor — the Source monitor still opens originals (its proxying stays deferred, above).
 19. **Generators & adjustment layers.** Title/text **generator clips** (a generator `IFrameSource`
     feeding the render graph). **Adjustment layers**, modelled like leading NLEs: a synthetic Project-bin
     item with no source media, placed on a track as an ordinary clip, whose **effect stack applies to

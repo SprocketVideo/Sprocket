@@ -202,6 +202,9 @@
             <MenuItem x:Name="ShowInspectorMenuItem" Header="I_nspector Panel" ToggleType="CheckBox" IsChecked="True" />
             <Separator />
             <MenuItem x:Name="ShowStatsMenuItem" Header="Playback _Statistics" ToggleType="CheckBox" />
+            <!-- Proxy status + live control (PLAN.md step 18), the equivalent of Final Cut Pro's Background Tasks
+                 window. Non-modal like Playback Statistics, so it can sit open while editing. -->
+            <MenuItem x:Name="ShowProxyStatusMenuItem" Header="Pro_xy" ToggleType="CheckBox" />
             <Separator />
             <!-- Fullscreen (user-requested; F11 is the Windows/Linux convention). On macOS the gestures are
                  swapped in code to the native ⌃⌘F / ⌘F (WireCommandMenus) — Magic Keyboards treat F11 as a

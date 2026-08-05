@@ -66,7 +66,8 @@ frames never touch the managed heap per frame.
 - **Audio** — sample-accurate mixer with per-clip gain envelopes, per-track gain/pan/mute/solo,
   built-in audio effects on insert chains at clip / track / bus / master scope, loudness metering &
   normalization, and a master limiter. **Audio is the master clock** for A/V sync.
-- **Performance** — proxy media (edit low-res, export from originals), a timeline render cache,
+- **Performance** — proxy media (edit low-res, export from originals) with a Proxy window for
+  per-asset status, live progress and on/off · resolution · pause control, a timeline render cache,
   hardware-accelerated decode (D3D11VA / CUDA / QSV, VAAPI, VideoToolbox) with software fallback,
   and premultiplied-alpha compositing of alpha-channel media.
 - **Export & delivery** — a format matrix beyond H.264/AAC MP4, audio-only export (WAV/FLAC/MP3/
