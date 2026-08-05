@@ -18,6 +18,13 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
 {
     private const int BufferCount = 8;
 
+    // ALC_CONNECTED (ALC_EXT_disconnect) — not in Silk.NET's GetContextInteger enum, so query it by raw token.
+    private const int AlcConnected = 0x313;
+
+    // alcReopenDeviceSOFT(device, deviceName, attribs) → ALCboolean; resolved by name at runtime (no binding NuGet).
+    private delegate* unmanaged[Cdecl]<Device*, byte*, int*, byte> _reopenDevice;
+    private bool _reopenProbed;
+
     private readonly object _al = new();
     private AL _api = null!;
     private ALContext _alc = null!;
@@ -190,6 +197,59 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
                 }
             }
             // A stopped source reports SampleOffset 0, so PlayedFrames == _playedBase from here.
+        }
+    }
+
+    /// <inheritdoc />
+    public bool IsConnected
+    {
+        get { lock (_al) return IsConnectedLocked(); }
+    }
+
+    private bool IsConnectedLocked()
+    {
+        // No live device → nothing configured yet, or torn down: report connected so a not-yet-playing engine
+        // doesn't spuriously trigger recovery (the feeder only polls this while running against a real device).
+        if (!_configured || _device is null)
+            return true;
+        // Without ALC_EXT_disconnect we can't observe device state — assume connected rather than false-alarm.
+        if (!_alc.IsExtensionPresent(_device, "ALC_EXT_disconnect"))
+            return true;
+        int connected = 1;
+        _alc.GetContextProperty(_device, (GetContextInteger)AlcConnected, 1, &connected);
+        return connected != 0;
+    }
+
+    /// <inheritdoc />
+    public bool TryReopenDefaultDevice()
+    {
+        lock (_al)
+        {
+            if (!_configured || _device is null)
+                return false;
+
+            if (!_reopenProbed)
+            {
+                _reopenProbed = true;
+                if (_alc.IsExtensionPresent(_device, "ALC_SOFT_reopen_device"))
+                {
+                    void* proc = _alc.GetProcAddress(_device, "alcReopenDeviceSOFT");
+                    if (proc is not null)
+                        _reopenDevice = (delegate* unmanaged[Cdecl]<Device*, byte*, int*, byte>)proc;
+                }
+            }
+            if (_reopenDevice is null)
+                return false; // extension/entry point unavailable — caller falls back to software timing
+
+            // null name = current system default device; null attribs = keep the existing/default format. Per-buffer
+            // BufferData carries its own sample rate, so a format change on reopen doesn't affect correctness.
+            byte ok = _reopenDevice(_device, null, null);
+            if (ok == 0)
+                return false;
+
+            // OpenAL Soft can report success while the reopened backend is still disconnected — re-verify before
+            // telling the caller the device is usable again.
+            return IsConnectedLocked();
         }
     }
 

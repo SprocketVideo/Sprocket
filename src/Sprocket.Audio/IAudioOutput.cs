@@ -48,4 +48,21 @@ public interface IAudioOutput : IDisposable
 
     /// <summary>Discards all queued-but-unplayed audio (for a seek), so freshly mixed audio plays promptly.</summary>
     void Flush();
+
+    /// <summary>
+    /// Whether the underlying device is still connected. On platforms that expose <c>ALC_EXT_disconnect</c> this
+    /// reflects the live device state; where the extension is unavailable (or for a non-device fake) it reports
+    /// <see langword="true"/>. The feeder polls this to notice a device that was unplugged or switched away
+    /// mid-playback, so the clock can recover instead of silently freezing (ARCHITECTURE.md §8).
+    /// </summary>
+    bool IsConnected { get; }
+
+    /// <summary>
+    /// Attempts to reattach the output to the current system default device in place — OpenAL Soft's
+    /// <c>ALC_SOFT_reopen_device</c> — keeping the same source/buffers so the caller can re-anchor the clock and
+    /// resume. Returns <see langword="true"/> only when the reopen succeeded <em>and</em> the device reports
+    /// connected afterwards; returns <see langword="false"/> when the extension is unavailable or the device is
+    /// still gone, so the caller falls back to software timing. Called only from the feeder/clock thread.
+    /// </summary>
+    bool TryReopenDefaultDevice();
 }

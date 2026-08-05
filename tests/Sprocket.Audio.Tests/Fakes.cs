@@ -66,6 +66,38 @@ internal sealed class FakeAudioOutput : IAudioOutput
         lock (_gate) _totalEnqueued = _played; // drop queued-but-unplayed
     }
 
+    // --- Device-loss recovery hooks (ARCHITECTURE.md §8) --------------------------------------------------------
+
+    private bool _connected = true;
+    private Func<bool>? _reopenResult; // null → default clean reconnect
+
+    /// <inheritdoc />
+    public bool IsConnected { get { lock (_gate) return _connected; } }
+
+    /// <summary>Number of <see cref="TryReopenDefaultDevice"/> calls — asserts the engine attempts recovery once.</summary>
+    public int ReopenCalls { get; private set; }
+
+    /// <summary>Test hook: simulate the device dropping (or coming back) out from under the engine.</summary>
+    public void SetConnected(bool connected) { lock (_gate) _connected = connected; }
+
+    /// <summary>Script the outcome of the next reopen(s): the callback's return value is the effective result, and
+    /// the fake sets <see cref="IsConnected"/> to it (a live device iff the reopen succeeded). Unset = clean
+    /// reconnect. Model "reopen returned true but still disconnected" simply as a <c>false</c> result — the real
+    /// <see cref="OpenAlAudioOutput"/> collapses that native case to false before the engine ever sees it.</summary>
+    public void SetReopenResult(Func<bool> result) { lock (_gate) _reopenResult = result; }
+
+    /// <inheritdoc />
+    public bool TryReopenDefaultDevice()
+    {
+        lock (_gate)
+        {
+            ReopenCalls++;
+            bool ok = _reopenResult?.Invoke() ?? true;
+            _connected = ok;
+            return ok;
+        }
+    }
+
     public void Dispose() { }
 }
 

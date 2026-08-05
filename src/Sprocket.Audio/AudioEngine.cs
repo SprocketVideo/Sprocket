@@ -33,6 +33,7 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
     private readonly int _bufferFrames;
     private readonly float[] _mixBuffer;
     private readonly LoudnessMeter _meter;
+    private readonly ISoftwareTimeSource _timeSource;
 
     private readonly object _gate = new();
     private readonly CancellationTokenSource _stop = new();
@@ -46,9 +47,21 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
     private long _generation;             // bumped by Seek; a mix tagged with a stale generation is dropped
     private bool _disposed;
 
+    // Device-loss recovery (ARCHITECTURE.md §8). The engine is the installed IMasterClock and cannot be swapped
+    // (PlaybackEngine holds it in a readonly field), so recovery happens in place: on disconnect the feeder freezes
+    // the clock (Recovering), attempts an in-place reopen, and either re-anchors onto the device (back to Device) or
+    // switches Now to the injected monotonic time source (Software — terminal for the session, audio goes silent).
+    private enum Mode { Device, Recovering, Software }
+    private Mode _mode = Mode.Device;
+    private Timecode _frozenPos;              // position Now holds at while Recovering (captured before the mode flip)
+    private Timecode _fallbackAnchorTimeline; // timeline position when software fallback engaged
+    private TimeSpan _fallbackAnchorElapsed;  // _timeSource.Elapsed at that moment
+
     /// <summary>Creates the engine over an already-<see cref="IAudioOutput.Configure">configured</see> output and
-    /// a mixer built for the same format. Starts the (idle-until-playing) feeder.</summary>
-    public AudioEngine(IAudioOutput output, AudioMixer mixer, Project project, int? bufferFrames = null)
+    /// a mixer built for the same format. Starts the (idle-until-playing) feeder. <paramref name="timeSource"/> backs
+    /// the software-fallback clock used if the device is lost unrecoverably (defaults to a <see cref="Stopwatch"/>).</summary>
+    public AudioEngine(IAudioOutput output, AudioMixer mixer, Project project, int? bufferFrames = null,
+        ISoftwareTimeSource? timeSource = null)
     {
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(mixer);
@@ -61,8 +74,27 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
         _bufferFrames = bufferFrames ?? DefaultBufferFrames;
         _mixBuffer = new float[_bufferFrames * output.Channels];
         _meter = new LoudnessMeter(output.SampleRate, output.Channels);
+        _timeSource = timeSource ?? new StopwatchTimeSource();
         _feeder = Task.Run(() => FeedLoopAsync(_stop.Token));
     }
+
+    /// <summary>The lifecycle of the output device during playback, surfaced to the UI so device loss is visible
+    /// rather than a silent freeze.</summary>
+    public enum OutputStatus
+    {
+        /// <summary>The device dropped; an in-place reopen is being attempted (the clock is briefly frozen).</summary>
+        Recovering,
+        /// <summary>The device was reopened and playback resumed on it.</summary>
+        Recovered,
+        /// <summary>The device could not be recovered; the clock switched to software timing and audio is silent
+        /// for the rest of the session.</summary>
+        SoftwareFallback,
+    }
+
+    /// <summary>Raised when the output device is lost, recovered, or given up on (see <see cref="OutputStatus"/>).
+    /// Fires on the feeder thread <em>after</em> the engine's internal locks are released, so a handler may touch
+    /// the engine or marshal to the UI thread without risk of deadlock. Each transition fires once.</summary>
+    public event Action<OutputStatus>? OutputStatusChanged;
 
     /// <summary>
     /// The current EBU R128 / BS.1770 loudness read-out of the mixed program (what the device plays). Safe to read
@@ -115,8 +147,17 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
             if (_running)
                 return;
             _anchorTimeline = _pausedAt;
-            _anchorPlayedFrames = _output.PlayedFrames;
-            _output.Play();
+            if (_mode == Mode.Software)
+            {
+                _fallbackAnchorTimeline = _pausedAt;
+                _fallbackAnchorElapsed = _timeSource.Elapsed;
+            }
+            else if (_mode == Mode.Device)
+            {
+                _anchorPlayedFrames = _output.PlayedFrames;
+                _output.Play();
+            }
+            // Recovering: just mark running; recovery completion re-anchors onto whichever mode it lands in.
             _running = true;
         }
     }
@@ -130,7 +171,8 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
             if (!_running)
                 return;
             _pausedAt = NowLocked();
-            _output.Pause();
+            if (_mode == Mode.Device)
+                _output.Pause();
             _running = false;
         }
     }
@@ -141,11 +183,20 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_gate)
         {
-            _output.Flush();
             _writeCursor = position;
             _anchorTimeline = position;
-            _anchorPlayedFrames = _output.PlayedFrames;
             _pausedAt = position;
+            _frozenPos = position;      // if a seek lands mid-recovery, recovery re-anchors to this position
+            if (_mode == Mode.Device)
+            {
+                _output.Flush();
+                _anchorPlayedFrames = _output.PlayedFrames;
+            }
+            else if (_mode == Mode.Software)
+            {
+                _fallbackAnchorTimeline = position;
+                _fallbackAnchorElapsed = _timeSource.Elapsed;
+            }
             _generation++;
             _meter.RequestReset(); // restart the integrated measurement from the new position
         }
@@ -153,12 +204,26 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
 
     private Timecode NowLocked()
     {
-        if (!_running)
-            return _pausedAt;
-        long played = _output.PlayedFrames - _anchorPlayedFrames;
-        if (played < 0)
-            played = 0;
-        return _anchorTimeline + Timecode.FromSamples(played, _sampleRate);
+        switch (_mode)
+        {
+            case Mode.Recovering:
+                // Device is gone and being reopened — hold at the position captured when the drop was detected.
+                return _frozenPos;
+            case Mode.Software:
+                if (!_running)
+                    return _pausedAt;
+                long elapsedFrames = (long)((_timeSource.Elapsed - _fallbackAnchorElapsed).TotalSeconds * _sampleRate);
+                if (elapsedFrames < 0)
+                    elapsedFrames = 0;
+                return _fallbackAnchorTimeline + Timecode.FromSamples(elapsedFrames, _sampleRate);
+            default:
+                if (!_running)
+                    return _pausedAt;
+                long played = _output.PlayedFrames - _anchorPlayedFrames;
+                if (played < 0)
+                    played = 0;
+                return _anchorTimeline + Timecode.FromSamples(played, _sampleRate);
+        }
     }
 
     private async Task FeedLoopAsync(CancellationToken ct)
@@ -168,13 +233,32 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
         {
             try
             {
+                // Device-loss detection + recovery: only while actively playing a real device. On a drop, freeze
+                // the clock, attempt an in-place reopen off the lock, then re-anchor onto the device or fall back to
+                // software timing. This is the only place _mode leaves Device, so recovery is single-flighted.
+                bool recover = false;
+                lock (_gate)
+                {
+                    if (_mode == Mode.Device && _running && !_output.IsConnected)
+                    {
+                        _frozenPos = NowLocked(); // still Device mode → the real last-heard position
+                        _mode = Mode.Recovering;
+                        recover = true;
+                    }
+                }
+                if (recover)
+                {
+                    RecoverFromDeviceLoss();
+                    continue;
+                }
+
                 Timecode pos;
                 long gen;
                 lock (_gate)
                 {
-                    if (!_running || _output.FreeFrames < _bufferFrames)
+                    if (_mode != Mode.Device || !_running || _output.FreeFrames < _bufferFrames)
                     {
-                        // Paused or the device queue is full — nothing to do this tick.
+                        // Paused, recovering, in software fallback, or the device queue is full — nothing to mix.
                         pos = default;
                         gen = -1;
                     }
@@ -227,6 +311,44 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
                 catch (OperationCanceledException) { break; }
             }
         }
+    }
+
+    /// <summary>
+    /// Runs on the feeder thread once a device drop is detected (<see cref="Mode.Recovering"/> already latched under
+    /// the lock). Attempts an in-place reopen off the lock, then atomically re-anchors: on success back onto the
+    /// device from the frozen position; on failure into software timing (terminal). The status event is raised only
+    /// after the lock is released.
+    /// </summary>
+    private void RecoverFromDeviceLoss()
+    {
+        OutputStatusChanged?.Invoke(OutputStatus.Recovering);
+
+        bool reopened = _output.TryReopenDefaultDevice();
+
+        lock (_gate)
+        {
+            // _frozenPos may have advanced to a seek target set while the (off-lock) reopen ran — re-anchor to it.
+            if (reopened)
+            {
+                _output.Flush();
+                _writeCursor = _frozenPos;
+                _anchorTimeline = _frozenPos;
+                _anchorPlayedFrames = _output.PlayedFrames;
+                _pausedAt = _frozenPos;
+                _mode = Mode.Device;
+            }
+            else
+            {
+                _fallbackAnchorTimeline = _frozenPos;
+                _fallbackAnchorElapsed = _timeSource.Elapsed;
+                _pausedAt = _frozenPos;
+                _mode = Mode.Software;
+            }
+            _generation++; // drop any in-flight mix from before the drop
+            _meter.RequestReset();
+        }
+
+        OutputStatusChanged?.Invoke(reopened ? OutputStatus.Recovered : OutputStatus.SoftwareFallback);
     }
 
     /// <inheritdoc />

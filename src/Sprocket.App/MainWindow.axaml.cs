@@ -1900,6 +1900,20 @@ public partial class MainWindow : Window
         // engine keeps the transport alive rather than dying, so surface the reason instead of swallowing it.
         _engine!.PumpError += ex => Dispatcher.UIThread.Post(() => SetStatus($"Playback recovered from an error: {ex.Message}"));
 
+        // Audio device loss/recovery (ARCHITECTURE.md §8): the master clock recovers in place — reopening the
+        // default device, or falling back to software timing so the timeline keeps advancing without audio — but
+        // that must not be silent. Fires on the feeder thread, so marshal to the UI thread for the status bar.
+        if (_audioClock is not null)
+        {
+            _audioClock.OutputStatusChanged += status => Dispatcher.UIThread.Post(() => SetStatus(status switch
+            {
+                Sprocket.Audio.AudioEngine.OutputStatus.Recovering => "Audio device lost — reconnecting…",
+                Sprocket.Audio.AudioEngine.OutputStatus.Recovered => "Audio device reconnected.",
+                Sprocket.Audio.AudioEngine.OutputStatus.SoftwareFallback => "Audio device unavailable — playing without audio.",
+                _ => "",
+            }));
+        }
+
         // Preview proxies (PLAN.md step 18): the engine already switches onto a proxy transparently when one is
         // ready (wired in the bootstrap); here we just reflect progress in the status bar without interrupting flow.
         // Subscribed whenever there is a service at all, not only when it starts out enabled: proxies can now be

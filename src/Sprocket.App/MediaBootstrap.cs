@@ -164,7 +164,15 @@ internal static class MediaBootstrap
     {
         ArgumentNullException.ThrowIfNull(project);
 
-        (AudioEngine? clock, _) = TryCreateAudioClockForProject(project);
+        (AudioEngine? clock, bool audioWired) = TryCreateAudioClockForProject(project);
+        // The project has audio but no output device could be opened — the software clock still drives video, but
+        // say so rather than dropping audio silently. (A device lost mid-session is surfaced separately by the
+        // engine's OutputStatusChanged event.)
+        bool hasAudio = project.Timeline.AudioTracks.Any(
+            t => t.Clips.Any(c => project.MediaPool.Get(c.MediaRefId) is { Info.HasAudio: true }));
+        if (hasAudio && !audioWired)
+            status += "  ·  Audio device unavailable — playing without audio";
+
         var proxy = new ProxyService(project.Settings.UseProxies, project.Settings.ProxyTier);
         var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), clock) // engine owns + disposes the clock
         {
