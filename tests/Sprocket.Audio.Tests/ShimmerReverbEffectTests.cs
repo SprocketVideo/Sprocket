@@ -231,7 +231,8 @@ public class ShimmerReverbEffectTests
         var effect = new ShimmerReverbEffect();
         ResolvedEffect p = Params((EffectParamNames.Mix, 0.5), (EffectParamNames.ShimmerAmount, 0.8));
         var block = new float[1024 * Channels];
-        effect.Process(block, 1024, Rate, Channels, p); // first call allocates the lines
+        for (int i = 0; i < 100; i++) // warm-up: allocate the lines + let tiered JIT settle before measuring
+            effect.Process(block, 1024, Rate, Channels, p);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 50; i++)
