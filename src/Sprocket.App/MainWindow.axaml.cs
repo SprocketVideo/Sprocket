@@ -2482,10 +2482,10 @@ public partial class MainWindow : Window
         var root = new StackPanel { Spacing = 6, MinWidth = 260, MaxWidth = 320, Margin = new Thickness(4) };
         root.Children.Add(new TextBlock
         {
-            Text = "Markers", FontWeight = Avalonia.Media.FontWeight.SemiBold, FontSize = 12,
+            Text = "Markers", FontWeight = Avalonia.Media.FontWeight.SemiBold, FontSize = Typography.Body,
         });
 
-        var addButton = new Button { Content = "+ Add at playhead", FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var addButton = new Button { Content = "+ Add at playhead", FontSize = Typography.Body, HorizontalAlignment = HorizontalAlignment.Stretch };
         addButton.Click += (_, _) => { AddMarker(); if (this.FindControl<Button>("MarkersButton")?.Flyout is Flyout f) f.Content = BuildMarkersPanel(); };
         root.Children.Add(addButton);
 
@@ -2495,7 +2495,7 @@ public partial class MainWindow : Window
             root.Children.Add(new TextBlock
             {
                 Text = "No markers yet. Press M to add one at the playhead.",
-                FontSize = 11, Foreground = Avalonia.Media.Brushes.Gray, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                FontSize = Typography.Caption, Foreground = Avalonia.Media.Brushes.Gray, TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             });
             return root;
         }
@@ -2516,7 +2516,7 @@ public partial class MainWindow : Window
             var seek = new Button
             {
                 Content = MarkerListFormat.Describe(marker, index),
-                FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch,
+                FontSize = Typography.Body, HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Left, Background = Avalonia.Media.Brushes.Transparent,
                 Margin = new Thickness(4, 0, 0, 0),
             };

@@ -50,6 +50,11 @@ internal static class AboutDialog
     /// the secondary Ko-fi channel, so the app carries a single canonical URL.</summary>
     public const string SupportUrl = "https://github.com/sponsors/drittich";
 
+    /// <summary>Documented exception to the <see cref="Typography"/> scale (STYLE_GUIDE.md): the About
+    /// box's "Sprocket" wordmark is brand presentation, not UI chrome, so it sits above the token scale
+    /// — the same carve-out the style guide gives component-local colors.</summary>
+    private const double AboutWordmarkSize = 20;
+
     public static Task Show(Window owner)
     {
         // The bundled media engine version — a user-facing credit for the core dependency (not framework
@@ -90,7 +95,7 @@ internal static class AboutDialog
         var website = new TextBlock
         {
             Text = "sprocketvideo.org",
-            FontSize = 12,
+            FontSize = Typography.Body,
             Foreground = Palette.AccentBrush,
             TextDecorations = TextDecorations.Underline,
             Cursor = new Cursor(StandardCursorType.Hand),
@@ -114,14 +119,14 @@ internal static class AboutDialog
                 Children =
                 {
                     logo,
-                    Centered("Sprocket", 20, FontWeight.SemiBold, Palette.TextBrush),
-                    Centered($"Version {Program.AppVersion}", 12, FontWeight.Normal, Palette.MutedTextBrush),
-                    Centered($"Media engine: {ffmpeg}", 12, FontWeight.Normal, Palette.MutedTextBrush),
-                    Centered("A cross-platform, non-destructive video editor. Free and open source.", 12, FontWeight.Normal, Palette.MutedTextBrush),
+                    Centered("Sprocket", AboutWordmarkSize, FontWeight.SemiBold, Palette.TextBrush),
+                    Centered($"Version {Program.AppVersion}", Typography.Body, FontWeight.Normal, Palette.MutedTextBrush),
+                    Centered($"Media engine: {ffmpeg}", Typography.Body, FontWeight.Normal, Palette.MutedTextBrush),
+                    Centered("A cross-platform, non-destructive video editor. Free and open source.", Typography.Body, FontWeight.Normal, Palette.MutedTextBrush),
                     website,
                     // Where crash / exception logs are written (CrashLog), so a user hitting a problem can find the
                     // log without knowing the per-OS convention. The path is selectable; the button opens the folder.
-                    Centered("Logs are written to:", 11, FontWeight.Normal, Palette.MutedTextBrush),
+                    Centered("Logs are written to:", Typography.Caption, FontWeight.Normal, Palette.MutedTextBrush),
                     Selectable(CrashLog.LogDirectory),
                     openLogs,
                     close,
@@ -173,7 +178,7 @@ internal static class AboutDialog
     private static SelectableTextBlock Selectable(string text) => new()
     {
         Text = text,
-        FontSize = 11,
+        FontSize = Typography.Caption,
         Foreground = Palette.TextBrush,
         TextWrapping = TextWrapping.Wrap,
         TextAlignment = TextAlignment.Center,
@@ -202,7 +207,7 @@ internal static class ThirdPartyNoticesDialog
             body = new SelectableTextBlock
             {
                 Text = "THIRD-PARTY-NOTICES.md was not found next to the executable.",
-                FontSize = 13,
+                FontSize = Typography.Emphasis,
                 Foreground = Palette.TextBrush,
                 TextWrapping = TextWrapping.Wrap,
             };
@@ -303,7 +308,7 @@ internal static class ConfirmDialog
                     {
                         Text = message,
                         Foreground = Palette.TextBrush,
-                        FontSize = 13,
+                        FontSize = Typography.Emphasis,
                         TextWrapping = TextWrapping.Wrap,
                         VerticalAlignment = VerticalAlignment.Center,
                     },
@@ -398,7 +403,7 @@ internal static class SaveChangesDialog
                     {
                         Text = message,
                         Foreground = Palette.TextBrush,
-                        FontSize = 13,
+                        FontSize = Typography.Emphasis,
                         TextWrapping = TextWrapping.Wrap,
                         VerticalAlignment = VerticalAlignment.Center,
                     },
@@ -458,7 +463,7 @@ internal static class MessageDialog
                     {
                         Text = message,
                         Foreground = Palette.TextBrush,
-                        FontSize = 13,
+                        FontSize = Typography.Emphasis,
                         TextWrapping = TextWrapping.Wrap,
                         VerticalAlignment = VerticalAlignment.Center,
                     },
@@ -551,7 +556,7 @@ internal static class SpeedDialog
                         Spacing = 6,
                         Children =
                         {
-                            new TextBlock { Text = "Speed", Foreground = Palette.MutedTextBrush, FontSize = 12 },
+                            new TextBlock { Text = "Speed", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body },
                             new StackPanel
                             {
                                 Orientation = Orientation.Horizontal,
@@ -625,7 +630,7 @@ internal static class SequenceSettingsDialog
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Foreground = Palette.TextBrush,
             Background = Palette.PanelBgBrush,
-            FontSize = 12,
+            FontSize = Typography.Body,
         };
 
         // Preset ↔ width/height boxes, two-way: picking a preset fills the boxes; hand-editing a box snaps the
@@ -676,12 +681,12 @@ internal static class SequenceSettingsDialog
         var widthCol = new StackPanel
         {
             Spacing = 3,
-            Children = { new TextBlock { Text = "Width", Foreground = Palette.MutedTextBrush, FontSize = 12 }, widthBox },
+            Children = { new TextBlock { Text = "Width", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body }, widthBox },
         };
         var heightCol = new StackPanel
         {
             Spacing = 3,
-            Children = { new TextBlock { Text = "Height", Foreground = Palette.MutedTextBrush, FontSize = 12 }, heightBox },
+            Children = { new TextBlock { Text = "Height", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body }, heightBox },
         };
         widthCol.SetValue(Grid.ColumnProperty, 0);
         heightCol.SetValue(Grid.ColumnProperty, 2);
@@ -716,12 +721,12 @@ internal static class SequenceSettingsDialog
                         Spacing = 6,
                         Children =
                         {
-                            new TextBlock { Text = "Name", Foreground = Palette.MutedTextBrush, FontSize = 12 },
+                            new TextBlock { Text = "Name", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body },
                             nameBox,
-                            new TextBlock { Text = "Frame size", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 10, 0, 0) },
+                            new TextBlock { Text = "Frame size", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body, Margin = new Thickness(0, 10, 0, 0) },
                             presetBox,
                             sizeGrid,
-                            new TextBlock { Text = fixedFormat, Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 10, 0, 0) },
+                            new TextBlock { Text = fixedFormat, Foreground = Palette.MutedTextBrush, FontSize = Typography.Body, Margin = new Thickness(0, 10, 0, 0) },
                         },
                     },
                 },
@@ -848,7 +853,7 @@ internal static class ExportSettingsDialog
             IsSnapToTickEnabled = true,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        var crfText = new TextBlock { Foreground = Palette.MutedTextBrush, FontSize = 12 };
+        var crfText = new TextBlock { Foreground = Palette.MutedTextBrush, FontSize = Typography.Body };
 
         // Target-bitrate sub-panel: Mbps target + optional max (VBR ceiling). An empty target uses the
         // resolution-scaled default shown as its watermark; an empty max leaves the rate uncapped.
@@ -862,7 +867,7 @@ internal static class ExportSettingsDialog
         TextBox maxRateBox = MakeMbpsBox();
         maxRateBox.PlaceholderText = "none";
 
-        var resText = new TextBlock { Foreground = Palette.MutedTextBrush, FontSize = 12 };
+        var resText = new TextBlock { Foreground = Palette.MutedTextBrush, FontSize = Typography.Body };
         void UpdateResText()
         {
             Resolution? sel = Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value;
@@ -1106,12 +1111,12 @@ internal static class ExportSettingsDialog
         crfRow = crfRowControl;
         bitrateRow = bitrateRowControl;
         Control resFpsRow = TwoColumnRow("Resolution", resolutionBox, "Frame rate", fpsBox);
-        Control burnHeader = new TextBlock { Text = "Burn-ins", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
+        Control burnHeader = new TextBlock { Text = "Burn-ins", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body, Margin = new Thickness(0, 8, 0, 0) };
         Control tcRow = BurnInRow(tcCheck, tcPos);
         Control nameRow = BurnInRow(nameCheck, namePos);
         Control watermarkRow = BurnInRow(watermarkBox, watermarkPos);
         Control handlesRow = LabeledRow("Handles (frames before / after the range)", handlesBox);
-        Control colorHeader = new TextBlock { Text = "Color", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
+        Control colorHeader = new TextBlock { Text = "Color", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body, Margin = new Thickness(0, 8, 0, 0) };
         videoOnlyControls =
             [codecRow, rateRow, crfRowControl, bitrateRowControl, resFpsRow, resText, burnHeader, tcRow, nameRow, watermarkRow, handlesRow, colorHeader, bakeColorCheck];
 
@@ -1136,7 +1141,7 @@ internal static class ExportSettingsDialog
                 handlesRow,
                 colorHeader,
                 bakeColorCheck,
-                new TextBlock { Text = "Metadata", Foreground = Palette.MutedTextBrush, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) },
+                new TextBlock { Text = "Metadata", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body, Margin = new Thickness(0, 8, 0, 0) },
                 TwoColumnRow("Title", metaTitle, "Author", metaAuthor),
                 TwoColumnRow("Copyright", metaCopyright, "Comment", metaComment),
             },
@@ -1153,7 +1158,7 @@ internal static class ExportSettingsDialog
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
-            FontSize = 12,
+            FontSize = Typography.Body,
             Content = new DockPanel
             {
                 Margin = new Thickness(22),
@@ -1304,7 +1309,7 @@ internal static class ExportSettingsDialog
         HorizontalAlignment = HorizontalAlignment.Stretch,
         Foreground = Palette.TextBrush,
         Background = Palette.PanelBgBrush,
-        FontSize = 12,
+        FontSize = Typography.Body,
     };
 
     /// <summary>The preset-dropdown labels: "Custom" followed by each preset's name.</summary>
@@ -1357,7 +1362,7 @@ internal static class ExportSettingsDialog
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
-            FontSize = 12,
+            FontSize = Typography.Body,
             Content = new DockPanel
             {
                 Margin = new Thickness(22),
@@ -1377,7 +1382,7 @@ internal static class ExportSettingsDialog
                         Spacing = 6,
                         Children =
                         {
-                            new TextBlock { Text = "Preset name", Foreground = Palette.MutedTextBrush, FontSize = 12 },
+                            new TextBlock { Text = "Preset name", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body },
                             nameBox,
                         },
                     },
@@ -1418,7 +1423,7 @@ internal static class ExportSettingsDialog
         Text = value,
         Foreground = Palette.TextBrush,
         Background = Palette.PanelBgBrush,
-        FontSize = 12,
+        FontSize = Typography.Body,
     };
 
     private static CheckBox MakeCheck(string label) => new()
@@ -1449,7 +1454,7 @@ internal static class ExportSettingsDialog
         Spacing = 3,
         Children =
         {
-            new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, FontSize = 12 },
+            new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, FontSize = Typography.Body },
             control,
         },
     };
@@ -1496,14 +1501,14 @@ internal sealed class ExportProgressDialog : Window
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Palette.WindowBgBrush;
-        FontSize = 12;
+        FontSize = Typography.Body;
 
         _bar = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, Height = 16 };
         _percent = new TextBlock
         {
             Text = "0%",
             Foreground = Palette.MutedTextBrush,
-            FontSize = 12,
+            FontSize = Typography.Body,
             VerticalAlignment = VerticalAlignment.Center,
         };
         _cancel = new Button
@@ -1531,7 +1536,7 @@ internal sealed class ExportProgressDialog : Window
                 {
                     Text = $"Exporting {fileName}…",
                     Foreground = Palette.TextBrush,
-                    FontSize = 12,
+                    FontSize = Typography.Body,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                 },
                 _bar,

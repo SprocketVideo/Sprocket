@@ -104,7 +104,7 @@ internal static class ImageSequenceImportDialog
                             {
                                 Text = $"Detected {sequence.FrameCount} numbered frames{dims}.",
                                 Foreground = Palette.TextBrush,
-                                FontSize = 14,
+                                FontSize = Typography.Title,
                                 FontWeight = FontWeight.SemiBold,
                                 TextWrapping = TextWrapping.Wrap,
                             },
@@ -112,7 +112,7 @@ internal static class ImageSequenceImportDialog
                             {
                                 Text = System.IO.Path.GetFileName(sequence.Pattern),
                                 Foreground = Palette.MutedTextBrush,
-                                FontSize = 12,
+                                FontSize = Typography.Body,
                                 TextWrapping = TextWrapping.Wrap,
                             },
                             asSequence,
@@ -144,7 +144,7 @@ internal static class ImageSequenceImportDialog
         Spacing = 3,
         Children =
         {
-            new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, FontSize = 12 },
+            new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, FontSize = Typography.Body },
             control,
         },
     };

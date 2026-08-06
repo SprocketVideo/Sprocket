@@ -1,6 +1,6 @@
 # Style Guide — Sprocket UI surfaces
 
-Normative rules for coloring UI surfaces in `Sprocket.App`. [UI.md](UI.md) §1 describes the design
+Normative rules for coloring and setting type on UI surfaces in `Sprocket.App`. [UI.md](UI.md) §1 describes the design
 language the mockup implies; this document is the contract new dialogs, popups, and controls must
 follow so surfaces never drift apart again.
 
@@ -54,10 +54,46 @@ follow so surfaces never drift apart again.
 - White text on `Accent` is 4.86:1; `AccentHover` darkens (not lightens) so white stays ≥ 4.5:1
   on hover. Never introduce a lighter hover fill behind white text.
 
+## Typography
+
+- **`src/Sprocket.App/Typography.cs`** is the single source of truth for text sizes and the one
+  monospace stack — the same contract `Palette.cs` gives colors. Before it existed, ~167 hardcoded
+  `FontSize` literals spanning nine values (9 – 20) were split by file and author rather than by
+  role, and two divergent monospace stacks were in use.
+- **Never hardcode a `FontSize` or a monospace font-family literal.** A raw number in review is a
+  flag: either use the token, or (for a genuinely local exception) keep it local with a comment
+  saying why — the same carve-out colors get.
+
+| Token | px | Used for |
+| --- | --- | --- |
+| `Micro` | 10 | Meter captions, tag chips, the densest annotations (stats overlay, effect category). |
+| `Caption` | 11 | Docked-panel labels and values, status bar, mixer strips. |
+| `Body` | 12 | Dialog labels/inputs, menus, button chrome, general UI. **The default.** |
+| `Emphasis` | 13 | Dialog message text, transport and window-caption glyphs, rendered Markdown prose. |
+| `Title` | 14 | Dialog titles and large numeric readouts (the mixer's Integrated LUFS). |
+| `Mono` | — | The one monospace stack (`Cascadia Code,Consolas,Menlo,monospace`): timecode, telemetry, dB/LUFS numerics, code spans. |
+
+- **The two-tier rule (normative):** docked-panel labels and values are `Caption` (11); dialog
+  labels, inputs, menus, and button chrome are `Body` (12). The two "12-ish" tiers are intentional
+  — panels trade a point of size for density, dialogs don't. Don't "unify" them. Where the tiers
+  meet (a `Body` ComboBox beside `Caption` labels in the mixer), control chrome stays `Body`.
+- **Global default:** `App.axaml` pins Fluent's `ControlContentThemeFontSize` and
+  `ToolTipContentThemeFontSize` to 12; bare `TextBlock`s already default to 12. So an un-sized
+  control or TextBlock renders at `Body` — **only set a `FontSize` to depart from `Body`.** Those
+  two keys are `x:Double` literals (XAML can't nest an `{x:Static}` there) and must be kept in
+  lockstep with `Typography.Body`.
+- **Documented exceptions:** the About box's "Sprocket" wordmark (20 — brand presentation, not
+  chrome), the Skia-drawn timeline labels in `TimelineControl.cs` (custom-drawn and density-tuned,
+  not Avalonia text), and `Sprocket.Core`'s title/generator rendering (user content, never
+  token-sized).
+
 ## Checklist for a new dialog or popup
 
 1. Window background: `Palette.WindowBgBrush`. No local hex.
 2. Inputs/secondary buttons: `PanelBgBrush`; primary action: `Button.primary` / `AccentBrush`.
 3. Any popup the dialog opens (ComboBox, flyout, tooltip): confirm its Fluent keys are in the
    `App.axaml` popup-overrides block; add missing keys there.
-4. Text: use the ramp tokens; check contrast if placing text on a new fill.
+4. Text color: use the ramp tokens; check contrast if placing text on a new fill.
+5. Text size: `Typography` tokens only — no `FontSize` number literals.
+6. Monospace: `Typography.Mono` only — no font-family string literals.
+7. New un-sized controls already render at `Body`; don't add `FontSize = 12` noise to say so.

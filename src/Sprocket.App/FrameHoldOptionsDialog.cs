@@ -131,7 +131,7 @@ internal static class FrameHoldOptionsDialog
                             {
                                 Text = clipName,
                                 Foreground = Palette.TextBrush,
-                                FontSize = 14,
+                                FontSize = Typography.Title,
                                 FontWeight = FontWeight.SemiBold,
                                 TextTrimming = TextTrimming.CharacterEllipsis,
                             },

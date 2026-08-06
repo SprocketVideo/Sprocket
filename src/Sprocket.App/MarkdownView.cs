@@ -25,7 +25,8 @@ namespace Sprocket.App;
 /// </summary>
 internal static class MarkdownView
 {
-    private const double BodyFontSize = 13;
+    // Rendered prose sits at the dialog message-text tier; headings scale up from it (see Heading()).
+    private static readonly double BodyFontSize = Typography.Emphasis;
 
     public static Control Build(string markdown, string linkBaseDir)
     {
@@ -193,7 +194,7 @@ internal static class MarkdownView
             {
                 inlines.Add(new Run(m.Value[1..^1])
                 {
-                    FontFamily = new FontFamily("Consolas,Menlo,monospace"),
+                    FontFamily = Typography.Mono,
                     Foreground = Palette.MutedTextBrush,
                 });
             }

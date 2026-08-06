@@ -31,7 +31,7 @@ internal sealed class PlaybackStatsOverlay : Window
     private static readonly IBrush Good = Palette.GoodBrush;
     private static readonly IBrush Warn = Palette.WarnBrush;
     private static readonly IBrush Bad = Palette.BadBrush;
-    private static readonly FontFamily Mono = new("Cascadia Code,Consolas,monospace");
+    private static readonly FontFamily Mono = Typography.Mono;
 
     private readonly Func<PlaybackEngine?> _engine;
     private readonly DispatcherTimer _timer;
@@ -123,7 +123,7 @@ internal sealed class PlaybackStatsOverlay : Window
                  + "frames climb when the preview can't keep pace, and gen-0 GC should stay flat — frame pixels "
                  + "never touch the managed heap.",
             Foreground = Palette.MutedTextBrush,
-            FontSize = 10.5,
+            FontSize = Typography.Micro,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 12, 0, 0),
         };
@@ -326,7 +326,7 @@ internal sealed class PlaybackStatsOverlay : Window
         {
             Text = label,
             Foreground = Palette.MutedTextBrush,
-            FontSize = 12,
+            FontSize = Typography.Body,
             Margin = new Thickness(0, 3, 16, 3),
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -339,7 +339,7 @@ internal sealed class PlaybackStatsOverlay : Window
             Text = "—",
             Foreground = Palette.TextBrush,
             FontFamily = Mono,
-            FontSize = 12,
+            FontSize = Typography.Body,
             Margin = new Thickness(0, 3),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,

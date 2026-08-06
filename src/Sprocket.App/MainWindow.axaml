@@ -49,7 +49,7 @@
                  VerticalAlignment="Center" />
 
           <TextBlock Text="Sprocket" Foreground="{DynamicResource Text}" FontWeight="SemiBold"
-                     FontSize="13" VerticalAlignment="Center" />
+                     FontSize="{x:Static local:Typography.Emphasis}" VerticalAlignment="Center" />
         </StackPanel>
 
         <!-- Inline menu bar (UI.md §2): every item bound to its command in MainWindow.WireMenu / WireCommandMenus
@@ -58,7 +58,7 @@
              OnKeyDown (the InputGesture text here is the display label).
              On macOS this control is hidden and MacMenuBridge mirrors it into the system menu bar. -->
         <Menu x:Name="MenuBar" Grid.Column="1" VerticalAlignment="Center" Background="Transparent"
-              Margin="6,0,0,0" FontSize="12"
+              Margin="6,0,0,0" FontSize="{x:Static local:Typography.Body}"
               chrome:WindowDecorationProperties.ElementRole="User">
           <MenuItem Header="_File">
             <MenuItem x:Name="NewMenuItem" Header="_New Project" InputGesture="Ctrl+N" />
@@ -254,9 +254,9 @@
         <!-- Project title + save state (centered). -->
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Center"
                     VerticalAlignment="Center" Spacing="8">
-          <TextBlock x:Name="ProjectTitleText" Foreground="{DynamicResource Text}" FontSize="12"
+          <TextBlock x:Name="ProjectTitleText" Foreground="{DynamicResource Text}" FontSize="{x:Static local:Typography.Body}"
                      VerticalAlignment="Center" Text="Untitled" />
-          <TextBlock x:Name="SaveStateText" Foreground="{DynamicResource FaintText}" FontSize="12"
+          <TextBlock x:Name="SaveStateText" Foreground="{DynamicResource FaintText}" FontSize="{x:Static local:Typography.Body}"
                      VerticalAlignment="Center" Text="• all changes saved" />
         </StackPanel>
 
@@ -312,14 +312,14 @@
           <RadioButton x:Name="ZoomTool" Classes="tool" GroupName="Tools" Content="Zoom"
                        ToolTip.Tip="Zoom the timeline view (click to zoom in, Alt-click to zoom out)" />
           <Border Width="1" Height="18" Background="{DynamicResource Edge}" Margin="8,0" />
-          <ToggleButton x:Name="SnappingToggle" Content="Snapping" IsChecked="True" FontSize="12" Padding="7,2"
+          <ToggleButton x:Name="SnappingToggle" Content="Snapping" IsChecked="True" FontSize="{x:Static local:Typography.Body}" Padding="7,2"
                         ToolTip.Tip="Snap clip edges and the playhead to nearby edits, markers, and the playhead while dragging" />
-          <ToggleButton x:Name="LinkedToggle" Content="Linked" IsChecked="True" FontSize="12" Padding="7,2" Margin="2,0,0,0"
+          <ToggleButton x:Name="LinkedToggle" Content="Linked" IsChecked="True" FontSize="{x:Static local:Typography.Body}" Padding="7,2" Margin="2,0,0,0"
                         ToolTip.Tip="Move linked audio and video clips together as a group when editing" />
         </StackPanel>
 
         <TextBlock x:Name="SequenceBadge" Grid.Column="2" Margin="0,0,12,0" VerticalAlignment="Center"
-                   FontFamily="Cascadia Code,Consolas,monospace" FontSize="12"
+                   FontFamily="{x:Static local:Typography.Mono}" FontSize="{x:Static local:Typography.Body}"
                    Foreground="{DynamicResource MutedText}" Text="—" />
         <Button x:Name="ExportButton" Grid.Column="3" Classes="primary" Content="Export" VerticalAlignment="Center" />
       </Grid>
@@ -333,7 +333,7 @@
              initial values here are just the parked state before the transport is wired. -->
         <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
           <Ellipse x:Name="StateDot" Width="8" Height="8" Fill="{DynamicResource Good}" VerticalAlignment="Center" />
-          <TextBlock x:Name="EngineStateText" Foreground="{DynamicResource MutedText}" FontSize="11"
+          <TextBlock x:Name="EngineStateText" Foreground="{DynamicResource MutedText}" FontSize="{x:Static local:Typography.Caption}"
                      VerticalAlignment="Center" Text="Ready" />
           <!-- MCP server indicator (PLAN.md step 38): visible only while the loopback MCP listener runs, so the
                user always knows when the app is externally controllable. Driven by UpdateMcpStatus(). -->
@@ -341,7 +341,7 @@
                       Margin="10,0,0,0" IsVisible="False">
             <Border Width="1" Height="12" Background="{DynamicResource Edge}" Margin="0,0,4,0" />
             <Ellipse x:Name="McpDot" Width="8" Height="8" Fill="{DynamicResource Good}" VerticalAlignment="Center" />
-            <TextBlock x:Name="McpLabel" Foreground="{DynamicResource MutedText}" FontSize="11"
+            <TextBlock x:Name="McpLabel" Foreground="{DynamicResource MutedText}" FontSize="{x:Static local:Typography.Caption}"
                        VerticalAlignment="Center" Text="" />
           </StackPanel>
           <!-- Update-available badge (PLAN.md step 45): the deliberately lightweight, non-modal affordance —
@@ -352,17 +352,17 @@
                       ToolTip.Tip="A newer version of Sprocket is available — click for details.">
             <Border Width="1" Height="12" Background="{DynamicResource Edge}" Margin="0,0,4,0" />
             <Ellipse x:Name="UpdateBadgeDot" Width="8" Height="8" Fill="{DynamicResource Accent}" VerticalAlignment="Center" />
-            <TextBlock x:Name="UpdateBadgeLabel" Foreground="{DynamicResource MutedText}" FontSize="11"
+            <TextBlock x:Name="UpdateBadgeLabel" Foreground="{DynamicResource MutedText}" FontSize="{x:Static local:Typography.Caption}"
                        VerticalAlignment="Center" Text="" />
           </StackPanel>
         </StackPanel>
         <!-- Media info / transient messages (export + save status). -->
         <TextBlock x:Name="StatusText" Grid.Column="1" Margin="16,0" VerticalAlignment="Center"
-                   Foreground="{DynamicResource FaintText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="" />
+                   Foreground="{DynamicResource FaintText}" FontSize="{x:Static local:Typography.Caption}" TextTrimming="CharacterEllipsis" Text="" />
         <!-- Live telemetry: (measured while playing, else nominal) fps · resolution · duration. NO framework/
              runtime text (UI.md §3.7). Polled at 1 Hz only during playback — see the perf note in the code-behind. -->
         <TextBlock x:Name="TelemetryText" Grid.Column="2" VerticalAlignment="Center"
-                   FontFamily="Cascadia Code,Consolas,monospace" FontSize="11"
+                   FontFamily="{x:Static local:Typography.Mono}" FontSize="{x:Static local:Typography.Caption}"
                    Foreground="{DynamicResource MutedText}" Text="" />
       </Grid>
     </Border>
@@ -390,7 +390,7 @@
               <Grid ColumnDefinitions="Auto,*">
                 <TextBlock Classes="title" Text="Project" />
                 <TextBlock x:Name="ProjectItemsText" Grid.Column="1" HorizontalAlignment="Right"
-                           Foreground="{DynamicResource FaintText}" FontSize="11" VerticalAlignment="Center"
+                           Foreground="{DynamicResource FaintText}" FontSize="{x:Static local:Typography.Caption}" VerticalAlignment="Center"
                            Text="0 items" />
               </Grid>
             </Border>
@@ -415,15 +415,15 @@
                 <!-- Grading scopes selector (PLAN.md step 34) + safe-area / framing-grid overlay toggle +
                      the Fit ▾ zoom level. -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <ComboBox x:Name="ScopeBox" MinWidth="112" MinHeight="0" FontSize="12" Padding="7,2" Margin="0,1,0,0" SelectedIndex="0">
+                  <ComboBox x:Name="ScopeBox" MinWidth="112" MinHeight="0" FontSize="{x:Static local:Typography.Body}" Padding="7,2" Margin="0,1,0,0" SelectedIndex="0">
                     <ComboBoxItem>No Scopes</ComboBoxItem>
                     <ComboBoxItem>Waveform</ComboBoxItem>
                     <ComboBoxItem>RGB Parade</ComboBoxItem>
                     <ComboBoxItem>Vectorscope</ComboBoxItem>
                     <ComboBoxItem>Histogram</ComboBoxItem>
                   </ComboBox>
-                  <ToggleButton x:Name="GuidesToggle" Content="Guides" FontSize="12" Padding="7,2" />
-                  <ComboBox x:Name="ZoomBox" MinWidth="76" MinHeight="0" FontSize="12" Padding="7,2" Margin="0,1,0,0" SelectedIndex="0">
+                  <ToggleButton x:Name="GuidesToggle" Content="Guides" FontSize="{x:Static local:Typography.Body}" Padding="7,2" />
+                  <ComboBox x:Name="ZoomBox" MinWidth="76" MinHeight="0" FontSize="{x:Static local:Typography.Body}" Padding="7,2" Margin="0,1,0,0" SelectedIndex="0">
                     <ComboBoxItem>Fit</ComboBoxItem>
                     <ComboBoxItem>50%</ComboBoxItem>
                     <ComboBoxItem>100%</ComboBoxItem>
@@ -489,7 +489,7 @@
                         StrokeLineCap="Round" StrokeJoin="Round" Width="14" Height="9.9" Stretch="Uniform" />
                 </Button>
                 <TextBlock x:Name="PositionText" Grid.Column="7" Margin="14,0,10,0" VerticalAlignment="Center"
-                           FontFamily="Cascadia Code,Consolas,monospace" FontSize="12" Foreground="{DynamicResource Text}"
+                           FontFamily="{x:Static local:Typography.Mono}" FontSize="{x:Static local:Typography.Body}" Foreground="{DynamicResource Text}"
                            Text="0:00.00" />
                 <Slider x:Name="Scrubber" Grid.Column="8" Minimum="0" Maximum="1" Value="0" VerticalAlignment="Center">
                   <!-- Match the themed transport: accent-tint the played (value) portion, and let the thumb read
@@ -505,7 +505,7 @@
                   </Slider.Resources>
                 </Slider>
                 <TextBlock x:Name="DurationText" Grid.Column="9" Margin="10,0,0,0" VerticalAlignment="Center"
-                           FontFamily="Cascadia Code,Consolas,monospace" FontSize="12" Foreground="{DynamicResource MutedText}"
+                           FontFamily="{x:Static local:Typography.Mono}" FontSize="{x:Static local:Typography.Body}" Foreground="{DynamicResource MutedText}"
                            Text="0:00.00" />
               </Grid>
             </Border>
@@ -583,10 +583,10 @@
                         StrokeLineCap="Round" Width="16" Height="16" Stretch="None" />
                 </Button>
               </StackPanel>
-              <Button x:Name="MarkersButton" Grid.Column="3" Content="Markers" FontSize="12" Padding="9,2"
+              <Button x:Name="MarkersButton" Grid.Column="3" Content="Markers" FontSize="{x:Static local:Typography.Body}" Padding="9,2"
                       Margin="0,0,6,0" VerticalAlignment="Center"
                       ToolTip.Tip="Markers panel (M adds at the playhead; Shift+M / Ctrl+Shift+M navigate)" />
-              <Button x:Name="AddTrackButton" Grid.Column="4" Content="+ Track" FontSize="12" Padding="9,2"
+              <Button x:Name="AddTrackButton" Grid.Column="4" Content="+ Track" FontSize="{x:Static local:Typography.Body}" Padding="9,2"
                       VerticalAlignment="Center" />
             </Grid>
           </Border>
@@ -596,11 +596,11 @@
             <local:TimelineControl x:Name="Timeline" />
             <TextBox x:Name="TrackRenameEditor" IsVisible="False"
                      HorizontalAlignment="Left" VerticalAlignment="Top"
-                     FontSize="11.5" Padding="2,1" MinHeight="0" />
+                     FontSize="{x:Static local:Typography.Caption}" Padding="2,1" MinHeight="0" />
             <!-- Inline title text editor (PLAN.md step 40): shown over a double-clicked title clip. -->
             <TextBox x:Name="TitleTextEditor" IsVisible="False"
                      HorizontalAlignment="Left" VerticalAlignment="Top"
-                     FontSize="11.5" Padding="2,1" MinHeight="0" />
+                     FontSize="{x:Static local:Typography.Caption}" Padding="2,1" MinHeight="0" />
           </Panel>
         </DockPanel>
       </Border>
@@ -618,7 +618,7 @@
           CornerRadius="6" BoxShadow="0 6 20 0 #66000000">
     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
       <Ellipse Width="8" Height="8" Fill="{DynamicResource Accent}" VerticalAlignment="Center" />
-      <TextBlock x:Name="UpdateToastText" Foreground="{DynamicResource Text}" FontSize="12"
+      <TextBlock x:Name="UpdateToastText" Foreground="{DynamicResource Text}" FontSize="{x:Static local:Typography.Body}"
                  VerticalAlignment="Center" TextWrapping="Wrap" Text="" />
       <Button x:Name="UpdateToastViewButton" Classes="primary" Content="View" Padding="12,3"
               VerticalAlignment="Center" />

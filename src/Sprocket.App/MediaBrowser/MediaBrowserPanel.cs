@@ -85,7 +85,7 @@ public sealed class MediaBrowserPanel : UserControl
         _searchBox = new TextBox
         {
             PlaceholderText = "Search media…",
-            FontSize = 12,
+            FontSize = Typography.Body,
             Margin = new Avalonia.Thickness(8, 6),
             Background = PanelBg,
             BorderBrush = Edge,
@@ -188,7 +188,7 @@ public sealed class MediaBrowserPanel : UserControl
         var button = new Button
         {
             Content = tab.ToString(),
-            FontSize = 12,
+            FontSize = Typography.Body,
             Background = Brushes.Transparent,
             BorderThickness = default,
             Padding = new Avalonia.Thickness(2, 2),
@@ -298,7 +298,7 @@ public sealed class MediaBrowserPanel : UserControl
         var nameText = new TextBlock
         {
             Text = name,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = TextBrush,
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = PosterW,
@@ -357,7 +357,7 @@ public sealed class MediaBrowserPanel : UserControl
         Background = BadgeBg,
         CornerRadius = new Avalonia.CornerRadius(3),
         Padding = new Avalonia.Thickness(5, 1),
-        Child = new TextBlock { Text = text, FontSize = 10, Foreground = MutedText },
+        Child = new TextBlock { Text = text, FontSize = Typography.Micro, Foreground = MutedText },
     };
 
     // ── Effects browser ───────────────────────────────────────────────────────────────────────────────
@@ -368,7 +368,7 @@ public sealed class MediaBrowserPanel : UserControl
         _effectsList.Children.Add(new TextBlock
         {
             Text = "Double-click an effect to add it to the selected clip.",
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = FaintText,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Avalonia.Thickness(0, 0, 0, 4),
@@ -380,8 +380,8 @@ public sealed class MediaBrowserPanel : UserControl
 
     private Control EffectRow(EffectDescriptor effect)
     {
-        var title = new TextBlock { Text = effect.DisplayName, FontSize = 12, Foreground = TextBrush, FontWeight = FontWeight.SemiBold };
-        var category = new TextBlock { Text = effect.Category.ToString(), FontSize = 10, Foreground = Accent };
+        var title = new TextBlock { Text = effect.DisplayName, FontSize = Typography.Body, Foreground = TextBrush, FontWeight = FontWeight.SemiBold };
+        var category = new TextBlock { Text = effect.Category.ToString(), FontSize = Typography.Micro, Foreground = Accent };
         var header = new DockPanel();
         DockPanel.SetDock(category, Dock.Right);
         header.Children.Add(category);
@@ -390,7 +390,7 @@ public sealed class MediaBrowserPanel : UserControl
         var desc = new TextBlock
         {
             Text = effect.Description,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = MutedText,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Avalonia.Thickness(0, 2, 0, 0),
@@ -418,7 +418,7 @@ public sealed class MediaBrowserPanel : UserControl
         _transitionsList.Children.Add(new TextBlock
         {
             Text = "Drag a transition onto a cut between two clips, or double-click to add it to the selected clip's cut.",
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = FaintText,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Avalonia.Thickness(0, 0, 0, 4),
@@ -430,11 +430,11 @@ public sealed class MediaBrowserPanel : UserControl
 
     private Control TransitionRow(TransitionDescriptor transition)
     {
-        var title = new TextBlock { Text = transition.DisplayName, FontSize = 12, Foreground = TextBrush, FontWeight = FontWeight.SemiBold };
+        var title = new TextBlock { Text = transition.DisplayName, FontSize = Typography.Body, Foreground = TextBrush, FontWeight = FontWeight.SemiBold };
         var desc = new TextBlock
         {
             Text = transition.Description,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = MutedText,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Avalonia.Thickness(0, 2, 0, 0),
@@ -515,7 +515,7 @@ public sealed class MediaBrowserPanel : UserControl
     private static Control EmptyNote(string text) => new TextBlock
     {
         Text = text,
-        FontSize = 11,
+        FontSize = Typography.Caption,
         Foreground = FaintText,
         Margin = new Avalonia.Thickness(8, 12),
     };

@@ -73,7 +73,7 @@ internal static class UpdateAvailableDialog
         {
             Text = "The update downloads in the background and applies on restart.",
             Foreground = Palette.MutedTextBrush,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             TextWrapping = TextWrapping.Wrap,
         };
 
@@ -100,7 +100,7 @@ internal static class UpdateAvailableDialog
                 {
                     Text = notes,
                     Foreground = Palette.TextBrush,
-                    FontSize = 12,
+                    FontSize = Typography.Body,
                     TextWrapping = TextWrapping.Wrap,
                 },
             },
@@ -139,14 +139,14 @@ internal static class UpdateAvailableDialog
                             {
                                 Text = $"Sprocket {service.AvailableVersion} is available.",
                                 Foreground = Palette.TextBrush,
-                                FontSize = 14,
+                                FontSize = Typography.Title,
                                 FontWeight = FontWeight.SemiBold,
                             },
                             new TextBlock
                             {
                                 Text = $"You are running {Program.AppVersion}.",
                                 Foreground = Palette.MutedTextBrush,
-                                FontSize = 12,
+                                FontSize = Typography.Body,
                             },
                         },
                     },
@@ -293,7 +293,7 @@ internal static class UpdateNotInstalledDialog
                                "build, so it doesn't update itself — new releases can be downloaded from " +
                                "the Sprocket releases page.",
                         Foreground = Palette.TextBrush,
-                        FontSize = 12,
+                        FontSize = Typography.Body,
                         TextWrapping = TextWrapping.Wrap,
                         VerticalAlignment = VerticalAlignment.Center,
                     },

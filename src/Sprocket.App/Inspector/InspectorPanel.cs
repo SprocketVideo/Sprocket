@@ -209,7 +209,7 @@ public sealed class InspectorPanel : UserControl
             _body.Children.Add(new TextBlock
             {
                 Text = "No clip selected.\nSelect a clip in the timeline to edit its properties.",
-                FontSize = 12,
+                FontSize = Typography.Body,
                 Foreground = FaintText,
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Center,
@@ -271,7 +271,7 @@ public sealed class InspectorPanel : UserControl
         info.Children.Add(new TextBlock
         {
             Text = target.Description,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = FaintText,
             TextWrapping = TextWrapping.Wrap,
         });
@@ -286,7 +286,7 @@ public sealed class InspectorPanel : UserControl
             _body.Children.Add(new TextBlock
             {
                 Text = "No inserts yet.",
-                FontSize = 11,
+                FontSize = Typography.Caption,
                 Foreground = FaintText,
                 Margin = new Avalonia.Thickness(16, 10, 16, 0),
             });
@@ -332,7 +332,7 @@ public sealed class InspectorPanel : UserControl
         var box = new TextBox
         {
             Width = 72,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             // Defeat the Fluent theme's 32px MinHeight so the box hugs the 11px text (otherwise the
             // top-aligned text leaves a large gap that reads as excess bottom padding).
             MinHeight = 22,
@@ -367,10 +367,10 @@ public sealed class InspectorPanel : UserControl
         var row = new DockPanel();
         var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, HorizontalAlignment = HorizontalAlignment.Right };
         right.Children.Add(box);
-        right.Children.Add(new TextBlock { Text = "%", FontSize = 11, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center });
+        right.Children.Add(new TextBlock { Text = "%", FontSize = Typography.Caption, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center });
         DockPanel.SetDock(right, Dock.Right);
         row.Children.Add(right);
-        row.Children.Add(new TextBlock { Text = "Speed", FontSize = 11, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = "Speed", FontSize = Typography.Caption, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center });
         return row;
     }
 
@@ -383,12 +383,12 @@ public sealed class InspectorPanel : UserControl
         MulticamSource? source = clip.SourceMulticamId is { } id ? _project!.GetMulticam(id) : null;
         if (source is null)
         {
-            content.Children.Add(new TextBlock { Text = "Multicam source missing.", FontSize = 11, Foreground = FaintText });
+            content.Children.Add(new TextBlock { Text = "Multicam source missing.", FontSize = Typography.Caption, Foreground = FaintText });
             return Section("Multicam", content, expanded: true);
         }
 
         content.Children.Add(InfoRow("Source", source.Name));
-        content.Children.Add(new TextBlock { Text = "Active angle", FontSize = 11, Foreground = FaintText });
+        content.Children.Add(new TextBlock { Text = "Active angle", FontSize = Typography.Caption, Foreground = FaintText });
 
         var angles = new StackPanel { Spacing = 3 };
         for (int i = 0; i < source.Angles.Count; i++)
@@ -400,7 +400,7 @@ public sealed class InspectorPanel : UserControl
             var button = new Button
             {
                 Content = $"{i + 1}.  {a.Name}{offset}",
-                FontSize = 11,
+                FontSize = Typography.Caption,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Avalonia.Thickness(8, 3),
@@ -469,7 +469,7 @@ public sealed class InspectorPanel : UserControl
         var mode = new ComboBox
         {
             ItemsSource = new[] { "None", "Roll", "Crawl" },
-            FontSize = 11,
+            FontSize = Typography.Caption,
             MinHeight = 24,
             Width = 100,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -510,7 +510,7 @@ public sealed class InspectorPanel : UserControl
     {
         var box = new TextBox
         {
-            FontSize = 11,
+            FontSize = Typography.Caption,
             MinHeight = multiline ? 48 : 22,
             Padding = new Avalonia.Thickness(6, 4),
             Background = PanelBg,
@@ -529,7 +529,7 @@ public sealed class InspectorPanel : UserControl
         };
 
         var stack = new StackPanel { Spacing = 2 };
-        stack.Children.Add(new TextBlock { Text = label, FontSize = 11, Foreground = FaintText });
+        stack.Children.Add(new TextBlock { Text = label, FontSize = Typography.Caption, Foreground = FaintText });
         stack.Children.Add(box);
 
         _valueRefreshers.Add(() =>
@@ -549,7 +549,7 @@ public sealed class InspectorPanel : UserControl
         var combo = new ComboBox
         {
             ItemsSource = Sprocket.Render.TitleFonts.Families,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             MinHeight = 24,
             Width = 140,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -578,7 +578,7 @@ public sealed class InspectorPanel : UserControl
             var b = new ToggleButton
             {
                 Content = text,
-                FontSize = 11,
+                FontSize = Typography.Caption,
                 Width = 26,
                 Height = 22,
                 Padding = new Avalonia.Thickness(0),
@@ -649,7 +649,7 @@ public sealed class InspectorPanel : UserControl
         var box = new TextBox
         {
             Width = 92,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             MinHeight = 22,
             Height = 22,
             Padding = new Avalonia.Thickness(6, 2),
@@ -742,7 +742,7 @@ public sealed class InspectorPanel : UserControl
         var button = new Button
         {
             Content = "Animate ▾",
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Padding = new Avalonia.Thickness(10, 3),
             Background = RaisedBg,
             Foreground = TextBrush,
@@ -819,7 +819,7 @@ public sealed class InspectorPanel : UserControl
         {
             ItemsSource = new List<string> { "Fit", "Fill" },
             SelectedIndex = clip.ConformMode == ClipConformMode.Fill ? 1 : 0,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             MinHeight = 24,
             Width = 170,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -848,7 +848,7 @@ public sealed class InspectorPanel : UserControl
             var b = new Button
             {
                 Content = label,
-                FontSize = 11,
+                FontSize = Typography.Caption,
                 Padding = new Avalonia.Thickness(10, 3),
                 Background = RaisedBg,
                 Foreground = TextBrush,
@@ -975,7 +975,7 @@ public sealed class InspectorPanel : UserControl
         var text = new TextBlock
         {
             Text = label,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = FaintText,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -1012,7 +1012,7 @@ public sealed class InspectorPanel : UserControl
                 Text = context.ClipScope
                     ? "CPU-heavy tail — Sequence ▸ Freeze Clip Audio pre-renders it."
                     : "CPU-heavy tail — recomputed on every playback pass.",
-                FontSize = 11,
+                FontSize = Typography.Caption,
                 Foreground = FaintText,
                 TextWrapping = TextWrapping.Wrap,
             });
@@ -1020,7 +1020,7 @@ public sealed class InspectorPanel : UserControl
         IReadOnlyList<EffectParameterDescriptor> parameters =
             descriptor?.Parameters ?? FallbackDescriptors(effect);
         if (parameters.Count == 0)
-            rows.Children.Add(new TextBlock { Text = "No editable parameters.", FontSize = 11, Foreground = FaintText });
+            rows.Children.Add(new TextBlock { Text = "No editable parameters.", FontSize = Typography.Caption, Foreground = FaintText });
 
         // The three-way grade is a composite control over four parameters per wheel, which the per-param
         // descriptor model can't express — so Color Wheels gets Resolve-style trackballs instead of twelve
@@ -1110,7 +1110,7 @@ public sealed class InspectorPanel : UserControl
         titleGroup.Children.Add(new TextBlock
         {
             Text = title,
-            FontSize = 12,
+            FontSize = Typography.Body,
             FontWeight = FontWeight.SemiBold,
             Foreground = effect.Enabled ? TextBrush : FaintText,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1127,7 +1127,7 @@ public sealed class InspectorPanel : UserControl
                 Child = new TextBlock
                 {
                     Text = tag,
-                    FontSize = 9,
+                    FontSize = Typography.Micro,
                     Foreground = FaintText,
                     VerticalAlignment = VerticalAlignment.Center,
                 },
@@ -1184,9 +1184,9 @@ public sealed class InspectorPanel : UserControl
     /// affordance (PLAN.md step 51). Boundary items are disabled rather than wrapping.</summary>
     private ContextMenu BuildMoveMenu(ChainContext context, int index, int count)
     {
-        var up = new MenuItem { Header = "Move Up", FontSize = 12, IsEnabled = index > 0 };
+        var up = new MenuItem { Header = "Move Up", IsEnabled = index > 0 };
         up.Click += (_, _) => MoveEffect(context.Effects, index, EffectReorder.StepIndex(index, count, -1));
-        var down = new MenuItem { Header = "Move Down", FontSize = 12, IsEnabled = index < count - 1 };
+        var down = new MenuItem { Header = "Move Down", IsEnabled = index < count - 1 };
         down.Click += (_, _) => MoveEffect(context.Effects, index, EffectReorder.StepIndex(index, count, +1));
         return new ContextMenu { ItemsSource = new[] { up, down } };
     }
@@ -1218,7 +1218,7 @@ public sealed class InspectorPanel : UserControl
             var bar = new MiniMeterBar(accent);
             var label = new TextBlock
             {
-                FontSize = 10, Foreground = FaintText, Width = 52,
+                FontSize = Typography.Micro, Foreground = FaintText, Width = 52,
                 TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center,
             };
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
@@ -1287,7 +1287,7 @@ public sealed class InspectorPanel : UserControl
         {
             ItemsSource = descriptor.Presets.Select(p => p.Name).ToList(),
             PlaceholderText = "Choose…",
-            FontSize = 11,
+            FontSize = Typography.Caption,
             MinHeight = 24,
             Width = 170,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -1385,7 +1385,7 @@ public sealed class InspectorPanel : UserControl
         var box = new TextBox
         {
             Width = 64,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             // See BuildSpeedRow: override the theme's 32px MinHeight and centre the text so the box is
             // compact and its content isn't top-aligned with a bottom gap.
             MinHeight = 22,
@@ -1428,7 +1428,7 @@ public sealed class InspectorPanel : UserControl
         var label = new TextBlock
         {
             Text = p.DisplayName,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = MutedText,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -1626,7 +1626,7 @@ public sealed class InspectorPanel : UserControl
         var label = new TextBlock
         {
             Text = p.DisplayName,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = MutedText,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -1685,7 +1685,7 @@ public sealed class InspectorPanel : UserControl
         var combo = new ComboBox
         {
             ItemsSource = choices,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             MinHeight = 24,
             Width = 170,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -1790,7 +1790,7 @@ public sealed class InspectorPanel : UserControl
         var title = new TextBlock
         {
             Text = label,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = MutedText,
             HorizontalAlignment = HorizontalAlignment.Center,
         };
@@ -1805,7 +1805,7 @@ public sealed class InspectorPanel : UserControl
         channels.Children.Add(BuildParamRow(effect, bDesc, compact: true));
         var channelsExpander = new Expander
         {
-            Header = new TextBlock { Text = "Channels", FontSize = 11, Foreground = FaintText },
+            Header = new TextBlock { Text = "Channels", FontSize = Typography.Caption, Foreground = FaintText },
             Content = channels,
             IsExpanded = false,
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -1839,7 +1839,7 @@ public sealed class InspectorPanel : UserControl
         var add = new Button
         {
             Content = "+ Effect",
-            FontSize = 12,
+            FontSize = Typography.Body,
             Padding = new Avalonia.Thickness(10, 4),
             Margin = new Avalonia.Thickness(8, 6, 8, 0),
             HorizontalAlignment = HorizontalAlignment.Left,
@@ -1851,7 +1851,7 @@ public sealed class InspectorPanel : UserControl
         foreach (EffectDescriptor descriptor in RelevantEffects(clip))
         {
             // One point below the menu default, matching the panel's dense 12–13px type scale.
-            var item = new MenuItem { Header = descriptor.DisplayName, FontSize = 13 };
+            var item = new MenuItem { Header = descriptor.DisplayName };
             // The input color transform must run before the creative grade (PLAN.md step 37), so the
             // manual-tag path inserts it at the front of the stack; everything else appends as usual.
             bool prepend = descriptor.Id == EffectTypeIds.ColorTransform;
@@ -1871,7 +1871,7 @@ public sealed class InspectorPanel : UserControl
         var add = new Button
         {
             Content = "+ Effect",
-            FontSize = 12,
+            FontSize = Typography.Body,
             Padding = new Avalonia.Thickness(10, 4),
             Margin = new Avalonia.Thickness(8, 6, 8, 0),
             HorizontalAlignment = HorizontalAlignment.Left,
@@ -1881,7 +1881,7 @@ public sealed class InspectorPanel : UserControl
         var items = new List<MenuItem>();
         foreach (EffectDescriptor descriptor in EffectRelevance.ForAudioChain())
         {
-            var item = new MenuItem { Header = descriptor.DisplayName, FontSize = 13 };
+            var item = new MenuItem { Header = descriptor.DisplayName };
             item.Click += (_, _) => _history!.Execute(
                 new AddChainEffectCommand(target.Chain, descriptor.CreateInstance()));
             items.Add(item);
@@ -1979,7 +1979,7 @@ public sealed class InspectorPanel : UserControl
             ? new TextBlock
             {
                 Text = title,
-                FontSize = 12,
+                FontSize = Typography.Body,
                 FontWeight = FontWeight.SemiBold,
                 Foreground = TextBrush,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -2058,14 +2058,14 @@ public sealed class InspectorPanel : UserControl
         var v = new TextBlock
         {
             Text = value,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Foreground = TextBrush,
             TextTrimming = TextTrimming.CharacterEllipsis,
             HorizontalAlignment = HorizontalAlignment.Right,
         };
         DockPanel.SetDock(v, Dock.Right);
         row.Children.Add(v);
-        row.Children.Add(new TextBlock { Text = label, FontSize = 11, Foreground = FaintText });
+        row.Children.Add(new TextBlock { Text = label, FontSize = Typography.Caption, Foreground = FaintText });
         return row;
     }
 

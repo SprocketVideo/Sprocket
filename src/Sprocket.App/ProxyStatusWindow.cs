@@ -79,8 +79,8 @@ internal sealed class ProxyStatusWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Palette.WindowBgBrush;
 
-        _stateLabel = new TextBlock { FontSize = 13, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-        _summary = new TextBlock { FontSize = 11, Foreground = Palette.FaintTextBrush };
+        _stateLabel = new TextBlock { FontSize = Typography.Emphasis, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+        _summary = new TextBlock { FontSize = Typography.Caption, Foreground = Palette.FaintTextBrush };
 
         _enableToggle = new CheckBox { Content = "Use proxies", Foreground = Palette.TextBrush, VerticalAlignment = VerticalAlignment.Center };
         _enableToggle.IsCheckedChanged += (_, _) =>
@@ -120,7 +120,7 @@ internal sealed class ProxyStatusWindow : Window
                     Children =
                     {
                         _enableToggle,
-                        new TextBlock { Text = "Resolution", Foreground = Palette.MutedTextBrush, FontSize = 12, VerticalAlignment = VerticalAlignment.Center },
+                        new TextBlock { Text = "Resolution", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body, VerticalAlignment = VerticalAlignment.Center },
                         _tierBox,
                     },
                 },
@@ -133,8 +133,8 @@ internal sealed class ProxyStatusWindow : Window
             },
         };
 
-        _buildingName = new TextBlock { Foreground = Palette.TextBrush, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis };
-        _buildingDetail = new TextBlock { Foreground = Palette.AccentBrush, FontSize = 12 };
+        _buildingName = new TextBlock { Foreground = Palette.TextBrush, FontSize = Typography.Emphasis, TextTrimming = TextTrimming.CharacterEllipsis };
+        _buildingDetail = new TextBlock { Foreground = Palette.AccentBrush, FontSize = Typography.Body };
         _buildingBar = new ProgressBar { Minimum = 0, Maximum = 1, Height = 6, Margin = new Thickness(0, 6, 0, 0) };
         _buildingPanel = new Border
         {
@@ -155,7 +155,7 @@ internal sealed class ProxyStatusWindow : Window
         {
             Text = "No media in this project needs a proxy. Sources in easily decoded formats at 1080p or smaller preview in real time on the original.",
             Foreground = Palette.MutedTextBrush,
-            FontSize = 12,
+            FontSize = Typography.Body,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(16, 4, 16, 0),
         };
@@ -396,10 +396,10 @@ internal sealed class ProxyStatusWindow : Window
             {
                 Text = name,
                 Foreground = Palette.TextBrush,
-                FontSize = 13,
+                FontSize = Typography.Emphasis,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
-            _status = new TextBlock { FontSize = 12 };
+            _status = new TextBlock { FontSize = Typography.Body };
             _bar = new ProgressBar { Minimum = 0, Maximum = 1, Height = 4, Margin = new Thickness(0, 6, 0, 0) };
 
             _delete = RowButton("Delete", Palette.MutedTextBrush);
@@ -484,7 +484,7 @@ internal sealed class ProxyStatusWindow : Window
         {
             Content = text,
             Padding = new Thickness(10, 4),
-            FontSize = 12,
+            FontSize = Typography.Body,
             Foreground = foreground,
             Background = Palette.PanelBgBrush,
             CornerRadius = new CornerRadius(4),

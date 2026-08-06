@@ -150,7 +150,9 @@ public sealed class MixerView : UserControl
 
     private Control BuildMasterPanel()
     {
-        _integratedText.FontSize = 20;
+        // Integrated is the number you actually deliver on, so it gets the top of the scale plus semibold
+        // (Fairlight emphasizes it the same way) — one step above its siblings, not a different scale.
+        _integratedText.FontSize = Typography.Title;
         _integratedText.FontWeight = FontWeight.SemiBold;
 
         var numbers = new StackPanel { Spacing = 2 };
@@ -177,7 +179,7 @@ public sealed class MixerView : UserControl
         WireMasterGainField();
 
         var fader = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Bottom };
-        fader.Children.Add(new TextBlock { Text = "Master", Foreground = Palette.MutedTextBrush, FontSize = 11 });
+        fader.Children.Add(new TextBlock { Text = "Master", Foreground = Palette.MutedTextBrush, FontSize = Typography.Caption });
         fader.Children.Add(_masterSlider);
         fader.Children.Add(_masterGainLabel);
 
@@ -196,7 +198,7 @@ public sealed class MixerView : UserControl
         grid.Children.Add(right);
 
         var targetRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
-        targetRow.Children.Add(new TextBlock { Text = "Normalize to", Foreground = Palette.MutedTextBrush, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
+        targetRow.Children.Add(new TextBlock { Text = "Normalize to", Foreground = Palette.MutedTextBrush, VerticalAlignment = VerticalAlignment.Center, FontSize = Typography.Caption });
         targetRow.Children.Add(BuildTargetPicker());
 
         var panel = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 8) };
@@ -331,10 +333,10 @@ public sealed class MixerView : UserControl
 
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         row.Children.Add(name);
-        row.Children.Add(new TextBlock { Text = "Pan", Foreground = Palette.MutedTextBrush, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = "Pan", Foreground = Palette.MutedTextBrush, FontSize = Typography.Caption, VerticalAlignment = VerticalAlignment.Center });
         row.Children.Add(pan);
         row.Children.Add(panLabel);
-        row.Children.Add(new TextBlock { Text = "Gain", Foreground = Palette.MutedTextBrush, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = "Gain", Foreground = Palette.MutedTextBrush, FontSize = Typography.Caption, VerticalAlignment = VerticalAlignment.Center });
         row.Children.Add(gain);
         row.Children.Add(gainLabel);
         row.Children.Add(mute);
@@ -379,7 +381,7 @@ public sealed class MixerView : UserControl
         var add = new Button
         {
             Content = "+",
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Width = 22,
             Padding = new Thickness(0, 1),
             HorizontalContentAlignment = HorizontalAlignment.Center,
@@ -389,7 +391,7 @@ public sealed class MixerView : UserControl
         var items = new List<MenuItem>();
         foreach (EffectDescriptor descriptor in EffectRelevance.ForAudioChain())
         {
-            var item = new MenuItem { Header = descriptor.DisplayName, FontSize = 12 };
+            var item = new MenuItem { Header = descriptor.DisplayName };
             item.Click += (_, _) => Execute(new AddChainEffectCommand(target.Chain, descriptor.CreateInstance()));
             items.Add(item);
         }
@@ -400,7 +402,7 @@ public sealed class MixerView : UserControl
         {
             Text = "Inserts",
             Foreground = Palette.MutedTextBrush,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             VerticalAlignment = VerticalAlignment.Center,
         });
         header.Children.Add(add);
@@ -437,7 +439,7 @@ public sealed class MixerView : UserControl
         var name = new Button
         {
             Content = title,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Padding = new Thickness(6, 2),
             Background = Brushes.Transparent,
             Foreground = effect.Enabled ? Palette.TextBrush : Palette.FaintTextBrush,
@@ -451,7 +453,7 @@ public sealed class MixerView : UserControl
         var remove = new Button
         {
             Content = "×",
-            FontSize = 11,
+            FontSize = Typography.Caption,
             Padding = new Thickness(5, 1),
             Background = Brushes.Transparent,
             Foreground = Palette.FaintTextBrush,
@@ -461,9 +463,9 @@ public sealed class MixerView : UserControl
         remove.Click += (_, _) => Execute(new RemoveChainEffectCommand(target.Chain, effect));
 
         int count = target.Chain.Count;
-        var up = new MenuItem { Header = "Move Up", FontSize = 12, IsEnabled = index > 0 };
+        var up = new MenuItem { Header = "Move Up", IsEnabled = index > 0 };
         up.Click += (_, _) => MoveInsert(target, index, EffectReorder.StepIndex(index, count, -1));
-        var down = new MenuItem { Header = "Move Down", FontSize = 12, IsEnabled = index < count - 1 };
+        var down = new MenuItem { Header = "Move Down", IsEnabled = index < count - 1 };
         down.Click += (_, _) => MoveInsert(target, index, EffectReorder.StepIndex(index, count, +1));
 
         var row = new DockPanel { Background = Brushes.Transparent, Margin = new Thickness(8, 0, 0, 0) };
@@ -728,7 +730,7 @@ public sealed class MixerView : UserControl
         VerticalAlignment = VerticalAlignment.Center, SmallChange = 0.05, LargeChange = 0.2,
     };
 
-    private static TextBlock Metric() => new() { Foreground = Palette.TextBrush, FontFamily = new FontFamily("Consolas, monospace") };
+    private static TextBlock Metric() => new() { Foreground = Palette.TextBrush, FontFamily = Typography.Mono };
 
     /// <summary>
     /// The strip's editable value read-out: a compact <see cref="TextBox"/> rather than a label, so a level or
@@ -740,7 +742,7 @@ public sealed class MixerView : UserControl
     {
         Width = width,
         Foreground = Palette.MutedTextBrush,
-        FontSize = 11,
+        FontSize = Typography.Caption,
         // Defeat the Fluent theme's 32px MinHeight so the field matches the fader's height.
         MinHeight = 22,
         Height = 22,
@@ -754,7 +756,7 @@ public sealed class MixerView : UserControl
     private static Control Row(string label, TextBlock value)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        row.Children.Add(new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, Width = 84, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, Width = 84, FontSize = Typography.Caption, VerticalAlignment = VerticalAlignment.Center });
         row.Children.Add(value);
         return row;
     }
@@ -763,7 +765,7 @@ public sealed class MixerView : UserControl
     {
         var col = new StackPanel { Spacing = 2, HorizontalAlignment = HorizontalAlignment.Center };
         col.Children.Add(bar);
-        col.Children.Add(new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center });
+        col.Children.Add(new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, FontSize = Typography.Micro, HorizontalAlignment = HorizontalAlignment.Center });
         return col;
     }
 

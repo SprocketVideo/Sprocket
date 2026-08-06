@@ -74,7 +74,7 @@ internal sealed class ExportQueueWindow : Window
         {
             Text = "No export jobs yet. Click Add… to queue the current sequence.",
             Foreground = Palette.MutedTextBrush,
-            FontSize = 13,
+            FontSize = Typography.Emphasis,
             Margin = new Thickness(16, 8, 16, 0),
         };
         var scroller = new ScrollViewer
@@ -192,23 +192,23 @@ internal sealed class ExportQueueWindow : Window
             {
                 Text = job.Name,
                 Foreground = Palette.TextBrush,
-                FontSize = 13,
+                FontSize = Typography.Emphasis,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
             var subtitle = new TextBlock
             {
                 Text = FormatLabel(job.Options.Format),
                 Foreground = Palette.FaintTextBrush,
-                FontSize = 11,
+                FontSize = Typography.Caption,
             };
-            _status = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            _status = new TextBlock { FontSize = Typography.Body, VerticalAlignment = VerticalAlignment.Center };
             _bar = new ProgressBar { Minimum = 0, Maximum = 1, Height = 6, Margin = new Thickness(0, 6, 0, 0) };
 
             _cancel = new Button
             {
                 Content = "Cancel",
                 Padding = new Thickness(10, 4),
-                FontSize = 12,
+                FontSize = Typography.Body,
                 Foreground = Palette.TextBrush,
                 Background = Palette.PanelBgBrush,
                 CornerRadius = new CornerRadius(4),
@@ -217,7 +217,7 @@ internal sealed class ExportQueueWindow : Window
             {
                 Content = "Remove",
                 Padding = new Thickness(10, 4),
-                FontSize = 12,
+                FontSize = Typography.Body,
                 Foreground = Palette.MutedTextBrush,
                 Background = Palette.PanelBgBrush,
                 CornerRadius = new CornerRadius(4),

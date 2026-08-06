@@ -94,7 +94,7 @@ internal static class InterpretFootageDialog
                             {
                                 Text = mediaName,
                                 Foreground = Palette.TextBrush,
-                                FontSize = 14,
+                                FontSize = Typography.Title,
                                 FontWeight = FontWeight.SemiBold,
                                 TextTrimming = TextTrimming.CharacterEllipsis,
                             },
@@ -102,7 +102,7 @@ internal static class InterpretFootageDialog
                             {
                                 Text = $"Currently {FormatFps(currentFps)}. Assume this frame rate:",
                                 Foreground = Palette.MutedTextBrush,
-                                FontSize = 12,
+                                FontSize = Typography.Body,
                             },
                             fps,
                         },

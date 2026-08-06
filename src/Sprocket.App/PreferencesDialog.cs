@@ -55,7 +55,7 @@ internal static class PreferencesDialog
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Foreground = Palette.TextBrush,
             Background = Palette.PanelBgBrush,
-            FontSize = 12,
+            FontSize = Typography.Body,
         };
 
         // ── Caches ──────────────────────────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ internal static class PreferencesDialog
             Text = "Sprocket tells you when a newer build is published; nothing downloads or installs " +
                    "without your say-so. Portable builds are pointed at the releases page instead.",
             Foreground = Palette.MutedTextBrush,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             TextWrapping = TextWrapping.Wrap,
         };
 
@@ -118,8 +118,8 @@ internal static class PreferencesDialog
         {
             Text = token,
             IsReadOnly = true,
-            FontFamily = new FontFamily("Cascadia Code,Consolas,monospace"),
-            FontSize = 11,
+            FontFamily = Typography.Mono,
+            FontSize = Typography.Caption,
             Foreground = Palette.MutedTextBrush,
             Background = Palette.PanelBgBrush,
         };
@@ -128,7 +128,7 @@ internal static class PreferencesDialog
         {
             Text = "While enabled, a local AI client can inspect and edit the open project.",
             Foreground = Palette.MutedTextBrush,
-            FontSize = 11,
+            FontSize = Typography.Caption,
             TextWrapping = TextWrapping.Wrap,
         };
 
@@ -306,7 +306,7 @@ internal static class PreferencesDialog
         Text = text,
         Foreground = Palette.TextBrush,
         FontWeight = FontWeight.SemiBold,
-        FontSize = 13,
+        FontSize = Typography.Emphasis,
         Margin = new Thickness(0, 10, 0, 2),
     };
 
@@ -314,7 +314,7 @@ internal static class PreferencesDialog
     {
         Text = text,
         Foreground = Palette.MutedTextBrush,
-        FontSize = 12,
+        FontSize = Typography.Body,
         VerticalAlignment = VerticalAlignment.Center,
     };
 
@@ -323,7 +323,7 @@ internal static class PreferencesDialog
     {
         Text = text,
         Foreground = Palette.MutedTextBrush,
-        FontSize = 11,
+        FontSize = Typography.Caption,
         TextWrapping = TextWrapping.Wrap,
         Margin = new Thickness(0, 2, 0, 0),
     };
@@ -332,7 +332,7 @@ internal static class PreferencesDialog
     {
         Content = label,
         Padding = new Thickness(12, 3),
-        FontSize = 12,
+        FontSize = Typography.Body,
         Foreground = Palette.TextBrush,
         Background = Palette.PanelBgBrush,
         CornerRadius = new CornerRadius(5),
@@ -343,7 +343,7 @@ internal static class PreferencesDialog
         Text = value,
         Foreground = Palette.TextBrush,
         Background = Palette.PanelBgBrush,
-        FontSize = 12,
+        FontSize = Typography.Body,
     };
 
     private static StackPanel Labeled(string label, Control control) => new()
@@ -351,7 +351,7 @@ internal static class PreferencesDialog
         Spacing = 3,
         Children =
         {
-            new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, FontSize = 12 },
+            new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, FontSize = Typography.Body },
             control,
         },
     };
@@ -364,7 +364,7 @@ internal static class PreferencesDialog
         {
             Text = label,
             Foreground = Palette.TextBrush,
-            FontSize = 12,
+            FontSize = Typography.Body,
             VerticalAlignment = VerticalAlignment.Center,
         };
         size.Margin = new Thickness(0, 0, 10, 0);
