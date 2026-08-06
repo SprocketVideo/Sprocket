@@ -34,7 +34,7 @@ public class AudioEngineTests
     public async Task Starts_Paused_At_Zero()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
 
         Assert.False(engine.IsRunning);
         Assert.Equal(0, engine.Now.Ticks);
@@ -44,7 +44,7 @@ public class AudioEngineTests
     public async Task Now_Advances_With_Played_Frames_While_Running()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
 
         engine.Start();
         output.SetPlayedFrames(Rate * 2); // device has played 2 s
@@ -57,7 +57,7 @@ public class AudioEngineTests
     public async Task Now_Freezes_While_Paused()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
 
         engine.Start();
         output.SetPlayedFrames(Rate);     // 1 s
@@ -72,7 +72,7 @@ public class AudioEngineTests
     public async Task Seek_Repositions_And_Advances_From_The_New_Anchor()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
 
         engine.Start();
         output.SetPlayedFrames(Rate); // 1 s played

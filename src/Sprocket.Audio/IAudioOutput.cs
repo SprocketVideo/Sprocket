@@ -28,9 +28,13 @@ public interface IAudioOutput : IDisposable
     int SampleRate { get; }
 
     /// <summary>
-    /// Total sample-frames the device has actually played since <see cref="Configure"/> — monotonic, and the
-    /// source of "now" for the master clock. Unaffected by <see cref="Flush"/> (flushing discards
-    /// queued-but-unplayed audio; it does not rewind what was already heard).
+    /// Total sample-frames the device has actually played since <see cref="Configure"/> — the raw source of
+    /// "now" for the master clock. Real backends report it <b>quantized to the device update period</b>, not per
+    /// sample (OpenAL Soft advances its offset once per mixer update, measured 20 ms; the legacy Creative router
+    /// ~25 ms), so <c>AudioEngine</c> smooths it with a bounded monotonic estimator rather than reading it as
+    /// sample-exact. Never advances for audio discarded by <see cref="Flush"/>; the count of the
+    /// partially-played device buffer may be dropped by a flush or an underrun, so callers re-anchor after any
+    /// transport discontinuity instead of assuming strict monotonicity across one.
     /// </summary>
     long PlayedFrames { get; }
 

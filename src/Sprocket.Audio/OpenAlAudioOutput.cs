@@ -65,8 +65,8 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
 
         try
         {
-            _alc = ALContext.GetApi();
-            _api = AL.GetApi();
+            _alc = GetAlcApi();
+            _api = GetAlApi();
             // Open the named device; if a previously-chosen device is gone (unplugged/renamed) fall back to the
             // system default rather than failing the whole audio path (Premiere/FCP behavior).
             _device = string.IsNullOrEmpty(deviceSpecifier) ? _alc.OpenDevice("") : _alc.OpenDevice(deviceSpecifier);
@@ -89,6 +89,24 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
             DisposeDevice();
             throw;
         }
+    }
+
+    // Prefer the bundled OpenAL Soft over whatever "openal32.dll" resolves to system-wide. A machine with the
+    // legacy Creative router installed (SYSTEM32\openal32.dll → wrap_oal.dll) would otherwise shadow the
+    // soft_oal this app ships — losing every ALC_SOFT_* / AL_SOFT_* extension the engine's device recovery
+    // depends on (reopen, disconnect detection) and stepping the played-frame counter at the router's coarser
+    // update period (measured ~25 ms vs OpenAL Soft's 20 ms, with transient regressions at underrun). Fall back
+    // to the default resolution only when the soft native cannot be loaded at all.
+    private static ALContext GetAlcApi()
+    {
+        try { return ALContext.GetApi(soft: true); }
+        catch { return ALContext.GetApi(); }
+    }
+
+    private static AL GetAlApi()
+    {
+        try { return AL.GetApi(soft: true); }
+        catch { return AL.GetApi(); }
     }
 
     /// <inheritdoc />
@@ -282,7 +300,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
         var devices = new List<string>();
         try
         {
-            ALContext alc = ALContext.GetApi();
+            ALContext alc = GetAlcApi(); // same implementation Configure opens, so the names match
             try
             {
                 int token = alc.IsExtensionPresent(null, "ALC_ENUMERATE_ALL_EXT") ? AlcAllDevicesSpecifier

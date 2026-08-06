@@ -7,9 +7,11 @@ namespace Sprocket.Audio;
 
 /// <summary>
 /// The audio master clock (ARCHITECTURE.md §8): a transport-capable <see cref="IMasterClock"/> whose
-/// <see cref="Now"/> is derived from the count of sample-frames the device has actually <em>played</em>, so
-/// audio is the heartbeat and video follows it. A background feeder keeps the device queue topped up by
-/// mixing the timeline through an <see cref="AudioMixer"/> for the advancing write cursor.
+/// <see cref="Now"/> is derived from the count of sample-frames the device has <em>played</em> — smoothed over
+/// the device's update quantum by a bounded monotonic estimator (see the estimator field block), because every
+/// real backend reports that count in coarse device-period steps — so audio is the heartbeat and video follows
+/// it. A background feeder keeps the device queue topped up by mixing the timeline through an
+/// <see cref="AudioMixer"/> for the advancing write cursor.
 /// </summary>
 /// <remarks>
 /// <para>This is what <c>PlaybackEngine</c> receives as its clock when the project has audio; the engine's
@@ -41,7 +43,31 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
 
     private bool _running;
     private Timecode _anchorTimeline;     // timeline position captured at the last (re)anchor
-    private long _anchorPlayedFrames;     // _output.PlayedFrames captured at that anchor
+    private long _anchorPlayedFrames;     // smoothed played-frame count captured at that anchor
+
+    // Device-clock smoothing (ARCHITECTURE.md §8). Every real backend reports PlayedFrames in device-update
+    // steps, not per sample — OpenAL Soft advances AL_SAMPLE_OFFSET (and its AL_SOFT_source_latency /
+    // ALC_SOFT_device_clock counters) only once per mixer update, measured at 960 frames = 20 ms; the legacy
+    // Creative router steps coarser (~25 ms) and can transiently regress at an underrun. A clock that jumps by
+    // most of a video frame at a time aliases the pump's frame-boundary pacing into spurious hold/skip pairs, so
+    // Now smooths the raw counter with the monotonic time source, under an explicit contract:
+    //   - the estimate free-runs at the time source's rate from a stable anchor (slope 1 — never re-anchored on
+    //     an ordinary read, so per-read rounding cannot accumulate into drift);
+    //   - it is capped at _maxLeadFrames (one mix buffer) past the highest raw reading seen, so during a genuine
+    //     device stall video may lead the last-reported audio position by at most one buffer (~43 ms at the
+    //     default), then the clock holds until the device reports progress again;
+    //   - a raw reading ahead of the estimate snaps it forward (the device clock outran the time source);
+    //   - raw readings that repeat or regress (a backend quirk at underrun) never move it backward — the
+    //     estimate is monotonic between re-anchor points;
+    //   - all state resets (estimate := raw, zero lead) at every re-anchor point: Start, Seek, device switch,
+    //     and recovery success (ResetDeviceClockLocked).
+    // The estimate may therefore lead *actually played* audio, by up to one mix buffer at worst — the
+    // deliberate, documented trade that keeps video pacing smooth (see IAudioOutput.PlayedFrames).
+    private long _rawMaxFrames;           // highest raw _output.PlayedFrames seen since the last reset
+    private long _estAnchorFrames;        // estimate anchor: value ...
+    private TimeSpan _estAnchorElapsed;   // ... at this time-source instant (re-set only on snap/cap/reset)
+    private long _smoothedPlayedFrames;   // last value SmoothedPlayedFramesLocked returned (monotonic guard)
+    private readonly long _maxLeadFrames; // estimate bound past the newest raw reading (one mix buffer)
     private Timecode _pausedAt;           // position to report while paused
     private Timecode _writeCursor;        // next timeline position the feeder will mix from
     private long _generation;             // bumped by Seek; a mix tagged with a stale generation is dropped
@@ -59,7 +85,8 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
 
     /// <summary>Creates the engine over an already-<see cref="IAudioOutput.Configure">configured</see> output and
     /// a mixer built for the same format. Starts the (idle-until-playing) feeder. <paramref name="timeSource"/> backs
-    /// the software-fallback clock used if the device is lost unrecoverably (defaults to a <see cref="Stopwatch"/>).</summary>
+    /// the device-clock smoothing estimator and the software-fallback clock used if the device is lost
+    /// unrecoverably (defaults to a <see cref="Stopwatch"/>).</summary>
     public AudioEngine(IAudioOutput output, AudioMixer mixer, Project project, int? bufferFrames = null,
         ISoftwareTimeSource? timeSource = null)
     {
@@ -72,6 +99,7 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
         _project = project;
         _sampleRate = output.SampleRate;
         _bufferFrames = bufferFrames ?? DefaultBufferFrames;
+        _maxLeadFrames = _bufferFrames;
         _mixBuffer = new float[_bufferFrames * output.Channels];
         _meter = new LoudnessMeter(output.SampleRate, output.Channels);
         _timeSource = timeSource ?? new StopwatchTimeSource();
@@ -154,7 +182,8 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
             }
             else if (_mode == Mode.Device)
             {
-                _anchorPlayedFrames = _output.PlayedFrames;
+                ResetDeviceClockLocked();
+                _anchorPlayedFrames = _smoothedPlayedFrames;
                 _output.Play();
             }
             // Recovering: just mark running; recovery completion re-anchors onto whichever mode it lands in.
@@ -190,7 +219,8 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
             if (_mode == Mode.Device)
             {
                 _output.Flush();
-                _anchorPlayedFrames = _output.PlayedFrames;
+                ResetDeviceClockLocked();
+                _anchorPlayedFrames = _smoothedPlayedFrames;
             }
             else if (_mode == Mode.Software)
             {
@@ -224,7 +254,8 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
             _output.Flush();
             _writeCursor = pos;
             _anchorTimeline = pos;
-            _anchorPlayedFrames = _output.PlayedFrames;
+            ResetDeviceClockLocked();
+            _anchorPlayedFrames = _smoothedPlayedFrames;
             _pausedAt = pos;
             _generation++;      // drop any in-flight mix aimed at the old device
             _meter.RequestReset();
@@ -249,11 +280,61 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
             default:
                 if (!_running)
                     return _pausedAt;
-                long played = _output.PlayedFrames - _anchorPlayedFrames;
+                long played = SmoothedPlayedFramesLocked() - _anchorPlayedFrames;
                 if (played < 0)
                     played = 0;
                 return _anchorTimeline + Timecode.FromSamples(played, _sampleRate);
         }
+    }
+
+    /// <summary>
+    /// The device's played-frame count smoothed over its update quantum — see the estimator contract on the
+    /// field block above. Callers hold <see cref="_gate"/>; no allocation.
+    /// </summary>
+    private long SmoothedPlayedFramesLocked()
+    {
+        long raw = _output.PlayedFrames;
+        TimeSpan now = _timeSource.Elapsed;
+        if (raw > _rawMaxFrames)
+            _rawMaxFrames = raw; // repeats/regressions (underrun quirk) never lower the high-water mark
+
+        double sinceSec = (now - _estAnchorElapsed).TotalSeconds;
+        long estimate = _estAnchorFrames + (sinceSec > 0 ? (long)(sinceSec * _sampleRate) : 0);
+
+        long cap = _rawMaxFrames + _maxLeadFrames;
+        if (estimate > cap)
+        {
+            // Device stalled: hold at the bound rather than run video ahead of unheard audio. Re-anchor at the
+            // cap so progress resumes at slope 1 from here once the device reports again.
+            estimate = cap;
+            _estAnchorFrames = cap;
+            _estAnchorElapsed = now;
+        }
+        else if (estimate < _rawMaxFrames)
+        {
+            // The device outran the time source (or a fresh reading arrived after a hold): snap forward.
+            estimate = _rawMaxFrames;
+            _estAnchorFrames = estimate;
+            _estAnchorElapsed = now;
+        }
+
+        if (estimate < _smoothedPlayedFrames)
+            estimate = _smoothedPlayedFrames; // never rewind a value the pump has already seen
+        _smoothedPlayedFrames = estimate;
+        return estimate;
+    }
+
+    /// <summary>Re-syncs the smoothing estimator to the device's current raw reading (zero interpolation lead).
+    /// Must run at every re-anchor point — Start, Seek, device switch, recovery success — always immediately
+    /// before <see cref="_anchorPlayedFrames"/> is captured, so position math restarts from a clean anchor.
+    /// Callers hold <see cref="_gate"/>.</summary>
+    private void ResetDeviceClockLocked()
+    {
+        long raw = _output.PlayedFrames;
+        _rawMaxFrames = raw;
+        _estAnchorFrames = raw;
+        _estAnchorElapsed = _timeSource.Elapsed;
+        _smoothedPlayedFrames = raw;
     }
 
     private async Task FeedLoopAsync(CancellationToken ct)
@@ -363,7 +444,8 @@ public sealed class AudioEngine : IMasterClock, IAsyncDisposable
                 _output.Flush();
                 _writeCursor = _frozenPos;
                 _anchorTimeline = _frozenPos;
-                _anchorPlayedFrames = _output.PlayedFrames;
+                ResetDeviceClockLocked();
+                _anchorPlayedFrames = _smoothedPlayedFrames;
                 _pausedAt = _frozenPos;
                 _mode = Mode.Device;
             }

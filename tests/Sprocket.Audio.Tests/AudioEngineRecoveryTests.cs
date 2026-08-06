@@ -33,14 +33,6 @@ public class AudioEngineRecoveryTests
         return output;
     }
 
-    private sealed class FakeTimeSource : ISoftwareTimeSource
-    {
-        private readonly object _gate = new();
-        private TimeSpan _elapsed;
-        public TimeSpan Elapsed { get { lock (_gate) return _elapsed; } }
-        public void Advance(TimeSpan by) { lock (_gate) _elapsed += by; }
-    }
-
     private static AudioEngine.OutputStatus[] Snapshot(List<AudioEngine.OutputStatus> log)
     {
         lock (log) return log.ToArray();
@@ -62,7 +54,7 @@ public class AudioEngineRecoveryTests
     public async Task Reopen_Success_Preserves_Position_And_Resumes_On_The_Device()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
         var log = new List<AudioEngine.OutputStatus>();
         engine.OutputStatusChanged += s => { lock (log) log.Add(s); };
 
@@ -88,7 +80,7 @@ public class AudioEngineRecoveryTests
     public async Task Feeding_Resumes_After_A_Successful_Reopen()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
         var log = new List<AudioEngine.OutputStatus>();
         engine.OutputStatusChanged += s => { lock (log) log.Add(s); };
 
@@ -140,7 +132,7 @@ public class AudioEngineRecoveryTests
     public async Task No_Audio_Is_Enqueued_After_Software_Fallback()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
         var log = new List<AudioEngine.OutputStatus>();
         engine.OutputStatusChanged += s => { lock (log) log.Add(s); };
 
@@ -159,7 +151,7 @@ public class AudioEngineRecoveryTests
     public async Task Seek_During_Recovery_Is_Respected()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
         var recovered = false;
         engine.OutputStatusChanged += s => { if (s == AudioEngine.OutputStatus.Recovered) recovered = true; };
 
@@ -179,7 +171,7 @@ public class AudioEngineRecoveryTests
     public async Task Pause_During_Recovery_Holds_At_The_Frozen_Position()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
         var recovered = false;
         engine.OutputStatusChanged += s => { if (s == AudioEngine.OutputStatus.Recovered) recovered = true; };
 
@@ -198,7 +190,7 @@ public class AudioEngineRecoveryTests
     public async Task SwitchOutputDevice_Repoints_In_Place_Keeping_The_Playhead()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
 
         engine.Start();
         output.SetPlayedFrames(Rate * 2); // 2 s heard on the current device
@@ -218,7 +210,7 @@ public class AudioEngineRecoveryTests
     public async Task SwitchOutputDevice_Returns_False_And_Keeps_Playing_When_Reopen_Fails()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
         output.SetReopenResult(() => false); // the requested device can't be opened
 
         engine.Start();
@@ -234,7 +226,7 @@ public class AudioEngineRecoveryTests
     public async Task SwitchOutputDevice_Is_A_No_Op_In_Software_Fallback()
     {
         var output = NewOutput();
-        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        await using var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
         var log = new List<AudioEngine.OutputStatus>();
         engine.OutputStatusChanged += s => { lock (log) log.Add(s); };
         output.SetReopenResult(() => false);
@@ -252,7 +244,7 @@ public class AudioEngineRecoveryTests
     public async Task Dispose_After_Device_Loss_Does_Not_Hang()
     {
         var output = NewOutput();
-        var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512);
+        var engine = new AudioEngine(output, SilentMixer(), EmptyProject(), bufferFrames: 512, timeSource: new FakeTimeSource());
         output.SetReopenResult(() => false);
 
         engine.Start();

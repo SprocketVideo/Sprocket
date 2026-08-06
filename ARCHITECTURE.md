@@ -222,13 +222,18 @@ For each output buffer request (from the audio device callback):
 - **Resampling** (rate/channel-layout normalization to the project format) happens once, at
   decode, via libswresample, so the mixer only ever sums uniform float32 buffers.
 - **The audio device callback is the heartbeat.** Its consumed-sample count *is* the master
-  clock (§8).
+  clock (§8) — smoothed over the device's update quantum, since real backends report it in
+  device-period steps rather than per sample (see §8).
 - **Output device behind `IAudioOutput`.** The slice uses Silk.NET.OpenAL (OpenAL Soft), whose
   native package ships `win-x64`, `linux-*`, **`osx-x64` and `osx-arm64`** binaries — so the same
-  output works on all three OSes. On macOS this rides OpenAL Soft (Apple's system OpenAL is
-  deprecated); a native **CoreAudio** `IAudioOutput` is a later, optional swap if lower latency is
-  wanted. *(Implemented PLAN step 5: `OpenAlAudioOutput`, the `AudioMixer`, and the `AudioEngine`
-  master clock whose `Now` derives from the device's played-frame count.)*
+  output works on all three OSes. The bundled OpenAL Soft is **always preferred**
+  (`GetApi(soft: true)`, with a fallback to default resolution): a machine with the legacy
+  Creative router installed (`SYSTEM32\openal32.dll` → `wrap_oal.dll`) would otherwise shadow the
+  shipped `soft_oal`, losing the `ALC_SOFT_*` extensions device recovery depends on and stepping
+  the clock at the router's coarser period. On macOS this rides OpenAL Soft (Apple's system OpenAL
+  is deprecated); a native **CoreAudio** `IAudioOutput` is a later, optional swap if lower latency
+  is wanted. *(Implemented PLAN step 5: `OpenAlAudioOutput`, the `AudioMixer`, and the
+  `AudioEngine` master clock whose `Now` derives from the device's played-frame count.)*
 
 ---
 
@@ -299,8 +304,18 @@ This is where the layers meet and where correctness is hardest. The pipeline:
 - **UI thread never blocks** on decode/render — it only issues invalidations and reads model.
 
 **Master clock = audio.** Each audio callback reports how many samples have been played →
-convert to ticks → that's `nowTicks`. The render thread, for each vsync/tick, asks for the
-video frame whose PTS is nearest `nowTicks`:
+convert to ticks → that's `nowTicks`. Devices report that count **quantized to their update
+period**, not per sample (OpenAL Soft advances its offset once per mixer update — measured
+960 frames = 20 ms; the legacy Creative router ~25 ms), and a clock that jumps by most of a video
+frame at a time aliases the pump's boundary-locked pacing into spurious hold/skip pairs. The
+`AudioEngine` therefore smooths the raw counter with a **bounded monotonic estimator**: `Now`
+free-runs at the rate of a monotonic time source from a stable anchor, snaps forward if the device
+overtakes it, and may lead the newest raw reading by at most **one mix buffer** (~43 ms at the
+default 2048 frames) — so during a genuine device stall video halts within that bound instead of
+running ahead of unheard audio. The estimator resets (estimate := raw, zero lead) at every
+re-anchor point: start, seek, device switch, recovery. The estimate may thus lead *actually
+played* audio by up to that bound — a deliberate, documented trade for smooth pacing. The render
+thread, for each vsync/tick, asks for the video frame whose PTS is nearest `nowTicks`:
 
 - If the freshest decoded frame's time **< nowTicks − tolerance** → **drop** frames until
   caught up (video lagging).

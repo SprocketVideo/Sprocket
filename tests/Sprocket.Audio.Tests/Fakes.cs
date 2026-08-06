@@ -113,6 +113,20 @@ internal sealed class FakeAudioOutput : IAudioOutput
 }
 
 /// <summary>
+/// A deterministic <see cref="ISoftwareTimeSource"/> tests advance by hand. The engine reads it for both the
+/// device-clock smoothing estimator and the software-fallback clock, so injecting it makes <c>AudioEngine.Now</c>
+/// fully scripted: raw played frames via <see cref="FakeAudioOutput.SetPlayedFrames"/>, elapsed time via
+/// <see cref="Advance"/> — no wall-clock flakiness in either direction.
+/// </summary>
+internal sealed class FakeTimeSource : ISoftwareTimeSource
+{
+    private readonly object _gate = new();
+    private TimeSpan _elapsed;
+    public TimeSpan Elapsed { get { lock (_gate) return _elapsed; } }
+    public void Advance(TimeSpan by) { lock (_gate) _elapsed += by; }
+}
+
+/// <summary>
 /// A synthetic <see cref="IPcmReader"/> that returns a constant value (or a 440 Hz-ish ramp) so the mixer can
 /// be tested without FFmpeg. Records its <see cref="SeekTo"/> calls so seek-on-jump behaviour is observable.
 /// </summary>

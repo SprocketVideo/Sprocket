@@ -271,7 +271,7 @@ in terms an app-side committer can check against their diff.
 | Shelving EQ (standalone low + high shelves: freq/gain/slope, per-shelf enable) | Sprocket.Audio/Effects/ShelvingEqEffect.cs; EffectCatalog.cs | audio/audio-effects.md#equalizers | ✅ |
 | Shimmer Reverb (pitch-shifted feedback wash; interval control; presets Classic–Dark–Fifth–Drone) | Sprocket.Audio/Effects/ShimmerReverbEffect.cs; EffectCatalog.cs | audio/audio-effects.md#reverb | ✅ |
 | Freeze / Unfreeze Clip Audio (pre-render heavy audio chains; Sequence menu) | MainWindow.axaml.cs `UnfreezeClipAudio`; RenderCacheService.cs | audio/audio-effects.md#freeze-a-heavy-audio-chain | ✅ |
-| Audio output device (Edit ▸ Preferences ▸ Audio): pick where playback is monitored; applies immediately without interrupting playback; survives restart; auto-recovers to the system default if a device is lost or unavailable | UserSettings.AudioOutputDevice; PreferencesDialog.cs; Sprocket.Audio/OpenAlAudioOutput.cs `EnumerateOutputDevices`; AudioEngine `SwitchOutputDevice`/device-loss recovery | — | ❌ |
+| Audio output device (Edit ▸ Preferences ▸ Audio): pick where playback is monitored; applies immediately without interrupting playback; survives restart; auto-recovers to the system default if a device is lost or unavailable; always runs on the bundled OpenAL Soft, even when a legacy system OpenAL (Creative router) is installed, so enumeration/switch/loss-recovery behave the same on every machine | UserSettings.AudioOutputDevice; PreferencesDialog.cs; Sprocket.Audio/OpenAlAudioOutput.cs `EnumerateOutputDevices`; AudioEngine `SwitchOutputDevice`/device-loss recovery | — | ❌ |
 
 ## 6. Export & share
 
@@ -309,7 +309,7 @@ in terms an app-side committer can check against their diff.
 | Guides overlay (frame outline / safe areas / framing grid; the frame's empty canvas shows black, matching export) | PreviewSurface.ShowGuides; Sprocket.Render/MonitorOverlay.cs | performance/preview-and-monitors.md#overlay-framing-guides | ✅ (portrait-canvas fix 2026-07-16 covered; aspect-ratio-and-framing.md's Fit/Fill shot still predates the fix — re-shoot with Guides on) |
 | Full-screen preview (View ▸ Full Screen Preview; `Ctrl+F`, `⌘F` on macOS; `Esc` or the shortcut exits; transport keys stay live; works for Program and Source) | MainWindow.axaml.cs `EnterFullscreenPreview`; PreviewSurface.cs | performance/preview-and-monitors.md#full-screen-preview | ✅ |
 | Timecode readouts (position / duration) | MainWindow.axaml:360 | get-started/getting-started.md#1-play-and-preview-your-video | ✅ |
-| Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | performance/troubleshooting-playback.md | 🟡 stale — dropped-frame/preview-rate semantics now speed-aware (slow-motion holds count as delivered, never as drops), and pump pacing is phase-locked to the master clock so the counter reads 0 during healthy playback instead of ~1/s of aliasing; re-verify the metric descriptions |
+| Playback Statistics overlay (View menu) | Sprocket.App/PlaybackStatsOverlay.cs | performance/troubleshooting-playback.md | 🟡 stale — dropped-frame/preview-rate semantics now speed-aware (slow-motion holds count as delivered, never as drops), pump pacing is phase-locked to the master clock, and the audio master clock is now smoothed over the device's update quantum (raw device counters step ~20–25 ms), so the counter reads 0 during healthy playback instead of a permanent aliasing floor; re-verify the metric descriptions |
 
 ### Performance: proxies & render cache
 
