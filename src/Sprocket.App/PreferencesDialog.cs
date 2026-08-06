@@ -173,7 +173,7 @@ internal static class PreferencesDialog
         {
             Title = "Preferences",
             Icon = AppIcon.Window,
-            Width = 460,
+            Width = 474,
             Height = 640,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -194,6 +194,8 @@ internal static class PreferencesDialog
                     },
                     new ScrollViewer
                     {
+                        // Keep content clear of the overlay scrollbar (§ STYLE_GUIDE surface rules).
+                        Padding = new Thickness(0, 0, 14, 0),
                         Content = new StackPanel
                         {
                             Spacing = 8,
