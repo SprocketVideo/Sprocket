@@ -3549,6 +3549,14 @@ Tags reference the [UI.md §4 checklist](UI.md).
       **inline "what's new"** notes (`UpdateService.AvailableNotes` from Velopack's feed, populated by
       `release.ps1 --releaseNotes`; falls back to the GitHub "Full Release Notes" link when absent). Still
       no launch-time modal. Additive `UserSettings` fields; 15 new tests.
+    - **✅ Inline notes fixed to carry the actual changelog (later pass).** The feed was being packed with
+      `RELEASE_NOTES.md` — the *evergreen GitHub preamble* — so the dialog showed install boilerplate and a
+      pointer to a "What's changed" section that only ever existed in the GitHub release body (the change
+      overview is generated later, in the CI release job). `release.ps1`'s `Get-FeedReleaseNotes` now runs
+      `changelog.ps1` at pack time and ships **only** the generated overview plus a link line (build jobs
+      checkout at `fetch-depth: 0`); no overview ⇒ notes-less pack and the dialog's existing collapse
+      path. "Full Release Notes" now deep-links to `/releases/tag/v<version>`
+      (`UpdateService.ReleaseUrlFor`) instead of the releases index.
 
 46. **Delay effects (tape / digital / multi-tap / stereo).** Four new built-in `IAudioEffect`
     implementations in `Sprocket.Audio/Effects` alongside the existing `ReverbEffect` /

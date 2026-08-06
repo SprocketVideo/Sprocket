@@ -77,8 +77,9 @@ internal static class UpdateAvailableDialog
             TextWrapping = TextWrapping.Wrap,
         };
 
-        // "What's new", when the release was packed with notes (Velopack carries them on the feed). Rendered
-        // as lightly-softened plain text — no markdown NuGet, keeping the managed footprint small. Absent
+        // "What's new", when the release was packed with notes (Velopack carries them on the feed): the
+        // generated change overview for this version, not the evergreen install preamble. Rendered as
+        // lightly-softened plain text — no markdown NuGet, keeping the managed footprint small. Absent
         // notes → the region collapses and the "Full Release Notes" button (GitHub) is the only path.
         string notes = SoftenMarkdown(service.AvailableNotes);
         bool hasNotes = notes.Length > 0;
@@ -184,7 +185,7 @@ internal static class UpdateAvailableDialog
                 install.IsEnabled = skip.IsEnabled = later.IsEnabled = true;
             }
         };
-        releaseNotes.Click += async (_, _) => await OpenAsync(dialog, UpdateService.ReleasesPageUrl);
+        releaseNotes.Click += async (_, _) => await OpenAsync(dialog, service.ReleaseNotesUrl);
         skip.Click += (_, _) => dialog.Close(UpdateDialogResult.Skip);
         later.Click += (_, _) => dialog.Close(UpdateDialogResult.Close);
 
@@ -196,9 +197,9 @@ internal static class UpdateAvailableDialog
     /// with a plain <see cref="SelectableTextBlock"/> (no markdown NuGet), so soften the common syntax:
     /// strip HTML comments, heading hashes and bullet/emphasis markers, drop leading/trailing blank lines,
     /// and normalize line endings. Not a full parser — just enough that raw Markdown doesn't read as noise.
-    /// HTML comments matter especially: RELEASE_NOTES.md (the file Velopack ships as the notes) opens with
-    /// a multi-line authoring-guidance comment that GitHub hides but a plain text render would otherwise
-    /// show verbatim, reading like the instructions used to write the notes.
+    /// HTML comments are stripped defensively: the notes come from a generated file today
+    /// (scripts/changelog.ps1 via release.ps1) that has none, but a hand-authored comment must never render
+    /// verbatim and read like the instructions used to write the notes.
     /// </summary>
     internal static string SoftenMarkdown(string? md)
     {
@@ -221,6 +222,10 @@ internal static class UpdateAvailableDialog
                 trimmed = "• " + trimmed[2..];
             // Inline emphasis/code markers: strip the noise characters (leave the words).
             trimmed = trimmed.Replace("**", "").Replace("`", "");
+            // Underscore italics, but only when they wrap the whole line (changelog.ps1's
+            // "_N commits in this release._") — mid-line underscores are identifiers, not emphasis.
+            if (trimmed.Length > 2 && trimmed.StartsWith('_') && trimmed.EndsWith('_'))
+                trimmed = trimmed[1..^1];
             sb.Append(trimmed).Append('\n');
         }
         return sb.ToString().Trim('\n');

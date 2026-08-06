@@ -24,6 +24,13 @@ internal sealed class UpdateService
     /// <summary>The human releases page, for portable/dev builds that can't self-update.</summary>
     public const string ReleasesPageUrl = RepoUrl + "/releases";
 
+    /// <summary>The GitHub page for a specific release — where the full notes (change overview, download
+    /// table, install steps) live. Releases are tagged <c>v&lt;version&gt;</c> by scripts/gh-release.ps1 and
+    /// Velopack reports that version without the <c>v</c>. Falls back to the releases index when the
+    /// version is unknown.</summary>
+    internal static string ReleaseUrlFor(string? version) =>
+        string.IsNullOrWhiteSpace(version) ? ReleasesPageUrl : $"{RepoUrl}/releases/tag/v{version.Trim()}";
+
     /// <summary>What a <see cref="CheckAsync"/> call concluded, for Help ▸ Check for Updates feedback.</summary>
     public enum Outcome
     {
@@ -51,9 +58,14 @@ internal sealed class UpdateService
     public string? AvailableVersion { get; private set; }
 
     /// <summary>The "what's new" notes Velopack carries on the target release (Markdown), shown inline in
-    /// the update dialog — <see langword="null"/>/empty when the release was packed without notes, in which
-    /// case the dialog falls back to the "Full Release Notes" link to GitHub.</summary>
+    /// the update dialog — the generated per-release change overview (scripts/changelog.ps1, packed by
+    /// release.ps1). <see langword="null"/>/empty when the release was packed without notes, in which case
+    /// the dialog falls back to the "Full Release Notes" link to GitHub.</summary>
     public string? AvailableNotes { get; private set; }
+
+    /// <summary>Where "Full Release Notes" goes: the GitHub page for the release being offered, or the
+    /// releases index when no update has been found.</summary>
+    public string ReleaseNotesUrl => ReleaseUrlFor(AvailableVersion);
 
     /// <summary>The failure message when the last check <see cref="Outcome.Failed"/>.</summary>
     public string? LastError { get; private set; }

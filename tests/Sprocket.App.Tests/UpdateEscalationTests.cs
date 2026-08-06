@@ -104,9 +104,17 @@ public class UpdateEscalationTests
         Assert.Equal("What's New\n\n• Fixed a crash\n• Added export", text);
     }
 
-    // RELEASE_NOTES.md (what Velopack ships as the in-app notes) opens with a multi-line HTML
-    // authoring-guidance comment that GitHub hides; without stripping it, the "what's new" box shows
-    // it verbatim and it reads like the prompt used to generate the notes.
+    // changelog.ps1's summary line is whole-line italics; a mid-line underscore is an identifier.
+    [Fact]
+    public void SoftenMarkdown_Strips_Whole_Line_Italics_Only()
+    {
+        string md = "_3 commits in this release._\r\n\r\n- renamed source_in to SourceIn\r\n";
+        string text = UpdateAvailableDialog.SoftenMarkdown(md);
+        Assert.Equal("3 commits in this release.\n\n• renamed source_in to SourceIn", text);
+    }
+
+    // Defensive: a hand-authored HTML comment (GitHub hides them) must not render verbatim in the
+    // "what's new" box, where it would read like the prompt used to generate the notes.
     [Fact]
     public void SoftenMarkdown_Strips_Html_Comments()
     {
@@ -114,4 +122,19 @@ public class UpdateEscalationTests
         string text = UpdateAvailableDialog.SoftenMarkdown(md);
         Assert.Equal("Sprocket\n\n• A change", text);
     }
+
+    // "Full Release Notes" must land on the release the user was just offered — the releases index
+    // doesn't show that version's change overview.
+    [Fact]
+    public void ReleaseUrlFor_Deep_Links_To_The_Offered_Version() =>
+        Assert.Equal(
+            UpdateService.RepoUrl + "/releases/tag/v0.1.89-alpha",
+            UpdateService.ReleaseUrlFor("0.1.89-alpha"));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ReleaseUrlFor_Falls_Back_To_The_Releases_Index(string? version) =>
+        Assert.Equal(UpdateService.ReleasesPageUrl, UpdateService.ReleaseUrlFor(version));
 }

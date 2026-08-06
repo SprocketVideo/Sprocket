@@ -1,5 +1,5 @@
 <!--
-  This file is the EVERGREEN release-body preamble, used verbatim by the CI release workflow
+  This file is the EVERGREEN GitHub-release-body preamble, used verbatim by the CI release workflow
   (.github/workflows/release.yml) as the standing notes for every GitHub release. Keep it
   version-agnostic: do NOT add a hardcoded version number or a per-release "what's new / what works /
   not yet" feature list here — those drift out of date. The per-release "What's changed since
@@ -7,6 +7,12 @@
   PREPENDED above this content at release time; the full roadmap/status lives in PLAN.md. Only edit
   this file to change the standing guidance below (bug reporting, installing/running the app, known
   limitations, licensing).
+
+  This file is GITHUB-ONLY. It is NOT what the in-app "Update Available" dialog shows: the Velopack
+  feed is packed with the generated change overview alone (scripts/release.ps1's Get-FeedReleaseNotes),
+  because install/first-launch guidance is noise to someone already in the app. Nothing written here
+  may assume an in-app reader, and nothing here may reference the release page's layout as if the app
+  could see it.
 
   FORMATTING: fenced code blocks (``` lines) MUST start at column 0 — no leading whitespace on the
   opening or closing fence. GitHub renders an indented fence as broken output. To show a code block
@@ -21,8 +27,8 @@ Sprocket is a cross-platform (Windows 10 & 11 · Linux · macOS), non-destructiv
 some of the feature set is still in progress and the cross-platform builds have had limited on-device
 testing. Expect rough edges.
 
-- **What's new in this release** is summarized in the **"What's changed"** section above (generated
-  from the commits since the previous release).
+- **What's new in this release** is listed under **"What's changed"** on this page, generated from the
+  commits since the previous release.
 - **The full roadmap and current status** live in
   [`PLAN.md`](https://github.com/SprocketVideo/Sprocket/blob/main/PLAN.md).
 - **Project website:** <https://sprocketvideo.org>

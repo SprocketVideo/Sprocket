@@ -470,6 +470,48 @@ function New-MacIcns {
     return $icns
 }
 
+# The "what's new" notes shipped in the Velopack feed (`vpk pack --releaseNotes`), surfaced in-app by
+# UpdateService.AvailableNotes -> UpdateAvailableDialog's inline box. This is the GENERATED per-release
+# change overview (scripts/changelog.ps1) and nothing else: RELEASE_NOTES.md is the evergreen GitHub
+# release-body preamble (install steps, known limitations) and is deliberately NOT shipped here — it is
+# irrelevant to someone already in the app clicking "Install & Restart", and its "see the section above"
+# wording has no referent in a dialog. Returns $null when there is no overview to ship (shallow clone,
+# no history, nothing since the last tag); the caller then packs notes-less and the dialog collapses the
+# region, leaving its "Full Release Notes" link to GitHub as the path. Best-effort throughout: notes must
+# never fail a release build. Memoized — the pack function runs once per RID.
+function Get-FeedReleaseNotes {
+    if ($script:feedNotesResolved) { return $script:feedNotesPath }
+    $script:feedNotesResolved = $true
+    $script:feedNotesPath = $null
+    try {
+        # In CI the release commit is tagged, so describe against its parent yields the true predecessor;
+        # a local run has no such tag and falls back to HEAD.
+        $tag = "v$fullVersion"
+        & git -C $repoRoot rev-parse -q --verify "refs/tags/$tag" *> $null
+        if ($LASTEXITCODE -ne 0) { $tag = 'HEAD' }
+        $global:LASTEXITCODE = 0
+
+        $out = Join-Path $distRoot 'release-notes-feed.md'
+        & (Join-Path $PSScriptRoot 'changelog.ps1') -Tag $tag -OutFile $out
+        $overview = if (Test-Path $out) { (Get-Content $out -Raw) } else { '' }
+        if (-not "$overview".Trim()) {
+            Write-Host "    [warn] no change overview for $tag — packing without release notes." -ForegroundColor Yellow
+            return $null
+        }
+
+        # The preamble isn't shipped, so point at the full story explicitly.
+        $link = if ($tag -eq 'HEAD') { "$VpkRepoUrl/releases" } else { "$VpkRepoUrl/releases/tag/$tag" }
+        $notes = "$($overview.TrimEnd())`n`nFull release notes, downloads, and install help: $link`n"
+        Set-Content -Path $out -Value $notes -Encoding utf8 -NoNewline
+        $script:feedNotesPath = $out
+    }
+    catch {
+        Write-Host "    [warn] could not build release notes ($($_.Exception.Message)) — packing without them." -ForegroundColor Yellow
+        $script:feedNotesPath = $null
+    }
+    return $script:feedNotesPath
+}
+
 # Pack a published RID folder with Velopack (PLAN.md step 36): Windows -> Setup.exe (+ portable zip),
 # Linux -> self-updating AppImage, macOS -> .app (in a portable zip, + .pkg). Every RID is its own
 # update channel (multi-arch requires it; UpdateManager follows the channel baked in at pack time).
@@ -518,11 +560,10 @@ function Add-VelopackPackage([string] $rid, [string] $publishDir) {
         '--channel', $rid,
         '--outputDir', $vpkOut
     )
-    # Ship the release notes in the feed so the in-app "Update Available" dialog can show "what's new"
-    # inline (UpdateService.AvailableNotes -> UpdateAvailableDialog). Absent file = notes-less package,
-    # and the dialog falls back to its "Full Release Notes" link. RELEASE_NOTES.md lives at repo root.
-    $releaseNotesPath = Join-Path $repoRoot 'RELEASE_NOTES.md'
-    if (Test-Path $releaseNotesPath) {
+    # Ship the generated change overview in the feed so the in-app "Update Available" dialog can show
+    # "what's new" inline (UpdateService.AvailableNotes -> UpdateAvailableDialog). See Get-FeedReleaseNotes.
+    $releaseNotesPath = Get-FeedReleaseNotes
+    if ($releaseNotesPath) {
         $vpkArgs += @('--releaseNotes', $releaseNotesPath)
     }
     if ($rid -like 'win-*') {
