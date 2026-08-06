@@ -2578,6 +2578,8 @@ Tags reference the [UI.md §4 checklist](UI.md).
 33. **Plugins & advanced color management.** Plugin host (collectible `AssemblyLoadContext`,
     [ARCHITECTURE §13](ARCHITECTURE.md)), then OpenColorIO / ACES / OFX scene-linear color management.
     (The creative color-grading toolset — wheels, curves, qualifiers, scopes — is its own step, 34.)
+  See [COLOR_GRADING_ROADMAP.md](COLOR_GRADING_ROADMAP.md) for the detailed parity sequence, acceptance
+  criteria, validation strategy, and post-parity grading features that extend steps 33, 34, 37, and 52.
     - **🟡 PARTIAL — plugin host DONE; native OCIO / OFX / VST3 hosting outstanding
       (`src/Sprocket.Plugins/*`; `Sprocket.Core/Rendering/IVideoEffect.cs` + `Core/Audio/IAudioEffectProvider.cs`;
       `Sprocket.Render/Effects/AcesFilmicEffect.cs`; `Sprocket.App/PluginService.cs`; 30 new tests — Core +7,
