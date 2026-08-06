@@ -478,6 +478,24 @@ public class ProjectSerializerTests
     }
 
     [Fact]
+    public void Chroma_Subsampling_Round_Trips_And_Defaults_To_Empty()
+    {
+        // The proxy policy's ≥4:2:2 test reads this (a name-based guess misses nv16/gbrp/rgb24). Additive +
+        // nullable: a probe without it loads as "" and the policy falls back to the pixel-format name.
+        var project = new Project();
+        project.MediaPool.Add(new MediaRef(MediaRefId.New(), "C:/clips/a.mov",
+            new ProbedMediaInfo(Timecode.FromSeconds(5), true, new Rational(30, 1), 1920, 1080, false, 0, 0,
+                PixelFormatName: "nv16", ChromaSubsampling: "422")));
+        project.MediaPool.Add(new MediaRef(MediaRefId.New(), "C:/clips/b.mp4",
+            new ProbedMediaInfo(Timecode.FromSeconds(5), true, new Rational(30, 1), 1920, 1080, false, 0, 0)));
+
+        Project loaded = RoundTrip(project);
+
+        Assert.Equal("422", loaded.MediaPool.Items.Single(m => m.AbsolutePath.EndsWith("a.mov")).Info.ChromaSubsampling);
+        Assert.Equal("", loaded.MediaPool.Items.Single(m => m.AbsolutePath.EndsWith("b.mp4")).Info.ChromaSubsampling);
+    }
+
+    [Fact]
     public void Pre_Step18_File_Without_Proxy_Settings_Loads_With_Defaults()
     {
         // A settings block from before step 18 carries only masterGainDb; the additive proxy fields must default

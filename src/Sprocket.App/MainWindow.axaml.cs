@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     private readonly PlaybackEngine? _engine;
     private readonly Project? _project;
     private readonly Proxy.ProxyService? _proxy; // session proxy service (PLAN.md step 18); owned by App
+    private readonly Proxy.ProxyAdvisor _proxyAdvisor = new(); // playback drop monitor → proxy recommendations
     private readonly Sprocket.Audio.AudioEngine? _audioClock; // live loudness source for the mixer meters (PLAN.md step 30); owned by the engine
     private readonly EditHistory _history = new();
     private AutosaveService? _autosave; // periodic debounced autosave (PLAN.md step 20)
@@ -1699,6 +1700,7 @@ public partial class MainWindow : Window
     private void StopTelemetryTimer()
     {
         _telemetryTimer?.Stop();
+        _proxyAdvisor.Reset(); // a drop streak must not straddle two separate plays
         UpdateTelemetry();
         UpdateEngineStatus();
     }
@@ -1725,6 +1727,54 @@ public partial class MainWindow : Window
         _prevStatsTs = now;
 
         UpdateEngineStatus();
+        SampleProxyAdvisor(engine, stats);
+    }
+
+    /// <summary>
+    /// Feeds this telemetry tick to the proxy drop monitor (PLAN.md step 18): when the Program preview is
+    /// software-decoding an original and sustains dropped frames, the advisor recommends a proxy — marked in the
+    /// Proxy window (never auto-built; the user clicks Generate) and hinted in the status bar. Program monitor
+    /// only: the Source monitor deliberately previews originals, so a proxy would not change what it plays.
+    /// </summary>
+    /// <remarks>
+    /// Sampling is skipped unless <b>exactly one</b> media source is being decoded. The engine's drop counter is
+    /// a single sequence-wide tally (it counts skipped timeline frames per pump tick, not per decoder), so with
+    /// several layers active there is nothing that says <em>which</em> one starved the pump — and blaming the
+    /// wrong clip would build a proxy that fixes nothing. Multi-layer stretches therefore produce no
+    /// recommendation rather than a guess; the static policy still covers those sources at import.
+    /// </remarks>
+    private void SampleProxyAdvisor(PlaybackEngine engine, PlaybackStatistics stats)
+    {
+        if (_proxy is not { } proxy || _project is null || !ReferenceEquals(_active, _program))
+        {
+            _proxyAdvisor.Reset();
+            return;
+        }
+
+        IReadOnlyList<ActiveVideoSource> sources = engine.GetActiveVideoSources();
+        if (sources.Count != 1 || _project.MediaPool.Get(sources[0].MediaId) is not { } media)
+        {
+            _proxyAdvisor.Reset();
+            return;
+        }
+        ActiveVideoSource active = sources[0];
+
+        var sample = new Proxy.ProxyAdvisorSample(
+            active.MediaId,
+            Environment.TickCount64,
+            stats.FramesDropped,
+            IsPlaying: true, // the tick stops itself when playback ends, so a tick that got here is a playing one
+            IsSoftwareDecoded: !active.Decode.IsHardwareAccelerated,
+            IsDifficultFormat: ProxyPolicy.IsDemandingFormat(media.Info),
+            IsEligible: proxy.StateOf(active.MediaId) == ProxyState.NotNeeded);
+
+        if (_proxyAdvisor.Observe(sample) is { } id && proxy.RecommendProxy(id))
+        {
+            string name = Path.GetFileName(media.AbsolutePath);
+            SetStatus(proxy.Enabled
+                ? $"Playback is dropping frames on {name} — a proxy is recommended (View ▸ Proxy ▸ Generate)"
+                : $"Playback is dropping frames on {name} — turn proxies on, then Generate (View ▸ Proxy)");
+        }
     }
 
     private void UpdateTimelineHeader()

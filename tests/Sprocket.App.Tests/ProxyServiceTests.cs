@@ -417,6 +417,157 @@ public sealed class ProxyServiceTests : IDisposable
         Assert.Null(ProxySettingsOps.BuildTierCommand(settings, _ => { }, settings.ProxyTier));
     }
 
+    // ── Format-triggered proxies (codec / bit depth at 1080p-class) ────────────────────────────────
+
+    [Fact]
+    public void A_1080p_hevc_source_queues_with_the_codec_reason_and_the_tier_target()
+    {
+        Project project = NewProject(out _, out _);
+        MediaRef hevc = AddSource(project, "gopro.mp4", 1920, 1080, codec: "hevc");
+        using var fake = new FakeTranscoder();
+        using var service = new ProxyService(enabled: true, ProxyTier.Half, fake);
+
+        service.Enqueue(project);
+
+        WaitForState(service, hevc.Id, ProxyState.Ready);
+        ProxySnapshot row = service.Snapshot().Single(r => r.Id == hevc.Id);
+        Assert.Equal(ProxyReason.DemandingCodec, row.Reason);
+        Assert.Equal(new Resolution(960, 540), row.Target); // the tier applies as-is, as in Resolve/Premiere
+        Assert.Contains(new Resolution(960, 540), fake.Targets);
+    }
+
+    [Fact]
+    public void The_FullHd_tier_builds_a_same_resolution_codec_conversion_proxy_for_1080p_hevc()
+    {
+        Project project = NewProject(out _, out _);
+        MediaRef hevc = AddSource(project, "drone.mp4", 1920, 1080, codec: "hevc");
+        using var fake = new FakeTranscoder();
+        using var service = new ProxyService(enabled: true, ProxyTier.FullHd, fake);
+
+        service.Enqueue(project);
+
+        WaitForState(service, hevc.Id, ProxyState.Ready);
+        Assert.Contains(new Resolution(1920, 1080), fake.Targets); // same-res: the codec conversion is the benefit
+    }
+
+    [Fact]
+    public void Plain_1080p_h264_still_never_wants_a_proxy()
+    {
+        Project project = NewProject(out _, out MediaRef light);
+        using var fake = new FakeTranscoder();
+        using var service = new ProxyService(enabled: true, ProxyTier.Half, fake);
+
+        service.Enqueue(project);
+
+        Assert.Equal(ProxyState.NotNeeded, service.StateOf(light.Id));
+        Assert.Equal(ProxyReason.None, service.Snapshot().Single(r => r.Id == light.Id).Reason);
+    }
+
+    // ── Runtime recommendation (the playback drop monitor's entry point) ───────────────────────────
+
+    [Fact]
+    public void RecommendProxy_promotes_a_not_needed_entry_without_building_and_Generate_then_builds_it()
+    {
+        Project project = NewProject(out MediaRef heavy, out MediaRef light);
+        using var fake = new FakeTranscoder();
+        using var service = new ProxyService(enabled: true, ProxyTier.Half, fake);
+        service.Enqueue(project);
+        WaitForState(service, heavy.Id, ProxyState.Ready); // let the static work drain first
+
+        Assert.True(service.RecommendProxy(light.Id));
+
+        // Recommend-only: the entry is marked, nothing is scheduled.
+        ProxySnapshot row = service.Snapshot().Single(r => r.Id == light.Id);
+        Assert.Equal(ProxyState.Recommended, row.State);
+        Assert.Equal(ProxyReason.Performance, row.Reason);
+        Assert.Equal(new Resolution(960, 540), row.Target);
+        Assert.Equal(1, fake.CallCount); // only the heavy source's static build ran
+
+        // Idempotent once it is anything but NotNeeded.
+        Assert.False(service.RecommendProxy(light.Id));
+
+        // The user's Generate click is what actually builds it.
+        service.Generate(light.Id);
+        WaitForState(service, light.Id, ProxyState.Ready);
+        Assert.Contains(light.Id, fake.Built);
+    }
+
+    [Fact]
+    public void RecommendProxy_records_the_recommendation_even_while_proxies_are_off()
+    {
+        // Matches Enqueue's inventory-vs-scheduling split: the dialog shows the recommendation either way.
+        Project project = NewProject(out _, out MediaRef light);
+        using var fake = new FakeTranscoder();
+        using var service = new ProxyService(enabled: false, ProxyTier.Half, fake);
+        service.Enqueue(project);
+
+        Assert.True(service.RecommendProxy(light.Id));
+
+        Assert.Equal(ProxyState.Recommended, service.StateOf(light.Id));
+        Assert.Equal(0, fake.CallCount);
+    }
+
+    [Fact]
+    public void No_automatic_path_builds_an_unconfirmed_recommendation()
+    {
+        // The whole point of the Recommended state: telemetry can misfire, so a suggestion is built only when
+        // the user asks. Every automatic scheduling path keys off NotGenerated and must skip it — enabling
+        // proxies, resuming, and Rebuild All included.
+        Project project = NewProject(out MediaRef heavy, out MediaRef light);
+        using var fake = new FakeTranscoder();
+        using var service = new ProxyService(enabled: false, ProxyTier.Half, fake);
+        service.Enqueue(project);
+        Assert.True(service.RecommendProxy(light.Id));
+
+        service.SetEnabled(true);
+        WaitForState(service, heavy.Id, ProxyState.Ready); // the statically-wanted proxy still builds
+        service.RebuildAll();
+        service.SetPaused(true);
+        service.SetPaused(false);
+        service.Enqueue(project);                           // a later project-load pass must not sweep it up either
+
+        Assert.Equal(ProxyState.Recommended, service.StateOf(light.Id));
+        Assert.DoesNotContain(light.Id, fake.Built);
+        Assert.Equal(1, fake.CallCount); // only heavy
+    }
+
+    [Fact]
+    public void Deleting_proxies_leaves_an_unconfirmed_recommendation_unconfirmed()
+    {
+        // Delete All resets entries to NotGenerated (schedulable). A recommendation has no file to delete and
+        // must not be promoted into that state as a side effect.
+        Project project = NewProject(out MediaRef heavy, out MediaRef light);
+        using var fake = new FakeTranscoder();
+        using var service = new ProxyService(enabled: true, ProxyTier.Half, fake);
+        service.Enqueue(project);
+        WaitForState(service, heavy.Id, ProxyState.Ready);
+        Assert.True(service.RecommendProxy(light.Id));
+
+        Assert.False(service.DeleteProxy(light.Id));
+        service.DeleteAllProxies();
+
+        Assert.Equal(ProxyState.Recommended, service.StateOf(light.Id));
+    }
+
+    [Fact]
+    public void A_performance_recommendation_survives_a_tier_change_as_a_recommendation()
+    {
+        Project project = NewProject(out _, out MediaRef light);
+        using var fake = new FakeTranscoder();
+        using var service = new ProxyService(enabled: false, ProxyTier.Half, fake);
+        service.Enqueue(project);
+        Assert.True(service.RecommendProxy(light.Id));
+
+        service.SetTier(ProxyTier.FullHd);
+
+        // The drop evidence is tier-independent and the advisor only nudges once per session, so the entry must
+        // not fall back to NotNeeded — but a tier change is not the user confirming it either.
+        ProxySnapshot row = service.Snapshot().Single(r => r.Id == light.Id);
+        Assert.Equal(ProxyState.Recommended, row.State);
+        Assert.Equal(ProxyReason.Performance, row.Reason);
+        Assert.Equal(new Resolution(1920, 1080), row.Target); // re-targeted to the new tier
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>A project with one 4K source on the timeline (wants a proxy) and one 1080p source (never will).</summary>
@@ -441,6 +592,18 @@ public sealed class ProxyServiceTests : IDisposable
     {
         var media = new MediaRef(MediaRefId.New(), WriteSource(fileName),
             new ProbedMediaInfo(Timecode.FromSeconds(10), true, new Rational(30, 1), 3840, 2160, false, 0, 0));
+        project.MediaPool.Add(media);
+        return media;
+    }
+
+    /// <summary>Adds a source with explicit format facts (codec / pixel format / bit depth) to the media pool,
+    /// backed by a real file so its cache key can be computed — for the format-triggered policy tests.</summary>
+    private MediaRef AddSource(
+        Project project, string fileName, int width, int height, string codec = "", string pixFmt = "", int bitDepth = 8)
+    {
+        var media = new MediaRef(MediaRefId.New(), WriteSource(fileName),
+            new ProbedMediaInfo(Timecode.FromSeconds(10), true, new Rational(30, 1), width, height, false, 0, 0,
+                VideoCodec: codec, PixelFormatName: pixFmt, BitDepth: bitDepth));
         project.MediaPool.Add(media);
         return media;
     }

@@ -205,7 +205,8 @@ public static class ProjectSerializer
         ColorPrimaries: string.IsNullOrEmpty(i.ColorPrimaries) ? null : i.ColorPrimaries,
         ColorTransfer: string.IsNullOrEmpty(i.ColorTransfer) ? null : i.ColorTransfer,
         ColorSpace: string.IsNullOrEmpty(i.ColorSpace) ? null : i.ColorSpace,
-        DetectedColorProfile: string.IsNullOrEmpty(i.DetectedColorProfile) ? null : i.DetectedColorProfile);
+        DetectedColorProfile: string.IsNullOrEmpty(i.DetectedColorProfile) ? null : i.DetectedColorProfile,
+        ChromaSubsampling: string.IsNullOrEmpty(i.ChromaSubsampling) ? null : i.ChromaSubsampling);
 
     internal static TimelineDto ToDto(Timeline t)
     {
@@ -445,7 +446,8 @@ public static class ProjectSerializer
         ColorPrimaries: i.ColorPrimaries ?? "",
         ColorTransfer: i.ColorTransfer ?? "",
         ColorSpace: i.ColorSpace ?? "",
-        DetectedColorProfile: i.DetectedColorProfile ?? "");
+        DetectedColorProfile: i.DetectedColorProfile ?? "",
+        ChromaSubsampling: i.ChromaSubsampling ?? "");
 
     private static Timeline FromDto(TimelineDto t)
     {

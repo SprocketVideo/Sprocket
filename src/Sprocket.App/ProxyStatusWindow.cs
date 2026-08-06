@@ -153,7 +153,7 @@ internal sealed class ProxyStatusWindow : Window
         _list = new StackPanel { Spacing = 8, Margin = new Thickness(16, 0, 16, 12) };
         _emptyHint = new TextBlock
         {
-            Text = "No media in this project needs a proxy. Sources at 1080p or smaller preview in real time on the original.",
+            Text = "No media in this project needs a proxy. Sources in easily decoded formats at 1080p or smaller preview in real time on the original.",
             Foreground = Palette.MutedTextBrush,
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
@@ -301,8 +301,12 @@ internal sealed class ProxyStatusWindow : Window
         int pending = rows.Count(r => r.State is ProxyState.Queued or ProxyState.Building);
         int missing = rows.Count(r => r.State == ProxyState.NotGenerated);
         int failed = rows.Count(r => r.State == ProxyState.Failed);
+        // Recommended is counted separately and never folded into "not generated": those are what Rebuild All
+        // builds, and an unconfirmed recommendation is deliberately not among them.
+        int recommended = rows.Count(r => r.State == ProxyState.Recommended);
+        string recommendedPart = recommended > 0 ? $" · {recommended} recommended" : "";
         _summary.Text = string.Create(CultureInfo.InvariantCulture,
-            $"{ready} ready · {pending} pending · {missing} not generated · {failed} failed  ·  " +
+            $"{ready} ready · {pending} pending · {missing} not generated · {failed} failed{recommendedPart}  ·  " +
             $"{PreferencesFormat.Bytes(totalSize)} on disk");
 
         _pauseButton.Content = _proxy.Paused ? "Resume" : "Pause";
@@ -443,22 +447,38 @@ internal sealed class ProxyStatusWindow : Window
             string target = row.Target.Width > 0
                 ? string.Create(CultureInfo.InvariantCulture, $"{row.Target.Width}×{row.Target.Height} · ")
                 : "";
+            string reason = ReasonSuffix(row.Reason);
 
             // Same state→colour mapping the Export Queue's rows use (Palette health tokens).
             (_status.Text, _status.Foreground) = row.State switch
             {
                 ProxyState.Ready => ($"{target}Ready{size}", Palette.GoodBrush),
                 ProxyState.Building => (string.Create(CultureInfo.InvariantCulture, $"{target}Building… {row.Progress * 100:0}%"), Palette.AccentBrush),
-                ProxyState.Queued => ($"{target}Queued", Palette.MutedTextBrush),
-                ProxyState.NotGenerated => ($"{target}Not generated", Palette.MutedTextBrush),
+                ProxyState.Queued => ($"{target}Queued{reason}", Palette.MutedTextBrush),
+                ProxyState.Recommended => ($"{target}Recommended — playback dropped frames", Palette.WarnBrush),
+                ProxyState.NotGenerated => ($"{target}Not generated{reason}", Palette.MutedTextBrush),
                 ProxyState.Failed => ($"{target}Failed — previewing the original", Palette.BadBrush),
                 _ => ($"{target}{row.State}", Palette.MutedTextBrush),
             };
 
             _delete.IsEnabled = row.State == ProxyState.Ready;
             // Generating while proxies are off would build a file nothing would open, so the service no-ops there.
-            _generate.IsEnabled = serviceEnabled && row.State is ProxyState.NotGenerated or ProxyState.Failed;
+            // Recommended is included because this button *is* the confirmation the drop monitor waits for.
+            _generate.IsEnabled = serviceEnabled
+                && row.State is ProxyState.NotGenerated or ProxyState.Failed or ProxyState.Recommended;
+            _generate.SetValue(ToolTip.TipProperty, row.State == ProxyState.Recommended
+                ? "Playback dropped frames on this source. Build a proxy for it?"
+                : null);
         }
+
+        /// <summary>The " — why" suffix for a queued / not-generated row, from the policy's decision reason.</summary>
+        private static string ReasonSuffix(ProxyReason reason) => reason switch
+        {
+            ProxyReason.DemandingCodec => " — demanding codec",
+            ProxyReason.DeepColor => " — 10-bit / 4:2:2",
+            ProxyReason.Performance => " — playback dropped frames",
+            _ => "",
+        };
 
         private static Button RowButton(string text, IBrush foreground) => new()
         {

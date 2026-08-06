@@ -18,8 +18,12 @@ namespace Sprocket.App.Proxy;
 /// <param name="SizeBytes">The proxy file's size, captured by the service when the entry became
 /// <see cref="ProxyState.Ready"/>. Cached deliberately: a per-refresh <c>FileInfo</c> read on the UI thread stalls
 /// the dialog when the cache sits on a network share.</param>
+/// <param name="Reason">Why a proxy is wanted for this source (<see cref="ProxyReason.None"/> when it isn't) —
+/// static from <see cref="ProxyPolicy.Decide"/>, or <see cref="ProxyReason.Performance"/> when the playback drop
+/// monitor recommended it via <see cref="ProxyService.RecommendProxy"/>.</param>
 public readonly record struct ProxySnapshot(
-    MediaRefId Id, ProxyState State, Resolution Target, string? ProxyPath, double Progress, long SizeBytes);
+    MediaRefId Id, ProxyState State, Resolution Target, string? ProxyPath, double Progress, long SizeBytes,
+    ProxyReason Reason = ProxyReason.None);
 
 /// <summary>
 /// Generates and tracks lower-resolution preview proxies in the background (PLAN.md step 18). <b>Default-on and
@@ -65,9 +69,10 @@ public sealed class ProxyService : IDisposable
     /// <param name="Media">The source; kept so a tier change / re-enable can reschedule without a
     /// <see cref="Project"/> in hand.</param>
     /// <param name="Priority">Timeline sources (0) build before bin-only ones (1).</param>
+    /// <param name="Reason">Why the proxy is wanted (<see cref="ProxyReason.None"/> when it isn't).</param>
     private sealed record Entry(
         MediaRef Media, ProxyState State, string? ProxyPath, Resolution Target, int Generation, int Priority,
-        double Progress = 0, long SizeBytes = 0);
+        double Progress = 0, long SizeBytes = 0, ProxyReason Reason = ProxyReason.None);
 
     private readonly record struct WorkItem(
         MediaRefId Id, MediaRef Media, Resolution Target, string Path, int Priority, int Generation);
@@ -174,7 +179,7 @@ public sealed class ProxyService : IDisposable
             foreach (MediaRefId id in _order)
             {
                 if (_entries.TryGetValue(id, out Entry? e))
-                    rows.Add(new ProxySnapshot(id, e.State, e.Target, e.ProxyPath, e.Progress, e.SizeBytes));
+                    rows.Add(new ProxySnapshot(id, e.State, e.Target, e.ProxyPath, e.Progress, e.SizeBytes, e.Reason));
             }
             return rows;
         }
@@ -262,16 +267,19 @@ public sealed class ProxyService : IDisposable
 
                 // Proxies apply to ordinary files only; the first cut skips image sequences and stills (PLAN.md
                 // step 42) — a still is one held frame, and a sequence's still frames are already cheap to decode.
-                bool wants = media.Kind == MediaKind.File && ProxyPolicy.NeedsProxy(media.Info, _tier);
+                ProxyDecision decision = media.Kind == MediaKind.File
+                    ? ProxyPolicy.Decide(media.Info, _tier)
+                    : default;
                 _entries[media.Id] = new Entry(
                     media,
-                    wants ? ProxyState.NotGenerated : ProxyState.NotNeeded,
+                    decision.Wanted ? ProxyState.NotGenerated : ProxyState.NotNeeded,
                     ProxyPath: null,
-                    Target: wants ? ProxyPolicy.TargetResolution(media.Info.Width, media.Info.Height, _tier) : default,
+                    Target: decision.Wanted ? decision.Target : default,
                     Generation: 0,
-                    Priority: onTimeline.Contains(media.Id) ? 0 : 1);
+                    Priority: onTimeline.Contains(media.Id) ? 0 : 1,
+                    Reason: decision.Reason);
 
-                if (wants && ResolveOrQueueLocked(media.Id, becameReady, schedule: _enabled && !_paused))
+                if (decision.Wanted && ResolveOrQueueLocked(media.Id, becameReady, schedule: _enabled && !_paused))
                     queued++;
             }
         }
@@ -305,7 +313,7 @@ public sealed class ProxyService : IDisposable
         if (path is null)
         {
             // Source offline / unreadable identity → can't key a cache file; leave it on the original.
-            _entries[id] = e with { State = ProxyState.NotNeeded, ProxyPath = null, Target = target };
+            _entries[id] = e with { State = ProxyState.NotNeeded, ProxyPath = null, Target = target, Reason = ProxyReason.None };
             return false;
         }
 
@@ -488,16 +496,25 @@ public sealed class ProxyService : IDisposable
                     reverted.Add(id);
 
                 // Re-evaluate from scratch: a different tier can change both the target and whether a proxy is
-                // worth building at all.
-                bool wants = e.Media.Kind == MediaKind.File && ProxyPolicy.NeedsProxy(e.Media.Info, tier);
+                // worth building at all. An unconfirmed Performance recommendation survives the re-tier *as a
+                // recommendation* — the drop evidence is tier-independent and the advisor only nudges once per
+                // session, but a tier change is not the user confirming it, so it must not become schedulable.
+                ProxyDecision decision = e.Media.Kind == MediaKind.File
+                    ? ProxyPolicy.Decide(e.Media.Info, tier)
+                    : default;
+                bool recommended = !decision.Wanted && e.State == ProxyState.Recommended;
+                bool wants = decision.Wanted || recommended;
                 _entries[id] = e with
                 {
-                    State = wants ? ProxyState.NotGenerated : ProxyState.NotNeeded,
+                    State = decision.Wanted ? ProxyState.NotGenerated
+                        : recommended ? ProxyState.Recommended
+                        : ProxyState.NotNeeded,
                     ProxyPath = null,
                     Target = wants ? ProxyPolicy.TargetResolution(e.Media.Info.Width, e.Media.Info.Height, tier) : default,
                     Generation = e.Generation + 1,
                     Progress = 0,
                     SizeBytes = 0,
+                    Reason = decision.Wanted ? decision.Reason : (recommended ? ProxyReason.Performance : ProxyReason.None),
                 };
             }
             _queue.Clear();
@@ -512,8 +529,9 @@ public sealed class ProxyService : IDisposable
 
     /// <summary>
     /// Explicitly schedules one source's proxy — the way back to building after a
-    /// <see cref="DeleteProxy"/> or a failure. A no-op while proxies are off (nothing would use the result); while
-    /// paused it queues and waits for resume.
+    /// <see cref="DeleteProxy"/> or a failure, and <b>the only path that acts on a
+    /// <see cref="ProxyState.Recommended"/> entry</b> (confirming the drop monitor's suggestion). A no-op while
+    /// proxies are off (nothing would use the result); while paused it queues and waits for resume.
     /// </summary>
     public void Generate(MediaRefId id)
     {
@@ -524,9 +542,12 @@ public sealed class ProxyService : IDisposable
         int queued = 0;
         lock (_queueGate)
         {
-            if (_entries.TryGetValue(id, out Entry? e) && e.State is ProxyState.NotGenerated or ProxyState.Failed)
+            if (_entries.TryGetValue(id, out Entry? e)
+                && e.State is ProxyState.NotGenerated or ProxyState.Failed or ProxyState.Recommended)
             {
-                if (e.State == ProxyState.Failed)
+                // Failed and Recommended both enter the ordinary lifecycle here; the user asking is the
+                // confirmation a recommendation was waiting for.
+                if (e.State is ProxyState.Failed or ProxyState.Recommended)
                     _entries[id] = e with { State = ProxyState.NotGenerated, Generation = e.Generation + 1 };
                 if (ResolveOrQueueLocked(id, becameReady, schedule: !_paused))
                     queued++;
@@ -536,6 +557,44 @@ public sealed class ProxyService : IDisposable
         foreach (MediaRefId readyId in becameReady)
             ProxyPathChanged?.Invoke(readyId);
         RaiseProgress();
+    }
+
+    /// <summary>
+    /// Runtime recommendation from the playback drop monitor: moves a <see cref="ProxyState.NotNeeded"/> entry to
+    /// <see cref="ProxyState.Recommended"/> with <see cref="ProxyReason.Performance"/>, so the Proxy dialog shows
+    /// it with its Generate button and the reason wording. <b>Recommend-only — never queues a build, and no
+    /// automatic path ever will</b> (a deliberate departure from the static policy's auto-queue: telemetry can
+    /// misfire, so the user decides). That is exactly why the state is its own: every scheduling pass keys off
+    /// <see cref="ProxyState.NotGenerated"/>, so a recommendation cannot be swept up by enabling proxies,
+    /// resuming, Rebuild All, or the next project load — only <see cref="Generate"/> promotes it.
+    /// Idempotent: entries already tracked as wanting a proxy (any state but <see cref="ProxyState.NotNeeded"/>)
+    /// are left untouched. Returns <see langword="true"/> when the entry newly became recommended.
+    /// </summary>
+    public bool RecommendProxy(MediaRefId id)
+    {
+        if (_disposed)
+            return false;
+
+        bool recommended = false;
+        lock (_queueGate)
+        {
+            if (_entries.TryGetValue(id, out Entry? e)
+                && e.State == ProxyState.NotNeeded
+                && e.Media.Kind == MediaKind.File)
+            {
+                _entries[id] = e with
+                {
+                    State = ProxyState.Recommended,
+                    Target = ProxyPolicy.TargetResolution(e.Media.Info.Width, e.Media.Info.Height, _tier),
+                    Reason = ProxyReason.Performance,
+                };
+                recommended = true;
+            }
+        }
+
+        if (recommended)
+            RaiseProgress();
+        return recommended;
     }
 
     /// <summary>
@@ -577,7 +636,9 @@ public sealed class ProxyService : IDisposable
         bool wasReady;
         lock (_queueGate)
         {
-            if (!_entries.TryGetValue(id, out Entry? e) || e.State == ProxyState.NotNeeded)
+            // Recommended entries have no file and are unconfirmed — deleting must not quietly promote them
+            // into the schedulable NotGenerated state.
+            if (!_entries.TryGetValue(id, out Entry? e) || e.State is ProxyState.NotNeeded or ProxyState.Recommended)
                 return false;
             path = e.ProxyPath;
             wasReady = e.State == ProxyState.Ready;
@@ -615,7 +676,8 @@ public sealed class ProxyService : IDisposable
         {
             foreach (MediaRefId id in _order.ToArray())
             {
-                if (!_entries.TryGetValue(id, out Entry? e) || e.State == ProxyState.NotNeeded)
+                // As DeleteProxy: an unconfirmed recommendation has no file to delete and must stay unconfirmed.
+                if (!_entries.TryGetValue(id, out Entry? e) || e.State is ProxyState.NotNeeded or ProxyState.Recommended)
                     continue;
                 if (e.State == ProxyState.Ready)
                     reverted.Add(id);

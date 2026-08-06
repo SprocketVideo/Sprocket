@@ -312,7 +312,7 @@ public sealed unsafe class MediaSource : IDisposable
         // Read the source's pixel-format facts once from FFmpeg's static per-format descriptor (no frame decoded):
         // alpha (drives premultiplied compositing, PLAN.md step 26) and component bit depth (media-bin info, §27).
         int pixFmt = vpar->format;
-        (bool hasAlpha, int bitDepth) = DescribePixelFormat(pixFmt);
+        (bool hasAlpha, int bitDepth, string chroma) = DescribePixelFormat(pixFmt);
         string pixelFormatName = PixelFormatName(pixFmt);
         // HDR transfer (PQ / HLG) and a VFR heuristic — informational for now (surfaced as media-bin badges, §27).
         bool isHdr = vpar->color_trc is AvConst.ColorTrcSmpte2084 or AvConst.ColorTrcAribStdB67;
@@ -369,7 +369,8 @@ public sealed unsafe class MediaSource : IDisposable
             ColorPrimaries: colorPrimaries,
             ColorTransfer: colorTransfer,
             ColorSpace: colorSpace,
-            DetectedColorProfile: detectedProfile);
+            DetectedColorProfile: detectedProfile,
+            ChromaSubsampling: chroma);
     }
 
     /// <summary>Marshals an FFmpeg color-enum name, folding the "no declaration" names to <c>""</c> so the
@@ -400,19 +401,46 @@ public sealed unsafe class MediaSource : IDisposable
     }
 
     /// <summary>Reads a pixel format's descriptor: whether it carries an alpha channel
-    /// (<c>AV_PIX_FMT_FLAG_ALPHA</c>) and its per-component bit depth (8/10/12). Returns
-    /// <c>(false, 8)</c> for <c>AV_PIX_FMT_NONE</c> / an unknown format. No frame is decoded.</summary>
-    private static (bool hasAlpha, int bitDepth) DescribePixelFormat(int pixFmt)
+    /// (<c>AV_PIX_FMT_FLAG_ALPHA</c>), its per-component bit depth (8/10/12), and its chroma subsampling as a
+    /// canonical <c>"420"</c>/<c>"422"</c>/<c>"444"</c>-style string (see <see cref="ChromaSubsampling"/>).
+    /// Returns <c>(false, 8, "")</c> for <c>AV_PIX_FMT_NONE</c> / an unknown format. No frame is decoded.</summary>
+    private static (bool hasAlpha, int bitDepth, string chroma) DescribePixelFormat(int pixFmt)
     {
         if (pixFmt == AvConst.PixFmtNone)
-            return (false, 8);
+            return (false, 8, "");
         IntPtr desc = LibAv.av_pix_fmt_desc_get(pixFmt);
         if (desc == IntPtr.Zero)
-            return (false, 8);
+            return (false, 8, "");
         var d = (AvPixFmtDescriptor*)desc;
         bool hasAlpha = (d->flags & AvConst.PixFmtFlagAlpha) != 0;
         int depth = d->comp0_depth > 0 ? d->comp0_depth : 8;
-        return (hasAlpha, depth);
+        return (hasAlpha, depth, ChromaSubsampling(d, hasAlpha));
+    }
+
+    /// <summary>
+    /// A pixel format's chroma subsampling, read from the descriptor's <c>log2_chroma_w/h</c> rather than guessed
+    /// from its name: <c>"400"</c> (monochrome), <c>"420"</c>, <c>"422"</c>, <c>"440"</c>, <c>"411"</c>,
+    /// <c>"410"</c>, or <c>"444"</c> — the last covering RGB/GBR formats too, whose channels are all full-rate.
+    /// Consumers (the proxy policy, §17) need this because FFmpeg's format <em>names</em> do not reliably encode
+    /// it: <c>nv16</c> is 4:2:2 and <c>gbrp</c>/<c>rgb24</c> are full-chroma, yet none of them says so.
+    /// </summary>
+    private static string ChromaSubsampling(AvPixFmtDescriptor* d, bool hasAlpha)
+    {
+        // nb_components counts alpha; a single colour channel means there is no chroma at all.
+        int colorComponents = d->nb_components - (hasAlpha ? 1 : 0);
+        if (colorComponents <= 1)
+            return "400";
+
+        return (d->log2_chroma_w, d->log2_chroma_h) switch
+        {
+            (0, 0) => "444",
+            (1, 0) => "422",
+            (1, 1) => "420",
+            (0, 1) => "440",
+            (2, 0) => "411",
+            (2, 2) => "410",
+            _ => "",
+        };
     }
 
     /// <summary>The FFmpeg name of a pixel format (e.g. <c>"yuv422p10le"</c>), or <c>""</c> when unknown.</summary>

@@ -103,6 +103,17 @@ internal static class ProxyTranscoder
     }
 
     /// <summary>
+    /// The <c>-vf scale=…</c> argument for a build, or <see cref="string.Empty"/> when the target equals the
+    /// source size — a same-resolution codec-conversion proxy (a 1080p HEVC/10-bit source at the FullHd tier)
+    /// needs no spatial filter; the <c>-pix_fmt yuv420p</c> conversion is the proxy's whole value there. Pure
+    /// and testable.
+    /// </summary>
+    internal static string ScaleArgs(int srcWidth, int srcHeight, Resolution target) =>
+        target.Width == srcWidth && target.Height == srcHeight
+            ? ""
+            : string.Create(CultureInfo.InvariantCulture, $"-vf scale={target.Width}:{target.Height}:flags=bilinear ");
+
+    /// <summary>
     /// Builds the proxy for <paramref name="media"/> at <paramref name="target"/> resolution, writing it to
     /// <paramref name="outputPath"/> and reporting a 0..1 fraction to <paramref name="progress"/>. Returns
     /// <see langword="true"/> on success. Honours <paramref name="cancellationToken"/> (kills the child); any
@@ -120,13 +131,14 @@ internal static class ProxyTranscoder
         string tempPath = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp.mp4";
         long durationTicks = media.Info.Duration.Ticks;
 
-        // -an: video-only (audio mixes from the original). scale to the fixed proxy tier; ultrafast/CRF 28 = speed.
+        // -an: video-only (audio mixes from the original). scale to the fixed proxy tier (omitted when the target
+        // is the source size — a pure codec-conversion proxy); ultrafast/CRF 28 = speed.
         // -threads: leave cores for the live preview (see the class remarks) rather than letting ffmpeg take all.
         // -progress pipe:1 -nostats: machine-readable progress on stdout (both streams are drained below).
-        string scale = string.Create(CultureInfo.InvariantCulture, $"scale={target.Width}:{target.Height}:flags=bilinear");
+        string scale = ScaleArgs(media.Info.Width, media.Info.Height, target);
         int threads = EncodeThreadCount(Environment.ProcessorCount);
         var psi = new ProcessStartInfo("ffmpeg",
-            $"-y -nostdin -loglevel error -progress pipe:1 -nostats -i \"{media.AbsolutePath}\" -an -vf {scale} " +
+            $"-y -nostdin -loglevel error -progress pipe:1 -nostats -i \"{media.AbsolutePath}\" -an {scale}" +
             $"-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p -threads {threads.ToString(CultureInfo.InvariantCulture)} \"{tempPath}\"")
         {
             UseShellExecute = false,

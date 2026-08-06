@@ -68,6 +68,37 @@ public class MultiTrackPlaybackTests
     }
 
     [Fact]
+    public async Task Active_Video_Sources_Reports_Every_Decoding_Layer_Not_Just_The_Top()
+    {
+        // The proxy drop monitor consumes this. Drops are one engine-wide tally (counted per pump tick off the
+        // playhead, not per decoder), so reporting only the top layer would let the caller blame it for a lower
+        // layer's stall. Reporting all of them is what lets the caller refuse to guess.
+        using var cts = new CancellationTokenSource(Timeout);
+        (Project project, Func<MediaRefId, IVideoFrameFeed?> factory) = BuildSession(videoTracks: 2);
+        await using var engine = new PlaybackEngine(project, factory, new SoftwareClock(() => TimeSpan.Zero));
+
+        engine.SeekTo(Timecode.Zero);
+        await engine.PumpOnceAsync(forcePresent: true, cts.Token);
+
+        Assert.Equal(2, engine.GetActiveVideoSources().Count);
+    }
+
+    [Fact]
+    public async Task Active_Video_Sources_Is_Empty_When_Nothing_Is_Decoding()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        (Project project, Func<MediaRefId, IVideoFrameFeed?> factory) = BuildSession(videoTracks: 1);
+        foreach (Track track in project.Timeline.Tracks)
+            track.Enabled = false;
+        await using var engine = new PlaybackEngine(project, factory, new SoftwareClock(() => TimeSpan.Zero));
+
+        engine.SeekTo(Timecode.Zero);
+        await engine.PumpOnceAsync(forcePresent: true, cts.Token);
+
+        Assert.Empty(engine.GetActiveVideoSources());
+    }
+
+    [Fact]
     public async Task Disabled_Video_Track_Contributes_No_Layer()
     {
         using var cts = new CancellationTokenSource(Timeout);

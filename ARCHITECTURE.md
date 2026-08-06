@@ -662,7 +662,27 @@ survives restarts. Proxy **resolution is a fixed tier, not the live preview wind
 constantly-resizing window would thrash an expensive, persisted artifact — defaulting to
 `min(½ source, 1080p)` (the 1080p preview ceiling) and **skipping sources already light enough to
 preview in real time**; the tier is a preference for weaker machines, and a >proxy-resolution view
-(zoom 100/200 %, PLAN step 17) falls back to the original. A **draft-first two-tier** scheme (a fast
+(zoom 100/200 %, PLAN step 17) falls back to the original. **"Light enough" is format-aware, not
+resolution-only** (`ProxyPolicy.Decide`, reason-carrying): above the ceiling proxies as always;
+at 1080p-class, demanding **long-GOP codecs (HEVC/AV1/VP9)** and **>8-bit / ≥4:2:2** sources also
+qualify — there a **same-resolution codec-conversion proxy** is allowed (the transcode itself is the
+benefit) — while **easy-intra mezzanine codecs (ProRes/DNx/…) are exempt** from the format rules
+(cheap to decode/seek despite bandwidth; the same candidates/exemptions Resolve and Premiere use).
+Subsampling comes from FFmpeg's pixel-format **descriptor** (recorded at probe time as
+`ProbedMediaInfo.ChromaSubsampling`), never from parsing the format *name* — `nv16` is 4:2:2 and
+`gbrp`/`rgb24` are full-chroma without saying so. A 10-bit HDR source's proxy is 8-bit yuv420p, so
+its preview color shifts slightly — inherent to proxying, identical to the 4K-HDR case, and export
+is untouched. On top of the static policy sits a **runtime recommendation**: the app's telemetry tick
+polls the engine's pull-only drop counters and active-decoder info, and when a **software-decoded**
+original sustains dropped frames (a lower bar for difficult formats — software decode strengthens the
+case, it never triggers alone), the source is **marked recommended in the Proxy window — never
+auto-built**; the user clicks Generate. `ProxyState.Recommended` is its own state for exactly that
+reason: every automatic scheduling path keys off `NotGenerated`, so a recommendation parked there
+would be built the moment proxies were enabled. Two guards keep the signal honest — the drop counters
+are one engine-wide tally, so the monitor **declines to attribute** drops while more than one source
+is decoding, and each source is nudged at most once per session. That recommend-only nudge is a
+deliberate, conservative departure from Resolve/Premiere, which surface no telemetry-driven proxy
+advice at all. A **draft-first two-tier** scheme (a fast
 low-res proxy before the quality one) is deferred and conditional: since the original is the interim
 fallback it only helps *heavy* sources, and it slots into the same best-available order
 (quality > draft > original) as another `IFrameSource` with no redesign. Proxying a **composited

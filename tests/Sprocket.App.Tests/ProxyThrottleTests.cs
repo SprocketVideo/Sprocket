@@ -1,4 +1,5 @@
 using Sprocket.App.Proxy;
+using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 using Xunit;
 
@@ -51,6 +52,20 @@ public class ProxyThrottleTests
     [Fact]
     public void ProgressFraction_reports_nothing_when_the_source_duration_is_unknown() =>
         Assert.Null(ProxyTranscoder.ProgressFraction("out_time_us=5000000", durationTicks: 0));
+
+    // ── Scale-filter selection (same-resolution codec-conversion proxies) ──────────────────────────
+
+    [Fact]
+    public void ScaleArgs_scales_a_downsized_target() =>
+        Assert.Equal("-vf scale=960:540:flags=bilinear ", ProxyTranscoder.ScaleArgs(1920, 1080, new Resolution(960, 540)));
+
+    [Fact]
+    public void ScaleArgs_omits_the_filter_when_the_target_is_the_source_size()
+    {
+        // A 1080p HEVC/10-bit source at the FullHd tier: the -pix_fmt conversion is the proxy's whole value,
+        // so no spatial filter belongs in the command line.
+        Assert.Equal("", ProxyTranscoder.ScaleArgs(1920, 1080, new Resolution(1920, 1080)));
+    }
 
     // ── Status-bar wording ─────────────────────────────────────────────────────────────────────────
 

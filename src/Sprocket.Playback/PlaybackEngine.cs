@@ -93,6 +93,16 @@ public readonly record struct PlaybackStatistics(
     long PumpIterations, long FramesPresented, long FramesDropped, long FramesDroppedThisSpan, long FramesDelivered);
 
 /// <summary>
+/// One media source the preview is currently decoding, paired with <i>whose</i> media it is — an active media
+/// clip's source id and its decoder's <see cref="VideoDecodeInfo"/>. Produced by
+/// <see cref="PlaybackEngine.GetActiveVideoSources"/> for the proxy drop monitor, which needs the
+/// <see cref="MediaRefId"/> to know which source to recommend a proxy for (the decode info alone can't say).
+/// </summary>
+/// <param name="MediaId">The media pool id of an active media clip's source.</param>
+/// <param name="Decode">That source's live decoder info (codec + hardware device, or software).</param>
+public readonly record struct ActiveVideoSource(MediaRefId MediaId, VideoDecodeInfo Decode);
+
+/// <summary>
 /// The playback engine (PLAN.md steps 4/14): drives every enabled video track from a master
 /// <see cref="IClock"/>, keeping each track's presented frame in sync by dropping or holding decoded frames
 /// (ARCHITECTURE.md §8). Transport (<see cref="Play"/>/<see cref="Pause"/>/<see cref="SeekTo"/>) is callable from
@@ -310,6 +320,41 @@ public sealed class PlaybackEngine : IAsyncDisposable
                     top = info;
             }
             return top;
+        }
+    }
+
+    /// <summary>
+    /// <b>Every</b> media source the preview is decoding at the playhead, bottom→top — what the proxy drop
+    /// monitor samples to know which source is struggling. Decoder-less layers (generator/adjustment/sequence)
+    /// contribute nothing. Empty when no media clip is being decoded, or when the playhead is inside a
+    /// render-cache segment (the preview shows a composited intermediate — no source is accountable for drops
+    /// there). Same walk and thread-safety as <see cref="GetActiveVideoDecodeInfo"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>All</b> active layers are reported, not just the top one, because the drop counters
+    /// (<see cref="GetStatistics"/>) are a single engine-wide tally: the pump measures skipped timeline frames
+    /// once per tick, so no counter attributes a drop to a particular decoder. Handing back only the top layer
+    /// would invite the caller to blame it for a lower layer's stall — or, if the top layer is hardware-decoded,
+    /// to conclude nothing is decode-bound while a software-decoded layer beneath it starves the pump. With the
+    /// full list the caller can decide when attribution is unambiguous (typically: exactly one active source).
+    /// </remarks>
+    public IReadOnlyList<ActiveVideoSource> GetActiveVideoSources()
+    {
+        Timecode pos = Position;
+        lock (_frameGate)
+        {
+            if (_cacheSegment is { } seg && seg.Contains(pos))
+                return [];
+
+            List<ActiveVideoSource>? active = null;
+            foreach (VideoTrack track in _project.Timeline.VideoTracks)
+            {
+                if (ActiveVideoClip(track, pos) is not { Kind: ClipKind.Media } clip)
+                    continue;
+                if (FindPlayer(track)?.DecodeInfo is { } info)
+                    (active ??= []).Add(new ActiveVideoSource(clip.MediaRefId, info));
+            }
+            return active ?? (IReadOnlyList<ActiveVideoSource>)[];
         }
     }
 

@@ -1303,6 +1303,58 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         `Enabled` at window construction, so switching proxies on mid-session updates it.
       - **Scope:** resolution **tier only** (codec stays the fixed fast x264), and everything targets the **Program**
         monitor — the Source monitor still opens originals (its proxying stays deferred, above).
+    - **✅ ADDENDUM — format-aware proxy policy + playback drop-driven recommendations.** The "light enough"
+      heuristic stopped being resolution-only (the probe has recorded codec / pixel format / bit depth since 16b;
+      this cashes that in). Delivered:
+      - **Reason-carrying static policy (Core).** `ProxyPolicy.Decide(info, tier)` returns a `ProxyDecision`
+        (`ProxyReason` + target); `NeedsProxy` is now a thin wrapper. Sources above the 1080p ceiling proxy as
+        before (`OversizeResolution`, strict downscale required). New: at **1080p-class or above on either axis**
+        (ultrawide/scope footage included), **HEVC/AV1/VP9** qualify (`DemandingCodec`) and **>8-bit or ≥4:2:2**
+        sources qualify (`DeepColor`, catching 10-bit H.264) — matching what Resolve/Premiere treat as the
+        canonical proxy candidates. **ProRes/DNx/CineForm/MJPEG are exempt** from the format rules (easy-intra:
+        cheap to decode/seek despite bandwidth — Resolve/Premiere treat them as edit-native), but still proxy when
+        oversize. **Same-resolution codec-conversion proxies are allowed** for format-triggered reasons (1080p HEVC
+        at the FullHd tier → a 1920×1080 H.264 proxy; `ProxyTranscoder` omits `-vf scale` there — the
+        `-pix_fmt yuv420p` conversion is the value). Frame rate is deliberately **not** a static input — HFR that
+        actually struggles is caught by the drop monitor below.
+      - **Chroma comes from the descriptor, not the format name.** The probe now records
+        `ProbedMediaInfo.ChromaSubsampling` (`"400"`/`"410"`/`"411"`/`"420"`/`"422"`/`"440"`/`"444"`) read from
+        FFmpeg's `AVPixFmtDescriptor` `log2_chroma_w/h` + component count — a name substring test silently misses
+        `nv16` (4:2:2) and `gbrp`/`rgb24`/`rgba` (full chroma), and would misread monochrome. Additive + nullable
+        through the DTO; probes recorded before the field fall back to the (documented, deliberately conservative)
+        name guess, so **existing projects still classify the common `yuv422p*`/`yuv444p*` cases without a
+        re-import**.
+      - **Playback drop-driven recommendation (recommend-only, never auto-built).** A pure `ProxyAdvisor`
+        (App) watches the existing ~1 Hz telemetry tick: same source, playing, **software-decoded**
+        (hardware-decoded drops are render-bound and never fire), sustained ≥3 s above a drop-rate threshold —
+        **1 drop/s for difficult formats** (`ProxyPolicy.IsDemandingFormat`) vs **5/s for ordinary ones**, so
+        software decode *strengthens* the case rather than triggering by itself, and plain 1080p H.264 in
+        software (usually fine) stays quiet. Firing calls `ProxyService.RecommendProxy(id)`. **Once per source
+        per session**; a declined nudge never re-fires. A deliberate departure from Resolve/Premiere (neither
+        surfaces telemetry-driven proxy advice); recommend-only keeps the departure conservative.
+      - **`ProxyState.Recommended` — a distinct state, not `NotGenerated`.** Every automatic scheduling path
+        (`ScheduleAllNotGenerated`, i.e. enable / resume / Rebuild All / the next project-load `Enqueue`) keys off
+        `NotGenerated`, so parking a recommendation there would have had *enabling proxies* silently build it —
+        contradicting the recommend-only contract. Its own state makes "only `Generate(id)` promotes it"
+        structural; the deletion paths skip it too (an unconfirmed suggestion has no file and must not be
+        promoted as a side effect), and a tier change re-targets it while keeping it unconfirmed.
+      - **Attribution is refused when ambiguous.** `PlaybackEngine.GetActiveVideoSources()` (new) reports
+        **every** decoding media layer with its `VideoDecodeInfo`, not just the top one, and the advisor samples
+        only when exactly one is active. The drop counters are a single engine-wide tally (skipped timeline frames
+        per pump tick, not per decoder), so with several layers up nothing says *which* decoder starved the pump —
+        blaming the top layer could recommend a proxy that fixes nothing, or (if the top layer is hardware-decoded)
+        mask a software-decoded layer beneath it. Multi-layer stretches produce no recommendation; the static
+        policy still covers those sources at import.
+      - **Plumbing.** `ProxySnapshot`/`Entry` carry the `ProxyReason` (row wording: "Queued — demanding codec",
+        "Recommended — playback dropped frames"); recommendations are recorded even while proxies are off
+        (inventory-vs-scheduling split) and counted separately from "not generated" in the window's summary. No
+        cache change needed (keys already include target dims, so same-res proxies key uniquely).
+      - **Tests:** Core +26 (codec/deep-color/exemption/either-axis/same-res-target/HFR-negative/
+        `IsDemandingFormat`; structured-chroma theories incl. `nv16`/`gbrp`/`rgb24`, monochrome, name fallback,
+        descriptor-beats-name), App +21 (`ProxyAdvisorTests` streak rules ×9; reason plumbing, recommend-only
+        semantics, no-automatic-path-builds-it, deletion leaves it unconfirmed, tier-change survival, same-res
+        FullHd build; `ScaleArgs` ×2), Playback +2 (all-layers reporting, empty when idle), Persistence +1
+        (chroma round-trip + defaults), Media +1 (fixture probes `"420"`).
 19. **Generators & adjustment layers.** Title/text **generator clips** (a generator `IFrameSource`
     feeding the render graph). **Adjustment layers**, modelled like leading NLEs: a synthetic Project-bin
     item with no source media, placed on a track as an ordinary clip, whose **effect stack applies to

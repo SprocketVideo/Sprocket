@@ -112,7 +112,10 @@ internal sealed record ProbedInfoDto(
     string? ColorPrimaries = null,
     string? ColorTransfer = null,
     string? ColorSpace = null,
-    string? DetectedColorProfile = null);
+    string? DetectedColorProfile = null,
+    // Chroma subsampling from the pixel-format descriptor (the proxy policy's ≥4:2:2 test, §17). Additive +
+    // nullable like the above: a pre-existing file loads with "" and the policy falls back to the format name.
+    string? ChromaSubsampling = null);
 
 internal sealed record TimelineDto(
     RationalDto FrameRate,

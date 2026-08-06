@@ -74,6 +74,13 @@ public readonly record struct MediaRefId(Guid Value)
 /// (a <see cref="ColorProfiles"/> id, e.g. <see cref="ColorProfiles.DjiDLog"/>), or <c>""</c> when none was
 /// recognised. Drives the automatic prepend of the <see cref="EffectTypeIds.ColorTransform"/> input transform
 /// when the media is placed on the timeline; a manual per-clip tag via the Inspector is the fallback.</param>
+/// <param name="ChromaSubsampling">The source video's chroma subsampling as a canonical digit string —
+/// <c>"400"</c> (monochrome), <c>"410"</c>, <c>"411"</c>, <c>"420"</c>, <c>"422"</c>, <c>"440"</c>, <c>"444"</c>
+/// (RGB/GBR formats included, being full-rate) — or <c>""</c> when there is no video or the probe predates the
+/// field. Read from FFmpeg's pixel-format descriptor, <b>not</b> parsed from <paramref name="PixelFormatName"/>:
+/// names do not reliably encode it (<c>nv16</c> is 4:2:2; <c>gbrp</c> and <c>rgb24</c> are full-chroma). The
+/// proxy policy keys on it (ARCHITECTURE.md §17) because ≥4:2:2 is what consumer hardware decoders often
+/// cannot accelerate.</param>
 public sealed record ProbedMediaInfo(
     Timecode Duration,
     bool HasVideo,
@@ -94,7 +101,8 @@ public sealed record ProbedMediaInfo(
     string ColorPrimaries = "",
     string ColorTransfer = "",
     string ColorSpace = "",
-    string DetectedColorProfile = "");
+    string DetectedColorProfile = "",
+    string ChromaSubsampling = "");
 
 /// <summary>
 /// A reference to an imported source file, addressed by a stable <see cref="MediaRefId"/>.

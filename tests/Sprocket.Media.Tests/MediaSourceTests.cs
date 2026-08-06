@@ -62,6 +62,9 @@ public class MediaSourceTests
         Assert.Equal("aac", info.AudioCodec);
         Assert.Equal("yuv420p", info.PixelFormatName);
         Assert.Equal(8, info.BitDepth);
+        // Read from the pixel-format descriptor's log2_chroma_w/h, not parsed from the name — the proxy policy
+        // keys its ≥4:2:2 test on it (§17), and names like nv16 / gbrp don't encode their subsampling.
+        Assert.Equal("420", info.ChromaSubsampling);
         Assert.False(info.IsHdr);
         Assert.False(info.IsVariableFrameRate); // testsrc2 → x264 is CFR: avg and base frame rates agree
     }
