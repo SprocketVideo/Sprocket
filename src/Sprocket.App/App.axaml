@@ -146,6 +146,7 @@
       <Setter Property="Padding" Value="10,5" />
       <Setter Property="BorderBrush" Value="{DynamicResource Edge}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="CornerRadius" Value="5,5,0,0" />
     </Style>
     <Style Selector="TextBlock.title">
       <Setter Property="Foreground" Value="{DynamicResource Text}" />
