@@ -1,0 +1,1513 @@
+# Build-order history: steps 1-20 (vertical slice, shell & editing foundations)
+
+> Build-order step details (the vertical slice and steps 10-20) moved **verbatim** out of [PLAN.md](../../PLAN.md) in the
+> 2026-08-26 restructure. PLAN.md keeps the status ledger + open todos; this archive preserves
+> each step's original spec and `✅ DONE` implementation log. Anchors are stable: `#step-N`
+> (e.g. `#step-16b`). Sibling files: [steps-01-20.md](steps-01-20.md),
+> [steps-21-40.md](steps-21-40.md), [steps-41-57.md](steps-41-57.md),
+> [performance-log.md](performance-log.md).
+> Relative links inside the moved content are as originally written — relative to the
+> **repo root** (e.g. `ARCHITECTURE.md`, `UI.md`, `BRIEF.md` live at the root), not to this folder.
+
+## Original feasibility preamble (stack, FFmpeg-8 migration, architecture sketch, vertical-slice DOD)
+
+Moved from the top of PLAN.md; the durable versions of these facts live in ARCHITECTURE.md / CLAUDE.md.
+
+## Recommended stack (verified current as of 2026)
+
+| Concern | Choice | Notes |
+|---|---|---|
+| UI | **Avalonia UI 12.x** | Only mature native-Linux .NET desktop UI; renders via Skia. |
+| Compositing/effects | **SkiaSharp** (GPU backend) | Integrates with Avalonia; `SKCanvas`/`SKShader`/`SKRuntimeEffect` for effects. |
+| Decode/encode/filter | **Hand-rolled FFmpeg 8 binding** (`[LibraryImport]`) | Library-level libav* P/Invoke; frame-accurate. NOT FFMpegCore (CLI wrapper). Migrated off Sdcb.FFmpeg 2026-06-29 — see the migration note below and ARCHITECTURE §14. |
+| Hardware accel | FFmpeg hwaccel, per-OS | NVIDIA CUDA/NVENC (most portable); VAAPI (Linux), D3D11VA/QSV/AMF (Windows). |
+| Audio output | **Silk.NET.OpenAL** | Cross-platform now; behind `IAudioOutput` so it can be swapped. |
+| Plugins (later) | Custom **`IVideoEffect`** + collectible `AssemblyLoadContext` | OFX/frei0r hosting is a later, optional P/Invoke adapter. |
+
+> Licensing note: FFmpeg builds can be LGPL or GPL depending on enabled encoders (e.g.
+> x264 → GPL). Pick the build/license deliberately before any distribution.
+
+### FFmpeg-8 binding migration (recorded 2026-06-29)
+
+The decode/encode binding moved off **Sdcb.FFmpeg 7.0.0** — which was dormant (latest April 2024, no
+FFmpeg 8, no commits) and so froze Sprocket on FFmpeg 7.1 — to a **hand-rolled FFmpeg 8 binding** owned
+by the project. This also fixed a macOS bug where the shipped app, carrying no FFmpeg, silently fell
+back to the user's Homebrew FFmpeg 8 that the v7 bindings could not load. The choice followed a
+**three-arm de-risk spike** (hand-rolled `[LibraryImport]` vs FFmpeg.AutoGen 8.1 vs Flyleaf 8.1, all
+proven byte-identical on Windows + Linux); hand-rolled won on footprint / NativeAOT-trim friendliness
+and **cadence control** (a ClangSharp/offset regen ≈ once per FFmpeg *major*, no maintainer dependency —
+the exact risk that stranded us on Sdcb). Recorded in `src/Sprocket.Media/Native/SPIKE_RESULTS.md` (the
+throwaway three-arm spike project `src/Sprocket.Spike.Bindings` itself was removed post-migration; it
+lives in git history on the `ffmpeg8-migration` branch). The step 1 spike project `src/Sprocket.Spike`
+was likewise deleted on **2026-07-27** — see the note on that step below. **Neither spike project exists
+in the tree; their recorded findings are the authority.**
+
+What it changed, **confined to `Sprocket.Media`** behind Core's unchanged seams (ARCHITECTURE §17):
+its own `[LibraryImport]` layer (`Native/LibAv.cs`) + explicit-layout structs pinned to FFmpeg 8.1 x64
+(`Native/AvStructs.cs`), a thin RAII layer (`Native/Handles.cs`/`SwsScaler`/`SwrResampler`), a
+`FFmpegLoader` DllImport resolver that maps stems to versioned sonames (avcodec **62** etc.) and
+**version-guards on libavcodec major 62**, and **per-RID native bundling on every platform** (Windows
+included — there is no longer any FFmpeg runtime NuGet), with macOS `@loader_path` install-name rewrite
+making that bundle self-contained. Future binding-surface needs for later steps are catalogued in
+`src/Sprocket.Media/Native/FUTURE_BINDINGS.md`. See ARCHITECTURE §11 + §14 for the re-pinned stack.
+The historical ✅ DONE logs below (step 1 spike, step 3) predate this and still name Sdcb / FFmpeg 7 —
+they are accurate records of that earlier state, superseded by this note.
+
+## Architecture (big picture)
+
+Solution layout (projects):
+- `Sprocket.Core` — timeline data model + render graph (no UI, no native deps leaking out).
+  - `Project` → `Timeline` → `Track[]` (video/audio) → `Clip[]`.
+  - A `Clip` is **non-destructive**: `{ SourceMediaRef, SourceInOut (TimeSpan), TimelineStart,
+    EffectStack: IEffect[] }`. Nothing is baked; the frame is reconstructed on demand.
+  - `RenderGraph`: given a timeline time `t`, resolves which clips are active per track,
+    requests source frames, applies each clip's effect stack, composites tracks top-down.
+- `Sprocket.Media` — FFmpeg interop: `MediaSource` (open/seek/decode to `AVFrame`),
+  `FrameUploader` (`AVFrame` → `SKImage`/GPU texture), `Encoder` (export). Hardware-accel
+  device selection behind `IHardwareContext` with Windows/Linux implementations.
+- `Sprocket.Audio` — `IAudioOutput` (Silk.NET.OpenAL impl), sample-accurate mixer
+  (sum tracks × per-clip volume/fade gain) in pooled native buffers. **Audio clock is the
+  master clock** for A/V sync.
+- `Sprocket.App` — Avalonia UI: timeline control (custom-drawn), preview surface
+  (Skia GPU control), transport, property panels. MVVM.
+
+Threading model:
+- Decode thread(s) — one per active source, fill bounded ring buffers (`System.Threading.Channels`).
+- Render/compose — pulls frames, runs Skia GPU passes, presents to preview.
+- Audio thread — OpenAL callback drains the mixer; drives the master clock.
+- UI thread — never blocks on decode/render.
+- Export — throughput-bound, parallel decode→effect→encode; reuses the same RenderGraph.
+
+Effects (vertical slice): `BrightnessEffect` and `FadeEffect` implemented as Skia
+`SKRuntimeEffect` (SkSL) fragment shaders / color filters running on the GPU. Fade =
+opacity/gain ramp over a time range (video alpha via shader; audio gain in the mixer).
+
+## Vertical-slice milestone (definition of done)
+
+End-to-end on **all three** of Windows (10 & 11), Linux, and macOS (the slice is developed on Windows;
+Linux and macOS rest on bundling the native libs + on-device verification — see step 1 and step 36):
+1. Create a project; add 1 video track + 1 audio track.
+2. Import a media file (`MediaSource` opens it via FFmpeg, reports duration/streams).
+3. Place a clip; set in/out trim (non-destructive — source untouched).
+4. Apply `BrightnessEffect` (GPU shader) to the clip.
+5. Apply a `FadeEffect` (video fade-to-black + audio fade) over a time range.
+6. Play back at 1080p in the Avalonia preview with A/V in sync (audio-clock master),
+   **zero per-frame managed allocation in the render loop** (verify with a profiler).
+7. Export to a full-resolution MP4/H.264 via the encoder path.
+8. Save/load the project (serialize the timeline data model to JSON).
+
+
+## Step 1
+
+1. **Architecture spike (de-risk first):** decode one frame via Sdcb.FFmpeg → upload to an
+   `SKImage` on the GPU → apply a brightness `SKRuntimeEffect` → display in an Avalonia Skia
+   control, with an allocation profiler confirming a clean hot loop. Do this on Linux too.
+   This validates the core performance claim before building breadth.
+   - **✅ DONE on Windows 11 (`src/Sprocket.Spike` — project deleted 2026-07-27, see the note at the
+     end of this step; it lives in git history).** Result: 1920×1080 at a steady 60 fps
+     (vsync-capped), render confirmed on Avalonia's **shared `GRContext`** (GPU, not raster
+     fallback). Render-loop allocation settled at **~8 KB/frame with GC gen1/gen2 = 0** — i.e.
+     the small bounded shader/uniform objects only, **no per-frame pixel allocation** (a 1080p
+     RGBA frame is ~8 MB; managed-heap pixels would show ~8 MB/frame + LOH churn). Stack
+     versions locked by this spike: Avalonia 12.0.5, **SkiaSharp pinned to 3.119.4 to match
+     Avalonia's transitive dependency** (the lease returns Avalonia's own Skia types), Sdcb.FFmpeg
+     7.0.0 + runtime 7.1.0 (FFmpeg 7.1: avcodec-61/swscale-8).
+   - **✅ Linux verified (headless, Ubuntu 24.04 x64, .NET 10 Docker).** A `--headless-check`
+     mode runs decode → SkSL brightness shader → offscreen Skia render → PNG with no GUI/GPU
+     display. Result: builds clean on Linux, Sdcb.FFmpeg decodes the 1080p frame, SkiaSharp +
+     SkSL run, and the output PNG is **byte-identical (same SHA-256) to the Windows output** —
+     the render path is deterministic across OSes. **Key finding:** there is *no* Sdcb.FFmpeg
+     Linux runtime NuGet and distro FFmpeg versions vary (Ubuntu 24.04 ships FFmpeg 6.1, which
+     is ABI-incompatible with Sdcb.FFmpeg 7.0's `libav*.so.61`). So **Sprocket must bundle
+     FFmpeg 7 `.so` libs on Linux** (resolved via the loader path), exactly as it bundles the
+     runtime DLLs on Windows — do not depend on the distro package. See ARCHITECTURE.md §11.
+   - **Remaining (lower risk):** confirm the full Avalonia GPU compositor (shared `GRContext`)
+     on a real Linux desktop session with a GPU; the headless check validates the media+Skia
+     stack but uses an offscreen raster surface, not the windowed GL/Vulkan compositor. **macOS:**
+     run the same headless check + windowed compositor (Metal) on `osx-arm64`/`osx-x64` once the
+     FFmpeg dylibs are bundled (step 36) — the render path is the identical managed code, so the
+     risk is packaging the natives, not the pipeline.
+   - **Project removed 2026-07-27.** `src/Sprocket.Spike` was deleted from the tree and dropped from
+     `Sprocket.slnx`: the spike had done its job, the shipping code has long since superseded it (the
+     GPU lease path lives in `Sprocket.App`'s `PreviewSurface`, the headless decode→SkSL→pixels check
+     in `Sprocket.Render.Tests`/`Sprocket.Export.Tests` and `scripts/linux-check.sh`), and it was the
+     last thing in the solution still referencing the abandoned **Sdcb.FFmpeg 7** binding — so it both
+     broke the "no Sdcb anywhere" rule and cost a build every time the solution built. The results
+     above stand as the record; the code is in git history. **Do not re-add a spike project to the
+     solution** — if a measurement needs re-running, use a throwaway console app outside the tree.
+## Step 2
+
+2. Timeline data model + RenderGraph in `Sprocket.Core` (unit-tested, headless).
+   - **✅ DONE (`src/Sprocket.Core`, 42 headless tests in `tests/Sprocket.Core.Tests`).** Zero
+     native/UI deps confirmed (output is `Sprocket.Core.dll` alone). Delivered:
+     - **Time model:** `Rational` (reduced, AVRational-style) and `Timecode` (`long` ticks).
+       `TicksPerSecond` set to **240000**, not the doc's example 90000 — 240000 is exact for both
+       48 kHz audio (5 ticks/sample) and all common + NTSC frame rates (30000/1001 → 8008
+       ticks/frame), so frame/sample boundaries round-trip losslessly (audio is the master clock).
+       ARCHITECTURE.md §3 updated to record the decision.
+     - **Data model:** `Project → MediaPool/Timeline/Settings`, `Timeline → Track[]` (z-ordered),
+       `VideoTrack`/`AudioTrack`, non-destructive `Clip` (SourceIn/Out, TimelineStart, derived
+       Duration), `EffectInstance`, and `AnimatableValue` (constant or keyframed, Hold/Linear) so the
+       slice's fade and all future keyframing share one mechanism (§9).
+     - **Render graph:** `RenderGraph.PlanVideoFrame`/`PlanAudioBuffer` resolve a pure, serializable
+       plan (clip resolution, trim→source mapping, effect-stack order, fade ramps, gain/mute/solo);
+       a generic `Render<TImage>` executor drives the `IFrameSource<T>`/`IVideoCompositor<T>` seams so
+       the Render layer binds `TImage = SKImage` while tests use a fake. `IClock` defined for §8.
+     - Tests cover: rational reduction/overflow, frame & sample round-trips, animation
+       interp/clamp/hold, clip trim & containment, clip resolution + overlap determinism, layer
+       z-order, effect-stack order & param evaluation-at-t, executor op-ordering, audio gain/mute/solo
+       and fade ramps. PLAN verification §"Correctness" (RenderGraph headless tests) satisfied.
+## Step 3
+
+3. `MediaSource` decode + seek (keyframe seek then decode-to-target); ring-buffer feed.
+   - **✅ DONE (`src/Sprocket.Media`, 13 tests in `tests/Sprocket.Media.Tests`).** New project depends
+     only on `Sprocket.Core` + Sdcb.FFmpeg — **no SkiaSharp/UI** (decoded pixels stay native, §1).
+     Delivered:
+     - **`MediaSource`** — opens/probes a file (`ProbedMediaInfo`: duration, fps as `Rational`, W/H,
+       audio sample-rate/channels), decodes the video stream with the `ReadFrame → SendPacket →
+       ReceiveFrame` loop plus an end-of-stream flush packet to drain buffered frames.
+     - **Seek** — `SeekTo(Timecode)` does keyframe seek (`AVSEEK_FLAG.Backward`) → `avcodec_flush_buffers`
+       → **decode-to-target** discard (frames before the target are dropped *before* swscale, so no wasted
+       RGBA conversion). Verified frame-accurate mid-GOP (GOP=12): seeking to frame 40/50/60 lands exactly
+       that frame's PTS; seeking between frames returns the next frame.
+     - **`MediaTime`** — the one place FFmpeg's stream time base meets Core's tick clock (PTS↔`Timecode`,
+       `Int128` intermediates; Core never sees an `AVRational`).
+     - **`VideoFrame`/`VideoFramePool`** — pooled native RGBA buffers (pixels by pointer, reused across
+       decodes) so the decode path is allocation-free in steady state (§8 frame pooling).
+     - **`VideoDecodeRing`** — one background worker fills a **bounded** `Channel<>` (backpressure caps
+       read-ahead, §8). Seek is **generation-tagged**: `RequestSeek` bumps a generation + signals the
+       worker, which re-seeks; stale buffered frames are discarded by the reader (no producer/consumer
+       drain race). Worker **parks** at EOF (doesn't complete the channel) so scrub-back resumes; verified
+       ordered feed, tight-capacity backpressure, seek-discards-stale, seek-after-EOF, clean dispose.
+     - **Fixture:** tests generate a deterministic 320×240@30 / 3 s / GOP-12 + 48 kHz clip via the `ffmpeg`
+       CLI (cached in the test output dir).
+## Step 4
+
+4. Skia preview surface + transport; software-clock playback (video only).
+   - **✅ DONE (`src/Sprocket.Render`, `src/Sprocket.Playback`, `src/Sprocket.App`; 27 tests in
+     `tests/Sprocket.Playback.Tests`).** Three new projects realize the playback path (ARCHITECTURE.md
+     §8/§10) honouring the dependency graph of §2 — Render → Core + SkiaSharp only (no Avalonia/Media);
+     Playback → Core/Media/Render; App → all. Delivered:
+     - **`Sprocket.Render.FramePresenter`** — wraps a decoded native RGBA buffer with `SKImage.FromPixels`
+       (no managed copy, §1) and draws it scaled-to-fit (letterboxed) onto the `SKCanvas` leased from
+       Avalonia, uploading to the shared `GRContext` on draw (§10). The `IVideoCompositor<SKImage>` seam
+       impl + SkSL effects are deferred to steps 7/14 — one opaque video layer needs only a fit-draw, which
+       keeps the hot loop allocation-clean (the spike's measured result).
+     - **`SoftwareClock`** — a play/pause/seekable `IClock` driven by a monotonic elapsed source (Stopwatch),
+       re-anchored on every transport op so it never accumulates drift within a play span. The slice's
+       stand-in **master clock**; step 5 swaps in the audio device clock behind the same `IClock`.
+     - **`PlaybackEngine`** — drives one video track from the clock, keeping the presented frame in sync via
+       a background pump that **drops** frames when behind and **holds** when ahead (§8). Transport
+       (`Play`/`Pause`/`SeekTo`/`TogglePlayPause`) is UI-thread-callable; seeks forward to the feed and the
+       pump force-presents the post-seek frame (frame-accurate scrub, paused or playing). The live frame is
+       read via `UseCurrentFrame`, which holds a lock for the draw so the pump can't recycle the native
+       buffer mid-present. Pure decisions (clamp / reached-end / promote) live in `PlaybackMath`; frame
+       supply sits behind `IVideoFrameFeed` (`RingVideoFrameFeed` adapts `VideoDecodeRing`) so the engine is
+       testable and a proxy/hardware feed slots in later (§17).
+     - **⚠️ Pump pacing phase-locked to the master clock (2026-08-03).** The pump previously scheduled each tick on
+       its own absolute wall-clock grid one sequence frame-interval apart. That grid free-runs in phase against the
+       **master clock's** frame grid the drop accounting scores it against, so ticks drift across boundaries: one
+       lands short and re-services the frame just done (a hold, presenting nothing), the next lands past the
+       following boundary and is charged a skip. The (hold, skip) pairs are pure aliasing — the playhead advances
+       at exactly real time and nothing is late — but they floored the overlay's dropped-frame counter at roughly
+       **1/s** on hardware that was keeping up, recognisable as `pump rate − delivered rate ≈ drop rate` while the
+       pump rate still meets the sequence rate. `WaitForNextFrameAsync` now derives each deadline from
+       `NextBoundaryWaitTicks(clock.Now, fps, frameTicks)` — the distance to the clock's next frame boundary plus a
+       1/16-frame lead — recomputed every tick, so each tick lands one frame index further on and a jump of >1 once
+       again means the pump genuinely could not keep up. An early tick (jitter beyond the lead) costs one extra
+       iteration and skips nothing; a non-advancing clock (audio not started) free-runs at the sequence rate.
+     - **`Sprocket.App`** — a minimal Avalonia shell (grows into the full panelled shell at step 11;
+       at the time, the step 1 spike remained alongside as the de-risk artifact — since deleted). A
+       `PreviewSurface` custom control draws the engine's current frame
+       inside an `ISkiaSharpApiLease` (GPU); a transport bar (play/pause, position scrubber + time readout,
+       Space to toggle) drives the engine. Opens a media path from the command line or a generated 1080p
+       sample, building a one-video-track project over it.
+     - **Tests (27):** `SoftwareClock` deterministic via an injected elapsed source (start-paused, advance,
+       freeze-on-pause, seek, rate); `PlaybackMath` (clamp/end/promote); the `PlaybackEngine` pump stepped
+       deterministically over the real fixture (presents first frame, seek lands the target frame, holds when
+       ahead, drops to catch up, reaches end → stops + signals); `FramePresenter.ComputeFitRect` letterbox
+       math; plus a **live-pump integration** pair running the real `Start()` → background pump →
+       `FramePresenter` offscreen-raster render → `DisposeAsync` and asserting a non-blank frame + a different
+       frame after a live seek (all waits bounded so a stuck pump/worker fails fast rather than hanging). Plus
+       **7 pacing tests** (`PumpPacingTests`) pinning the phase-lock invariant deterministically — sweeping every
+       tick offset within a frame at 30/29.97/24/60/25 fps and asserting the scheduled wait always lands exactly one
+       frame index on. Asserted directly rather than by counting drops in real time: under test-harness load the
+       scheduler noise swamps the effect (measured 0–3 drops per 2.5 s with the fix against 0–9 without, using a
+       10 ms-quantised stand-in for the audio device clock — overlapping distributions), so a timing-based test
+       would be flaky in both directions.
+     - **Note:** the windowed GPU preview is display-bound and rests on the spike's proven Avalonia+Skia
+       lease path (step 1); the offscreen-raster integration test covers the decode→pump→present→dispose
+       pipeline headlessly. (A no-GUI CLI smoke was dropped — `Sprocket.App` is a `WinExe` with no reliable
+       console — in favour of that test-host coverage.)
+## Step 5
+
+5. Audio: `IAudioOutput` + mixer; switch to audio master clock; A/V sync.
+   - **✅ DONE (`src/Sprocket.Audio` + `src/Sprocket.Media/AudioSource`; 16 tests in `tests/Sprocket.Audio.Tests`,
+     +5 in `tests/Sprocket.Media.Tests`).** The slice now plays with audio as the **master clock** and video
+     synced to it (ARCHITECTURE.md §6, §8). Honours the §2 dependency graph: **Sprocket.Audio depends only on
+     Core** (no FFmpeg) — the FFmpeg audio decode lives in Media; the App composition root wires them. Delivered:
+     - **Two Core seams (symmetry with video):** `IPcmReader` (pull interleaved float32 PCM at the project
+       rate/layout, sequential + seek — the audio analogue of `IFrameSource`) and `IMasterClock` (a
+       transport-capable `IClock`: `Start`/`Pause`/`Seek`). `SoftwareClock` now implements `IMasterClock`, so the
+       playback engine became **clock-agnostic** — its field is `IMasterClock` and it disposes the clock if it is
+       `IAsyncDisposable`, so the whole session tears down through one call.
+     - **`Sprocket.Media.AudioSource`** (`IPcmReader`) — opens the file's audio stream and **resamples to
+       interleaved float32 at the project rate/channels via libswresample** (raw `swr_alloc_set_opts2`/`swr_convert`
+       interop, the one place that touches it), once at decode (§6). Sample-accurate seek = keyframe-seek → flush
+       decoder → `swr_init` reset → decode-to-target discard computed from the landing frame's PTS, mirroring the
+       video path. A small managed leftover buffer (≤ one decoded frame) keeps steady-state reads allocation-free.
+     - **`AudioMixer`** — executes `RenderGraph.PlanAudioBuffer`: pulls each audible layer's PCM through
+       `IPcmReader`, applies the per-clip **gain envelope as a linear ramp across the buffer** (this is how fades
+       work — same `Fade` opacity that drives video alpha), sums, then a **SIMD** (`Vector<float>`) master-gain +
+       hard-limit pass. Keeps each reader positioned for sequential playback and only re-seeks on a real jump
+       (1 ms tolerance), so steady playback never re-seeks.
+     - **`IAudioOutput`** (device seam) + **`OpenAlAudioOutput`** (Silk.NET.OpenAL / OpenAL Soft) — a streaming
+       source fed by a rotating pool of 8 device buffers (float32 → 16-bit PCM); recycled-buffer frames + the
+       current play offset give `PlayedFrames`, the clock's time source. Device-bound, so it rests on **manual
+       verification** like the windowed GPU preview (confirmed this session: real device opens and `PlayedFrames`
+       advances under playback); the mixer/clock are covered headlessly against a fake output.
+     - **`AudioEngine`** (`IMasterClock`) — the audio master clock: `Now` is derived from `PlayedFrames` against an
+       anchor (re-anchored on every transport op, so no drift); a background **feeder** keeps the device queue full
+       by mixing the timeline for an advancing write cursor. Seeks bump a generation so an in-flight mix for a
+       superseded position is dropped (the same discipline the video decode ring uses). Flushing the device on seek
+       discards queued-but-unplayed audio so the new position is heard promptly.
+     - **App bootstrap** — adds an `A1` audio track and builds the audio master clock when the source has audio and
+       a device is available; **degrades to the `SoftwareClock` (video still plays)** when there is no audio or no
+       device (§15). The playback engine receives the clock and owns its teardown.
+     - **Tests (21 new):** mixer summing / track-gain-dB / mute / solo / master-gain / hard-limit / fade gain ramp /
+       seek-on-jump-only / silence-off-clip / reader disposal (all against a synthetic `FakePcmReader`, no FFmpeg);
+       `AudioEngine` clock semantics (start/pause/seek re-anchor, `Now` from played frames) via a deterministic
+       `FakeAudioOutput`, plus a bounded live-feeder integration asserting mixed non-silent audio reaches the queue;
+       and `AudioSource` decode/resample/seek against the real fixture (whole-stream count, downsample scaling,
+       non-silence, mono→stereo interleave, post-seek resume). Full suite: **103 tests green** (Core 42, Media 18,
+       Audio 16, Playback 27).
+     - **Note:** audio uses a stereo 16-bit device path for the slice (OpenAL Soft's portable format); float32
+       output and sample-exact device-offset interpolation are easy later refinements behind `IAudioOutput`.
+## Step 6
+
+6. Hardware-accel decode path behind `IHardwareContext` (D3D11VA/CUDA/QSV on Windows, VAAPI/CUDA on
+   Linux, VideoToolbox on macOS), with software fallback. Runtime-probe available device types per OS;
+   decode to a GPU frame, download via `av_hwframe_transfer_data`, then swscale → RGBA (zero-copy
+   `FromTexture` deferred). Fall back to the software decode path whenever no device is usable.
+   - **✅ DONE (`src/Sprocket.Media/HardwareContext.cs` + `MediaSource`; 6 tests in `tests/Sprocket.Media.Tests`).**
+     `MediaSource` now decodes on the GPU when one is available and degrades to software otherwise, with no
+     change to its `IFrameSource`/ring consumers — frames still arrive as pooled native RGBA. Delivered:
+     - **`IHardwareContext` + `HardwareDevice`** — wraps an FFmpeg `AVHWDeviceContext` of one
+       `AVHWDeviceType`. `TryCreate(type)` is a runtime probe (returns `null` if the driver/GPU is absent);
+       `PlatformPreferredTypes()` gives the per-OS ordering (**Windows** D3D11VA→CUDA→QSV→DXVA2, **Linux**
+       VAAPI→CUDA→VDPAU, **macOS** VideoToolbox); `CompiledTypes()` lists what the FFmpeg build supports.
+     - **`MediaSource.Open(path, HardwareAccelMode.Auto|Disabled)`** — `Auto` (default) negotiates a device:
+       for each platform-preferred type it checks the decoder's `avcodec_get_hw_config` for a matching
+       `HW_DEVICE_CTX` config (yielding the GPU pixel format), opens the device, attaches it
+       (`hw_device_ctx = av_buffer_ref(...)`), and installs a `get_format` callback that selects the GPU
+       format. **Any failure — no config, device won't open, or `Open()` throws — tears the hardware down and
+       reopens a plain software decoder** (§11/§15). `HardwareDeviceName` reports what engaged (null = software).
+     - **Decode branch** — when a decoded frame carries the GPU pixel format it is downloaded to a CPU frame
+       via `av_hwframe_transfer_data` (the documented copy; zero-copy `FromTexture` stays deferred) and then
+       run through the existing swscale → RGBA step; software frames go straight to swscale. A failed download
+       skips the frame rather than crashing. Frame PTS and seek (decode-to-target) are unchanged.
+     - **Verified on this Windows machine:** the bundled FFmpeg exposes CUDA/VAAPI/DXVA2/QSV/D3D11VA/Vulkan/
+       D3D12VA; `Auto` selected **D3D11VA** and decoded the fixture on the GPU. Linux/macOS rest on the same
+       managed code + bundled libs (steps 35–36) + on-device verification.
+     - **VAAPI libva pre-flight (`src/Sprocket.Media/LibVaPreflight.cs`, added post-alpha; reworked 2026-08-03):**
+       the bundled BtbN FFmpeg does not link `libva` normally (no `DT_NEEDED`, no undefined `va*` symbols) — it
+       `dlopen`s it through `implib-gen` lazy trampolines that **`abort()` the process** (not return an error)
+       when the system `libva.so.2` lacks a symbol they *call*, natively, below the managed software-fallback
+       handler. `HardwareDevice.TryCreate` pre-flights VAAPI by `dlopen`ing the system `libva` itself (so the
+       probe cannot trip a trampoline) and `dlsym`ing **the bundled FFmpeg's entire trampoline table** —
+       enumerated straight out of `libavutil` (a contiguous run of NUL-separated strings; regen procedure in the
+       class doc, a mechanical step on an FFmpeg major bump like the `AvStructs.cs` offsets) — **minus two classes
+       that never resolve even on a working stack**: libva-private `va_*` names (exported by no released libva),
+       and the per-windowing-system display getters (`vaGetDisplayDRM`/`vaGetDisplay`/`vaGetDisplayWl` live in
+       `libva-drm`/`-x11`/`-wayland.so.2`, and **any one** of those backends resolving is required instead). A
+       miss returns `null` (skip VAAPI → next device / software). `SPROCKET_HWACCEL=off` remains the blanket
+       escape hatch.
+     - **⚠️ Hard-won facts behind that design (2026-08-03), measured on an Intel N100 / iHD box, libva 2.20
+       (Ubuntu 24.04 LTS):** (a) the original doc note claiming `vaMapBuffer2` is "libva 2.17" was wrong — it is
+       **libva 2.21** (Mar 2024), so the sentinel-only first version silently forced software decode on 2.20 and
+       every older distro. (b) **`vaMapBuffer2` must nevertheless stay gated**: it *is* reached — from the decode /
+       `av_hwframe_transfer_data` path, not device-init — and a gate without it let the Media/Playback/Export
+       suites crash (`implib-gen: libva.so.2: failed to resolve symbol 'vaMapBuffer2' via dlsym`). (c) Do **not**
+       trust a device-open probe as evidence a symbol is unused: `av_hwdevice_ctx_create(VAAPI)` returns `rc=0`
+       on that box and the process dies a frame later. On libva &lt; 2.21, VAAPI is correctly skipped — those
+       users keep software decode until their distro ships a newer libva; there is no way to hardware-decode
+       safely under this FFmpeg build without the symbol.
+     - **⚠️ Decoder thread count (2026-08-03).** `AVCodecContext.thread_count` was never assigned, and FFmpeg
+       defaults it to **1** (verified against the bundled FFmpeg 8: `threads` reads 1 both before and after
+       `avcodec_open2`), so every software decode ran single-threaded. `CreateDecoder` now sets `0` (auto) on the
+       **software path only** — hardware decode gains nothing from worker threads, and frame threading would hand
+       `get_format` per-thread context copies whose pointers miss the `WantHwFormat` entry, silently downgrading
+       the GPU path to software.
+     - **Tests (11, deterministic regardless of GPU):** software mode uses no device and decodes in order; auto
+       mode decodes whether or not hardware engages; **the hardware and software paths produce identical frame
+       PTS** (so the GPU path never breaks frame-accuracy — this comparison ran hardware-vs-software here);
+       compiled/preferred type lists are populated; **the libva pre-flight passes unconditionally off Linux and,
+       when libva is unusable, `TryCreate(Vaapi)` returns null instead of crashing**; and — the regression guards —
+       `vaMapBuffer2` stays in the gate (fact (b) above), the gate excludes the never-exported classes (private
+       `va_*`, sibling-library display getters), and the verdict **must agree** with what the system `libva`
+       actually exports in both directions (missing symbol ⇒ skipped; all resolve + a display backend ⇒ allowed).
+## Step 7
+
+7. Effects (brightness, fade) + audio volume/fade in mixer.
+   - **✅ DONE (`src/Sprocket.Render/SkiaEffectPipeline.cs`; 8 tests in `tests/Sprocket.Render.Tests`).** The
+     slice's effects now run as real SkSL on the GPU preview, and the audio half (gain/fade) was already
+     delivered with the mixer in step 5. Honours the §2 graph (Render → Core + SkiaSharp only). Delivered:
+     - **`SkiaEffectPipeline`** — compiles the two built-in effects once as `SKRuntimeEffect` (SkSL) fragment
+       shaders (**Brightness** = premultiplied `rgb * amount`; **Fade** = whole-pixel `* opacity`, which reads
+       as fade-to-black over the cleared preview and is a correct premultiplied fade-out when composited) and
+       **chains them as a shader graph** — effect N's `src` child is effect N-1's output, rooted at the decoded
+       image's `ToShader` (ARCHITECTURE.md §7) — so the stack resolves in minimal GPU passes, not N round-trips.
+       Unknown effect ids pass through (a plugin with no Render binding is a no-op, not a crash). The per-frame
+       allocation is only the small bounded shader/uniform objects §7 acknowledges; **with no effects it falls
+       back to the plain fit-draw**, keeping the step-4 hot path exactly as allocation-clean as measured.
+     - **Live param resolution** — `RenderGraph.ResolveEffects(clip, t)` is now public; `PlaybackEngine`
+       evaluates the active clip's stack at the **current playhead** and carries it on `PresentedFrame.Effects`,
+       so the fade ramp animates with position. `PreviewSurface` owns the pipeline (compiled on attach, disposed
+       on detach) and applies it inside the Avalonia Skia lease (§10).
+     - **App bootstrap** — the slice clip now carries a Brightness (1.15×) and a fade-in/out, and the audio clip
+       carries the **same** fade envelope, so one `Fade` drives video alpha (shader) and audio gain (mixer §6)
+       consistently — slice DoD #4/#5 is demonstrable in the running app.
+     - **Audio volume/fade** — already complete in the mixer (step 5): per-track gain (dB), master gain, and the
+       fade gain-ramp across the buffer, all covered by `AudioMixerTests`; no change needed here.
+     - **Tests (8, headless raster, deterministic)** — run the real SkSL on an offscreen CPU surface (the spike's
+       Linux-check discipline) and read pixels back: no-effects pass-through, brightness up/down, fade half/zero,
+       brightness→fade **chain**, unknown-effect pass-through, and degenerate-bounds no-op. Full suite: **117
+       tests green** (Core 42, Media 24, Audio 16, Render 8, Playback 27).
+## Step 8
+
+8. Export pipeline (full-res encode).
+   - **✅ DONE (`src/Sprocket.Media/MediaEncoder.cs` + new `src/Sprocket.Export`; 6 tests in
+     `tests/Sprocket.Export.Tests`).** The slice now renders the timeline offline to a full-resolution
+     H.264/AAC MP4 through the **same render graph** that drives preview (ARCHITECTURE.md §5) — slice DoD #7.
+     The FFmpeg muxing stays in `Sprocket.Media`; a new `Sprocket.Export` project orchestrates over Core +
+     Media + Render + Audio (it sits beside Playback in the §2 graph). Delivered:
+     - **`MediaEncoder`** (Media) — the reverse of `MediaSource`/`AudioSource` (§11 "Encoder: mirror in
+       reverse"). Allocates an MP4 `FormatContext`, opens an **H.264** (`libx264`, CRF-quality by default)
+       video stream and an optional **AAC** audio stream, writes the header, then accepts composited RGBA
+       frames (staged → swscale → yuv420p, PTS = frame index in a 1/fps time base) and interleaved float PCM
+       (swresample flt→fltp planar, PTS = sample index in a 1/sampleRate time base). Packets are stamped and
+       `InterleavedWritePacket`'d; `Finish()` flushes both encoders and writes the trailer. Sets
+       `AV_CODEC_FLAG.GlobalHeader` when the muxer wants it and exposes the encoder's `AudioFrameSize`. All
+       libav* interop stays behind this one class — Export never sees FFmpeg.
+     - **`Sprocket.Export.VideoExporter`** — the offline driver: for each output frame it calls
+       `RenderGraph.PlanVideoFrame` (the identical resolution step preview uses), clears a full-res **raster**
+       `SKSurface` to black, draws each resolved layer with the step-7 effect shaders, reads the pixels back
+       (`SKPixmap`, no extra copy), and writes them to the encoder; audio is mixed by `AudioMixer` over the
+       same timeline. A single interleave loop emits whichever stream's next packet is earlier on the timeline
+       (video frame vs. AAC-sized audio chunk) so the muxer interleaves cleanly. Raster (not GPU) + **software,
+       full-resolution decode** (`HardwareAccelMode.Disabled`, never proxies §17) makes the output
+       bit-deterministic — the precondition for golden-frame testing. Offline/missing sources render as
+       black/silence rather than failing (§15); progress + cancellation are honoured between frames.
+     - **`ExportFrameProvider`** — a per-source forward decoder with a one-frame look-ahead: returns the latest
+       decoded frame at/just before each requested source time, seeking only on a backward jump. Owns its
+       `MediaSource` + `VideoFramePool`.
+     - **`SkiaEffectPipeline.DrawLayer`** (Render, refactor) — the per-layer draw was factored out of `Present`
+       into a non-clearing `DrawLayer` (with track opacity via paint alpha + blend mode), so export clears once
+       then composites N layers bottom→top while preview still clears-then-draws its single layer. Multi-layer
+       export now works for free; the single-layer hot path is byte-for-byte the step-7 path.
+     - **App wiring** — `MediaBootstrap` now returns the `Project`; `MainWindow` has an **Export** button that
+       runs `VideoExporter` on a background thread (pausing playback, streaming `0–100%` to the status strip)
+       to `export.mp4` in the app dir — slice DoD #7 demonstrable in the running app.
+     - **Tests (6, real encode→decode round-trips)** — export the fixture and reopen it: format/dimensions/fps/
+       duration match and audio is present; full frame count is rendered; a **brightness-0.3 clip exports a
+       visibly darker first frame than an unmodified one** (proving the effect shaders run on the export path);
+       a project with no audio track yields a video-only file; progress reaches completion; an empty timeline
+       throws. Full suite: **123 tests green** (Core 42, Media 24, Audio 16, Render 8, Playback 27, Export 6).
+## Step 9
+
+9. Project save/load (JSON).
+   - **✅ DONE (`src/Sprocket.Persistence`; 11 tests in `tests/Sprocket.Persistence.Tests`).** The timeline data
+     model round-trips losslessly to/from versioned JSON (ARCHITECTURE.md §12) — slice DoD #8, completing the
+     vertical slice. Delivered:
+     - **`ProjectSerializer`** (`Serialize`/`Deserialize` + `Save`/`Load` file helpers) over a set of DTOs kept
+       **separate from the domain model** — the model has constructors, read-only collections, and the
+       `AnimatableValue` factory type that don't serialize directly, and a distinct wire format lets the model
+       evolve behind a stable file format. Uses `System.Text.Json` with a **source-generated context**
+       (trim/AOT-friendly), camelCase names, string enums, indented output.
+     - **Versioned:** every file carries `schemaVersion` (currently 1); loading an unknown version throws
+       `InvalidDataException` (as does malformed JSON) so a future format break fails loudly rather than
+       mis-parsing.
+     - **Relative + absolute media paths (§12):** on save (when a file path is known) each `MediaRef` stores a
+       path relative to the project file alongside the absolute one; on load the relative path is resolved
+       against the project directory and preferred when it exists, so a project moved together with its media
+       relinks. **Offline-tolerant:** a media file that can't be found is kept with its stored path (renders as
+       black/silence downstream) rather than failing the load.
+     - **App wiring:** a **Save** button writes `project.sprocket.json` next to the app output (loading back into
+       the running app arrives with the File menu in the UI shell, step 11; the API + tests cover load today).
+     - **Tests (11):** a rich project (NTSC-rational fps, two track kinds in z-order, clip trim, a constant
+       brightness + a keyframed Hold/Linear fade, track gain/mute/solo + opacity/blend, master gain) round-trips
+       field-for-field; the schema version is present and an unknown one throws; malformed JSON throws; a
+       save-then-move scenario relinks media via the relative path; missing media still loads; the empty project
+       round-trips. Full suite: **134 tests green** (Core 42, Media 24, Render 8, Audio 16, Playback 27, Export 6,
+       Persistence 11). **The vertical slice (steps 1–9) is complete.**
+
+## Post-slice build order (target UI & full feature set)
+
+Once the vertical slice's definition of done is met, the remaining features — those in
+[BRIEF.md](BRIEF.md) and implied by the [UI.md](UI.md) mockup — build out in roughly this
+dependency order. Each lands on an existing seam ([ARCHITECTURE §17](ARCHITECTURE.md)); none
+requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
+
+## Step 10
+
+10. **Undo/redo command stack (foundational — do first).** Route *every* model mutation through
+    a command stack (snapshot or inverse-command), with command coalescing (e.g. slider drags)
+    and an edit-history surface. First-class requirement per [BRIEF.md](BRIEF.md) /
+    [ARCHITECTURE §4](ARCHITECTURE.md); doing it first means all later editing features are
+    undoable by construction.
+    - **✅ DONE (`src/Sprocket.Core/Commands`; 19 tests in `tests/Sprocket.Core.Tests/CommandTests.cs`).** The
+      inverse-command stack now exists in **Core** (it operates on the pure-data model and depends on nothing,
+      §2) so all later editing lands on it. Delivered:
+      - **`IEditCommand`** (`Label`/`Apply`/`Revert`/`TryMergeWith`) + an `EditCommand` base that opts out of
+        merging by default. Inverse-command rather than snapshot: the model is plain data with no native handles,
+        so capturing the few changed fields is cheaper than cloning the graph and reverses exactly (§4).
+      - **`EditHistory`** — the stack: `Execute` applies + records and clears the redo stack (linear undo);
+        `Undo`/`Redo`; `CanUndo`/`CanRedo`; `UndoLabel`/`RedoLabel` and `UndoLabels`/`RedoLabels` for an
+        edit-history surface; a `Changed` event for UI binding; `Clear` (e.g. on project load). **Coalescing is
+        scoped:** `BeginCoalescing()` returns an `IDisposable` (open on a slider/drag pointer-down, dispose on
+        pointer-up) inside which consecutive commands that agree via `TryMergeWith` collapse into one undo
+        entry — so a drag is a single step, but two separate gestures on the same control are not. Scopes nest.
+        Not thread-safe by design: the UI thread owns the model (§8); decode/render/audio threads only read it.
+      - **Command set** covering today's model mutations so editing is undoable from the start: a generic
+        `SetPropertyCommand<T>` (get/set delegates + optional merge key — one type for any scalar: clip move,
+        track gain/opacity/mute/solo/enabled), plus structural commands `AddClip`/`RemoveClip`,
+        `TrimClip` (two-field, coalescing), `AddEffect`/`RemoveEffect`, `SetEffectParameter` (coalescing on the
+        same effect+param — the slider-drag case), and `AddTrack`/`RemoveTrack`. The remove/track commands
+        capture and restore the original list index so z-order and effect-stack order survive undo (§5d).
+      - **Tests (19):** stack mechanics (execute/undo/redo, redo-discarded-on-new-edit, labels, `Changed` fired,
+        `Clear`); coalescing merges only inside a scope and only across equal merge keys; and each concrete
+        command applies + reverses exactly against the real model (add/remove restoring index, two-end trim,
+        param revert-to-absent vs revert-to-previous, drag-coalesces-to-one-entry, z-order preserved). Wiring
+        the editing **UI** through the stack arrives with the timeline control + editing tools (steps 12–13);
+        the App's current bootstrap builds the slice project directly (no in-app edit actions to undo yet). Full
+        suite: **153 tests green** (Core 61, Media 24, Render 8, Audio 16, Playback 27, Export 6, Persistence 11).
+## Step 11
+
+11. **App UI shell.** Avalonia window with custom, per-OS-native chrome + inline menu bar
+    (`File · Edit · Clip · Sequence · Effects · View · Window · Help`); **splitter-resizable**
+    Project / Program / Inspector / Timeline panes ([UI.md §1](UI.md)); project title + autosave
+    / dirty-state indicator.
+    - **✅ DONE (`src/Sprocket.App`: `App.axaml`, `MainWindow.axaml`/`.cs`).** The slice's bare window grew
+      into the full panelled shell of [UI.md §1/§2](UI.md), keeping playback/preview/export/save live. The
+      *structure* is complete; the pane **contents** (media bin, timeline control, inspector) are their own
+      steps (12–16) and show clearly-labelled placeholders for now. Delivered:
+      - **Custom chrome, native per OS** (`MainWindow.ConfigureWindowChrome`): a custom title bar — logo,
+        **inline menu bar** (`File · Edit · Clip · Sequence · Effects · View · Window · Help`), centred project
+        title + save-state, and custom **min / max / close** glyphs — with the platform seam chosen per OS.
+        **Windows:** `WindowDecorations.BorderOnly` **plus** `ExtendClientAreaToDecorationsHint`, which activates
+        the Avalonia 12 `WindowDecorationProperties.ElementRole` annotations in the XAML (`TitleBar` on the bar,
+        `MinimizeButton`/`MaximizeButton`/`CloseButton` on the glyphs, `User` on the menu). The bar is then a real
+        Win32 caption — snap-layouts flyout, Aero Shake, right-click system menu, double-click restore. (`Full`
+        is deliberately avoided: with the client area extended, Avalonia draws a *second* icon/title/caption glyph
+        over ours.) **macOS:** `WindowDecorations.Full` + the extend hint — the unified-titlebar arrangement, so
+        AppKit's traffic lights stay and are the close/minimise/zoom/full-screen affordance; our caption buttons
+        are hidden, the leading edge is inset 78 px to clear the lights, the bar is 38 px, and the menu bar moves
+        to the **system menu bar** (`MacMenuBridge`, below). `BorderOnly` there was the double-title-bar bug: it
+        left the `NSWindow` titled but suppressed the lights, so an empty AppKit strip sat above our own bar.
+        **Linux:** `WindowDecorations.BorderOnly` client-side decorations as before, the GNOME/KDE convention.
+        A `BeginMoveDrag` handler stays wired everywhere as the move fallback (a press consumed as non-client
+        never reaches it), and a maximized window is inset by `OffScreenMargin` so nothing clips under the
+        screen edges / taskbar.
+      - **macOS system menu bar (`MacMenuBridge`):** the inline `Menu` stays the single source of truth and is
+        *mirrored* into a `NativeMenu`, so every `Click` handler and the on-open `Refresh*Menu` passes keep
+        working unchanged — each submenu re-raises `SubmenuOpened` on its source and rebuilds on open, which is
+        what makes the runtime-populated Effects / Clip ▸ Insert / Open Sequence submenus appear natively.
+        About / Preferences ⌘, move to the application menu, Window gains Minimize ⌘M and Zoom, and mnemonics
+        are stripped. **Quitting is left entirely to AppKit** — it appends *Quit Sprocket* ⌘Q (plus Hide / Hide
+        Others / Show All / Services) to the application menu itself, so File ▸ Exit is hidden on macOS and the
+        old manual ⌘Q key handler was removed rather than give the platform two different ways out.
+        Covered by `MacMenuBridgeTests` — the mirroring is platform-independent, so it is unit-tested off macOS.
+      - **Splitter-resizable layout (UI.md §1):** a `GridSplitter` grid — **Project | Program | Inspector**
+        across the top, a full-width **Timeline** below a horizontal splitter, with a **tool/action bar** under
+        the title bar and a **status bar** at the bottom. All four panes are user-resizable.
+      - **Live regions:** the **Program** pane hosts the existing `PreviewSurface` + a transport row
+        (jump-to-start ⏮, play/pause, jump-to-end ⏭, position, scrubber, duration); **Export** and **Save** run
+        from the action bar / File menu; the **Project** pane lists the real `MediaPool` items; the **status bar**
+        shows engine state + a `fps · WxH · duration` telemetry readout and the action bar a `1080p · 30`
+        sequence badge — **no framework/runtime text** anywhere ([UI.md §3.7](UI.md)).
+      - **Undo/redo + dirty-state wired onto the step-10 `EditHistory`:** **Edit ▸ Undo/Redo** (and `Ctrl+Z` /
+        `Ctrl+Shift+Z` / `Ctrl+Y`) drive the stack, the menu items enable/disable + show the next command's
+        label, and the title-bar indicator flips between *• all changes saved* / *• unsaved changes* (tracked by
+        comparing `EditHistory.UndoCount` against the depth recorded at the last save; `UndoCount`/`RedoCount`
+        added to `EditHistory`). **`+ Track`** issues a real `AddTrackCommand`, so the foundational command stack
+        is demonstrably end-to-end (add a track → undo removes it → dirty flips) ahead of the timeline editing UI.
+      - **Placeholders (own steps):** tool palette beyond Select, Snapping/Linked toggles, the Media-tab
+        siblings (Effects/Transitions/Audio), the Source monitor + Fit zoom, the Inspector sections, and the
+        timeline ruler/clips are present as disabled/labelled stand-ins so the shell reads as the target UI
+        without pretending the features exist.
+      - **Verification:** builds clean (the Avalonia XAML compiler validates control/property/resource
+        references — it caught the removed v11 chrome property); a headless smoke launch
+        (`SPROCKET_APP_SECONDS=4 dotnet run`) starts the shell, opens the sample, wires the engine, and tears
+        down cleanly (exit 0). The windowed layout itself is display-bound and rests on manual verification like
+        the preview path. No unit tests (the App is a UI-bound `WinExe`); the full suite stays **153 green**.
+## Step 12
+
+12. **Timeline control v1.** Custom-drawn ruler + playhead, clip thumbnails (filmstrip) and audio
+    waveforms, drag-move + trim handles, timeline zoom (`⊟ 100% ⊞`), **Snapping**, and the
+    **Hand**/**Zoom** view tools. The most involved bespoke control.
+    - **✅ DONE (`src/Sprocket.App/Timeline/{TimelineMath,TimelineControl}.cs`; 14 tests in
+      `tests/Sprocket.App.Tests`).** The shell's timeline placeholder is now a live custom-drawn control
+      ([UI.md §3.6](UI.md)) editing the real model through the step-10 command stack. Delivered:
+      - **`TimelineControl`** (Avalonia `Control` with a custom `Render`): a **ruler** with zoom-aware time
+        labels, a draggable **playhead** synced to the engine (`PositionChanged` → redraw; click/drag the ruler
+        or empty lanes scrubs via `PlaybackEngine.SeekTo`), one **lane per track** (video on top, audio below)
+        with **clips** drawn as rounded blocks bearing the media filename and a schematic **filmstrip** (video)
+        / **waveform** (audio) fill, the selected clip outlined in the accent. Per-track **mute / solo / enable**
+        toggle boxes live in the track header.
+      - **Editing through `EditHistory`:** **drag-to-move** and **edge-trim** (left edge ripples in-point +
+        start so the right edge stays put; right edge trims the out-point) run as `SetClipPlacementCommand`s
+        inside an `EditHistory.BeginCoalescing()` scope opened on pointer-down and sealed on pointer-up — so a
+        whole drag is **one undo entry** and the model updates live. **Snapping** (to other clip edges, the
+        playhead, and t=0, within 8 px) honours the action-bar toggle; the M/S/enable toggles issue
+        `SetPropertyCommand<bool>`s. Selection drives a status hint (and feeds the Inspector at step 16).
+      - **Zoom + scroll:** magnifier −/+ buttons, the **Ctrl+wheel** and **Zoom-tool** click, and the
+        **bare `-`/`=`** (the Premiere / After Effects / Shotcut / Kdenlive convention; shifted `+` and the
+        numpad `±` too) and **`Ctrl+-`/`Ctrl+=`** (the FCP / Resolve one) keys all zoom (anchored so the tick
+        under the cursor/playhead stays put, 8–600 px/s); the wheel scrolls horizontally, clamped to content.
+        `TimelineMath.ZoomAnchorX` falls back to the **viewport centre when the playhead is off-screen**, so
+        repeated key presses don't lurch the visible content around an invisible anchor. The bare keys zoom the
+        timeline globally rather than the focused panel (a deliberate departure from Premiere, matching
+        `Shift+Z`/`Space`/`M` here) and sit below `OnKeyDown`'s text-field guard so `-`/`=` still type into a
+        focused field; the `Ctrl+±` pair stays above it. A **`TimelineControl.ZoomToFit`** (View ▸ Zoom to Fit,
+        **`Shift+Z`** — the convention in leading editors) frames the whole sequence to the viewport width and
+        scrolls back to the start. (Menu items for plain Zoom In/Out carry no `InputGesture` label because
+        Avalonia's `KeyGesture.ToString()` renders `=`/`-` as their raw `OemPlus`/`OemMinus` enum names even
+        without a modifier; the clean shortcut text lives in the buttons' tooltips.)
+      - **New Core primitive:** `SetClipPlacementCommand` sets a clip's source in/out **and** timeline start
+        atomically (the move/trim/slip primitive), coalescing per clip — joining the step-10 command set.
+      - **Tested geometry:** the tick↔pixel mapping, snapping, edge hit-testing, and ruler-interval selection
+        live in a pure `TimelineMath` (no Avalonia types) covered by **14 headless tests**; the rendering +
+        pointer interaction rest on those + manual verification (the App is a UI-bound `WinExe`). Clean build
+        (the XAML compiler resolves the control + `TimelineMath` namespace fix) and a smoke launch starts +
+        tears down cleanly. Schematic filmstrip/waveform fills stand in until **real decoded thumbnails /
+        waveforms (step 15)**; **Hand/Zoom** tool buttons + the Source monitor stay placeholders. Full suite:
+        **170 tests green** (Core 64, Media 24, Render 8, Audio 16, Playback 27, Export 6, Persistence 11,
+        App 14).
+      - **✅ Track-header follow-ups.** The track-header column is now **horizontally resizable** (drag its
+        right edge — `HeaderWidth` became a clamped instance field `_headerWidth`, 72–360 px, session-only; the
+        edge shows a resize cursor). A track can be **renamed by double-clicking its name**: `TimelineControl`
+        raises `TrackRenameRequested(track, rect)` and the shell overlays a `TextBox` (the custom-drawn control
+        can't host children) positioned over the name — Enter / lost-focus commit via `CommitTrackRename`
+        (one undoable `SetPropertyCommand<string>`, mirroring the M/S/enable toggles), Esc cancels. Over-long
+        names are **clipped and show the full name as a hover tooltip** ([UI.md §3.6](UI.md)).
+      - **✅ Open-ended playhead (2026-07-27).** The playhead can now be parked in the **empty space past the
+        last clip**, as the sequence timeline of leading editors is (Premiere, Resolve, Vegas; Final Cut's
+        magnetic timeline is the outlier) — you can target an overwrite/paste after a gap, or drop a mark ahead
+        of the content. `Timeline.Duration` **keeps meaning the content end**; the new concept is
+        `PlaybackEngine.NavigableEnd`, gated by an opt-in `AllowPlayheadPastEnd` that only the Program engines
+        set (`MediaBootstrap`) — the **Source monitor stays clamped to its media**, since nothing exists past the
+        end of a source file. Export, jump-to-end, Zoom to Fit and the playback auto-stop all still use
+        `Duration`. `TimelineMath.ScrollExtentPx` replaces the old fixed +200 px scroll slack with
+        *max(content, playhead) + one viewport*, so there is always empty timeline to scroll into, and a scrub
+        held against the viewport edge **auto-scrolls** (timer-driven) to carry the playhead out. Scrubbing past
+        the content end *while playing* stops the transport where the playhead was dropped instead of letting the
+        end-stop park it back; pressing Play out there replays from the start. Also fixed a latent bug this made
+        prominent: the pump raised `FramePresented` only when a player promoted a frame, so moving the playhead
+        into a gap (or past the last clip) left the **stale last frame** on the preview — it now raises one
+        present on the composite's non-empty→empty transition so the surface clears to black.
+        (`PlaybackMath`/`PlaybackEngine`/`MediaBootstrap`/`TimelineMath`/`TimelineControl`/`Sprocket.Mcp`;
+        11 new tests in `tests/Sprocket.Playback.Tests/OpenEndedTransportTests.cs`, `PlaybackMathTests`,
+        `tests/Sprocket.App.Tests/TimelineMathTests.cs`.)
+      - **✅ FOLLOW-ON (2026-07-27): stale-frame hardening — the blank can no longer be missed.** User feedback
+        on an older alpha ("last frame of video should hide as soon as cursor goes past it") pointed at the bug
+        fixed above, which shipped in v0.1.73-alpha. Two gaps in that fix are now closed. (1) The blank present
+        was **edge-triggered and single-shot**, so a lost edge stranded the frame for good — `SuspendAsync`
+        resets `_hadComposite` and `Resume` only re-seeks (a forced present did not itself present), and a pump
+        iteration that faults is swallowed by `PumpError` having already consumed it. A **forced present that
+        lands where no clip is active now always presents**, gated on *no active clip* rather than *no composite*
+        so a seek that beat the decoder can't flash black over a clip about to promote a frame. (2) The preview
+        **ignored `clip.Enabled`** — `RenderGraph.ResolveClipLayer` drops a disabled clip but all five
+        preview-side resolutions checked only `track.Enabled`, so hiding a clip left its picture up and preview
+        disagreed with export. All of them (plus `VideoTrackPlayer.PumpAsync`, so the decoder stops and the frame
+        buffer is released) now go through one `PlaybackEngine.ActiveVideoClip` helper that mirrors the render
+        graph's gating. (`PlaybackEngine`/`VideoTrackPlayer`; 7 new decode-free tests in
+        `tests/Sprocket.Playback.Tests/PreviewBlankingTests.cs`, which use a generator clip so the composite can
+        be exercised without FFmpeg — 2 of them fail against the pre-change engine.)
+      - **✅ FOLLOW-ON (2026-07-27): playback auto-scroll (the view follows the playhead).** The timeline used to
+        sit still during playback, so the playhead simply left the viewport and you watched a frozen picture of the
+        timeline. It now follows, with **Premiere's three modes and its wording and default** verbatim
+        (Preferences ▸ Timeline ▸ *Timeline Playback Auto-Scroll*) surfaced as a radio submenu at **View ▸ Playback
+        Auto-Scroll**: **No Scroll**, **Page Scroll** (default — the view jumps a screen at a time and the playhead
+        reappears just inside the opposite edge, with a 5% lead-in margin so it isn't flush against the boundary)
+        and **Smooth Scroll** (the view slides continuously with the playhead centred; Avid calls this continuous,
+        Audacity a pinned play head). Backward paging is symmetric, so a replay-from-start or a backward jump lands
+        the playhead near the *right* edge and keeps its run-up visible. All the geometry is one pure
+        `TimelineMath.AutoScrollX` (new `TimelineAutoScroll` enum); `TimelineControl.FollowPlayhead` calls it inside
+        the UI-thread post that `OnEnginePosition` already makes — no new timer, and one computation per painted
+        frame. Two behaviours worth recording: (1) a transport jump made **while stopped** (`End`, `[`/`]` keyframe
+        nav, `Shift+M` marker nav) always reveals the playhead, even in No Scroll, because Premiere's preference is
+        scoped to *playback* and still brings the playhead into view on a jump; (2) that reveal is gated on a
+        `_lastFollowTicks` guard, because the pump raises `PositionChanged` at ~60 Hz even while stopped — without it
+        every idle echo would re-reveal the playhead 60 times a second and make scrolling a paused timeline by hand
+        impossible. `SeekToX` records the same guard so a scrub's own engine echo can't page the view out from under
+        the pointer, and the follow yields entirely while a scrub, pan, clip drag, header resize or the existing
+        scrub edge-scroll owns the view. The mode is **persisted** (`UserSettings.TimelineAutoScroll`, held as a name
+        so an unknown value degrades to Page) — the first view-behaviour preference; `Snapping`/`Guides` remain
+        session-only. (`TimelineMath`/`TimelineControl`/`UserSettingsStore`/`MainWindow`; 14 new tests in
+        `tests/Sprocket.App.Tests/{TimelineMathTests,UserSettingsStoreTests}.cs`.)
+## Step 13
+
+13. **Editing tools.** **Select / Blade (razor split) / Slip** tools and **Linked A/V** (move a
+    clip and its companion audio together) — a clip-link relation in the model.
+    - **✅ DONE (`Sprocket.Core/Model` + `Sprocket.Core/Commands` + `Sprocket.App/Timeline` + persistence; 16 new
+      tests — Core +10, App +3, Persistence +1, all green).** The timeline's tool palette is now live and the
+      clip-link relation lands in the pure model, so every new op stays undoable by construction (step 10).
+      Delivered:
+      - **Clip-link relation (model, §4):** a nullable `Clip.LinkGroupId` (Guid) — clips sharing a non-null group
+        are companion A/V. `Timeline.ClipsLinkedTo(clip)` returns the companions (with their track) for the editor
+        to mutate; unlinked clips have none. The bootstrap now links the slice's video + audio clips so "Linked"
+        is demonstrable, and the App's import builds them in one shared group.
+      - **Two Core command primitives:** `SplitClipCommand` (the Blade op — pulls the original clip's `SourceOut`
+        back to the cut and inserts a new right-half clip with the remaining source span + a **copy** of the effect
+        stack; rejects a cut on/outside the clip; takes an optional right-half link group) and `CompositeCommand`
+        (groups N commands as one undo entry, applied in order / reverted in reverse, and **coalesces with a
+        same-shape composite** so a continuous linked drag stays one entry). Effect copy uses a new
+        `EffectInstance.Clone()` (params shared by reference — `AnimatableValue` is immutable).
+      - **Tool palette (UI.md §3.2) wired through `TimelineControl.ActiveTool`:** **Select** (move/trim, step 12),
+        **Blade** (click a clip → split at the cursor, snapped to the playhead; selects the new right half),
+        **Slip** (drag a clip to shift its source window with timeline position + duration fixed, clamped to the
+        media via a pure `TimelineMath.ClampSlip`), and the view-only **Hand** (drag-pan) / **Zoom** (click to
+        zoom in, Alt/right-click to zoom out) — completing the five-button radio group left as placeholders at
+        step 12. Each tool sets a matching cursor.
+      - **Linked A/V behaviour:** with the **Linked** toggle on, a **move** shifts every group member by one locked
+        delta (clamped so none crosses t=0) as a single `CompositeCommand` undo entry, and a **blade** also cuts
+        every companion that spans the cut — the right halves getting a fresh shared link group so each side stays
+        an independently linked pair. Trim/slip stay per-clip (NLE convention). The Linked toggle + tool radio
+        group are bound in `MainWindow`.
+      - **Persistence:** `ClipDto` gains an additive, nullable `linkGroupId` (no schema bump — v1 files load as
+        unlinked and a project with no links serializes byte-identically via `WhenWritingNull`); the link relation
+        round-trips and the loaded companions resolve each other.
+      - **Tests (16):** `SplitClipCommand` (divide/undo/effect-copy/edge-reject/link-group), `CompositeCommand`
+        (apply-order, single-entry, same-shape coalescing), `Timeline.ClipsLinkedTo`, `TimelineMath.ClampSlip`
+        (within bounds / edge clamps / no-headroom no-op), and a persistence link round-trip. The control's pointer
+        interaction rests on these + manual verification (the App is a UI-bound `WinExe`); clean build (0 warnings)
+        and a smoke launch starts + tears down cleanly. Full suite: **184 tests green** (Core 74, Media 24, Render 8,
+        Audio 16, Playback 27, Export 6, Persistence 12, App 17).
+## Step 14
+
+14. **Multiple tracks.** Lift the 1V+1A slice to N video + N audio tracks, **`+ Track`**, and
+    per-track **Mute/Solo** UI (model support already exists: `AudioTrack.Muted/Solo`, video
+    `Enabled`).
+    - **✅ DONE (`src/Sprocket.Playback` rework + `src/Sprocket.App`; 4 new tests in
+      `tests/Sprocket.Playback.Tests/MultiTrackPlaybackTests.cs`).** The editor now drives, composites, and mixes
+      N video + N audio tracks. The render graph, audio mixer, and export already resolved N layers (steps 5–8);
+      the remaining gap was the **live preview**, which drove a single video feed. Delivered:
+      - **Multi-track preview engine.** `PlaybackEngine` now owns one **`VideoTrackPlayer`** per video track
+        (each with its own feed, one-frame prefetch, and drop/hold sync — the slice's per-track logic, factored
+        out) instead of a single feed. A new **per-source feed-factory constructor** (`Func<MediaRefId,
+        IVideoFrameFeed?>`) lets the app open a decoder per source; players are **reconciled against the timeline
+        each pump**, so `+ Track` / undo are picked up live. `UseLayers` exposes the players' frames bottom→top
+        (with each track's resolved effects, opacity, blend); seeks re-seek every player via the existing
+        generation bump. The **legacy single-feed constructor + `UseCurrentFrame`** are preserved unchanged, so
+        the slice's 27 playback tests stand as-is. Frame lifetime/locking (one frame gate guarding every player's
+        presented frame) keeps the no-managed-pixels rule (§1) intact across N layers.
+      - **Preview compositing.** `PreviewSurface` clears once then draws each layer with
+        `SkiaEffectPipeline.DrawLayer` (track opacity + blend + effect chain) — the same multi-layer composite the
+        export path uses, now on the GPU preview.
+      - **Multi-source audio.** `MediaBootstrap` builds the mixer with a **per-source PCM-reader factory**
+        (mirrors export's `OpenPcmReader`), so the `AudioMixer`/`AudioEngine` — which already sum N audible layers
+        with mute/solo (§6) — mix multiple audio tracks/sources. The probe `MediaSource` is opened once for format
+        then disposed; the engine/mixer open their own per-source decoders via the factories.
+      - **`+ Track` UI.** The `+ Track` button now opens a flyout to add a **Video** or **Audio** track through
+        `AddTrackCommand` (undoable, auto-numbered V1/V2…, A1/A2…). Per-track **Mute/Solo** (audio) and **Enable**
+        (video) already live in the timeline track headers (step 12); video **Enable** now removes a track from
+        the composite and audio mute/solo are honoured by the mixer plan.
+      - **Tests (4 new):** two video tracks composite to two layers; a disabled video track drops out of the
+        composite; layers carry the right opacity/blend in z-order; a video track added at runtime is reconciled
+        into the composite. The existing 27 playback tests (single-feed path) are unchanged. Full suite: **188
+        tests green** (Core 74, Media 24, Render 8, Audio 16, Playback 31, Export 6, Persistence 12, App 17).
+        Clean build (0 warnings), smoke launch starts + tears down cleanly.
+      - **Note:** until the media bin / import (step 15) there is one media source, so placing *distinct* clips on
+        the new tracks (drag-from-bin) lands at step 15 — multi-track compositing/mixing is proven by tests now
+        and becomes visually rich then. Two clips from the *same* source on two tracks share one reader; distinct
+        sources mix/compose cleanly.
+## Step 15
+
+15. **Media bin & browsers.** Poster-frame thumbnails, waveform rendering, search, and
+    format/alpha badges (`4K · 1080p · WAV · Alpha`) over the `MediaPool`; an **Effects** browser
+    over the `IVideoEffect` registry; the **Audio** tab.
+    - **✅ DONE (`src/Sprocket.Core/Model/EffectCatalog.cs`; `src/Sprocket.App/MediaBrowser/*`; 28 new tests —
+      Core +5, App +23, all green).** The Project panel's placeholder list grew into the tabbed browser of
+      [UI.md §3.3](UI.md), editing the real model through the step-10 command stack. Honours the §2 graph
+      (the registry is pure data in **Core**; the browser/thumbnails live in **App** over Media + Render + Skia).
+      Delivered:
+      - **Effect registry (Core, §4/§7):** `EffectCatalog` + `EffectDescriptor` (id, display name,
+        `EffectCategory`, description, and a default-instance factory) — the "`IVideoEffect` registry" the
+        Effects browser lists over. Today it registers the two slice effects (Brightness → Color, Fade → Video);
+        the Transform/Color effects (step 16) and plugins (step 33) register here as they land, so every browser
+        and the Inspector draw from one list instead of hard-coding the built-ins. `Find`/`DisplayName` fall back
+        to the raw id for unregistered (plugin) effects so they still label.
+      - **Tabbed media browser (`MediaBrowserPanel`, built in code like `TimelineControl`/`PreviewSurface`):**
+        **Media** (poster/waveform thumbnails + metadata badges + a live search filter), **Effects** (the catalog,
+        **double-click adds the effect to the selected timeline clip** via `AddEffectCommand` — undoable, dirty
+        flips), a deferred **Transitions** placeholder (honest — step 25), and an **Audio** tab listing the bin's
+        audio sources as waveforms. The timeline's `SelectedClipChanged` feeds the browser the apply target;
+        the pane header's item count and status hints route back to the shell.
+      - **Thumbnails (`ThumbnailService`):** a poster frame (software-decode one frame via `MediaSource`, seek a
+        little in, Skia fit-draw → PNG → Avalonia `Bitmap`) and a waveform (read mono PCM via `AudioSource`,
+        reduce to per-column peaks, draw bars). Generated **off the UI thread** and **cached by source + size**;
+        offline/undecodable sources fall back to a glyph rather than failing (§15). A one-off thumbnail is a
+        deliberate managed copy — **not** the per-frame render hot path — so §1 is unaffected (documented in the
+        service); poster decode forces the software path for determinism. Disposed with the window.
+      - **Pure, tested helpers (App, mirroring the step-12 `TimelineMath` split):** `MediaBadges` (duration +
+        resolution tier `4K/1080p/720p/W×H` for video, format tag for audio — the **Alpha** badge's slot waits on
+        the premultiplied-alpha path, step 26), `WaveformBuilder` (interleaved PCM → mono-mixed per-bucket peaks
+        in [0,1]), and `MediaSearch` (case-insensitive substring filter). The thumbnail decode + the panel's
+        rendering rest on these + manual verification (the App is a UI-bound `WinExe`).
+      - **Tests (28):** `EffectCatalog` (built-ins present, `Find`/`DisplayName` incl. unknown-id fallback,
+        factory builds a fresh instance with default params, category filter); `MediaBadges` (resolution tiers,
+        duration `m:ss`, format tag, video-vs-audio describe), `WaveformBuilder` (bucket count, peak capture,
+        stereo mono-mix, empty → zeros, argument validation), `MediaSearch` (empty matches all, case-insensitive
+        substring, empty-text). Clean build (0 warnings); a `SPROCKET_APP_SECONDS=6` smoke launch starts the
+        shell, builds thumbnails, and tears down cleanly (exit 0). Full suite: **216 tests green** (Core 79,
+        Media 24, Render 8, Audio 16, Playback 31, Export 6, Persistence 12, App 40).
+      - **Note:** import/drag-drop of new media (file dialog → `MediaPool`) and dragging an effect/clip onto the
+        timeline are follow-on conveniences; today's browser lists the bootstrapped source(s) and applies effects
+        by selection. The waveform reads a bounded lead-in for very long sources (summary thumbnail).
+## Step 16
+
+16. **Inspector & expanded effects.** Type-driven inspector with collapsible sections;
+    **Transform** effect (scale / position / rotation / anchor / opacity) as a new built-in
+    `IVideoEffect`; **Color** (exposure / contrast / color) on the same SkSL shape; numeric +
+    slider editing bound to `AnimatableValue`, with keyframe affordances.
+    - **✅ DONE (`Sprocket.Core/Model` + `Sprocket.Render/SkiaEffectPipeline` + `Sprocket.App/Inspector/*`; 25 new
+      tests — Core +5, Render +8, App +12, all green).** The Inspector placeholder is now a live type-driven
+      property editor, and the two new built-in effects run as real SkSL on the same preview/export pipeline as
+      brightness/fade. Honours the §2 graph (effect registry + parameter metadata are pure data in **Core**; the
+      shaders live in **Render**; the panel lives in **App**). Delivered:
+      - **Two new built-in effects (Core ids + Render SkSL):** `EffectTypeIds.Transform`
+        (scale / positionX·Y / rotation / anchorX·Y / opacity) and `EffectTypeIds.Color`
+        (exposure / contrast / saturation), with their parameter names added to `EffectParamNames`. **Color** is
+        a per-pixel premultiplied-safe shader on the same shape as brightness (exposure = `exp2` gain, contrast
+        about mid-grey, saturation = luma mix, clamped to `[0,a]`). **Transform** is a *geometric* stage: the C#
+        side composes scale→rotate→position about the anchor in canvas space, inverts the affine, and feeds the
+        inverse (`m` 2×2 + `t`) to the SkSL so it maps each output coordinate back to a source coordinate; the
+        root image shader switches to **Decal** tiling whenever a transform is present, so a shrunk/moved layer
+        reveals the background instead of smearing edge pixels. A non-invertible transform (e.g. scale 0) draws
+        nothing. Both chain like brightness/fade in `BuildEffectShader` (which now also receives the layer's dest
+        rect to anchor the transform), so they compose on **preview and export** with no per-frame pixel alloc (§7).
+      - **Type-driven parameter metadata (Core, §4):** `EffectParameterDescriptor` (name, label, default, min,
+        max, step, optional unit) added to every `EffectDescriptor`, and `EffectDescriptor.CreateInstance()` now
+        builds a fresh instance by setting **each declared parameter to its default** (no per-effect factory
+        duplication). The Inspector — and any future plugin (step 33) — gets its editing UI for free from this
+        list. `EffectCatalog` now registers Transform + Color alongside the slice effects.
+      - **`InspectorPanel` (App, built in code like `TimelineControl`/`MediaBrowserPanel`):** a read-only **Clip**
+        section (source / start / duration / trim) plus one **collapsible `Expander` section per effect**, each
+        rendered automatically from the effect's parameter descriptors as a **label + keyframe toggle + numeric
+        box + slider**. A **`+ Effect`** flyout adds any catalog effect; a per-section **✕** removes one. All
+        editing runs through the step-10 command stack: a **slider drag coalesces to one undo entry**
+        (`BeginCoalescing` on pointer-down, sealed on release/capture-lost), the numeric box commits a single
+        edit on Enter/blur, and the model updates live. The **keyframe affordance** (◇/◆) converts a parameter
+        to/from animated and scrubs a keyframe in **at the playhead**; animated values' displayed value tracks
+        the playhead via `OnPlayheadMoved`. Edits during a gesture refresh values rather than rebuilding so the
+        control isn't torn down mid-drag; undo/redo + add/remove rebuild the sections. Unregistered (plugin)
+        effects still get editable sliders via fallback descriptors derived from their stored params.
+      - **Pure, tested helpers (App, mirroring the step-12 `TimelineMath` split):** `InspectorFormat` (value →
+        trimmed string + unit) and `AnimatableEditing` (`SetValueAt` = replace-constant vs upsert-keyframe;
+        `EnableKeyframing` / `DisableKeyframing`; `UpsertKeyframe` preserving the other keyframes). The control's
+        slider/pointer binding rests on these + manual verification (the App is a UI-bound `WinExe`).
+      - **App wiring:** the Inspector is bound to the project, the shared `EditHistory`, and a playhead accessor
+        (`() => engine.Position`); the timeline's `SelectedClipChanged` feeds it the clip, and the engine's
+        `PositionChanged` drives `OnPlayheadMoved`. The effect serializes for free via the existing
+        `EffectInstance` JSON (no persistence change).
+      - **Tests (25):** Core — Transform/Color present + categorised, parameter lists in order, `CreateInstance`
+        sets every default, all defaults within range; Render (headless raster, real SkSL) — exposure ±1 stop
+        doubles/halves, contrast darkens below mid-grey, Color identity is a pass-through, Transform identity
+        leaves the centre, transform opacity halves toward background, a full-width position shift reveals the
+        Decal background, and a Transform→Color chain composes; App — value formatting + units, and the
+        scalar-set / enable / disable / upsert keyframe transforms. Clean build (0 warnings); a
+        `SPROCKET_APP_SECONDS=5` smoke launch starts the shell with the Inspector wired and tears down cleanly
+        (exit 0). Full suite: **241 tests green** (Core 84, Media 24, Render 16, Audio 16, Playback 31, Export 6,
+        Persistence 12, App 52).
+      - **✅ FOLLOW-ON (2026-07-07): typed parameter-control kinds.** `EffectParameterDescriptor` gained an
+        explicit **`ParameterKind`** (`Continuous` / `Toggle` / `Integer` / `Dropdown`, plus `Choices` labels for
+        dropdowns — declared per descriptor, never inferred from Min/Max/Step, since continuous params like
+        Rotation also step by 1) and the Inspector dispatches on it: **toggles render as checkboxes**
+        (ShowMask, Ping Pong, Low/High Shelf, Tap 1–8 enables) and stay **keyframeable with Hold-pinned
+        interpolation** (`AnimatableEditing` upserts Hold keys; the lane is `HoldOnly` — no easing cycle, no
+        velocity graph — so a keyframed boolean flips hard at each key instead of ramping through the DSP's
+        ≥ 0.5 threshold, matching how leading NLEs hold-step boolean params); **dropdowns** generalize the
+        step-37 profile combo into a descriptor-driven, constant-only row (the ColorTransform special case was
+        deleted); **integer params** (Shimmer Interval) snap the slider and round commits, defaulting new keys
+        to Hold but still easeable. The numeric box's silent-revert bug was fixed with a unit-aware parse
+        (`InspectorFormat.TryParseValue` accepts the displayed `"1.5 EV"` / `"90°"` shapes). MCP mirrors the
+        policy (`kind`/`choices` in `list_effect_types`; discrete values snap; toggle/dropdown keyframes coerce
+        to Hold). Zero persistence impact (descriptor metadata is never serialized). Tests: Core catalog-kind
+        invariants, App parse/Hold-editing, MCP kind emission + coercion — all green.
+      - **✅ FOLLOW-ON (2026-07-07): Color Wheels trackballs.** The step-34 Color Wheels section replaced its
+        twelve stacked sliders with **three professional-style color wheels** (Lift / Gamma / Gain side by side): a hue
+        disc + draggable puck per wheel (drag to tint, **Shift = 0.1× fine**, **double-click recentres**), the
+        master slider beneath each, and the R/G/B rows in a collapsed **Channels** expander so all twelve
+        params stay individually keyframeable. Pure `ColorWheelMath` maps puck ↔ zero-sum R/G/B tint on
+        vectorscope axes (R 0° / G 120° / B 240°), **preserving the channels' mean** so a puck move never
+        destroys a slider tweak (the mean is the master's axis — exactly how the shader sums master +
+        channel); a puck move commits one `CompositeCommand` of the three channel sets, which merges
+        child-wise across the drag scope → **one undo entry per drag**, keyframes upserted at the playhead
+        when a channel is animated. The wheel is an Inspector composite editor dispatched by effect id
+        (promote to descriptor group metadata if plugins ever need wheels). Round-trip/axis/clamp math tests
+        green.
+      - **✅ FOLLOW-ON (2026-07-27): percentage display + drag-to-scrub numeric fields.** Closes the UI.md §3.5
+        divergence (the mockup specifies `Scale 118%` / `Opacity 100%`; the build showed bare `1.18` / `1`).
+        `EffectParameterDescriptor` gained an optional **`DisplayScale`** init property — declared explicitly
+        alongside `Unit = "%"`, never inferred — and `InspectorFormat.Value`/`TryParseValue` scale the
+        *displayed number only*, so Opacity reads `50%` while the slider, the clamp, the keyframe lane and
+        every command stay in model units. Applied to **Transform Scale + Opacity**, **Fade Opacity**, and the
+        audio effects' **0–1 mix/amount params** (reverb Room Size / Damping / Mix / Diffusion / Width / …,
+        delay Feedback / Cross-Feed / tap Level, tape Saturation, Shimmer) — the Premiere / Final Cut / After
+        Effects convention. Deliberately **not** applied to Contrast/Saturation/Vibrance (Resolve keeps
+        multipliers; a genuine toss-up), Position/Anchor, generator fractions, or Pan (keeps `L50` / `C` /
+        `R25`); **audio level stays in dB** everywhere, as in every professional NLE. New
+        `Controls/DragNumber` + `DragNumberMath` make every Inspector and mixer number a **"scrubby slider"**
+        (drag to change, Shift = coarse ×5, Ctrl = fine ×0.2, Esc cancels, click to type) with the whole
+        scrub coalescing to one undo entry; sensitivity is range-relative with a step floor rather than the
+        one-step-per-pixel rule, because our steps span four orders of magnitude. MCP emits `display_scale`
+        with an explicit note that tool arguments remain model units. Not attached to the Speed row: a retime
+        rebuilds the panel and the linked companions per commit, and Premiere/Resolve both keep speed in a
+        dialog rather than a scrubby field. Tests: percent format/parse + a catalog-wide default round-trip,
+        the `DisplayScale`↔`"%"` pairing invariant, and the scrub sensitivity/modifier/clamp/snap math.
+## Step 16b
+
+16b. **Direct-manipulation editing & keyframe editor (follow-on to 15/16).** The conveniences that the
+    bin + inspector + timeline make obvious but that steps 15/16 deferred. Lands entirely on existing
+    seams + commands ([ARCHITECTURE §17](ARCHITECTURE.md)) — no model redesign:
+    - **Drag media bin → timeline.** Drag a `MediaRef` tile from `MediaBrowserPanel` onto a
+      `TimelineControl` lane to place a new `Clip` (snapped, on a compatible track kind), via the existing
+      `AddClipCommand` (and a linked companion `AddClipCommand` in a `CompositeCommand` when the source has
+      both A/V, reusing the step-13 link-group logic). Replaces today's "bootstrap builds the clips" with
+      real placement; multi-track compositing/mixing (step 14) becomes visually rich once distinct clips can
+      land on the new tracks.
+    - **Drag effect → clip.** Drag an `EffectCatalog` row from the Effects browser onto a timeline clip (or
+      the Inspector) to append it via `AddEffectCommand`, complementing today's double-click-applies-to-
+      selection.
+    - **File import (dialog + drag-drop from OS).** A `File ▸ Import…` dialog and OS file-drop onto the bin
+      that probe via `MediaSource` and add to the `MediaPool` (the bin/thumbnail/badge path from step 15 then
+      lights up for arbitrary media, not just the bootstrapped source).
+    - **Keyframe track editor.** A richer keyframe surface than step 16's per-parameter ◇/◆ toggle: a
+      collapsible per-parameter lane (in the Inspector or a timeline drawer) showing keyframes on the time
+      axis, with add / move / delete and Hold↔Linear interpolation toggle — all editing the existing
+      `AnimatableValue` through `SetEffectParameterCommand` (the keyframe math already lives in
+      `AnimatableEditing`). The per-keyframe `Interpolation` mode is already in the model; this exposes it.
+    Sequenced here because it directly extends 15/16; it can also slot later without blocking 17+ (monitors,
+    proxies, generators) since none of those depend on it.
+    - **✅ DONE (`Sprocket.Core/Commands` + `Sprocket.App/{DragFormats,MediaImport}` + `Timeline/ClipPlacement` +
+      `Inspector/{KeyframeLaneMath,KeyframeLane}` and wiring; 17 new tests — Core +1, App +16, all green).** All
+      four direct-manipulation conveniences now land on existing seams + commands (ARCHITECTURE.md §17) with no
+      model redesign. Delivered:
+      - **Drag media bin → timeline.** Bin tiles are drag sources (Avalonia 12 `DataTransfer` / `DoDragDropAsync`
+        under a typed `DataFormat<string>` in `DragFormats`); `TimelineControl` is a drop target that places a new
+        clip on the lane under the cursor via the pure, tested **`ClipPlacement`** helper — `SnapStart` snaps the
+        drop's leading *or* trailing edge to clip edges / playhead / origin, and `BuildPlaceCommand` issues a single
+        `AddClipCommand` or, for an A/V source, a linked companion clip on the first track of the other kind wrapped
+        in a `CompositeCommand` with a shared link group (reusing the step-13 link logic). A dashed accent
+        drop-indicator previews the landing position; the placed clip is selected. (Launch now opens an *empty*
+        project — the bundled demo clip is reached via File ▸ Open Sample Project — so all lanes start empty and
+        fill by dragging / importing.)
+      - **Drag effect → clip.** Effects-browser rows are drag sources (effect-id payload); dropping on a timeline
+        clip appends the effect via `AddEffectCommand` (hit-tested with the existing `TryHitClip`), complementing
+        the step-15 double-click-applies-to-selection.
+      - **File import (dialog + OS drag-drop).** **File ▸ Import Media…** (`Ctrl+I`) opens a `StorageProvider`
+        picker, and OS file-drop onto the bin both route through **`MediaImport.TryImport`**, which probes via
+        `MediaSource` and adds a `MediaRef` through the new Core **`AddMediaCommand`** (undoable, dedupes by path,
+        offline-tolerant §15); the bin then refreshes so the imported source's thumbnail/badges appear (step 15).
+      - **Keyframe track editor.** A per-parameter **`KeyframeLane`** appears under an animated parameter's slider
+        in the Inspector: keyframes drawn on the clip's timeline range (diamonds = Linear, squares = Hold) with the
+        playhead marked. **Drag** a keyframe to move it (one coalesced undo entry), **double-click** empty space to
+        add at that time, **double-click** a keyframe to toggle Hold↔Linear, **right-click** to delete — all editing
+        the existing `AnimatableValue` through `SetEffectParameterCommand` (step 10). The keyframe transforms
+        (`MoveKeyframe` / `RemoveKeyframe` — collapsing to a constant when the last one goes / `SetInterpolation`)
+        joined the pure **`AnimatableEditing`** helper, and the lane geometry/hit-testing lives in the pure
+        **`KeyframeLaneMath`** (mirroring the step-12 `TimelineMath` split).
+      - **Tests (17):** Core — `AddMediaCommand` apply/undo/redo. App — `ClipPlacement` (start/trailing-edge snap,
+        origin clamp + off-switch, A/V linked pair, video-only single clip, no-compatible-track null, unlinked pair)
+        and the keyframe helpers (move preserving value/order, move-onto overwrites, no-op for missing, remove keeps
+        rest, remove-last → constant, Hold/Linear toggle, `KeyframeLaneMath` round-trip / clamp / nearest-within-
+        tolerance). The drag/drop plumbing + lane drawing rest on these + manual verification (the App is a UI-bound
+        `WinExe`). Clean build (0 warnings); a `SPROCKET_APP_SECONDS=5` smoke launch starts the shell and tears down
+        cleanly (exit 0). Full suite: **258 tests green** (Core 85, Media 24, Render 16, Audio 16, Playback 31,
+        Export 6, Persistence 12, App 68).
+## Step 16c
+
+16c. **Wire up the menu / command surface (make the menus actually work).** Step 11 built the inline
+    menu bar (`File · Edit · Clip · Sequence · Effects · View · Window · Help`) but most items are inert
+    — e.g. **File ▸ Save / Save As / Open** don't run today even though `ProjectSerializer` (step 9) and
+    the action-bar Save button already exist. Bind every menu item to its command and add the standard
+    keyboard accelerators: **File** (New / Open / Save / **Save As — write the current project to a new
+    file as an independent copy** so the original is left untouched / Import Media [step 16b] / Export
+    [step 8] / Exit), **Edit** (Undo / Redo [step 10] / Cut / Copy / Paste / Delete / Select All),
+    **Clip** (Enable, Link/Unlink [step 13], Speed/Duration, Nudge), **Effects** (apply from the catalog
+    [steps 15–16]), **View** (timeline zoom, Snapping, Guides [step 17], panel toggles), **Window**
+    (layout), **Help** (About — no framework/runtime text, [UI.md §3.7](UI.md)). Every editing action
+    routes through the step-10 `EditHistory` so it stays undoable; items are context-enabled (greyed out
+    when they don't apply), and an item whose feature lands later (e.g. **Sequence ▸ New / Settings /
+    Nest** → step 23) stays visibly disabled rather than silently dead. A smoke pass confirms Save /
+    Open / Export run from the menus, not just the toolbar buttons.
+    - **✅ DONE (`src/Sprocket.App`: `MainWindow.axaml`/`.cs`, `App.axaml.cs`, `MediaBootstrap.cs`,
+      `Timeline/TimelineControl.cs`, new `ClipboardOps.cs` + `Dialogs.cs`; 9 new tests in
+      `tests/Sprocket.App.Tests/ClipboardOpsTests.cs`).** The whole inline menu bar is now live — every item is
+      bound to its command, routed through the step-10 `EditHistory`, and context-enabled on submenu-open. This is
+      an **App-layer step**: every operation lands on an existing Core command (`AddClip`/`RemoveClip`/
+      `SetClipPlacement`/`CompositeCommand`/`SetProperty<Guid?>`/`AddEffect`) or `ProjectSerializer`, so **no Core
+      change was needed**. Delivered:
+      - **File — New / Open / Save / Save As / Import / Export / Exit.** (Quit is per-OS native: Windows keeps
+        **Exit** / `Alt+F4`; Linux shows **Quit** / `Ctrl+Q` per the GNOME convention; macOS hides the item
+        entirely and relies on AppKit's **Quit Sprocket** `⌘Q` in the application menu.) **New** (empty 1V+1A project) and **Open**
+        (a project JSON via `ProjectSerializer.Load`, offline-tolerant §15) hand a fully-built project to the
+        composition root through a new `MainWindow.SessionRequested` event; `App` builds a fresh engine over it
+        (`MediaBootstrap.CreateForProject`, which opens decoders + an audio master clock for an *existing* project
+        without mutating it) and **swaps the shell window** (new shown before old closed so the
+        last-window-closes shutdown never trips, then the old engine is disposed). **Save** writes to the tracked
+        file or falls back to **Save As**; **Save As** writes the project to a newly chosen file as an
+        **independent copy** (the original file is untouched) and re-points the document + title at it. The
+        document tracks its file path and the dirty indicator resets on save/load.
+      - **Edit — Undo / Redo + Cut / Copy / Paste / Delete.** A single-clip clipboard (a detached deep copy with
+        the effect stack cloned and the link cleared — a paste is independent): **Copy** snapshots the selected
+        clip, **Cut** = copy + delete, **Paste** drops the snapshot at the playhead onto the first track of the
+        matching kind and selects it, **Delete** removes the selection (and, with **Linked** on, its companion
+        A/V clips) as one undo entry. **Select All** stays disabled (multi-clip selection isn't modelled yet).
+      - **Clip — Unlink + Nudge.** **Unlink** clears the link group on the selected clip and its companions (one
+        undo entry, step 13); **Nudge Left/Right** shifts the clip (and its linked group, group-clamped so none
+        crosses the origin) by one frame. **Enable / Link / Speed-Duration** stay disabled (per-clip enable + a
+        retime model don't exist yet; Link needs a multi-clip selection).
+      - **Effects** — the menu is populated from `EffectCatalog` at runtime and each item appends that effect to
+        the selected clip via `AddEffectCommand`, complementing the step-15 browser double-click / step-16b drag.
+      - **View** — **Zoom In/Out** (the timeline control), **Snapping** + **Guides** as checkbox items that mirror
+        and drive the existing toolbar toggles (single source of truth), and **Project / Inspector panel** show /
+        hide (collapsing the pane's grid column + splitter). **Window — Reset Layout** restores the pane splitters
+        to their defaults. **Help — About** opens a small dialog with the product name + the app's own version +
+        a one-line description (**no framework/runtime text**, [UI.md §3.7](UI.md)).
+      - **Accelerators + context-enabling.** All accelerators are handled in `OnKeyDown` (Ctrl+N/O, Ctrl+Shift+S,
+        Ctrl+X/C/V, Delete, Alt+←/→, plus the existing save/export/import/undo/redo + Space), with a **focused
+        text-field guard** so editing/transport keys don't steal input from the bin search box or the Inspector
+        numeric fields (the `InputGesture` text on each menu item is the display label). Edit/Clip/Effects/View
+        menus refresh their item enable/checked state on **submenu-open**, so they reflect the live selection /
+        clipboard / toggle state without per-edit bookkeeping. **Sequence** stays wholly disabled until step 23.
+      - **Pure, tested helper + manual/smoke verification (the project's established split).** `ClipboardOps`
+        (clip deep-copy, paste placement, and the group-nudge origin clamp) is Avalonia-free and covered by **9
+        headless tests** (copy clones effects + clears link + is insulated from later edits, paste places/clamps +
+        clones, repeated pastes independent, the nudge clamp); the session-reload / window-swap, dialogs, and
+        menu wiring rest on these + manual verification (the App is a UI-bound `WinExe`). Clean build (0 warnings);
+        a `SPROCKET_APP_SECONDS=6` smoke launch starts the shell with the full menu wired and tears down cleanly
+        (exit 0) — confirming the expanded menu XAML parses and Save / Open / Export run from the menus. Full
+        suite: **278 tests green** (Core 85, Media 24, Render 18, Audio 16, Playback 40, Export 6, Persistence 12,
+        App 77).
+## Step 16d
+
+16d. **Keyframes.** The keyframe foundation exists — the model's `AnimatableValue`
+    (constant or keyframed, with per-keyframe `Interpolation`), the step-16 ◇/◆ inspector affordances,
+    and the step-16b keyframe-lane editor (add / move / delete, Hold↔Linear). Bring it to leading NLEs
+    parity: **temporal interpolation beyond Hold/Linear** — Bezier / Ease In / Ease Out / Auto Bezier
+    with an editable **velocity (value) graph**; **spatial interpolation** for positional params
+    (Transform position/anchor) so keyframes define a **motion path** with linear or curved (spatial
+    Bezier) segments edited as on-canvas handles in the Program monitor (step 17); plus keyframe
+    **copy / paste**, multi-select, nudge, and playhead **jump-to-previous/next-keyframe** navigation.
+    Lands on the existing `AnimatableValue` + `SetEffectParameterCommand` + `AnimatableEditing` seam —
+    the per-keyframe `Interpolation` enum just gains the new modes (additive, no redesign),
+    [ARCHITECTURE §9](ARCHITECTURE.md). **Terminology:** keep "keyframe" for animation (the
+    convention shared by leading editors and After Effects, and already the model term); to remove the only clash, refer to
+    the unrelated **codec** sense (the GOP I-frame `MediaSource` seeks to, step 3) as **"I-frame"** in
+    code and docs from here on — no rename of the animation concept is needed.
+    - **✅ DONE — temporal interpolation + keyframe ops + navigation (`Sprocket.Core/Model/{AnimatableValue,
+      KeyframeNavigation}` + `Sprocket.App/Inspector/{AnimatableEditing,KeyframeLane}` + transport; 24 new tests —
+      Core +15, App +8, Persistence +1, all green).** Lands exactly on the existing seam as planned — the
+      per-keyframe `Interpolation` enum **just gains the new modes**, no model redesign (ARCHITECTURE.md §9).
+      Delivered:
+      - **Eased temporal interpolation (Core).** `Interpolation` adds `EaseIn` / `EaseOut` / `EaseInOut` (the
+        "Ease In / Ease Out / Auto Bezier" set) alongside `Hold` / `Linear`; `AnimatableValue.Evaluate` shapes the
+        segment's velocity through a small, exact `Ease()` curve (quadratic accel/decel + a cubic smoothstep —
+        Bezier-like velocity without a curve solver, so it's trivially testable). Each curve is monotonic with
+        f(0)=0, f(1)=1, so endpoints still land on the keyframe values; only the velocity between them changes.
+        **Additive:** old projects (Hold/Linear only) evaluate identically, and the modes round-trip through the
+        string-enum persistence (no schema bump — §12).
+      - **Keyframe navigation (Core).** `KeyframeNavigation.PreviousKeyframe` / `NextKeyframe` gather keyframes
+        across **every** animated parameter of **every** effect on a clip and find the nearest one strictly
+        before/after a time (so it never sticks on the current keyframe), plus `HasKeyframes`. Pure model
+        reasoning, headless-tested beside `RenderGraph`.
+      - **Keyframe ops (App `AnimatableEditing`).** `CycleInterpolation` (the step-16b Hold↔Linear toggle grown to
+        cycle Linear → Ease In → Ease Out → Ease In/Out → Hold → …), `NudgeKeyframes` (shift a whole multi-selection
+        by a tick delta as one op, shifted-wins on collision), and `CopyKeyframes` / `PasteKeyframes` (paste lands
+        the earliest at the playhead, keeps relative spacing, carries value + interpolation) — all pure transforms
+        on the immutable `AnimatableValue`, handed to `SetEffectParameterCommand` so every edit stays undoable
+        (step 10).
+      - **UI wiring (App, manual-verified like the other UI-bound controls).** The Inspector keyframe lane's
+        double-click now **cycles all interpolation modes** (was Hold↔Linear) and draws each mode distinctly
+        (square = Hold, diamond = Linear, circle = eased). The transport bar gains **◆◀ / ▶◆** jump-to-previous/
+        next-keyframe buttons (and `[` / `]` accelerators) that seek the Program playhead to the selected clip's
+        nearest keyframe via `KeyframeNavigation`; the buttons context-enable only when the selection has
+        keyframes (refreshed on selection + on every history change, so adding the first keyframe lights them up).
+      - **Terminology.** Honoured the directive: the **codec** sense of "keyframe" (the GOP key picture
+        `MediaSource`/`AudioSource` seek to, the `MediaEncoder` GOP size) is now called **"I-frame"** in those
+        comments; "keyframe" is reserved for the animation concept (the model term).
+      - **Tests (24):** Core — eased modes hit the endpoints, EaseOut/EaseIn bracket the linear midpoint,
+        EaseInOut is symmetric about 0.5, all eased modes are monotonic; `KeyframeNavigation` prev/next across
+        params, strict (doesn't stick on the current), null at the ends, `HasKeyframes`. App — `CycleInterpolation`
+        walks every mode and wraps + no-ops off a keyframe, `NextMode` covers all five once, `NudgeKeyframes`
+        single/multi/no-op, copy→paste reproduces values + interpolation at a new origin, empty-clipboard no-op.
+        Persistence — an EaseOut/EaseIn/EaseInOut ramp round-trips (modes **and** eased value). Clean build (0
+        warnings); a `SPROCKET_APP_SECONDS=5` smoke launch starts the shell with the keyframe transport wired and
+        tears down cleanly (exit 0). Full suite: **302 tests green** (Core 100, Media 24, Render 18, Audio 16,
+        Playback 40, Export 6, Persistence 13, App 85).
+    - **✅ DONE — editable velocity graph + multi-select gestures (items 1 & 3) (`Sprocket.Core/Model/
+      AnimatableValue` + `Sprocket.Persistence` + `Sprocket.App/Inspector/{AnimatableEditing,KeyframeGraphMath,
+      KeyframeLane,InspectorPanel}`; 11 new tests — Core +3, App +7, Persistence +1, all green).** Still purely
+      additive on the same seam (ARCHITECTURE.md §9). Delivered:
+      - **Custom Bezier velocity curves (Core).** `Interpolation` gains `Bezier`, and `Keyframe` gains two
+        nullable `BezierHandle`s (`EaseOut` = the outgoing control point, `EaseIn` = the incoming one) in
+        segment-normalized (time-fraction, value-progress) space — the CSS / After-Effects
+        `cubic-bezier(x1,y1,x2,y2)` model. `Evaluate` solves Bx(t)=x (Newton-Raphson + bisection fallback) then
+        returns By(t), exact at the endpoints; null handles fall back to a gentle "easy ease"
+        (`BezierHandle.DefaultEaseOut/In`). Additive: pre-16d keyframes (no handles) evaluate identically, and the
+        handles round-trip through persistence as nullable fields (`WhenWritingNull` → byte-identical for
+        non-Bezier projects, **no schema bump**).
+      - **Editing helpers (App `AnimatableEditing`).** `SetOutgoingHandle` (sets the handle **and** switches the
+        keyframe to Bezier) / `SetIncomingHandle` (handle only), and `Bezier` joins the `CycleInterpolation`
+        round-robin. The pure value-axis geometry (`KeyframeGraphMath`: value↔Y mapping, handle
+        progress↔value conversions with a flat-segment guard) mirrors the step-12 `TimelineMath` split.
+      - **Velocity-graph UI + multi-select (App `KeyframeLane`).** The lane now has a **graph mode** (toggled by a
+        `∿` button per animated parameter) that plots the live value curve and, for each Bezier segment, draws
+        **draggable handles** to shape the velocity freely — every drag is one coalesced undo entry. Both the
+        compact strip and the graph support **multi-select**: click, **Shift-click** to toggle, **rubber-band** to
+        box-select, then **drag the whole selection together** (via `NudgeKeyframes`) and **right-click** to delete
+        the selection. Keyframe glyphs read per mode (square Hold · diamond Linear · circle eased · hexagon
+        Bezier); selected keyframes get an accent ring. (The lane/handle drawing + pointer interaction rest on the
+        pure helpers + manual verification, the App being a UI-bound `WinExe`.)
+      - **Tests (11):** Core — Bezier default handles are a symmetric smooth ease, linear-equivalent handles match
+        linear, Bezier is monotonic. App — `SetOutgoing`/`SetIncoming` handle behaviour + no-op, custom handles
+        visibly shape the evaluated curve, `KeyframeGraphMath` value↔Y round-trip / clamp / degenerate-range
+        centring / progress conversions + flat-segment guard. Persistence — a Bezier keyframe's handles round-trip
+        (unset handles stay null). Clean build (0 warnings); a `SPROCKET_APP_SECONDS=5` smoke launch starts the
+        shell with the graph toggle wired and tears down cleanly (exit 0). Full suite: **313 tests green** (Core
+        103, Media 24, Render 18, Audio 16, Playback 40, Export 6, Persistence 14, App 92).
+    - **Remaining for 16d (item 2 — the non-additive part, deferred):** **spatial interpolation / motion paths**
+      for Transform position·anchor with on-canvas Bezier handles in the Program monitor. This needs position
+      modelled as a **2D pair** so X·Y interpolate jointly along a curve, which the current independent
+      `positionX`/`positionY` `AnimatableValue`s (each evaluated per-axis) can't express without the redesign the
+      additive framing avoids; it slots onto the same `AnimatableValue` + command seam when that 2D-position model
+      is introduced.
+## Step 16e
+
+16e. **Cross-track clip dragging (move / copy / horizontal-lock).** Extend the timeline Move tool so a clip
+    drags **vertically across tracks**, not only horizontally along time. **Alt/Option-drag copies** (drops a
+    duplicate on the target track, original untouched); **Shift-drag locks the horizontal position** to the
+    origin time (change track only); the modifiers stack (Alt+Shift = copy at the same time). Matches the NLE
+    convention (leading editors use Alt/Option to duplicate; Shift-lock matches that same convention), leaving Ctrl/Cmd
+    free for a future insert edit. Lands on existing seams ([ARCHITECTURE §17](ARCHITECTURE.md)) with no model
+    redesign.
+    - **✅ DONE (`Sprocket.Core/Commands/ModelCommands.cs` + `Sprocket.App/Timeline/{TimelineMath,ClipPlacement,
+      TimelineControl}`; 10 new tests — Core +1, App +9, all green).** Delivered:
+      - **New Core command `MoveClipToTrackCommand`** — removes the clip from its source track, sets its new
+        timeline start, and adds it to the destination track; undo restores the original track **at the original
+        index** (z-order safe, like `RemoveClipCommand`) and the original start. `SourceIn/Out` + `LinkGroupId`
+        untouched. Not coalescing — the gesture commits exactly one command, so it is already one undo entry.
+      - **Move drag reworked to preview-then-commit** (`TimelineControl`). Only the Select tool's clip-body drag
+        changed; **Trim/Slip stay live + coalesced** as before. During the drag the model is **not** mutated — a
+        translucent **ghost** + **target-lane highlight** show where the clip will land (modifiers read live from
+        the pointer gesture: `Alt` → copy cursor, `Shift` → horizontal lock). On release it commits exactly one
+        command: a no-op (no move), `SetClipPlacementCommand` (same-track move), `MoveClipToTrackCommand`
+        (cross-track), or `AddClipCommand` of a `ClipboardOps.Paste` clone (Alt-copy — an independent duplicate,
+        original untouched). **Track-kind is enforced** via the pure `ClipPlacement.CompatibleTrack`
+        (video→video, audio→audio; an incompatible lane keeps the source track). **Linked A/V:** only the dragged
+        clip changes track; companions **shift in time only** (kept on their own tracks) inside a
+        `CompositeCommand`. **Drop collisions allow overlap** (true overwrite/ripple deferred to step 22).
+      - **Pure, tested geometry** (mirroring the step-12 `TimelineMath` split): `TimelineMath.LaneIndexAtY`
+        (extracted from the control's private `LaneAtY`, which now delegates to it) and
+        `ClipPlacement.CompatibleTrack`.
+      - **Tests (10):** Core — `MoveClipToTrackCommand` moves + sets start + reverts to the original track/index,
+        leaving source span + link intact. App — `LaneIndexAtY` Y→lane mapping (incl. above-ruler + degenerate
+        stride) and `CompatibleTrack` (same-kind lane → that track; cross-kind / null lane → null = keep source).
+        The ghost drawing + pointer interaction rest on these + manual verification (the App is a UI-bound
+        `WinExe`). Clean build (0 warnings); a `SPROCKET_APP_SECONDS=5` smoke launch starts the shell and tears
+        down cleanly (exit 0). Full suite: **419 tests green** (Core 140, Media 28, Render 23, Audio 19,
+        Playback 47, Export 10, Persistence 30, App 122).
+## Step 17
+
+17. **Monitors.** Dual **Source / Program** monitors (same render graph, second surface),
+    safe-area / framing-grid overlay, **Fit** zoom, and full transport (jump-to-start/end,
+    frame-step, play/pause).
+    - **✅ DONE (`Sprocket.Playback` + `Sprocket.Render` + `Sprocket.App`; 11 new tests — Playback +9, Render +2,
+      all green).** The Program monitor's placeholder header/transport grew into the dual-monitor surface of
+      [UI.md §3.4](UI.md): a Source tab, the safe-area/framing-grid overlay, the `Fit ▾` zoom, and the full
+      `⏮ ◀◀ ▶ ▶▶ ⏭` transport. Honours the §2 graph (the zoom/overlay math is pure in **Render**; the second
+      monitor reuses the existing playback/render seams in **App** — a "new feature on an existing seam", §17).
+      Delivered:
+      - **Full transport — frame-step (Playback).** `PlaybackEngine.StepFrame(±1)` pauses if playing then seeks
+        to the frame-aligned neighbour; the snap-to-frame-grid + clamp math lives in the pure
+        `PlaybackMath.StepFrame` (floors the position to its frame index first, so a scrubbed mid-frame playhead
+        still steps on the frame grid). The transport bar gains **◀◀ / ▶▶** buttons beside the existing
+        jump-to-start/end + play/pause.
+      - **`Fit ▾` zoom (Render + App).** `FramePresenter.ComputeZoomRect` extends the existing letterbox fit with
+        fixed **50% / 100% / 200%** scales (native-size, centred, overflow clipped) behind a new `MonitorZoom`
+        enum; a `Fit ▾` `ComboBox` in the monitor header drives it. `PreviewSurface` gained a `Zoom` property and
+        an explicit logical **frame size** (`SetFrameSize`) so every layer now composites into one shared zoom
+        rect (the sequence resolution for Program, the source resolution for Source) instead of fitting each layer
+        independently — more correct for mixed-resolution tracks and the anchor for the overlay.
+      - **Safe-area / framing-grid overlay (Render + App).** `MonitorOverlay` draws a rule-of-thirds grid plus
+        **action-safe (93%)** and **title-safe (90%)** guide rectangles over the frame rect as thin translucent
+        strokes (never touching the decoded pixels, §1); the inset geometry (`ComputeSafeAreas`) is pure. A
+        **Guides** toggle in the header switches it on both surfaces.
+      - **Dual Source / Program monitors (App).** A small `IMonitor` abstraction unifies the transport over two
+        implementations: **`ProgramMonitor`** (a thin adapter over the app's main multi-track engine) and
+        **`SourceMonitor`** (owns a *rebuildable* single-feed `PlaybackEngine` over a throwaway one-clip project
+        spanning the selected source — the **same render graph**, ARCHITECTURE.md §5). The Source engine is built
+        **lazily** only while its tab is open (a decoder is opened on activate and freed on deactivate) and is
+        video-only on a `SoftwareClock`. Both monitors present through **one shared `PreviewSurface`** (so the
+        program preview's GPU custom-draw tree is unchanged from step 11); the **Program / Source** header tabs
+        swap which engine is attached to it, pause the outgoing monitor, and re-point the one transport bar at the
+        active monitor. Selecting a timeline clip feeds its source to the Source monitor. The Inspector keeps
+        tracking the **Program** playhead regardless of which monitor is shown.
+      - **Pure, tested helpers + manual-verified UI (the project's established split).** Tests (11): Playback —
+        `PlaybackMath.StepFrame` (advance/retreat one frame, mid-frame snap-to-grid, clamp at both ends, degenerate
+        frame-rate no-op) and `FramePresenter.ComputeZoomRect` (Fit == fit-rect, 50/100/200% scale + centre,
+        degenerate → empty); Render — `MonitorOverlay.ComputeSafeAreas` (documented insets, concentric, title
+        inside action, degenerate → empty). The tab switching, transport routing, source-engine lifecycle, and
+        overlay/zoom *drawing* are UI/decode-bound and rest on these + manual verification (the App is a UI-bound
+        `WinExe`). Clean build (0 warnings); a `SPROCKET_APP_SECONDS=5` smoke launch starts the shell with both
+        monitors wired and tears down cleanly (exit 0). Full suite: **269 tests green** (Core 85, Media 24,
+        Render 18, Audio 16, Playback 40, Export 6, Persistence 12, App 68).
+      - **Note:** the Source monitor previews video only — source-audio scrub and an independent in/out-marker
+        overlay (to mark a source span before placing it) are small follow-ons behind the same `IMonitor` seam.
+## Step 18
+
+18. **Proxy media (render performance) — default-on, background, transparent.** Generate
+    lower-resolution proxies and preview against them via an alternate `IFrameSource`; **export always
+    pulls full-resolution originals** ([ARCHITECTURE §17](ARCHITECTURE.md)). Committed feature per
+    [BRIEF.md](BRIEF.md). Designed so it never interrupts flow:
+    - **Best-available source selection (default-on).** "Use proxies" is **on by default**, but *on*
+      means *use a proxy when one is ready, else the original* — so a freshly imported clip starts
+      previewing on the original immediately and **transparently switches** to its proxy once built.
+      Per-`MediaRef` state None → Queued → Building → Ready/Failed; the preview source resolver prefers a
+      Ready proxy, while export ignores proxies entirely (determinism unaffected, §1.6).
+    - **Background generation.** A **bounded**-worker proxy service encodes off the hot path (leaves
+      cores for decode/render/audio), using **hardware / all-intra / OS-specific** codecs (step 32,
+      [ARCHITECTURE §11](ARCHITECTURE.md) "Preview vs. delivery codecs"). A **priority queue** builds
+      media on the timeline / near the playhead / in the active sequence first, then the rest of the bin.
+      Proxies persist in the local, regenerable cache dir (same store family as the render cache §20 /
+      the per-user sidecar of step 28), survive restarts, and cancel/resume cleanly.
+    - **Resolution = a fixed tier, not the live window.** The preview window resizes constantly and
+      proxies are expensive + persisted, so key them to a **stable target**: default
+      **`min(½ source, 1080p)`** (1080p is the locked preview ceiling — higher is wasted), and **skip
+      proxy generation for sources already light enough** to preview in real time (≤ 1080p 8-bit H.264
+      etc., decided from the probe). The tier is a project/preference setting (¼ / ½ / 1080p) for weak
+      machines. Zoom-to-100/200% (step 17) or a >1080p preview that out-resolves the proxy falls back to
+      the original for that view.
+    - **Tiered "draft-first" — deferred, conditional.** Because the original is the interim fallback,
+      preview is usable immediately, so a fast low-res *draft* tier only helps **heavy** sources
+      (4K / HEVC / 10-bit / ProRes, or many layers) whose original can't scrub before the quality proxy
+      lands. Ship the **single 1080p tier first**; add a draft tier later **only if profiling shows
+      heavy-source jank** — it slots into the same best-available order (quality > draft > original) as
+      just another `IFrameSource`, with no redesign.
+    Note: this is **source-clip** proxying; proxying a whole **nested sequence / composited output** is
+    the render cache / pre-render (§20, step 32) — same background-encode + fast-codec infrastructure,
+    different unit.
+    - **✅ DONE (`Sprocket.Core/Model/ProxyPolicy.cs` + `ProjectSettings`; `Sprocket.Playback` invalidation hook;
+      `Sprocket.App/Proxy/{ProxyCache,ProxyTranscoder,ProxyService}` + bootstrap wiring; 19 new tests — Core +9,
+      Persistence +2, App +7, Playback +1, all green).** Preview proxies are **default-on, background, and
+      transparent**, landing on the existing `IFrameSource` seam (ARCHITECTURE.md §17) with **export untouched**
+      (it still pulls full-resolution originals in software, §1.6 / §5 — verified: the export path was not
+      modified). Delivered:
+      - **Best-available source selection (Core + App).** A pure `ProxyPolicy` decides the per-tier **target
+        resolution** (tier scale, then clamped under the locked **1080p** preview ceiling, even dims, aspect
+        preserved) and whether a source is **worth proxying** (sources already ≤ 1080p preview in real time and are
+        skipped — the "light enough" heuristic keyed off resolution, all `ProbedMediaInfo` carries today). The
+        per-source `ProxyState` (None → Queued → Building → Ready/Failed) lives in the **runtime service, not the
+        serialized model** (a proxy is a local, regenerable artifact). The preview feed factory opens each source's
+        **best-available file** — its ready proxy, else the original — so a heavy clip previews on the original
+        immediately and **switches transparently** the moment its proxy lands.
+      - **Transparent switch-on-ready (Playback).** A new `PlaybackEngine.InvalidateSource(id)` + `VideoTrackPlayer`
+        rebuild flag lets a track decoding a source rebuild its feed on the next pump **without a seek or a clip
+        edit**; the proxy service raises `ProxyReady` (wired to `InvalidateSource` in the composition root) when a
+        proxy finishes or is found already cached, so the preview flips to the proxy live. (Deterministic test: a
+        signalled source reopens its feed on the next pump; an un-signalled one does not.)
+      - **Background generation (App `ProxyService`).** A **single bounded background worker** drains a **priority
+        queue** — sources used on the timeline build before bin-only sources — encoding off the hot path. Proxies
+        persist in a **per-user cache dir** keyed by source identity (path + size + mtime) + target size
+        (`ProxyCache`, pure + tested), so a cached proxy is **reused without re-encoding** across restarts; disposal
+        cancels any in-flight build. Sources already light enough are never queued. Enqueued on startup, project
+        load, and media import; a status-bar summary reflects progress without interrupting flow. The summary is
+        driven by a `ProgressChanged` event raised **when work is queued, when a build starts, and when one
+        finishes (success *or* failure)** — `ProxyReady` alone fires only on success, so a long first build used to
+        be announced only once it completed, and a run whose last source failed stranded a "pending" readout.
+        Failures are surfaced explicitly (`proxy generation failed (n) — previewing originals`) rather than
+        silently leaving the user on a slower original.
+      - **Out-of-process encode (App `ProxyTranscoder`).** Proxies are generated by **shelling out to the `ffmpeg`
+        CLI** (`-an -vf scale=… -c:v libx264 -preset ultrafast -crf 28`). **Why not the in-process `MediaEncoder`:** driving a second libav* muxer/encoder in-process
+        *concurrently with the live preview decode + GPU compositor* reproducibly faulted with a native access
+        violation in `av_interleaved_write_frame` (confirmed it is the in-GUI-process concurrency, not the logic — a
+        standalone repro of decode+audio+encode in parallel never crashes). Shelling out keeps proxy encoding
+        entirely off our process's FFmpeg state/threads, can't corrupt the live pipelines, is cleanly cancellable
+        (kill the child), and **degrades gracefully** if `ffmpeg` isn't on PATH (the source just keeps previewing on
+        its original, §15). Output is written to a temp file and **atomically promoted** only on a clean exit.
+        The child is **throttled to stay background work**: `-threads` capped at half the machine's cores (floored
+        at 1, capped at 8) and **below-normal process priority**. Unthrottled, `ffmpeg` takes every core precisely
+        while the user is watching the preview — the decode ring, GPU compositor, and audio callback all contend
+        with it, and since audio is the master clock (§6) an underrun there desyncs video too. Finishing the proxy
+        a minute later is invisible; a stuttering preview is not. (Both the thread-count rule and the status
+        wording are pure + tested.)
+      - **Settings + persistence.** `ProjectSettings.UseProxies` (default on) + `ProxyTier` (default Half) are
+        **additive, schema-versioned** (`WhenWritingNull`/constructor defaults): pre-18 files load with proxies on
+        at the Half tier (tested), and the fields round-trip.
+      - **Tests (19) + real end-to-end verification.** Core — `ProxyPolicy` target sizing per tier (4K→1080p half,
+        quarter, ceiling clamp, even dims, empty) + needs-proxy (above/at/below ceiling, no-video); Persistence —
+        proxy settings round-trip + pre-18 default load; App — `ProxyCache` key stability / case-insensitivity /
+        forks-on-any-identity-change; Playback — feed invalidation. The service/transcoder/feed-switch rest on these
+        + **manual verification** (the App is a UI-bound `WinExe`): a real run against a generated **4K** clip
+        produced a **1920×1080 / 60-frame** proxy in the cache dir with no crash, and the default **1080p** sample
+        correctly generated **no** proxy. Clean build (0 warnings). Full suite: **335 tests green** (Core 112,
+        Media 24, Render 18, Audio 16, Persistence 16, App 99, Export 6, Playback 44).
+      - **Deferred (noted, on the same seam):** the **fast draft tier** (only if profiling shows heavy-source jank),
+        **hardware / all-intra** proxy codecs (step 32), **zoom-to-100/200% falling back to the original** when a
+        view out-resolves the proxy (the resolver would need the live zoom), and **Source-monitor proxying** (it
+        previews on originals today) — none requires a redesign.
+    - **✅ ADDENDUM — proxy status window + live runtime control (`View ▸ Proxy`; 26 new tests — App +25, Core
+      unaffected; full suite 1920 green, clean build).** Generation was background *and invisible*: the only feedback
+      was one terse status-bar line, and the two settings (`UseProxies` / `ProxyTier`) had **no UI at all** — read
+      once at session construction, changeable only by hand-editing the project file. This adds the window and the
+      runtime state machine underneath it, following **Final Cut Pro's Background Tasks** window (per-task progress
+      while you keep editing) + its delete-generated-media commands, and **DaVinci Resolve's** per-asset proxy status
+      + per-project tier. Delivered:
+      - **A specified runtime state machine (`ProxyService`).** The load-bearing part — the window is a thin view over
+        it. `_enabled`/`_paused`/`_tier` became live runtime state, and **the worker now always starts** (it used to
+        be `Task.CompletedTask` when constructed disabled, which is why nothing could be switched on mid-session); a
+        disabled or paused service parks on the semaphore. New public surface: `SetEnabled` / `SetPaused` / `SetTier`
+        / `Generate(id)` / `RebuildAll` / `Snapshot()` / `DeleteProxy(id)` / `DeleteAllProxies()`.
+      - **Inventory split from scheduling.** `Enqueue(Project)` keeps its name and signature (so **both** call sites —
+        the composition root and the post-import call in `MainWindow` — get the change for free) but the
+        disabled early-return moved *inside*: inventory always runs, only queueing is gated on enabled/not-paused. A
+        project loaded or media imported with proxies **off** therefore still yields a complete `Snapshot()`, so the
+        window shows what *would* be built. New `ProxyState.NotGenerated` ("wanted, none on disk, none scheduled")
+        distinguishes that from `NotNeeded` ("no proxy would ever help").
+      - **Per-entry stale-completion fencing.** Every entry carries a generation counter that invalidating actions
+        bump **for the affected entries only**; each queued item remembers the generation it was queued at, and a
+        completion whose generation has moved on is discarded. Per-entry rather than one global counter because a
+        global one makes `DeleteProxy(A)` throw away B's in-flight build (both the per-entry case and the ABA case —
+        delete → `Generate` re-queues the same path while the old build still runs — are pinned by tests).
+      - **Pause = cancel-and-requeue**, effective immediately rather than after the current (possibly multi-minute)
+        source; the partial output is discarded (`ProxyTranscoder` only promotes on a clean exit) and the build
+        restarts from zero on resume. Cross-process suspension is deliberately not attempted. The semaphore
+        accounting is the subtle half: while paused the worker parks *before* dequeuing (swallowing permits without
+        consuming items) and a pause-cancelled item requeues without a permit, so **resume releases exactly
+        `_queue.Count`** — tested with 3 queued + 1 building.
+      - **Per-file progress + ETA.** `ProxyTranscoder` gained `-progress pipe:1 -nostats` and an injectable
+        `IProxyTranscoder` seam (production `FfmpegProxyTranscoder`), which is what makes the state machine testable
+        without `ffmpeg` on PATH. **Both child streams are now drained asynchronously** (`BeginOutputReadLine` /
+        `BeginErrorReadLine`) — with `-progress` writing to stdout continuously, the previously-redirected-but-never-read
+        pipes would fill and **deadlock** the child against the `WaitForExit(200)` poll. `ProgressChanged` is
+        **throttled to ≤4 Hz for progress ticks** (state transitions always fire), and the window derives ETA from
+        progress velocity across ticks — the same delta technique `PlaybackStatsOverlay` uses for rates.
+      - **`ProxyReady` → `ProxyPathChanged`.** Same shape and wiring, but it now fires whenever `BestPath`'s answer
+        may have changed in **either** direction — proxy ready, *or* proxy stopped applying (disable / tier change /
+        delete). `PlaybackEngine.InvalidateSource` re-opens the feed through the factory, so reverting the Program
+        preview to originals needed no new engine API.
+      - **Undoable, persisted settings (`ProxySettingsOps`).** The enable + tier controls are **not** direct
+        assignments: each is a `SetPropertyCommand<T>` whose setter mutates `ProjectSettings` *and* drives the live
+        service transition. Because `Apply`/`Revert` share the setter, **undo/redo reconfigures the running service**,
+        and routing through `EditHistory` marks the document dirty so the change actually survives a save/reload
+        (a direct set left the document clean and the change silently vanished).
+      - **Deletion has one owner.** `DeleteProxy` / `DeleteAllProxies` leave entries `NotGenerated` and do **not**
+        auto-rebuild; `Generate` / `RebuildAll` / a re-enable / the next project load do. Preferences' "Clear proxy
+        cache" now routes through `DeleteAllProxies()` instead of `ProxyCache.DeleteAll()` so no surface is left
+        reporting a `Ready` proxy whose file is gone. Re-enabling **does** rebuild explicitly deleted proxies — a
+        deliberate, tested semantic: deletion isn't persisted, so a reload would rebuild them anyway, and the
+        window's Delete tooltip says so.
+      - **Window (`ProxyStatusWindow`, modelled on `ExportQueueWindow`).** Imperative code-behind, `Palette` tokens,
+        no MVVM; header (state label · tier dropdown · enable toggle · Pause/Resume · Rebuild All · Delete All
+        Proxies), a "currently building" panel with a progress bar + % + ETA, and one row per source (name, target
+        resolution, state, on-disk size, per-row Delete / Generate). Rows are **diffed by `MediaRefId`** so progress
+        ticks update in place, and `SizeBytes` is captured by the service when an entry becomes `Ready` — a
+        per-refresh `FileInfo` read on the UI thread would stall the window on a network share. State colours reuse
+        the `Palette` health tokens exactly as `JobRow` does. The status-bar subscription is no longer gated on
+        `Enabled` at window construction, so switching proxies on mid-session updates it.
+      - **Scope:** resolution **tier only** (codec stays the fixed fast x264), and everything targets the **Program**
+        monitor — the Source monitor still opens originals (its proxying stays deferred, above).
+    - **✅ ADDENDUM — format-aware proxy policy + playback drop-driven recommendations.** The "light enough"
+      heuristic stopped being resolution-only (the probe has recorded codec / pixel format / bit depth since 16b;
+      this cashes that in). Delivered:
+      - **Reason-carrying static policy (Core).** `ProxyPolicy.Decide(info, tier)` returns a `ProxyDecision`
+        (`ProxyReason` + target); `NeedsProxy` is now a thin wrapper. Sources above the 1080p ceiling proxy as
+        before (`OversizeResolution`, strict downscale required). New: at **1080p-class or above on either axis**
+        (ultrawide/scope footage included), **HEVC/AV1/VP9** qualify (`DemandingCodec`) and **>8-bit or ≥4:2:2**
+        sources qualify (`DeepColor`, catching 10-bit H.264) — matching what Resolve/Premiere treat as the
+        canonical proxy candidates. **ProRes/DNx/CineForm/MJPEG are exempt** from the format rules (easy-intra:
+        cheap to decode/seek despite bandwidth — Resolve/Premiere treat them as edit-native), but still proxy when
+        oversize. **Same-resolution codec-conversion proxies are allowed** for format-triggered reasons (1080p HEVC
+        at the FullHd tier → a 1920×1080 H.264 proxy; `ProxyTranscoder` omits `-vf scale` there — the
+        `-pix_fmt yuv420p` conversion is the value). Frame rate is deliberately **not** a static input — HFR that
+        actually struggles is caught by the drop monitor below.
+      - **Chroma comes from the descriptor, not the format name.** The probe now records
+        `ProbedMediaInfo.ChromaSubsampling` (`"400"`/`"410"`/`"411"`/`"420"`/`"422"`/`"440"`/`"444"`) read from
+        FFmpeg's `AVPixFmtDescriptor` `log2_chroma_w/h` + component count — a name substring test silently misses
+        `nv16` (4:2:2) and `gbrp`/`rgb24`/`rgba` (full chroma), and would misread monochrome. Additive + nullable
+        through the DTO; probes recorded before the field fall back to the (documented, deliberately conservative)
+        name guess, so **existing projects still classify the common `yuv422p*`/`yuv444p*` cases without a
+        re-import**.
+      - **Playback drop-driven recommendation (recommend-only, never auto-built).** A pure `ProxyAdvisor`
+        (App) watches the existing ~1 Hz telemetry tick: same source, playing, **software-decoded**
+        (hardware-decoded drops are render-bound and never fire), sustained ≥3 s above a drop-rate threshold —
+        **1 drop/s for difficult formats** (`ProxyPolicy.IsDemandingFormat`) vs **5/s for ordinary ones**, so
+        software decode *strengthens* the case rather than triggering by itself, and plain 1080p H.264 in
+        software (usually fine) stays quiet. Firing calls `ProxyService.RecommendProxy(id)`. **Once per source
+        per session**; a declined nudge never re-fires. A deliberate departure from Resolve/Premiere (neither
+        surfaces telemetry-driven proxy advice); recommend-only keeps the departure conservative.
+      - **`ProxyState.Recommended` — a distinct state, not `NotGenerated`.** Every automatic scheduling path
+        (`ScheduleAllNotGenerated`, i.e. enable / resume / Rebuild All / the next project-load `Enqueue`) keys off
+        `NotGenerated`, so parking a recommendation there would have had *enabling proxies* silently build it —
+        contradicting the recommend-only contract. Its own state makes "only `Generate(id)` promotes it"
+        structural; the deletion paths skip it too (an unconfirmed suggestion has no file and must not be
+        promoted as a side effect), and a tier change re-targets it while keeping it unconfirmed.
+      - **Attribution is refused when ambiguous.** `PlaybackEngine.GetActiveVideoSources()` (new) reports
+        **every** decoding media layer with its `VideoDecodeInfo`, not just the top one, and the advisor samples
+        only when exactly one is active. The drop counters are a single engine-wide tally (skipped timeline frames
+        per pump tick, not per decoder), so with several layers up nothing says *which* decoder starved the pump —
+        blaming the top layer could recommend a proxy that fixes nothing, or (if the top layer is hardware-decoded)
+        mask a software-decoded layer beneath it. Multi-layer stretches produce no recommendation; the static
+        policy still covers those sources at import.
+      - **Plumbing.** `ProxySnapshot`/`Entry` carry the `ProxyReason` (row wording: "Queued — demanding codec",
+        "Recommended — playback dropped frames"); recommendations are recorded even while proxies are off
+        (inventory-vs-scheduling split) and counted separately from "not generated" in the window's summary. No
+        cache change needed (keys already include target dims, so same-res proxies key uniquely).
+      - **Tests:** Core +26 (codec/deep-color/exemption/either-axis/same-res-target/HFR-negative/
+        `IsDemandingFormat`; structured-chroma theories incl. `nv16`/`gbrp`/`rgb24`, monochrome, name fallback,
+        descriptor-beats-name), App +21 (`ProxyAdvisorTests` streak rules ×9; reason plumbing, recommend-only
+        semantics, no-automatic-path-builds-it, deletion leaves it unconfirmed, tier-change survival, same-res
+        FullHd build; `ScaleArgs` ×2), Playback +2 (all-layers reporting, empty when idle), Persistence +1
+        (chroma round-trip + defaults), Media +1 (fixture probes `"420"`).
+## Step 19
+
+19. **Generators & adjustment layers.** Title/text **generator clips** (a generator `IFrameSource`
+    feeding the render graph). **Adjustment layers**, modelled like leading NLEs: a synthetic Project-bin
+    item with no source media, placed on a track as an ordinary clip, whose **effect stack applies to
+    every track beneath it for the clip's time span** — a render-graph stage that composites the lower
+    tracks, then runs the adjustment layer's effects over that result before the tracks above
+    ([ARCHITECTURE §5](ARCHITECTURE.md), [UI.md §3.6](UI.md)). It trims / moves / stacks and carries
+    opacity + blend like any clip, and the same adjustment item can be **reused across tracks and
+    sequences**. ("Adjustment layer" is unambiguous in this codebase, so the term is kept.)
+    - **✅ DONE (Core model + render graph + Render + Export + Persistence + Playback + App; 25 new tests — Core
+      +10, Render +5, Export +2, Persistence +2, Playback +1, plus the executor seam fake — all green).** Both
+      content kinds land on the existing seams (§17): a generator is a new frame producer fed to the render graph,
+      and an adjustment layer is a new render-graph compositing stage — neither is a rewrite. Delivered:
+      - **Clip kinds (Core, §4):** `Clip.Kind` (`Media` / `Generator` / `Adjustment`) with factories
+        `Clip.CreateGenerator(spec, duration, start)` and `Clip.CreateAdjustment(duration, start)`. Generator/
+        adjustment clips have no source media (`MediaRefId` default); they trim / move / slip / stack and carry an
+        effect stack like any clip (the synthetic source is unbounded). `Clip.CloneContentForSpan` keeps a blade
+        split kind-aware (the right half stays a generator/adjustment), used by `SplitClipCommand`.
+      - **`GeneratorSpec` + `GeneratorCatalog` (Core):** a generator carries a type id, **string** params (text,
+        colour `#AARRGGBB`) and **numeric animatable** params (font size) — reusing `AnimatableValue` so a
+        generator parameter keyframes. `GeneratorCatalog` is the registry the bin/menu list over (built-ins:
+        **Title**, **Color Matte**), mirroring `EffectCatalog`; a plugin generator (step 33) registers here too.
+      - **Render graph (Core, §5):** `PlanVideoFrame` emits a `LayerKind` per layer — `Generator` carries the
+        `ResolvedGenerator` (params evaluated at *t*), `Adjustment` carries only its resolved effect stack. The
+        generic `Render<TImage>` executor draws a generator via a new `IVideoCompositor.CreateGeneratorFrame` seam
+        and realises an **adjustment** by snapshotting the composite drawn so far, folding the layer's effects over
+        it, and blending the graded result back — so at full opacity it replaces, and below it cross-fades original
+        vs. grade (the standard NLE semantic). `RenderGraph.ResolveGenerator` is public for the preview.
+      - **Render layer:** `SkiaEffectPipeline` factored its per-layer draw into `DrawImageLayer` (image → effect
+        chain → composite) and added `DrawGenerator` (renders the matte / centred SkSL-free text into an offscreen
+        surface, then runs the same effect chain) and `DrawAdjustment` (snapshots the surface region — mapped
+        through the canvas matrix so a translated preview canvas grabs the right pixels — grades it, draws it back).
+        Unknown generator ids draw nothing (pass-through, like unknown effects).
+      - **Export:** `VideoExporter` switches per `LayerKind` — generators draw at full resolution, adjustment layers
+        grade the composite beneath — on the same deterministic raster path, so both are golden-frame testable.
+      - **Persistence:** `ClipDto` gains additive, nullable `Kind` + `Generator` (a `GeneratorDto` with string +
+        animatable params); a media clip writes neither, so pre-step-19 files load unchanged and media-only projects
+        serialize byte-identically (no schema bump). A trimmed generator's non-zero source-in round-trips.
+      - **Preview + App:** `PlaybackEngine.UseLayers` emits generator/adjustment layers from the active clip's kind
+        — **no decoder needed** for them — and the pump fires `FramePresented` for active synthetic clips (so an
+        animated title/grade repaints on play and on a scrub). `PreviewSurface` draws each kind on the GPU lease
+        (snapshotting `lease.SkSurface` for adjustment). **Clip ▸ Insert** (built from `GeneratorCatalog` + an
+        Adjustment Layer item) inserts at the playhead via the command stack (undoable), stacking on a fresh top
+        track when the topmost is occupied so an adjustment grades — not displaces — the content below; the timeline
+        labels synthetic clips by title text / generator name / "Adjustment Layer".
+      - **Tests:** generator/adjustment plan resolution + executor ordering (Core); clip-kind factories, spec clone
+        independence, catalog, split-preserves-generator (Core); real SkSL **solid-colour fill, title text over a
+        background, unknown-generator no-op, adjustment grades the composite, no-effects no-op** on offscreen raster
+        (Render); **white-vs-black matte brightness + adjustment-darkens-lower-track** encode→decode round-trips
+        (Export); generator/adjustment JSON round-trip + media-only-omits-fields (Persistence); synthetic clips
+        become layers without a decoder (Playback). Full suite: **355 tests green** (Core 122, Media 24, Render 23,
+        Audio 16, Playback 45, Export 8, Persistence 18, App 99). Clean build (0 warnings), smoke launch starts +
+        tears down cleanly. **Note:** the windowed preview rests on manual verification as before; the export +
+        Render-raster paths cover the pixels deterministically.
+### Reprioritization (recorded 2026-06-29): editorial workflow completeness
+
+Steps 1–19 are complete: the vertical slice plus the full editing shell, timeline, inspector,
+keyframes, monitors, proxies, and **generators + adjustment layers (step 19)**. With the render,
+playback, export, proxy, keyframe, and color/audio **seams** all proven, the largest remaining gap
+versus leading professional NLEs is **not** rendering or core extensibility — Sprocket already
+has the right seams for those. The real gap is **editorial workflow completeness**: the everyday-cutting
+features that make the editor feel professional rather than unfinished. The post-19 order below is
+reprioritized around that gap.
+
+The **must-have-for-1.0** additions (mainstream pro-NLE baseline) are: **retime/speed controls**,
+**markers/comments**, **ripple/roll trim modes**, **autosave/crash recovery**, **batch relink +
+offline recovery**, **interchange** (EDL at minimum, then XML-based interchange formats), **batch export + review
+outputs** (queued exports, burn-ins, handles), **loudness metering/normalization**, and **multicam +
+clip sync**. Real-time collaboration, hosted review systems, and advanced AI tooling are
+**product-platform expansions, not core-editor 1.0 parity**, and stay out of the 1.0 set.
+
+The reordering keeps the existing architecture direction; each step still lands on an existing seam
+([ARCHITECTURE §17](ARCHITECTURE.md)) and none requires a redesign. The high-value, low-risk editorial
+features come first (markers/autosave, retime, ripple/roll), then sequences and multicam (which build
+on synced/nested structure), then broad media + interchange + relink, then delivery (export queue) and
+audio loudness, with plugins, render cache, advanced color, packaging, and log/HDR refinement last.
+Tags reference the [UI.md §4 checklist](UI.md).
+
+## Step 20
+
+20. **Markers & comments + autosave / crash recovery.** Two table-stakes additions — review/coordination
+    infrastructure and reliability — both landing cleanly on the done model, command stack, and
+    persistence with no redesign:
+    - **Markers & comments.** A `Marker { Tick, Name, Comment, Color, optional span }` on the
+      timeline/sequence and on clips (`Clip.Markers`), added / moved / deleted through the step-10
+      command stack so they are undoable, drawn on the ruler and clip bodies ([UI.md §3.6](UI.md)),
+      navigable (jump-to-prev/next, reusing the step-16d keyframe-navigation pattern), and listed in a
+      markers panel. Sequence and clip markers serialize additively into the project JSON
+      (schema-versioned, §12).
+    - **Autosave & crash recovery.** A periodic, debounced background write of the project to a
+      **sidecar autosave file** (the project is pure data; serialization already exists, step 9), driven
+      off the `EditHistory.Changed` / dirty signal so it only writes when there are unsaved edits and
+      never blocks the UI thread. On launch, detect a newer autosave than the saved project (or an
+      autosave with no clean save) and offer recovery. Writes are atomic (temp file → promote), like the
+      proxy / render-cache stores, so a crash mid-write never corrupts the project. This is table-stakes
+      reliability, not a nice-to-have.
+    - **✅ DONE (`Sprocket.Core/Model/{Marker,MarkerNavigation}` + `Commands/ModelCommands` markers; `Sprocket.Persistence`
+      markers + new `Autosave.cs`; `Sprocket.App/{AutosaveService,MarkerListFormat}` + timeline/menu/recovery wiring;
+      23 new tests — Core +9, Persistence +10, App +4, all green).** Both halves land on the done model, command
+      stack, and persistence with no redesign. Delivered:
+      - **Marker model (Core, §4):** a mutable `Marker { Time, Name, Comment, Color, Duration }` (a non-zero
+        `Duration` ⇒ a span marker; `IsSpan`/`End`/`Clone`) with a `MarkerColor` enum (the standard NLE palette,
+        Blue default). `Timeline.Markers` holds sequence markers (timeline positions); `Clip.Markers` holds clip
+        markers (positioned within the clip's source, so they move/trim with it). Plain data, so command undo is a
+        simple field capture.
+      - **Commands (Core, step 10):** `AddMarkerCommand` / `RemoveMarkerCommand` (list ops, restoring index on undo)
+        + `MoveMarkerCommand` (coalescing per marker so a drag is one undo entry) — all through `EditHistory`, so
+        markers are undoable and flip the dirty indicator. Name/comment/colour edits reuse `SetPropertyCommand<T>`.
+      - **Navigation (Core):** `MarkerNavigation.Previous/Next` find the nearest marker strictly before/after a
+        time — the same pure, headless-tested pattern as `KeyframeNavigation` (step 16d).
+      - **Persistence:** a `MarkerDto` plus additive, nullable `Markers` lists on `TimelineDto` and `ClipDto`
+        (`WhenWritingNull` ⇒ a marker-less project serializes byte-identically and pre-step-20 files load with no
+        markers — **no schema bump**, §12). Sequence + clip markers round-trip field-for-field (time, name, comment,
+        colour, span).
+      - **Autosave + crash recovery (Persistence + App):** a new `Autosave` static class does the **atomic** sidecar
+        write (serialize → sibling temp file → move-with-overwrite, so a crash mid-write never corrupts the recovery
+        file) and exposes the pure `AutosaveRecovery.ShouldOffer` decision (offer when an autosave exists and is newer
+        than the clean save — or there is no clean save). The App-layer **`AutosaveService`** subscribes to
+        `EditHistory.Changed`, marks the document dirty, and a 5 s debounce timer writes **only when dirty** —
+        snapshotting the project on the UI thread (where the model lives, §8) then pushing the disk write to a
+        background thread, so editing never blocks the UI. A saved project autosaves beside its file; an untitled one
+        autosaves to a per-user slot. A clean **Save** clears the dirty flag and deletes the sidecar; **File ▸ Open**
+        checks for a newer sidecar and **prompts to recover** (loading the autosave, relinking media against the
+        project dir).
+      - **App UI (manual-verified, the project's established split):** sequence markers draw as coloured **pennants
+        on the ruler** (span markers add a translucent band + a faint line down the lanes); clip markers draw as small
+        coloured **triangles on the clip body**. **M** adds a marker at the playhead; **Shift+M / Ctrl+Shift+M** jump
+        to the next/previous marker (seeking the Program monitor, mirroring keyframe nav). A **Markers** header button
+        opens the **markers panel** — an add-at-playhead action + one row per marker (colour chip, click-to-seek, ✕ to
+        remove). The pure row formatter (`MarkerListFormat.Describe`) is split out and unit-tested like `TimelineMath`.
+      - **Tests (23):** Core — marker span/clone/validation, Add/Remove/Move commands apply+revert (index restore,
+        drag-coalesces-to-one-entry, no cross-marker merge), and `MarkerNavigation` nearest/strict/null-at-ends;
+        Persistence — sequence+clip marker round-trip, marker-less omits the field, pre-step-20 loads with none, plus
+        autosave atomic write/overwrite/delete and the `ShouldOffer` truth table; App — `MarkerListFormat` (name,
+        unnamed fallback, span suffix, whitespace-name). Clean build (0 warnings); a `SPROCKET_APP_SECONDS=5` smoke
+        launch starts the shell with markers + autosave wired and tears down cleanly (exit 0). Full suite: **378 tests
+        green** (Core 131, Media 24, Render 23, Audio 16, Playback 45, Export 8, Persistence 28, App 103).
+      - **Deferred (noted, on the same seam):** marker **rename / colour-change UI** (the model + commands exist; the
+        panel lists & removes today), **clip-marker carry-over across a blade split**, and **untitled-project recovery
+        on launch** (the untitled slot is written + recoverable, but launch only checks an opened project's sidecar).

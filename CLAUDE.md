@@ -10,7 +10,16 @@ making non-trivial changes:
 
 - [BRIEF.md](BRIEF.md) — the feature brief (the *what*).
 - [ARCHITECTURE.md](ARCHITECTURE.md) — the detailed technical design the implementation must conform to (the *how/why*). Sections are referenced throughout the code as `§N`.
-- [PLAN.md](PLAN.md) — feasibility analysis and the numbered build order, with a ✅ status note recorded inline on each completed step. **When you complete a build-order step, update its PLAN.md entry** the same way existing steps are annotated.
+- [PLAN.md](PLAN.md) — the build-order **status ledger** (one compact row per step, 1–57) plus
+  the **Open work** todo list. Step detail lives out of the hot path (2026-08-26 restructure):
+  each step's original spec + "✅ DONE" implementation log is archived verbatim in
+  `plan/history/steps-*.md` under a stable `## Step N` heading, and each large open feature has
+  its own plan in `plan/features/<name>.md` (start new ones from `_TEMPLATE.md`). References of
+  the form "PLAN.md step N" resolve to the ledger rows. **When you complete a build-order step
+  or feature, flip its PLAN.md ledger row / check its todo, and append the detailed DONE log to
+  the matching `plan/history/` chunk** the same way existing steps are annotated; playback-perf
+  notes go to `plan/history/performance-log.md`. Read PLAN.md first — only open the history
+  chunks when you need a specific step's detail.
 - [UI.md](UI.md) — the target UI mockup and the features it implies.
 - [STYLE_GUIDE.md](STYLE_GUIDE.md) — the palette tokens and surface rules (dialog/popup
   backgrounds, borders, accent, contrast floors); new dialogs and popups must conform.
@@ -37,8 +46,8 @@ today**: `scripts/release.ps1` publishes self-contained per-RID folders (FFmpeg 
 bundled) and packs them with **Velopack** (Windows Setup.exe, Linux AppImage, macOS `.app`, in-app
 auto-update via `UpdateService`); releases are cut by the `scripts/gh-release.ps1` tag-cutter and
 built + smoke-tested by the CI matrix in `.github/workflows/release.yml`. **Code-signing and macOS
-notarization are deliberately deferred** — the alpha ships unsigned (see the status notes on steps
-35–36 in [PLAN.md](PLAN.md)).
+notarization are deliberately deferred** — the alpha ships unsigned (see the steps 35–36 ledger
+rows in [PLAN.md](PLAN.md) and the detailed plan in `plan/features/code-signing.md`).
 
 Do not commit `.NET` build artifacts: never add any `/bin` or `/obj` directory, or anything under
 them, to version control.
