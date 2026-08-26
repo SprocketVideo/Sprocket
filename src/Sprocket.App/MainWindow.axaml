@@ -96,6 +96,10 @@
                  matches the convention in leading editors on Windows/Linux. The gesture is handled in OnKeyDown;
                  the text here is the display label (OemComma would render as "Ctrl+OemComma"). -->
             <MenuItem x:Name="PreferencesMenuItem" Header="Pre_ferences…" InputGesture="Ctrl+," />
+            <Separator />
+            <!-- Plugin Manager (PLAN.md step 58): see / enable / disable / install / uninstall effect plugins
+                 over the managed host. DAW convention (Ableton's Plug-Ins preferences) puts it beside Preferences. -->
+            <MenuItem x:Name="PluginsMenuItem" Header="_Plugins…" />
           </MenuItem>
           <MenuItem x:Name="ClipMenu" Header="_Clip">
             <!-- Insert generators / adjustment layer at the playhead (PLAN.md step 19); children added at runtime. -->

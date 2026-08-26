@@ -86,8 +86,8 @@ The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step bui
 ### Planned
 
 Code-signing & notarization (alpha artifacts are unsigned) · plugin hosting — VST3/AU audio,
-OpenColorIO/OFX video, the open standards (frei0r · LADSPA · LV2), and an in-app plugin manager
-(the managed plugin host and built-in effects ship today) · variable/ramped speed & reverse
+OpenColorIO/OFX video, the open standards (frei0r · LADSPA · LV2) (the managed plugin host, built-in
+effects, and in-app Plugin Manager ship today) · variable/ramped speed & reverse
 retime (freeze frames ship today) · a bundled impulse-response library (the Convolution Reverb with
 user IR import, Studio Reverb, Shimmer Reverb, and audio freeze ship today) · grading presets /
 creative looks. See the [Roadmap](#roadmap).
@@ -326,10 +326,10 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
   `--doctor` environment self-check and informational multi-distro + arm64 release smokes; verifying
   real VAAPI/NVENC hardware acceleration on Intel/AMD/NVIDIA machines remains (software encode/decode
   is the dependable fallback).
-- **Plugin hosting & management** — native VST3/AU audio plugins, OpenColorIO / OFX, the open
-  C-ABI standards (frei0r video, LADSPA / LV2 audio), and a user-facing plugin manager
-  (see / enable / disable / install). The managed plugin host (collectible
-  `AssemblyLoadContext`) and the built-in managed effects ship today.
+- **Plugin hosting** — native VST3/AU audio plugins, OpenColorIO / OFX, and the open C-ABI
+  standards (frei0r video, LADSPA / LV2 audio). The managed plugin host (collectible
+  `AssemblyLoadContext`), the built-in managed effects, and the in-app **Plugin Manager**
+  (Edit ▸ Plugins… — see / enable / disable / install / uninstall / rescan) ship today.
 - **Advanced retime** — variable/ramped speed and reverse (constant-speed retime, freeze frames,
   and stop-motion frame edits ship today).
 - **Audio extras** — a bundled, licensing-clear impulse-response library (the Convolution Reverb

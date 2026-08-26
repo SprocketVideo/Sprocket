@@ -18,11 +18,13 @@ public sealed class LoadedPlugin
 {
     internal LoadedPlugin(
         string assemblyPath,
+        string? version,
         PluginLoadContext context,
         IReadOnlyList<IVideoEffect> videoEffects,
         IReadOnlyList<IAudioEffectProvider> audioEffectProviders)
     {
         AssemblyPath = assemblyPath;
+        Version = version;
         Context = context;
         VideoEffects = videoEffects;
         AudioEffectProviders = audioEffectProviders;
@@ -30,6 +32,10 @@ public sealed class LoadedPlugin
 
     /// <summary>Full path of the plugin assembly.</summary>
     public string AssemblyPath { get; }
+
+    /// <summary>The plugin assembly's version (<see cref="AssemblyName.Version"/>), or <see langword="null"/>
+    /// if the assembly declares none. Surfaced by the Plugin Manager UI (PLAN.md step 58).</summary>
+    public string? Version { get; }
 
     /// <summary>A display name for the plugin (the assembly file name).</summary>
     public string Name => Path.GetFileNameWithoutExtension(AssemblyPath);
@@ -70,20 +76,32 @@ public sealed class PluginHost
     /// </summary>
     public int LoadDirectory(string directory)
     {
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
-            return 0;
-
         int loaded = 0;
+        foreach (string candidate in EnumeratePluginFiles(directory))
+            loaded += Load(candidate) is not null ? 1 : 0;
+        return loaded;
+    }
+
+    /// <summary>
+    /// Enumerates the plugin-assembly candidates under <paramref name="directory"/> without loading any of them —
+    /// the same set <see cref="LoadDirectory"/> loads: top-level <c>*.dll</c> files plus one directory level of
+    /// <c>&lt;Name&gt;/&lt;Name&gt;.dll</c> bundles. A missing/blank directory yields nothing. Lets a manager
+    /// (PLAN.md step 58) present one row per discovered file and skip the user-disabled ones at startup.
+    /// </summary>
+    public static IEnumerable<string> EnumeratePluginFiles(string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            yield break;
+
         foreach (string dll in Directory.EnumerateFiles(directory, "*.dll"))
-            loaded += Load(dll) is not null ? 1 : 0;
+            yield return dll;
 
         foreach (string sub in Directory.EnumerateDirectories(directory))
         {
             string candidate = Path.Combine(sub, Path.GetFileName(sub) + ".dll");
             if (File.Exists(candidate))
-                loaded += Load(candidate) is not null ? 1 : 0;
+                yield return candidate;
         }
-        return loaded;
     }
 
     /// <summary>
@@ -113,7 +131,7 @@ public sealed class PluginHost
                 return null;
             }
 
-            var plugin = new LoadedPlugin(fullPath, context, video, audio);
+            var plugin = new LoadedPlugin(fullPath, assembly.GetName().Version?.ToString(), context, video, audio);
             _plugins.Add(plugin);
             return plugin;
         }

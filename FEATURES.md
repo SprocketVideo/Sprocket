@@ -234,6 +234,7 @@ in terms an app-side committer can check against their diff.
 | Effect parameter tooltips (hover a parameter label for a plain-language description) | EffectCatalog.cs `EffectParameterDescriptor.Description`; InspectorPanel.cs | — | ❌ |
 | Reorder effects in the stack (drag a section header; Move Up/Down context menu) | InspectorPanel.cs; ModelCommands.cs `MoveChainEffectCommand`; PLAN.md step 51 | — | ❌ |
 | Inspector: Expand All / Collapse All section buttons (pane header) | MainWindow.axaml `InspectorExpandAllButton`; InspectorPanel.cs `SetAllSectionsExpanded` | — | ❌ |
+| Plugin Manager (Edit ▸ Plugins…): see installed effect plugins with version/status, enable/disable each, install a plugin `.dll`, uninstall user plugins, rescan, open the plugins folder | Sprocket.App/PluginManagerWindow.cs; PluginManager.cs; PluginService.cs; PLAN.md step 58 | — | ❌ |
 
 ### Transitions
 
@@ -381,7 +382,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 
 | Item | Why |
 |---|---|
-| Plugin host/SDK internals (`IVideoEffect`, load contexts) | No user-facing plugin manager yet; SDK docs are a separate deliverable |
+| Plugin host/SDK internals (`IVideoEffect`, load contexts) | The user-facing surface is the Plugin Manager row in §4 (Edit ▸ Plugins…); the host/SDK internals and authoring a plugin are a separate developer deliverable |
 | FFmpeg P/Invoke binding, render graph, command stack internals | Architecture, not behavior |
 | Build/release scripts, CI | Developer tooling |
 | `SPROCKET_APP_SECONDS`, `SPROCKET_HWACCEL` env vars | Diagnostics; at most a troubleshooting footnote |

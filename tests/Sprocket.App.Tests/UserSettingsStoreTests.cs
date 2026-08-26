@@ -176,6 +176,26 @@ public class UserSettingsStoreTests
         Assert.Equal("", UserSettingsStore.Clamp(new UserSettings(AudioOutputDevice: null!)).AudioOutputDevice);
 
     [Fact]
+    public void Disabled_Plugins_Round_Trips()
+    {
+        var settings = new UserSettings { DisabledPlugins = ["C:/plugins/a.dll", "C:/plugins/b.dll"] };
+        UserSettings restored = UserSettingsStore.Deserialize(UserSettingsStore.Serialize(settings));
+        Assert.Equal(new[] { "C:/plugins/a.dll", "C:/plugins/b.dll" }, restored.DisabledPlugins);
+    }
+
+    [Fact]
+    public void Disabled_Plugins_Defaults_To_Empty()
+    {
+        // Fresh install and an old settings file written before the field existed both mean "none disabled".
+        Assert.Empty(new UserSettings().DisabledPlugins);
+        Assert.Empty(UserSettingsStore.Deserialize("""{"McpEnabled": true}""").DisabledPlugins);
+    }
+
+    [Fact]
+    public void Clamp_Normalizes_A_Null_Disabled_Plugins_To_Empty() =>
+        Assert.Empty(UserSettingsStore.Clamp(new UserSettings { DisabledPlugins = null! }).DisabledPlugins);
+
+    [Fact]
     public void NewToken_Is_Long_Unique_And_Header_Safe()
     {
         string a = UserSettingsStore.NewToken();

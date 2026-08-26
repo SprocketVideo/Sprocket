@@ -605,6 +605,7 @@ public partial class MainWindow : Window
         _undoMenuItem!.Click += (_, _) => _history.Undo();
         _redoMenuItem!.Click += (_, _) => _history.Redo();
         this.FindControl<MenuItem>("PreferencesMenuItem")!.Click += (_, _) => _ = ShowPreferencesAsync();
+        this.FindControl<MenuItem>("PluginsMenuItem")!.Click += (_, _) => _ = ShowPluginManagerAsync();
 
         // Help
         this.FindControl<MenuItem>("CheckUpdatesMenuItem")!.Click += (_, _) => _ = CheckForUpdatesAsync();
@@ -1041,6 +1042,29 @@ public partial class MainWindow : Window
                 await MessageDialog.Show(this, "MCP Server",
                     mcpService.LastError ?? "The MCP server failed to start.");
         }
+    }
+
+    /// <summary>
+    /// Edit ▸ Plugins… (PLAN.md step 58): opens the Plugin Manager over the process-wide
+    /// <see cref="PluginService"/> host. Modal (like Preferences), so nothing else can save settings while its
+    /// enable/disable toggles rewrite the disabled-plugin list; on close the in-memory <see cref="_userSettings"/>
+    /// is re-synced with the list the manager just persisted, so a later settings save can't clobber it. Enable /
+    /// disable / install / uninstall re-register or drop effects live, so the preview is repainted to reflect them.
+    /// </summary>
+    private async Task ShowPluginManagerAsync()
+    {
+        if (PluginService.Manager is not { } manager)
+        {
+            await MessageDialog.Show(this, "Plugins", "The plugin host is not available in this session.");
+            return;
+        }
+
+        var window = new PluginManagerWindow(manager, onChanged: () => _preview?.InvalidateVisual());
+        await window.ShowDialog(this);
+
+        // Keep the in-memory settings copy in step with the list the manager persisted, so the next
+        // UserSettingsFile.Save (e.g. from Preferences) preserves the user's enable/disable choices.
+        _userSettings = _userSettings with { DisabledPlugins = manager.DisabledPaths };
     }
 
     private bool IsTypingInTextBox() => FocusedElement() is TextBox;

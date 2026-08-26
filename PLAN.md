@@ -129,7 +129,7 @@ shipped step append to its history entry directly.
 | 55 | Link clips (re-link A/V) | ✅ | [history](plan/history/steps-41-57.md#step-55) |
 | 56 | Windows 10 support (verify + declare) | 🟡 declaration ✅; Win10 VM smoke pending | [history](plan/history/steps-41-57.md#step-56) |
 | 57 | Linux support (verify + declare) | 🟡 phases 1–4 ✅; hardware-accel verify remaining | [history](plan/history/steps-41-57.md#step-57) |
-| 58 | Plugin Manager (user-facing plugin management UI) | ❌ not started → [plan](plan/features/plugin-manager.md) | — |
+| 58 | Plugin Manager (user-facing plugin management UI) | ✅ | [history](plan/history/steps-58plus.md#step-58) |
 | 59 | Open plugin standards (frei0r / LADSPA / LV2) | ❌ not started → [plan](plan/features/frei0r-ladspa-lv2.md) | — |
 
 ## Open work
@@ -148,9 +148,11 @@ verification-only items carry their checklist in the step's history entry.
 - [ ] **Native plugin & color hosting** — steps 31 + 33 remainders (VST3/AU C-ABI bridges,
   OpenColorIO config hosting, OFX adapter) →
   [plan/features/plugin-hosting.md](plan/features/plugin-hosting.md)
-- [ ] **Plugin Manager (user-facing)** — step 58: see/enable/disable/install/uninstall plugins
-  over the shipped managed host (ships independently of the native bridges) →
-  [plan/features/plugin-manager.md](plan/features/plugin-manager.md)
+- [x] **Plugin Manager (user-facing)** — step 58, shipped 2026-08-26: Edit ▸ Plugins… lists every
+  discovered plugin with version/status/effects, per-plugin enable/disable (live register/unregister +
+  ALC unload), Install/Uninstall/Rescan/Open Folder, disabled list persisted in `UserSettings`. Ships
+  over the shipped managed host, independent of the native bridges →
+  [history](plan/history/steps-58plus.md#step-58)
 - [ ] **Open plugin standards — frei0r / LADSPA / LV2** — step 59: C-ABI video + audio plugin
   hosting (no bridge shims needed; frei0r requires the CPU-stage readback seam) →
   [plan/features/frei0r-ladspa-lv2.md](plan/features/frei0r-ladspa-lv2.md)

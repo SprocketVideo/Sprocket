@@ -1,102 +1,74 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Sprocket.Core.Audio;
-using Sprocket.Core.Model;
-using Sprocket.Core.Rendering;
-using Sprocket.Plugins;
 using Sprocket.Render;
 
 namespace Sprocket.App;
 
 /// <summary>
-/// The composition-root wiring for the plugin host (PLAN.md step 33, ARCHITECTURE.md §13):
-/// <see cref="Initialize"/> loads every plugin from the app's plugin directories, registers the discovered
-/// video effects into <see cref="EffectCatalog"/> (so the Effects browser / Inspector list them) and into
-/// <see cref="SkiaEffectPipeline"/>'s shader registry (so preview and export render them), and registers
-/// audio effect descriptors so the render graph routes them to the mixer — whose chains reach back through
-/// <see cref="AudioEffectFactory"/>. Per §15, every failure is logged and skipped; a broken plugin can never
-/// stop the editor from starting. Plugins stay loaded for the app's lifetime (unload-on-the-fly is a later
-/// refinement); projects referencing an uninstalled plugin still load — its effects pass through.
+/// The composition-root wiring for the plugin host (PLAN.md steps 33 + 58, ARCHITECTURE.md §13). Owns the
+/// single process-wide <see cref="PluginManager"/> and supplies its side effects: the GPU shader registration
+/// (<see cref="SkiaEffectPipeline"/>, so preview and export render plugin video effects) and the disabled-plugin
+/// list persistence (in <see cref="UserSettings.DisabledPlugins"/>). The audio side reaches back through
+/// <see cref="AudioEffectFactory"/>, which the mixer/export call. Per §15 every failure is logged and skipped;
+/// a broken plugin can never stop the editor from starting, and a disabled/uninstalled plugin's effects pass
+/// through in any project that still references them.
 /// </summary>
 internal static class PluginService
 {
-    private static PluginHost? _host;
+    private static PluginManager? _manager;
 
-    /// <summary>The loaded plugins (for a future Manage Plugins UI / About box).</summary>
-    public static IReadOnlyList<LoadedPlugin> Plugins => _host?.Plugins ?? [];
+    /// <summary>The plugin manager, once <see cref="Initialize"/> has run (for the Edit ▸ Plugins… window).</summary>
+    public static PluginManager? Manager => _manager;
 
     /// <summary>
     /// The mixer's effect factory: plugin-contributed audio effect types first, then the built-ins
     /// (unknown ids stay pass-through). Safe to use before <see cref="Initialize"/> (no plugins yet).
     /// </summary>
     public static IAudioEffect? AudioEffectFactory(string effectTypeId) =>
-        _host?.CreateAudioEffect(effectTypeId) ?? Sprocket.Audio.Effects.BuiltInAudioEffects.Create(effectTypeId);
+        _manager?.CreateAudioEffect(effectTypeId) ?? Sprocket.Audio.Effects.BuiltInAudioEffects.Create(effectTypeId);
 
-    /// <summary>Loads and registers all plugins. Call once at startup, before any project opens.</summary>
+    /// <summary>Loads and registers all enabled plugins. Call once at startup, before any project opens.</summary>
     public static void Initialize()
     {
-        if (_host is not null)
+        if (_manager is not null)
             return;
-        _host = new PluginHost();
 
-        foreach (string directory in PluginDirectories())
-        {
-            try
-            {
-                _host.LoadDirectory(directory);
-            }
-            catch (Exception ex)
-            {
-                CrashLog.Write($"Plugin scan failed for '{directory}'", ex);
-            }
-        }
+        var manager = new PluginManager(
+            PluginDirectories(),
+            loadDisabled: () => UserSettingsFile.Load().DisabledPlugins,
+            saveDisabled: SaveDisabled,
+            registerShader: SkiaEffectPipeline.RegisterEffect,
+            unregisterShader: id => SkiaEffectPipeline.UnregisterEffect(id),
+            log: (message, ex) => CrashLog.Write(message, ex));
 
-        foreach (LoadedPlugin plugin in _host.Plugins)
-        {
-            foreach (IVideoEffect effect in plugin.VideoEffects)
-            {
-                if (!EffectCatalog.Register(effect.Descriptor))
-                {
-                    CrashLog.Write($"Plugin '{plugin.Name}': effect id '{effect.Descriptor.Id}' already registered — skipped", null);
-                    continue;
-                }
-                try
-                {
-                    SkiaEffectPipeline.RegisterEffect(effect); // compiles the SkSL; throws on a broken program
-                }
-                catch (Exception ex)
-                {
-                    EffectCatalog.Unregister(effect.Descriptor.Id);
-                    CrashLog.Write($"Plugin '{plugin.Name}': effect '{effect.Descriptor.Id}' failed to compile", ex);
-                }
-            }
+        manager.Initialize();
+        _manager = manager;
+    }
 
-            foreach (IAudioEffectProvider provider in plugin.AudioEffectProviders)
-            {
-                if (provider.Descriptor.Category != EffectCategory.Audio)
-                {
-                    CrashLog.Write($"Plugin '{plugin.Name}': audio effect '{provider.Descriptor.Id}' must use EffectCategory.Audio — skipped", null);
-                    continue;
-                }
-                if (!EffectCatalog.Register(provider.Descriptor))
-                    CrashLog.Write($"Plugin '{plugin.Name}': effect id '{provider.Descriptor.Id}' already registered — skipped", null);
-            }
-        }
-
-        foreach (PluginLoadError error in _host.Errors)
-            CrashLog.Write($"Plugin load: {error.Source}: {error.Message}", null);
+    /// <summary>Persists the disabled-plugin list, preserving every other setting (load-modify-save). The list
+    /// is owned here (the Preferences dialog never touches it), so this is the only writer of the field.</summary>
+    private static void SaveDisabled(IReadOnlyCollection<string> disabled)
+    {
+        UserSettings current = UserSettingsFile.Load();
+        UserSettingsFile.Save(current with { DisabledPlugins = disabled.ToArray() });
     }
 
     /// <summary>
-    /// Where plugins are discovered: <c>Plugins/</c> next to the executable (bundled/portable installs) and
-    /// the per-user <c>Sprocket/Plugins</c> under app-data (user-installed, survives app upgrades).
+    /// Where plugins are discovered: <c>Plugins/</c> next to the executable (bundled/portable, read-only) and
+    /// the per-user <c>Sprocket/Plugins</c> under app-data (user-installed, writable, survives app upgrades).
     /// </summary>
-    private static IEnumerable<string> PluginDirectories()
+    private static IReadOnlyList<PluginManager.PluginDirectory> PluginDirectories()
     {
-        yield return Path.Combine(AppContext.BaseDirectory, "Plugins");
+        var directories = new List<PluginManager.PluginDirectory>
+        {
+            new(Path.Combine(AppContext.BaseDirectory, "Plugins"), IsUserWritable: false),
+        };
         string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         if (!string.IsNullOrEmpty(appData))
-            yield return Path.Combine(appData, "Sprocket", "Plugins");
+            directories.Add(new(Path.Combine(appData, "Sprocket", "Plugins"), IsUserWritable: true));
+        return directories;
     }
 }

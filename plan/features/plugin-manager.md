@@ -1,6 +1,13 @@
 # Plugin Manager (user-facing plugin management UI) — build-order step 58
 
-❌ **Not started.** Sprocket has a working *internal* managed plugin host (step 33:
+✅ **Shipped 2026-08-26.** The implementation log lives in
+[plan/history/steps-58plus.md#step-58](../history/steps-58plus.md#step-58); this file is the
+original spec, kept for reference. What shipped matches the sketch below, with one clarification:
+bundled (`<exe>/Plugins`) rows can be enabled/disabled (an in-app choice, persisted in settings —
+not a filesystem change) but not uninstalled, so "read-only" means the file is not modified, not
+that the row is inert.
+
+Sprocket has a working *internal* managed plugin host (step 33:
 collectible `AssemblyLoadContext`, discovery, error capture, verified-collectible unload) but
 no user-facing way to see, enable, disable, install, or remove plugins. This step adds that
 surface. Split out of [plugin-hosting.md](plugin-hosting.md)'s shared-UX list (2026-08-26) so

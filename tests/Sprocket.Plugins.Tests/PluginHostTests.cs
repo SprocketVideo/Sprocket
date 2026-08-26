@@ -118,6 +118,45 @@ public sealed class PluginHostTests
     }
 
     [Fact]
+    public void Load_CapturesTheAssemblyVersion()
+    {
+        var host = new PluginHost();
+        LoadedPlugin? plugin = host.Load(TestPluginPath);
+        Assert.NotNull(plugin);
+        Assert.False(string.IsNullOrEmpty(plugin!.Version)); // e.g. "1.0.0.0" — surfaced by the Plugin Manager
+    }
+
+    [Fact]
+    public void EnumeratePluginFiles_FindsTopLevelDllsAndSubdirectoryBundles_WithoutLoading()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"sprocket-enum-{Guid.NewGuid():N}");
+        string bundleDir = Path.Combine(dir, "BundledPlugin");
+        Directory.CreateDirectory(bundleDir);
+        try
+        {
+            string top = Path.Combine(dir, "TopLevel.dll");
+            string bundled = Path.Combine(bundleDir, "BundledPlugin.dll");
+            File.Copy(TestPluginPath, top);
+            File.Copy(TestPluginPath, bundled);
+            // A subdirectory DLL whose name doesn't match the folder is not a bundle candidate — skipped.
+            File.Copy(TestPluginPath, Path.Combine(bundleDir, "Extra.dll"));
+
+            string[] found = PluginHost.EnumeratePluginFiles(dir).ToArray();
+            Assert.Contains(top, found);
+            Assert.Contains(bundled, found);
+            Assert.DoesNotContain(Path.Combine(bundleDir, "Extra.dll"), found);
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public void EnumeratePluginFiles_MissingDirectory_IsEmpty() =>
+        Assert.Empty(PluginHost.EnumeratePluginFiles(Path.Combine(Path.GetTempPath(), $"no-such-{Guid.NewGuid():N}")));
+
+    [Fact]
     public void LoadDirectory_FindsTopLevelDllsAndSubdirectoryBundles()
     {
         string dir = Path.Combine(Path.GetTempPath(), $"sprocket-plugins-{Guid.NewGuid():N}");

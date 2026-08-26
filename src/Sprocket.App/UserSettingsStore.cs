@@ -68,7 +68,17 @@ public sealed record UserSettings(
     double StillImageDefaultSeconds = 5,
     string TimelineAutoScroll = nameof(Sprocket.App.TimelineAutoScroll.Page),
     bool LinuxDesktopIntegrationPrompted = false,
-    string AudioOutputDevice = "");
+    string AudioOutputDevice = "")
+{
+    /// <summary>
+    /// The plugin assemblies the user has disabled in the Plugin Manager (PLAN.md step 58), by full assembly
+    /// path. A disabled plugin is skipped at startup — its effects are never registered, so a project using
+    /// them degrades to pass-through (ARCHITECTURE.md §15) until it is re-enabled. A body property (not a
+    /// positional parameter) because a list has no compile-time-constant default; empty for a fresh install
+    /// and for old settings files written before the field existed (additive contract).
+    /// </summary>
+    public IReadOnlyList<string> DisabledPlugins { get; init; } = [];
+}
 
 /// <summary>
 /// The pure, headlessly-tested (de)serialization and validation logic for <see cref="UserSettings"/> —
@@ -139,6 +149,10 @@ public static class UserSettingsStore
         StillImageDefaultSeconds = Math.Clamp(settings.StillImageDefaultSeconds, MinStillSeconds, MaxStillSeconds),
         TimelineAutoScroll = ParseAutoScroll(settings.TimelineAutoScroll).ToString(),
         AudioOutputDevice = settings.AudioOutputDevice ?? "",
+        // Normalize null / empty to the canonical empty array (Array.Empty): the record's auto-equality compares
+        // this list by reference, so collapsing every empty form to one shared instance keeps two settings that
+        // differ only in "no plugins disabled" comparing equal (and a round-tripped default stays a default).
+        DisabledPlugins = settings.DisabledPlugins is null or { Count: 0 } ? [] : settings.DisabledPlugins,
     };
 
     /// <summary>

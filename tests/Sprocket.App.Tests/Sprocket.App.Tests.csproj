@@ -12,6 +12,13 @@
     <!-- Only the pure TimelineMath is exercised (Core types only); the App's Avalonia/FFmpeg deps come along
          transitively but are never instantiated. The rendering + pointer interaction rest on manual verification. -->
     <ProjectReference Include="..\..\src\Sprocket.App\Sprocket.App.csproj" />
+    <!-- The sample plugin is built but NOT assembly-referenced: its DLL is copied to the test output and
+         loaded by PluginManager/PluginHost through the real collectible-ALC path, exactly like a third-party
+         plugin (PLAN.md step 58 manager tests). -->
+    <ProjectReference Include="..\Sprocket.TestPlugin\Sprocket.TestPlugin.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Content"
+                      CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
