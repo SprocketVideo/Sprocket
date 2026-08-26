@@ -867,6 +867,39 @@ public sealed class SetEffectParameterCommand : EditCommand
 }
 
 /// <summary>
+/// Sets (or, with an empty path, clears) one effect <em>asset</em> reference (<see cref="EffectInstance.Assets"/>,
+/// PLAN.md step 49) — e.g. the Convolution Reverb's impulse-response WAV. The string counterpart of
+/// <see cref="SetEffectParameterCommand"/>: undo restores the prior path (or its absence). Picking a file is a
+/// discrete act, so consecutive sets do not coalesce.
+/// </summary>
+public sealed class SetEffectAssetCommand : EditCommand
+{
+    private readonly EffectInstance _effect;
+    private readonly string _name;
+    private readonly string? _oldPath;
+    private readonly string? _newPath;
+
+    /// <summary>Captures the asset's current path (if any) and records the new one to apply
+    /// (<see langword="null"/> / empty clears it).</summary>
+    public SetEffectAssetCommand(EffectInstance effect, string name, string? path)
+        : base(string.IsNullOrEmpty(path) ? $"Clear {name}" : $"Set {name}")
+    {
+        ArgumentNullException.ThrowIfNull(effect);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        _effect = effect;
+        _name = name;
+        _oldPath = effect.Assets.TryGetValue(name, out string? existing) ? existing : null;
+        _newPath = string.IsNullOrEmpty(path) ? null : path;
+    }
+
+    /// <inheritdoc />
+    public override void Apply() => _effect.SetAsset(_name, _newPath);
+
+    /// <inheritdoc />
+    public override void Revert() => _effect.SetAsset(_name, _oldPath);
+}
+
+/// <summary>
 /// Sets one numeric (animatable) generator parameter (e.g. a title's font size, tracking, or scroll reveal —
 /// PLAN.md step 40), mirroring <see cref="SetEffectParameterCommand"/> for <see cref="GeneratorSpec.Parameters"/>.
 /// Coalesces with further sets of the same parameter on the same spec, so a slider drag is one undo entry.

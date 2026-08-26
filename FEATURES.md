@@ -270,6 +270,7 @@ in terms an app-side committer can check against their diff.
 | Noise Gate (threshold/attack/hold/release, range floor, hysteresis) | Sprocket.Audio/Effects/NoiseGateEffect.cs; EffectCatalog.cs | audio/audio-effects.md#levels--dynamics | ✅ |
 | Shelving EQ (standalone low + high shelves: freq/gain/slope, per-shelf enable) | Sprocket.Audio/Effects/ShelvingEqEffect.cs; EffectCatalog.cs | audio/audio-effects.md#equalizers | ✅ |
 | Shimmer Reverb (pitch-shifted feedback wash; interval control; presets Classic–Dark–Fifth–Drone) | Sprocket.Audio/Effects/ShimmerReverbEffect.cs; EffectCatalog.cs | audio/audio-effects.md#reverb | ✅ |
+| Convolution Reverb (user WAV impulse-response import via Inspector Browse… row; pre-delay, length trim, low/high damp, width, mix; zero-latency partitioned convolution; missing IR passes through) | Sprocket.Audio/Effects/ConvolutionReverbEffect.cs; EffectCatalog.cs; InspectorPanel.cs `BuildAssetRow` | — | ❌ |
 | Freeze / Unfreeze Clip Audio (pre-render heavy audio chains; Sequence menu) | MainWindow.axaml.cs `UnfreezeClipAudio`; RenderCacheService.cs | audio/audio-effects.md#freeze-a-heavy-audio-chain | ✅ |
 | Audio output device (Edit ▸ Preferences ▸ Audio): pick where playback is monitored; applies immediately without interrupting playback; survives restart; auto-recovers to the system default if a device is lost or unavailable; always runs on the bundled OpenAL Soft, even when a legacy system OpenAL (Creative router) is installed, so enumeration/switch/loss-recovery behave the same on every machine | UserSettings.AudioOutputDevice; PreferencesDialog.cs; Sprocket.Audio/OpenAlAudioOutput.cs `EnumerateOutputDevices`; AudioEngine `SwitchOutputDevice`/device-loss recovery | — | ❌ |
 
@@ -373,7 +374,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 | Variable / ramped speed retime (also reverse) | PLAN.md step 21 (constant-speed only is done; freeze-frame shipped as the step-43 frame hold); SpeedDialog notes deferral |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial); [COLOR_GRADING_ROADMAP.md](COLOR_GRADING_ROADMAP.md) has the detailed parity sequence and follow-on grading roadmap |
-| Convolution reverb | PLAN.md step 49 (Studio Reverb + audio freeze shipped in step 41; Shimmer Reverb shipped in step 50) |
+| Bundled impulse-response library for the Convolution Reverb (CC0 / Sprocket-recorded captures) | PLAN.md step 49 follow-on (the convolution engine + user IR import shipped in step 49; licensing-clear IRs deferred) |
 | Code-signing & macOS notarization (installers themselves shipped: Windows Setup.exe, Linux AppImage, macOS .app via scripts/release.ps1 + Velopack; alpha is unsigned) | PLAN.md step 36 (✅ done except signing/notarization, deliberately deferred) |
 
 ## Not user-facing — never document

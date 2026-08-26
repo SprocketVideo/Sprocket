@@ -9,11 +9,19 @@ namespace Sprocket.Core.Rendering;
 /// </summary>
 /// <param name="EffectTypeId">The effect type, e.g. <see cref="EffectTypeIds.Brightness"/>.</param>
 /// <param name="Parameters">Parameter values, evaluated at the frame's time.</param>
-public sealed record ResolvedEffect(string EffectTypeId, IReadOnlyDictionary<string, double> Parameters)
+public sealed record ResolvedEffect(
+    string EffectTypeId,
+    IReadOnlyDictionary<string, double> Parameters,
+    IReadOnlyDictionary<string, string>? Assets = null)
 {
     /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set.</summary>
     public double Get(string name, double fallback = 0) =>
         Parameters.TryGetValue(name, out double value) ? value : fallback;
+
+    /// <summary>Gets an asset reference (<see cref="Model.EffectInstance.Assets"/>, PLAN.md step 49) — e.g. the
+    /// Convolution Reverb's impulse-response path — or <paramref name="fallback"/> if none is set.</summary>
+    public string GetAsset(string name, string fallback = "") =>
+        Assets is not null && Assets.TryGetValue(name, out string? value) ? value : fallback;
 }
 
 /// <summary>

@@ -35,7 +35,7 @@ public class SprocketToolsTests
             "get_project_state", "list_media", "list_clips", "get_playhead", "list_effect_types",
             "seek", "play", "pause", "undo", "redo", "save_project",
             "import_media", "add_clip_to_timeline", "trim_clip", "move_clip", "split_clip", "delete_clip",
-            "add_effect", "set_effect_parameter", "remove_effect", "move_effect", "add_marker", "remove_marker",
+            "add_effect", "set_effect_parameter", "set_effect_asset", "remove_effect", "move_effect", "add_marker", "remove_marker",
             // Clip tools (step 38 follow-on)
             "get_clip", "duplicate_clip", "set_clip_enabled", "unlink_clip", "link_clips", "set_clip_fade",
             "set_effect_parameter_keyframes", "copy_effects", "set_effect_enabled",
@@ -44,7 +44,7 @@ public class SprocketToolsTests
             "add_track", "remove_track", "list_transition_types", "add_transition", "remove_transition",
             "set_transition", "update_marker", "list_generator_types", "add_generator_clip",
             "set_generator_text", "set_generator_parameter", "list_audio_chain", "add_chain_effect",
-            "remove_chain_effect", "set_chain_effect_parameter",
+            "remove_chain_effect", "set_chain_effect_parameter", "set_chain_effect_asset",
             "begin_edit_group", "end_edit_group", "cancel_edit_group",
             // Session tools
             "open_project", "close_project", "new_project", "save_project_as",
@@ -182,6 +182,23 @@ public class SprocketToolsTests
 
         await tools.SetEffectParameter(clipId, EffectParamNames.Amount, 0.5, effectIndex: index);
         Assert.Equal(0.5, clip.Effects[index].Parameters[EffectParamNames.Amount].Evaluate(default));
+
+        // Asset references (PLAN.md step 49) take the string route: set, surface in the clip detail, clear.
+        JsonNode addedIr = JsonNode.Parse(await tools.AddEffect(clipId, EffectTypeIds.AudioConvolutionReverb))!;
+        int irIndex = (int)addedIr["effect_index"]!;
+        await tools.SetEffectAsset(clipId, EffectParamNames.ImpulseResponse, @"C:\irs\hall.wav", effectIndex: irIndex);
+        Assert.Equal(@"C:\irs\hall.wav", clip.Effects[irIndex].Assets[EffectParamNames.ImpulseResponse]);
+        JsonNode detail = JsonNode.Parse(await tools.GetClip(clipId))!;
+        Assert.Equal(@"C:\irs\hall.wav",
+            (string?)detail["effects"]![irIndex]!["assets"]![EffectParamNames.ImpulseResponse]);
+        await Assert.ThrowsAsync<McpException>(() =>
+            tools.SetEffectAsset(clipId, EffectParamNames.Mix, "x.wav", effectIndex: irIndex)); // numeric param
+        await Assert.ThrowsAsync<McpException>(() =>
+            tools.SetEffectParameter(clipId, EffectParamNames.ImpulseResponse, 1.0, effectIndex: irIndex)); // asset param
+        Assert.DoesNotContain(EffectParamNames.ImpulseResponse, clip.Effects[irIndex].Parameters.Keys);
+        await tools.SetEffectAsset(clipId, EffectParamNames.ImpulseResponse, "", effectIndex: irIndex);
+        Assert.Empty(clip.Effects[irIndex].Assets);
+        await tools.RemoveEffect(clipId, effectIndex: irIndex);
 
         // The input color transform inserts at the head of the stack.
         await tools.AddEffect(clipId, EffectTypeIds.ColorTransform);

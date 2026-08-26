@@ -188,14 +188,19 @@ public static class StateFormatter
         {
             ["name"] = p.Name,
             ["display_name"] = p.DisplayName,
-            ["default"] = p.Default,
-            ["min"] = p.Min,
-            ["max"] = p.Max,
-            ["step"] = p.Step,
-            // The control kind (continuous / toggle / integer / dropdown) so a client knows a parameter
-            // takes discrete values — a toggle is 0/1, a dropdown value is an index into "choices".
+            // The control kind (continuous / toggle / integer / dropdown / asset) so a client knows a parameter
+            // takes discrete values — a toggle is 0/1, a dropdown value is an index into "choices", and an
+            // asset is a file path set via set_effect_asset (its numeric range fields are meaningless, so
+            // they are omitted).
             ["kind"] = p.Kind.ToString().ToLowerInvariant(),
         };
+        if (p.Kind != ParameterKind.Asset)
+        {
+            obj["default"] = p.Default;
+            obj["min"] = p.Min;
+            obj["max"] = p.Max;
+            obj["step"] = p.Step;
+        }
         if (p.Unit is { } unit)
             obj["unit"] = unit;
         // Display-only scaling (e.g. a 0–1 opacity the editor shows as 0–100%). "default"/"min"/"max"/"step"
@@ -426,7 +431,7 @@ public static class StateFormatter
     /// chain listing. <paramref name="clipStartTicks"/> anchors each keyframe's <c>clip_offset_ticks</c>.</summary>
     internal static JsonObject EffectDetailObject(EffectInstance effect, int index, long clipStartTicks)
     {
-        return new JsonObject
+        var obj = new JsonObject
         {
             ["index"] = index,
             ["tag"] = effect.Tag,
@@ -437,6 +442,12 @@ public static class StateFormatter
                 .Select(kv => KeyValuePair.Create(kv.Key,
                     (JsonNode?)AnimatableValueObject(kv.Value, clipStartTicks)))),
         };
+        // File/asset references (PLAN.md step 49 — e.g. the Convolution Reverb's impulse-response path), only
+        // when present so effects without any keep their existing shape.
+        if (effect.Assets.Count > 0)
+            obj["assets"] = new JsonObject(effect.Assets
+                .Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value)));
+        return obj;
     }
 
     /// <summary>An <see cref="AnimatableValue"/> as <c>{"constant": x}</c> or <c>{"keyframes": [...]}</c> —

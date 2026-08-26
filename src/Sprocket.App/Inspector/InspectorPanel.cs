@@ -9,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Sprocket.App.Controls;
 using Sprocket.App.Mixer;
 using Sprocket.Core.Commands;
@@ -1305,11 +1306,136 @@ public sealed class InspectorPanel : UserControl
     }
 
     private Control BuildParamRow(EffectInstance effect, EffectParameterDescriptor p, bool compact = false) =>
-        BuildAnimatableRow(
-            p,
-            () => ParamValue(effect, p),
-            (next, coalescing) => ExecuteParam(effect, p.Name, next, coalescing),
-            compact);
+        p.Kind == ParameterKind.Asset
+            ? BuildAssetRow(effect, p) // a file reference lives in effect.Assets, not an AnimatableValue
+            : BuildAnimatableRow(
+                p,
+                () => ParamValue(effect, p),
+                (next, coalescing) => ExecuteParam(effect, p.Name, next, coalescing),
+                compact);
+
+    /// <summary>
+    /// A <see cref="ParameterKind.Asset"/> row (PLAN.md step 49): the referenced file's name (or "None"), a
+    /// Browse… button opening a file picker, and a clear (×) button — the Inspector's file-picker row for the
+    /// Convolution Reverb's impulse response. Constant-only, so no keyframe affordance. The DSP resolves the path
+    /// itself (and passes through while it loads or if it is missing); the row only reports a file that has gone
+    /// missing so the user knows to relink it, the way offline media is flagged in the bin.
+    /// </summary>
+    private Control BuildAssetRow(EffectInstance effect, EffectParameterDescriptor p)
+    {
+        var fileName = new TextBlock
+        {
+            FontSize = Typography.Caption,
+            Foreground = TextBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 110,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        var browse = new Button
+        {
+            Content = "Browse…",
+            FontSize = Typography.Caption,
+            Padding = new Avalonia.Thickness(6, 2),
+            MinHeight = 22,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(browse, $"Choose a {p.DisplayName} file");
+        var clear = new Button
+        {
+            Content = new ShapesPath
+            {
+                Data = Icons.Close, Stroke = FaintText, StrokeThickness = 1.2, StrokeLineCap = PenLineCap.Round,
+                Width = 6, Height = 6, Stretch = Stretch.Uniform,
+            },
+            Padding = new Avalonia.Thickness(5, 1),
+            MinHeight = 22,
+            Background = Brushes.Transparent,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(clear, $"Clear {p.DisplayName}");
+
+        int SampleRate() => _project?.Timeline.SampleRate ?? 48000;
+        browse.Click += async (_, _) =>
+        {
+            try
+            {
+                if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
+                    return;
+                IReadOnlyList<IStorageFile> files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = $"Choose {p.DisplayName}",
+                    AllowMultiple = false,
+                    FileTypeFilter =
+                    [
+                        // WAV is the only asset kind today (impulse responses); widen per descriptor if more arrive.
+                        new FilePickerFileType("WAV audio") { Patterns = ["*.wav"] },
+                        FilePickerFileTypes.All,
+                    ],
+                });
+                if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
+                    return;
+                // A re-pick after a failed load must retry the file, not replay the cached failure — but a
+                // healthy cached IR is kept (re-picking it must not cut the tail with a reload).
+                if (Sprocket.Audio.Effects.ImpulseResponseCache.HasFailed(path, SampleRate()))
+                    Sprocket.Audio.Effects.ImpulseResponseCache.Invalidate(path);
+                ExecuteEdit(new SetEffectAssetCommand(effect, p.Name, path), coalescing: false);
+            }
+            catch (Exception ex)
+            {
+                // An async-void handler must never let a picker failure (some Linux portals throw on cancel)
+                // escape — that would take the process down.
+                System.Diagnostics.Debug.WriteLine($"asset picker failed: {ex}");
+            }
+        };
+        clear.Click += (_, _) => ExecuteEdit(new SetEffectAssetCommand(effect, p.Name, null), coalescing: false);
+
+        // Existence is probed once per distinct path, not on every refresh: refreshers run on each playhead
+        // move, and File.Exists on an unreachable network path can block the UI thread for seconds.
+        string? probedPath = null;
+        bool probedExists = false;
+        _valueRefreshers.Add(() =>
+        {
+            effect.Assets.TryGetValue(p.Name, out string? path);
+            if (string.IsNullOrEmpty(path))
+            {
+                fileName.Text = "None";
+                fileName.Foreground = FaintText;
+                ToolTip.SetTip(fileName, null);
+                clear.IsVisible = false;
+                return;
+            }
+            if (!string.Equals(path, probedPath, StringComparison.Ordinal))
+            {
+                probedPath = path;
+                probedExists = File.Exists(path);
+            }
+            bool exists = probedExists;
+            // A present-but-unreadable file (not a WAV, corrupt) is flagged too, from the loader's own verdict.
+            bool failed = exists && Sprocket.Audio.Effects.ImpulseResponseCache.HasFailed(path, SampleRate());
+            string name = Path.GetFileName(path);
+            fileName.Text = !exists ? $"{name} (missing)" : failed ? $"{name} (unreadable)" : name;
+            fileName.Foreground = exists && !failed ? TextBrush : Palette.WarnBrush;
+            ToolTip.SetTip(fileName, !exists
+                ? $"{path}\nFile not found — the effect passes audio through until it is relinked."
+                : failed
+                    ? $"{path}\nNot a readable WAV impulse response — the effect passes audio through."
+                    : path);
+            clear.IsVisible = true;
+        });
+
+        var group = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        group.Children.Add(fileName);
+        group.Children.Add(browse);
+        group.Children.Add(clear);
+        return LabeledRow(p.DisplayName, group, p.Description);
+    }
 
     /// <summary>
     /// One parameter row, dispatched by the descriptor's <see cref="ParameterKind"/> — the continuous /

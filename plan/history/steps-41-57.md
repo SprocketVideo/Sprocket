@@ -625,9 +625,85 @@
 
 ## Step 49
 
-❌ **Not started.** The full spec moved to
-[`plan/features/convolution-reverb.md`](../features/convolution-reverb.md) in the 2026-08-26
-PLAN.md restructure (open items live in `plan/features/`, not this history archive).
+49. **Acoustic Space (Convolution) Reverb.** Spec (verbatim) in
+    [`plan/features/convolution-reverb.md`](../features/convolution-reverb.md) — a dedicated
+    `IAudioEffect` convolving the signal with a captured impulse response through partitioned
+    convolution, with IR selection as an asset/file reference, predelay, IR-length trim, low/high
+    damping, width, mix, latency/tail metadata, freeze steering, and graceful missing-IR behaviour.
+    - **✅ DONE (2026-08-26; `Sprocket.Core/{Model/EffectInstance,Model/EffectCatalog,Rendering/RenderPlan,
+      Rendering/RenderGraph,Commands/ModelCommands,Audio/AudioEffectTraits,Audio/IAudioEffectTail}` +
+      `Sprocket.Audio/Effects/{ConvolutionReverbEffect,PartitionedConvolver,ImpulseResponse,FftPlan,WaveFile,
+      BuiltInAudioEffects}` + `Sprocket.Persistence/{ProjectDto,ProjectSerializer}` +
+      `Sprocket.App/Inspector/InspectorPanel` + `Sprocket.Mcp/{SprocketTools,StateFormatter}`; 36 new tests —
+      Audio +24 (`ConvolutionReverbEffectTests` 22, `ConvolutionReverbChainTests` 2), Core +10
+      (`ConvolutionReverbCatalogTests` 9, `ParameterKindTests` 1), Persistence +1, Mcp +1 (extended); full
+      suite **2052 green** (Core 502, Media 66, Render 151, Audio 192, Playback 107, Export 141, Persistence 130,
+      Plugins 10, Mcp 73, App 680); clean build, 0 warnings.)**
+    - **DSP.** `PartitionedConvolver` is **zero-latency uniformly partitioned convolution** (Gardner): partition 0
+      (B = 512 taps) runs as a direct time-domain convolution per sample — two contiguous `Vector<float>` dot
+      products over a reversed head — while partitions 1..P−1 run as N = 1024-point overlap-save FFT blocks
+      whose spectra are multiply-accumulated (vector-widened complex MAC, per-partition gain) into the tail for
+      the *next* block each time an input block completes; later partitions only need input ≥ one block old,
+      which is what lets the FFT half be scheduled a block ahead with no latency. The FFT is a managed radix-2
+      `FftPlan` with precomputed tables (no native helper needed — see the perf note). IRs are capped at 10 s,
+      resampled to the project rate with a Lanczos-8 windowed sinc, peak-normalised on import (DAW convention),
+      and pre-partitioned/pre-transformed **off the audio thread** by `ImpulseResponseCache` (background
+      `Task`, keyed by (path, rate), shared by every instance; failed loads are remembered until `Invalidate`).
+      Around the convolver: pre-delay line (≤ 200 ms), **IR-length trim** implemented as a raised-cosine ramp on
+      the per-partition gains (live, no re-transform; Length = 1 is bit-exact unity), one-pole HighDamp
+      low-pass (20 kHz → 1 kHz) / LowDamp high-pass (20 Hz → 500 Hz) on the wet path (exact bypass at 0), and
+      mid/side Width on a stereo wet pair. Mono IRs feed every channel; stereo IRs map L→L / R→R. Steady state
+      is allocation-free; buffers reallocate only on rate / channel / IR-identity change. Output is bit-identical
+      regardless of host buffer framing — the freeze-equivalence property, tested with 4800- vs 331-frame
+      buffers over every control. Deterministic run-to-run.
+    - **Perf (managed, no C-ABI FFT).** Release, x64 AVX2 (`Vector<float>.Count = 8`), 10 s of stereo 48 kHz
+      audio in 512-frame buffers through a *stereo* IR: **1 s IR → 45× real time, 4 s → 18×, 10 s (the cap)
+      → 9.8×** — comfortable headroom on one core even at the longest IR, so the spec's fallback (a small
+      C-ABI FFT helper) was not needed. The head cost is fixed (2 × 512 MACs/sample/channel); the tail cost
+      scales with IR length (P·N complex MACs per block).
+    - **Hardening (from the ship-time code + security reviews).** `WaveFile` rejects implausible headers up
+      front (channels > 8, rate outside 8–384 kHz, odd bit depths, `data` before `fmt`, unseekable device
+      paths) and reads at most the 10 s it can keep, so a sparse multi-GB or hostile file costs nothing;
+      `ImpulseResponse` trims in *source* samples before resampling and clamps the resampler's output length;
+      the background loader catches every exception (never an unobserved fault, always `HasFailed` + message);
+      the cache is bounded at 16 entries (~15 MB each worst case) and its insert is a single `GetOrAdd` (no
+      indexer re-read a concurrent `Invalidate` could turn into a throw on the audio thread). The Inspector
+      probes `File.Exists` once per distinct path (not per playhead move), also flags *(unreadable)* from the
+      loader's verdict, only invalidates a cached *failure* on re-browse, and wraps its async picker handler.
+      MCP gained `set_chain_effect_asset` (track / sequence / master scope) and every numeric-parameter tool
+      rejects an Asset-kind name with guidance; `list_effect_types` omits the meaningless numeric range for
+      asset descriptors.
+    - **Core & catalog.** `EffectTypeIds.AudioConvolutionReverb` (`builtin.audio.reverb.convolution`, short code
+      `IR`) registered under `EffectCategory.Audio`. **New descriptor kind `ParameterKind.Asset`** — a
+      file/asset reference, not a number: it lives in a new `EffectInstance.Assets` string map (constant-only,
+      copied by `Clone`/`CloneShifted`, fluent `SetAsset`), `EffectDescriptor.CreateInstance` leaves it unset,
+      `ResolvedEffect` gained an optional `Assets` map + `GetAsset` that `RenderGraph.ResolveAudioChain` fills,
+      and the undoable `SetEffectAssetCommand` is the string counterpart of `SetEffectParameterCommand`.
+      Parameters: `impulseResponse` (asset), `preDelayMs`, `irLength` (new, 0.05–1), `lowDamp`, `highDamp`,
+      `width`, `mix`. No factory presets (with user IRs the IR *is* the preset). `AudioEffectTraits.IsHeavy`
+      flags it (Inspector freeze hint); the new optional `IAudioEffectTail` interface (Core.Audio) reports
+      per-instance latency (0) and tail (= loaded IR length) — the step-41 metadata surface.
+    - **Persistence & cache.** `EffectDto.Assets` (nullable, `WhenWritingNull`) — additive, no schema bump;
+      asset-less effects and pre-49 files serialize byte-identically. Because `RenderCacheHasher` hashes the same
+      DTOs, changing the IR invalidates freeze/render-cache segments like any parameter edit.
+    - **UI & MCP.** The Inspector dispatches `ParameterKind.Asset` to a new file-picker row (file name /
+      *None*, **Browse…** with a WAV filter, clear ×); a path whose file no longer exists shows *(missing)* in the
+      warn colour with a relink tooltip, and re-browsing invalidates the cached failure. MCP: `set_effect_asset`
+      tool (clip scope; rejects numeric parameters with guidance), and `get_clip` effect detail carries an
+      `assets` object when present.
+    - **IR licensing.** Ships with **no bundled IRs** (the spec's licensing-safe option) — the engine leads with
+      user import. A curated CC0 / Sprocket-recorded IR library is a follow-on.
+    - **Tests.** Impulse-in reproduces a 3000-tap synthetic IR exactly (< 2e-4) across the direct head and FFT
+      partitions at non-aligned buffer framings; partitioned output matches a double-precision direct
+      convolution on dense noise (< 1e-3 of peak); stereo L/R mapping and mono fan-out; pre-delay timing;
+      length-trim partition gains (unity / mid-fade 0.5 / zero) and bit-exact recovery at Length = 1; damping
+      attenuation with exact bypass at 0; width-0 mono collapse; framing independence (freeze equivalence);
+      tail metadata; reset; zero-allocation steady state; FFT vs naive DFT; 16-bit + float32 WAV import with
+      resampling/normalisation; missing-file → quiet failure → pass-through → relink; non-WAV rejection;
+      mixer-chain echo timing across contiguous buffers via the real factory + cache; missing IR on a chain is
+      a pass-through; catalog/kind/CreateInstance/traits; asset set/clear/clone; undo/redo of the asset
+      command; `ResolvedEffect.GetAsset` and the audio plan carrying the asset; persistence round-trip with
+      the `assets` field written only for the IR effect; MCP set/get/clear/reject.
 
 ## Step 50
 

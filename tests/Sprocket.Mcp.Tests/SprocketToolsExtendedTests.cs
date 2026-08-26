@@ -612,6 +612,17 @@ public class SprocketToolsExtendedTests
         Assert.Equal(-3, session.Project.Settings.MasterAudioEffects[0]
             .Parameters[EffectParamNames.GainDb].Evaluate(default), 6);
 
+        // Chain-scope asset references (PLAN.md step 49): set, then clear.
+        await tools.AddChainEffect("master", EffectTypeIds.AudioConvolutionReverb);
+        int irIndex = session.Project.Settings.MasterAudioEffects.Count - 1;
+        await tools.SetChainEffectAsset("master", irIndex, EffectParamNames.ImpulseResponse, @"C:\irs\hall.wav");
+        Assert.Equal(@"C:\irs\hall.wav",
+            session.Project.Settings.MasterAudioEffects[irIndex].Assets[EffectParamNames.ImpulseResponse]);
+        await Assert.ThrowsAsync<McpException>(() =>
+            tools.SetChainEffectParameter("master", irIndex, EffectParamNames.ImpulseResponse, 1.0));
+        await tools.SetChainEffectAsset("master", irIndex, EffectParamNames.ImpulseResponse, "");
+        Assert.Empty(session.Project.Settings.MasterAudioEffects[irIndex].Assets);
+
         JsonNode chain = JsonNode.Parse(await tools.ListAudioChain("track", trackId))!;
         Assert.Single(chain["effects"]!.AsArray());
 

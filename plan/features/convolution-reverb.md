@@ -1,8 +1,12 @@
 # Convolution reverb (Acoustic Space) - build-order step 49
 
-❌ **Not started.** Spec moved verbatim from PLAN.md step 49 in the 2026-08-26 restructure;
-the status ledger row for step 49 in [PLAN.md](../../PLAN.md) points here. Relative links below
-resolve from the repo root.
+✅ **Shipped 2026-08-26.** The spec below is preserved verbatim (moved from PLAN.md step 49 in the
+2026-08-26 restructure); the implementation log lives in
+[`plan/history/steps-41-57.md#step-49`](../history/steps-41-57.md#step-49), which the
+[PLAN.md](../../PLAN.md) ledger row points at. Deliberate departures from the spec: **no bundled IRs**
+(the spec's own licensing-safe option — user WAV import leads), and IR relink is the lightweight
+"path stored absolute, missing file → pass-through + Inspector *(missing)* flag + re-Browse" flow
+rather than a full step-28-style relink dialog. Relative links below resolve from the repo root.
 
 49. **Acoustic Space (Convolution) Reverb.** A new built-in `IAudioEffect`,
     `src/Sprocket.Audio/Effects/ConvolutionReverbEffect.cs`, split out as its **own dedicated

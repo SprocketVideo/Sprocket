@@ -440,11 +440,39 @@ public sealed partial class SprocketTools(IEditorSession session)
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
             EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
-            double coerced = CoerceParameterValue(FindParameter(effect, parameter), value);
+            EffectParameterDescriptor? descriptor = FindParameter(effect, parameter);
+            RejectAssetParameter(descriptor, parameter);
+            double coerced = CoerceParameterValue(descriptor, value);
             api.History.Execute(new SetEffectParameterCommand(effect, parameter, AnimatableValue.Constant(coerced)));
             api.RefreshPreview();
             return StateFormatter.HistoryState(api.History,
                 $"set {effect.EffectTypeId}.{parameter} = {coerced}");
+        });
+
+    [McpServerTool(Name = "set_effect_asset")]
+    [Description("Sets (or, with an empty path, clears) a file/asset reference on a clip's effect — the " +
+                 "parameters list_effect_types reports with kind \"asset\", e.g. the Convolution Reverb's " +
+                 "\"impulseResponse\" (an absolute path to a mono/stereo WAV impulse response). Undoable; a " +
+                 "missing or unreadable file makes the effect pass audio through rather than fail. Identify " +
+                 "the effect by effect_tag (preferred — stable across reorders) or effect_index.")]
+    public Task<string> SetEffectAsset(
+        [Description("clip_id of the clip carrying the effect.")] int clipId,
+        [Description("Asset parameter name, e.g. \"impulseResponse\".")] string parameter,
+        [Description("Absolute file path, or empty to clear the reference.")] string path,
+        [Description("The effect's reference tag, e.g. \"IR-1\" (see the clip's effects list).")] string? effectTag = null,
+        [Description("Index of the effect in the clip's effect stack (alternative to effect_tag).")] int effectIndex = -1) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            (Clip clip, Track _) = ResolveClip(api, clipId);
+            EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
+            if (FindParameter(effect, parameter) is { } descriptor && descriptor.Kind != ParameterKind.Asset)
+                throw new McpException($"'{parameter}' is a numeric parameter — use set_effect_parameter.");
+            api.History.Execute(new SetEffectAssetCommand(effect, parameter, path));
+            api.RefreshPreview();
+            return StateFormatter.HistoryState(api.History,
+                string.IsNullOrEmpty(path)
+                    ? $"cleared {effect.EffectTypeId}.{parameter}"
+                    : $"set {effect.EffectTypeId}.{parameter} = {path}");
         });
 
     [McpServerTool(Name = "remove_effect", Destructive = true)]
@@ -551,6 +579,14 @@ public sealed partial class SprocketTools(IEditorSession session)
     /// unregistered effect / unknown parameter name (those stay unvalidated — the tools are lenient).</summary>
     internal static EffectParameterDescriptor? FindParameter(EffectInstance effect, string parameter) =>
         EffectCatalog.Find(effect.EffectTypeId)?.Parameters.FirstOrDefault(p => p.Name == parameter);
+
+    /// <summary>A <see cref="ParameterKind.Asset"/> descriptor (PLAN.md step 49) is a file reference: writing a
+    /// number to it would leave a junk numeric entry the DSP never reads — route callers to the asset tools.</summary>
+    internal static void RejectAssetParameter(EffectParameterDescriptor? descriptor, string parameter)
+    {
+        if (descriptor?.Kind == ParameterKind.Asset)
+            throw new McpException($"'{parameter}' is a file/asset reference — use set_effect_asset / set_chain_effect_asset.");
+    }
 
     /// <summary>
     /// Snaps a value for a discrete parameter kind: toggle / integer / dropdown values are rounded and

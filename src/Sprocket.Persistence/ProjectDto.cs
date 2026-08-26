@@ -234,7 +234,11 @@ internal sealed record EffectDto(
     bool? Enabled = null,
     // The instance reference tag (EffectTags, e.g. "RV-1"). Nullable + WhenWritingNull: pre-tag files
     // load with it missing and the app's EffectTags.EnsureAssigned sweep backfills it.
-    string? Tag = null);
+    string? Tag = null,
+    // File/asset references by parameter name (PLAN.md step 49 — the Convolution Reverb's impulse-response
+    // path). Additive + nullable: an effect with none writes null (WhenWritingNull), so every pre-49 file and
+    // every asset-less effect serializes byte-identically.
+    Dictionary<string, string>? Assets = null);
 
 /// <summary>An effect parameter: exactly one of <see cref="Constant"/> or <see cref="Keyframes"/> is set.</summary>
 internal sealed record AnimatableValueDto(

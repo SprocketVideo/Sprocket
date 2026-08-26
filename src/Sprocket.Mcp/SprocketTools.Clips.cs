@@ -254,6 +254,7 @@ public sealed partial class SprocketTools
                     clip.TimelineStart + new Timecode(k.ClipOffsetTicks),
                     CoerceParameterValue(descriptor, k.Value), interpolation));
             }
+            RejectAssetParameter(descriptor, parameter);
 
             api.History.Execute(new SetEffectParameterCommand(
                 effect, parameter, AnimatableValue.Animated(points)));

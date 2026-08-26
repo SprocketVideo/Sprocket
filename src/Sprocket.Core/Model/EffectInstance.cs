@@ -199,6 +199,21 @@ public static class EffectTypeIds
     public const string AudioShimmerReverb = "builtin.audio.reverb.shimmer";
 
     /// <summary>
+    /// Acoustic Space / Convolution Reverb (PLAN.md step 49): emulates a real captured space — room, hall,
+    /// chamber, plate — by convolving the dry signal with a user-supplied impulse response (WAV, mono or
+    /// stereo) through a zero-latency uniformly partitioned FFT convolver, shipped as its own dedicated
+    /// effect next to the algorithmic tiers (the DAW convention: Logic Space Designer vs. ChromaVerb,
+    /// Ableton Convolution Reverb vs. Reverb). The IR is an <em>asset</em> reference
+    /// (<see cref="EffectInstance.Assets"/>, key <see cref="EffectParamNames.ImpulseResponse"/>), not a
+    /// number; scalar parameters: <see cref="EffectParamNames.PreDelayMs"/>, <see cref="EffectParamNames.IrLength"/>,
+    /// <see cref="EffectParamNames.LowDamp"/>/<see cref="EffectParamNames.HighDamp"/>,
+    /// <see cref="EffectParamNames.Width"/>, <see cref="EffectParamNames.Mix"/>. No IRs are bundled at day
+    /// one (licensing) — the effect leads with user IR import and passes the dry signal through until an IR
+    /// is chosen and loaded.
+    /// </summary>
+    public const string AudioConvolutionReverb = "builtin.audio.reverb.convolution";
+
+    /// <summary>
     /// Whether an effect type id names an <b>audio</b> chain stage (PLAN.md step 31). The render graph uses
     /// this to split a clip's single effect stack: audio ids feed the mixer's DSP chain, everything else feeds
     /// the video shader chain (where unknown ids pass through). Built-in audio effects share the
@@ -555,6 +570,17 @@ public static class EffectParamNames
     /// <see cref="EffectTypeIds.AudioShimmerReverb"/>.</summary>
     public const string ShimmerInterval = "shimmerInterval";
 
+    // ── Convolution Reverb (PLAN.md step 49). ──
+    /// <summary>The impulse-response <em>asset</em> key (an absolute WAV path in
+    /// <see cref="EffectInstance.Assets"/>, not a numeric parameter) —
+    /// <see cref="EffectTypeIds.AudioConvolutionReverb"/>.</summary>
+    public const string ImpulseResponse = "impulseResponse";
+
+    /// <summary>Effective IR length in [0, 1] as a fraction of the loaded impulse response (1 = the whole
+    /// tail; less trims the decay with a smooth fade-out, shortening the space without a new IR) —
+    /// <see cref="EffectTypeIds.AudioConvolutionReverb"/>.</summary>
+    public const string IrLength = "irLength";
+
     /// <summary>The fixed tap cap of the Multi-Tap Delay (PLAN.md step 46) — matches typical DAW
     /// multi-tap plugins.</summary>
     public const int MultiTapCount = 8;
@@ -621,6 +647,17 @@ public sealed class EffectInstance
     /// <summary>Parameters by name, each an <see cref="AnimatableValue"/>.</summary>
     public Dictionary<string, AnimatableValue> Parameters { get; } = new();
 
+    /// <summary>
+    /// File/asset references by parameter name (PLAN.md step 49) — the <see cref="ParameterKind.Asset"/>
+    /// descriptors, e.g. the Convolution Reverb's impulse-response WAV under
+    /// <see cref="EffectParamNames.ImpulseResponse"/>. A string, not an <see cref="AnimatableValue"/>: an asset
+    /// is constant-only (never keyframed). Stored as an absolute path like <see cref="MediaRef.AbsolutePath"/>;
+    /// Core holds the string only (no IO, ARCHITECTURE.md §4) — the DSP layer resolves it, and a missing file
+    /// degrades to pass-through rather than failing. Part of the persisted/hashed state (§12, §20) so changing
+    /// an asset invalidates render-cache segments the same way a parameter edit does.
+    /// </summary>
+    public Dictionary<string, string> Assets { get; } = new();
+
     /// <summary>Sets a parameter to a constant value (fluent).</summary>
     public EffectInstance Set(string name, double value)
     {
@@ -635,6 +672,16 @@ public sealed class EffectInstance
         return this;
     }
 
+    /// <summary>Sets (or, for an empty <paramref name="path"/>, clears) an asset reference (fluent).</summary>
+    public EffectInstance SetAsset(string name, string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+            Assets.Remove(name);
+        else
+            Assets[name] = path;
+        return this;
+    }
+
     /// <summary>
     /// A copy with the same type and parameters. <see cref="AnimatableValue"/> is immutable so the entries
     /// are shared by reference; only the parameter map is fresh. Used when a blade split copies a clip's
@@ -645,6 +692,8 @@ public sealed class EffectInstance
         var copy = new EffectInstance(EffectTypeId) { Enabled = Enabled };
         foreach ((string name, AnimatableValue value) in Parameters)
             copy.Parameters[name] = value;
+        foreach ((string name, string path) in Assets)
+            copy.Assets[name] = path;
         return copy;
     }
 
@@ -659,6 +708,8 @@ public sealed class EffectInstance
         var copy = new EffectInstance(EffectTypeId) { Enabled = Enabled };
         foreach ((string name, AnimatableValue value) in Parameters)
             copy.Parameters[name] = value.Shifted(delta);
+        foreach ((string name, string path) in Assets)
+            copy.Assets[name] = path;
         return copy;
     }
 

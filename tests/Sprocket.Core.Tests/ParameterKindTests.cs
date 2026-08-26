@@ -86,7 +86,18 @@ public sealed class ParameterKindTests
         Assert.Equal(ParameterKind.Continuous, rotation.Kind);
 
         int discrete = AllBuiltInParams().Count(x => x.Param.Kind != ParameterKind.Continuous);
-        // 12 toggles (ShowMask, PingPong, Low/HighEnable, 8 tap enables) + 1 dropdown + 1 integer.
-        Assert.Equal(14, discrete);
+        // 12 toggles (ShowMask, PingPong, Low/HighEnable, 8 tap enables) + 1 dropdown + 1 integer + 1 asset.
+        Assert.Equal(15, discrete);
+    }
+
+    [Fact]
+    public void The_Impulse_Response_Is_The_Only_Asset()
+    {
+        // Step 49: a file reference, not a number — it lives in EffectInstance.Assets, so no numeric default.
+        (EffectDescriptor effect, EffectParameterDescriptor p) = Assert.Single(
+            AllBuiltInParams(), x => x.Param.Kind == ParameterKind.Asset);
+        Assert.Equal(EffectTypeIds.AudioConvolutionReverb, effect.Id);
+        Assert.Equal(EffectParamNames.ImpulseResponse, p.Name);
+        Assert.Null(p.Choices);
     }
 }

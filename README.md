@@ -88,8 +88,9 @@ The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step bui
 Code-signing & notarization (alpha artifacts are unsigned) · plugin hosting — VST3/AU audio,
 OpenColorIO/OFX video, the open standards (frei0r · LADSPA · LV2), and an in-app plugin manager
 (the managed plugin host and built-in effects ship today) · variable/ramped speed & reverse
-retime (freeze frames ship today) · convolution reverb (Studio Reverb, Shimmer Reverb, and audio
-freeze ship today) · grading presets / creative looks. See the [Roadmap](#roadmap).
+retime (freeze frames ship today) · a bundled impulse-response library (the Convolution Reverb with
+user IR import, Studio Reverb, Shimmer Reverb, and audio freeze ship today) · grading presets /
+creative looks. See the [Roadmap](#roadmap).
 
 ---
 
@@ -331,9 +332,10 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
   `AssemblyLoadContext`) and the built-in managed effects ship today.
 - **Advanced retime** — variable/ramped speed and reverse (constant-speed retime, freeze frames,
   and stop-motion frame edits ship today).
-- **Audio extras** — convolution reverb (the Studio Reverb, the Shimmer Reverb, factory presets,
-  the delay family — digital / tape / multi-tap / stereo ping-pong — the noise gate, the shelving
-  EQ, and clip-audio freeze ship today).
+- **Audio extras** — a bundled, licensing-clear impulse-response library (the Convolution Reverb
+  itself with user WAV IR import, the Studio Reverb, the Shimmer Reverb, factory presets, the delay
+  family — digital / tape / multi-tap / stereo ping-pong — the noise gate, the shelving EQ, and
+  clip-audio freeze ship today).
 - **Grading presets / creative looks** — a Looks browser with one-click creative grades, saveable
   looks, and creative `.cube` LUTs (the grading suite and camera-log input transforms ship today).
 - **Live stop-motion capture** — a capture mode with onion-skinning (deferred until packaging

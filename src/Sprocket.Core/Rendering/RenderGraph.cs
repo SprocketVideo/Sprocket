@@ -313,7 +313,9 @@ public static class RenderGraph
             var values = new Dictionary<string, double>(effect.Parameters.Count);
             foreach ((string name, AnimatableValue value) in effect.Parameters)
                 values[name] = value.Evaluate(t);
-            (resolved ??= []).Add(new ResolvedEffect(effect.EffectTypeId, values));
+            // Asset references (PLAN.md step 49) ride along by reference — constant strings, nothing to evaluate.
+            (resolved ??= []).Add(new ResolvedEffect(effect.EffectTypeId, values,
+                effect.Assets.Count > 0 ? effect.Assets : null));
         }
         return resolved is null ? null : new ResolvedAudioChain(stateKey, resolved);
     }
@@ -531,6 +533,8 @@ public static class RenderGraph
             var values = new Dictionary<string, double>(effect.Parameters.Count);
             foreach ((string name, AnimatableValue value) in effect.Parameters)
                 values[name] = value.Evaluate(t);
+            // Video effects carry no asset references today (only the audio Convolution Reverb does, PLAN.md
+            // step 49); forward effect.Assets here when the first video Asset descriptor arrives.
             (resolved ??= []).Add(new ResolvedEffect(effect.EffectTypeId, values));
         }
         return resolved?.ToArray() ?? [];

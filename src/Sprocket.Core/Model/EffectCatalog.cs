@@ -34,6 +34,13 @@ public enum ParameterKind
     /// <summary>A choice from <see cref="EffectParameterDescriptor.Choices"/> stored as its index —
     /// a dropdown; constant-only (not keyframeable).</summary>
     Dropdown,
+
+    /// <summary>A file/asset reference (PLAN.md step 49) — e.g. the Convolution Reverb's impulse-response
+    /// WAV. Lives in <see cref="EffectInstance.Assets"/> as a path string rather than in
+    /// <see cref="EffectInstance.Parameters"/>, so it is constant-only and the numeric
+    /// <c>Default</c>/<c>Min</c>/<c>Max</c> on its descriptor are unused; the Inspector builds a file-picker
+    /// row (name + Browse… + clear) and <see cref="EffectDescriptor.CreateInstance"/> leaves it unset.</summary>
+    Asset,
 }
 
 /// <summary>
@@ -127,14 +134,18 @@ public sealed record EffectDescriptor(
     public string? ShortCode { get; init; }
 
     /// <summary>
-    /// Builds a fresh <see cref="EffectInstance"/> of this type with every parameter set to its
-    /// <see cref="EffectParameterDescriptor.Default"/>. Each call yields an independent instance.
+    /// Builds a fresh <see cref="EffectInstance"/> of this type with every numeric parameter set to its
+    /// <see cref="EffectParameterDescriptor.Default"/>. <see cref="ParameterKind.Asset"/> descriptors are
+    /// left unset (there is no default file). Each call yields an independent instance.
     /// </summary>
     public EffectInstance CreateInstance()
     {
         var instance = new EffectInstance(Id);
         foreach (EffectParameterDescriptor p in Parameters)
-            instance.Set(p.Name, p.Default);
+        {
+            if (p.Kind != ParameterKind.Asset)
+                instance.Set(p.Name, p.Default);
+        }
         return instance;
     }
 }
@@ -674,6 +685,33 @@ public static class EffectCatalog
                 }),
             ],
         },
+
+        // ── Convolution Reverb (PLAN.md step 49) — the acoustic-emulation tier as its own effect. The IR is
+        // an Asset descriptor (a file reference, not a number) so the Inspector builds a file-picker row; no
+        // IRs are bundled at day one (licensing), so a fresh instance passes the dry signal through until the
+        // user imports one. No factory presets: with user IRs the "preset" IS the impulse response.
+        new EffectDescriptor(
+            EffectTypeIds.AudioConvolutionReverb,
+            "Convolution Reverb",
+            EffectCategory.Audio,
+            "Acoustic space emulation: convolves the signal with a captured impulse response (WAV).",
+            [
+                new EffectParameterDescriptor(EffectParamNames.ImpulseResponse, "Impulse Response", 0.0, 0.0, 0.0, 1.0,
+                    Description: "The captured space — a mono or stereo WAV impulse response (up to 10 s).",
+                    Kind: ParameterKind.Asset),
+                new EffectParameterDescriptor(EffectParamNames.PreDelayMs, "Pre-Delay", 0.0, 0.0, 200.0, 1.0, "ms",
+                    "Gap between the dry sound and the start of the reverb."),
+                new EffectParameterDescriptor(EffectParamNames.IrLength, "Length", 1.0, 0.05, 1.0, 0.05, "%",
+                    "How much of the impulse response plays — shorter trims the tail without a new IR.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.LowDamp, "Low Damp", 0.0, 0.0, 1.0, 0.05, "%",
+                    "Thins low frequencies out of the reverb tail.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.HighDamp, "High Damp", 0.0, 0.0, 1.0, 0.05, "%",
+                    "Darkens the reverb tail by rolling off high frequencies.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Width, "Width", 1.0, 0.0, 1.0, 0.05, "%",
+                    "Stereo spread of the reverb (0% = mono, 100% = as captured).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 },
+            ]) { ShortCode = "IR" },
     ];
 
     /// <summary>

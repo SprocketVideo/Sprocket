@@ -197,6 +197,37 @@ public class AudioEffectChainPersistenceTests
     }
 
     [Fact]
+    public void Step49_Convolution_Reverb_Asset_Round_Trips()
+    {
+        // The impulse-response reference is a string asset beside the numeric parameters (EffectDto.Assets,
+        // additive): it must survive a save/load, and effects without assets must not write the field at all.
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var project = new Project(timeline);
+        var track = new AudioTrack { Name = "A1" };
+        track.Effects.Add(new EffectInstance(EffectTypeIds.AudioConvolutionReverb)
+            .Set(EffectParamNames.PreDelayMs, 12.0)
+            .Set(EffectParamNames.IrLength, 0.8)
+            .Set(EffectParamNames.Mix, 0.4)
+            .SetAsset(EffectParamNames.ImpulseResponse, @"C:\irs\Cathedral Nave.wav"));
+        track.Effects.Add(new EffectInstance(EffectTypeIds.AudioGain).Set(EffectParamNames.GainDb, -3.0));
+        timeline.Tracks.Add(track);
+
+        string json = ProjectSerializer.Serialize(project);
+        Assert.Contains("Cathedral Nave.wav", json);
+        Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(json, "\"assets\"").Count); // only the IR effect
+
+        AudioTrack loaded = Assert.IsType<AudioTrack>(ProjectSerializer.Deserialize(json).Timeline.Tracks[0]);
+        Assert.Equal(2, loaded.Effects.Count);
+        EffectInstance conv = loaded.Effects[0];
+        Assert.Equal(EffectTypeIds.AudioConvolutionReverb, conv.EffectTypeId);
+        Assert.Equal(@"C:\irs\Cathedral Nave.wav", conv.Assets[EffectParamNames.ImpulseResponse]);
+        Assert.Equal(12.0, conv.Parameters[EffectParamNames.PreDelayMs].Evaluate(Timecode.Zero));
+        Assert.Equal(0.8, conv.Parameters[EffectParamNames.IrLength].Evaluate(Timecode.Zero));
+        Assert.Equal(0.4, conv.Parameters[EffectParamNames.Mix].Evaluate(Timecode.Zero));
+        Assert.Empty(loaded.Effects[1].Assets);
+    }
+
+    [Fact]
     public void Chainless_Project_Omits_The_Chain_Fields_In_Json()
     {
         var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));

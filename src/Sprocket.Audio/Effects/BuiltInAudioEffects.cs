@@ -30,6 +30,7 @@ public static class BuiltInAudioEffects
         EffectTypeIds.AudioNoiseGate => new NoiseGateEffect(),
         EffectTypeIds.AudioShelvingEq => new ShelvingEqEffect(),
         EffectTypeIds.AudioShimmerReverb => new ShimmerReverbEffect(),
+        EffectTypeIds.AudioConvolutionReverb => new ConvolutionReverbEffect(),
         _ => null,
     };
 }

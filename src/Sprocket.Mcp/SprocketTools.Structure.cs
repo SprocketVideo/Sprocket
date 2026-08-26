@@ -360,8 +360,32 @@ public sealed partial class SprocketTools
         {
             IList<EffectInstance> chain = ResolveChain(api, scope, trackId);
             EffectInstance effect = ChainEffectAt(chain, effectIndex);
+            RejectAssetParameter(FindParameter(effect, parameter), parameter);
             api.History.Execute(new SetEffectParameterCommand(effect, parameter, AnimatableValue.Constant(value)));
             return StateFormatter.HistoryState(api.History, $"set {effect.EffectTypeId}.{parameter} = {value}");
+        });
+
+    [McpServerTool(Name = "set_chain_effect_asset")]
+    [Description("Sets (or, with an empty path, clears) a file/asset reference on a track / sequence-bus / " +
+                 "master chain effect — e.g. the Convolution Reverb's \"impulseResponse\" (absolute path to a " +
+                 "mono/stereo WAV). Undoable; a missing or unreadable file makes the effect pass audio through.")]
+    public Task<string> SetChainEffectAsset(
+        [Description("Chain scope: \"track\", \"sequence\", or \"master\".")] string scope,
+        [Description("Index of the effect in the chain (see list_audio_chain).")] int effectIndex,
+        [Description("Asset parameter name, e.g. \"impulseResponse\".")] string parameter,
+        [Description("Absolute file path, or empty to clear the reference.")] string path,
+        [Description("track_id of the audio track (scope=\"track\" only).")] int? trackId = null) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            IList<EffectInstance> chain = ResolveChain(api, scope, trackId);
+            EffectInstance effect = ChainEffectAt(chain, effectIndex);
+            if (FindParameter(effect, parameter) is { } descriptor && descriptor.Kind != ParameterKind.Asset)
+                throw new McpException($"'{parameter}' is a numeric parameter — use set_chain_effect_parameter.");
+            api.History.Execute(new SetEffectAssetCommand(effect, parameter, path));
+            return StateFormatter.HistoryState(api.History,
+                string.IsNullOrEmpty(path)
+                    ? $"cleared {effect.EffectTypeId}.{parameter}"
+                    : $"set {effect.EffectTypeId}.{parameter} = {path}");
         });
 
     private static IList<EffectInstance> ResolveChain(IEditorApi api, string scope, int? trackId) =>

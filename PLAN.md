@@ -120,7 +120,7 @@ shipped step append to its history entry directly.
 | 46 | Delay effects (digital / tape / multi-tap / stereo) | ✅ | [history](plan/history/steps-41-57.md#step-46) |
 | 47 | Noise Gate | ✅ | [history](plan/history/steps-41-57.md#step-47) |
 | 48 | Shelving EQ | ✅ | [history](plan/history/steps-41-57.md#step-48) |
-| 49 | Acoustic Space (Convolution) Reverb | ❌ not started → [plan](plan/features/convolution-reverb.md) | [history](plan/history/steps-41-57.md#step-49) |
+| 49 | Acoustic Space (Convolution) Reverb | ✅ (user IR import; no bundled IRs) | [history](plan/history/steps-41-57.md#step-49) |
 | 50 | Shimmer Reverb | ✅ | [history](plan/history/steps-41-57.md#step-50) |
 | 51 | Reorder effects within an audio chain | ✅ | [history](plan/history/steps-41-57.md#step-51) |
 | 52 | Additional camera log profiles (non-DJI) | ✅ | [history](plan/history/steps-41-57.md#step-52) |
@@ -140,8 +140,8 @@ verification-only items carry their checklist in the step's history entry.
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →
   [plan/features/looks-browser.md](plan/features/looks-browser.md)
-- [ ] **Convolution reverb (Acoustic Space)** — step 49, spec written, not started →
-  [plan/features/convolution-reverb.md](plan/features/convolution-reverb.md)
+- [x] **Convolution reverb (Acoustic Space)** — step 49, shipped 2026-08-26 (user WAV IR import; bundled
+  IR library deliberately deferred on licensing) → [history](plan/history/steps-41-57.md#step-49)
 - [ ] **Variable / ramped speed & reverse retime** — step 21 remainder (reverse playback,
   keyframed speed ramps, pitch-preserving stretch, frame-interpolated slow motion) →
   [plan/features/variable-retime.md](plan/features/variable-retime.md)
