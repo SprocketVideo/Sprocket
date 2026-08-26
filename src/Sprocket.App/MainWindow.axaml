@@ -563,7 +563,8 @@
                     HorizontalAlignment="Stretch" VerticalAlignment="Center" />
 
       <!-- Timeline (custom-drawn control lands in step 12). -->
-      <Border x:Name="TimelinePane" Grid.Row="2" Classes="pane" AutomationProperties.Name="Timeline">
+      <Border x:Name="TimelinePane" Grid.Row="2" Classes="pane" ClipToBounds="True"
+              AutomationProperties.Name="Timeline">
         <DockPanel>
           <Border DockPanel.Dock="Top" Classes="paneHeader">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
