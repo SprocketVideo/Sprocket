@@ -86,3 +86,30 @@ rests on manual verification, per the standing convention for the App's code-bui
 Docs: FEATURES.md gains the Plugin Manager row (❌ undocumented) under §4 Effects, and the
 "Not user-facing" plugin-internals row now points at it. The native VST3/AU/OFX bridges (steps
 31/33) and the open standards (step 59) land into this manager.
+
+**Follow-up fixes (2026-08-26, post-review).** Five pre-existing findings surfaced (but not fixed)
+during step 58's code review were addressed together:
+1. *Render-plan Assets aliasing (`RenderGraph.ResolveAudioChain`).* `ResolvedEffect.Assets` aliased
+   the model's live `EffectInstance.Assets` dictionary; the plan is consumed on the audio thread
+   (`AudioMixer.MixInto`), where `GetAsset` raced a UI-thread `SetEffectAssetCommand` — a `Dictionary`
+   data race. Now snapshot-copied when non-empty, matching the numeric `values` snapshot (the plan is a
+   true immutable snapshot again).
+2. *Convolution Reverb dropped an in-use IR on cache eviction (`ConvolutionReverbEffect.Process`).* It
+   re-resolved the IR through `ImpulseResponseCache` every buffer, so a `Trim` eviction of an in-use
+   entry (>16 IRs auditioned) returned null → a dry gap mid-playback. It now retains its own `_ir`
+   reference (keyed by `_irPath`) and stops polling once loaded — making the cache's documented
+   "a live effect keeps its own reference" invariant actually hold (and cheaper per buffer).
+3. *MCP `set_effect_asset` / `set_chain_effect_asset` silently accepted an unknown parameter name.* The
+   old guard only rejected a known-numeric parameter, so a typo'd asset name wrote a junk `Assets` entry
+   no DSP reads. New `SprocketTools.RequireAssetParameter` rejects an unknown or numeric name on a
+   *registered* effect (unregistered plugin effects stay lenient, matching `FindParameter`).
+4. *MCP asset set didn't retry a failed IR.* The Inspector drops a failed-load cache entry on re-pick;
+   the MCP tools didn't, so setting a path that had failed stayed dry-cached. Added the
+   `IEditorApi.InvalidateFailedAsset` seam (implemented in `McpEditorSession` mirroring the Inspector's
+   failed-only, per-project-rate check) and called from both asset tools.
+5. *Inspector probed `File.Exists` on the UI thread (`InspectorPanel` asset row).* An unreachable network
+   path could freeze the editor for seconds. The probe now runs on a threadpool task and repaints the row
+   from the continuation (optimistic "present" until it lands), still once per distinct path.
+
+Tests: `SprocketToolsTests` now asserts the unknown-param rejection and the invalidate-on-set request;
+`ConvolutionReverbEffectTests.An_In_Use_IR_Survives_A_Cache_Eviction` covers the retained-reference fix.

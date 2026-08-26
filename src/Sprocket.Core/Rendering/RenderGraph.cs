@@ -313,9 +313,13 @@ public static class RenderGraph
             var values = new Dictionary<string, double>(effect.Parameters.Count);
             foreach ((string name, AnimatableValue value) in effect.Parameters)
                 values[name] = value.Evaluate(t);
-            // Asset references (PLAN.md step 49) ride along by reference — constant strings, nothing to evaluate.
+            // Asset references (PLAN.md step 49): snapshot the dictionary rather than aliasing the model's live
+            // one. This plan is consumed on the audio thread (AudioMixer.MixInto), where ResolvedEffect.GetAsset
+            // would otherwise read effect.Assets concurrently with a SetEffectAssetCommand mutating it on the UI
+            // thread — a Dictionary data race. Copy only when there is an asset (the rare case), matching how the
+            // numeric `values` above is already a per-plan snapshot.
             (resolved ??= []).Add(new ResolvedEffect(effect.EffectTypeId, values,
-                effect.Assets.Count > 0 ? effect.Assets : null));
+                effect.Assets.Count > 0 ? new Dictionary<string, string>(effect.Assets) : null));
         }
         return resolved is null ? null : new ResolvedAudioChain(stateKey, resolved);
     }

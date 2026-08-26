@@ -104,6 +104,16 @@ internal sealed class McpEditorSession(
             monitor.SeekTo(monitor.Position);
     }
 
+    public void InvalidateFailedAsset(string path)
+    {
+        // Mirror the Inspector's re-pick behavior (InspectorPanel asset row): drop only a failed entry so a
+        // healthy IR keeps convolving — reloading one mid-playback would cut its reverb tail. Keyed by the
+        // project's audio sample rate, exactly as the Inspector's HasFailed check is.
+        if (!string.IsNullOrEmpty(path)
+            && Sprocket.Audio.Effects.ImpulseResponseCache.HasFailed(path, project.Timeline.SampleRate))
+            Sprocket.Audio.Effects.ImpulseResponseCache.Invalidate(path);
+    }
+
     public bool IsDirty => window.McpIsDirty;
 
     public bool SaveProject() => window.McpSave();

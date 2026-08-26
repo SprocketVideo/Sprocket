@@ -465,8 +465,8 @@ public sealed partial class SprocketTools(IEditorSession session)
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
             EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
-            if (FindParameter(effect, parameter) is { } descriptor && descriptor.Kind != ParameterKind.Asset)
-                throw new McpException($"'{parameter}' is a numeric parameter — use set_effect_parameter.");
+            RequireAssetParameter(effect, parameter);
+            api.InvalidateFailedAsset(path); // a path that previously failed must retry the load, not stay dry-cached
             api.History.Execute(new SetEffectAssetCommand(effect, parameter, path));
             api.RefreshPreview();
             return StateFormatter.HistoryState(api.History,
@@ -586,6 +586,22 @@ public sealed partial class SprocketTools(IEditorSession session)
     {
         if (descriptor?.Kind == ParameterKind.Asset)
             throw new McpException($"'{parameter}' is a file/asset reference — use set_effect_asset / set_chain_effect_asset.");
+    }
+
+    /// <summary>Validates <paramref name="parameter"/> as an asset target on <paramref name="effect"/>: for a
+    /// <em>registered</em> effect it must be a declared <see cref="ParameterKind.Asset"/> parameter — an unknown
+    /// name would silently write a junk <see cref="EffectInstance.Assets"/> entry no DSP ever reads, and a numeric
+    /// name belongs to set_effect_parameter / set_chain_effect_parameter. An unregistered (plugin) effect the
+    /// catalog can't describe stays lenient, matching <see cref="FindParameter"/>.</summary>
+    internal static void RequireAssetParameter(EffectInstance effect, string parameter)
+    {
+        if (EffectCatalog.Find(effect.EffectTypeId) is not { } catalog)
+            return; // unregistered effect: can't validate the parameter set, stay lenient
+        EffectParameterDescriptor? descriptor = catalog.Parameters.FirstOrDefault(p => p.Name == parameter);
+        if (descriptor is null)
+            throw new McpException($"'{effect.EffectTypeId}' has no parameter '{parameter}'.");
+        if (descriptor.Kind != ParameterKind.Asset)
+            throw new McpException($"'{parameter}' is a numeric parameter — use set_effect_parameter / set_chain_effect_parameter.");
     }
 
     /// <summary>

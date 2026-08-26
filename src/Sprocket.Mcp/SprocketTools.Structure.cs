@@ -379,8 +379,8 @@ public sealed partial class SprocketTools
         {
             IList<EffectInstance> chain = ResolveChain(api, scope, trackId);
             EffectInstance effect = ChainEffectAt(chain, effectIndex);
-            if (FindParameter(effect, parameter) is { } descriptor && descriptor.Kind != ParameterKind.Asset)
-                throw new McpException($"'{parameter}' is a numeric parameter — use set_chain_effect_parameter.");
+            RequireAssetParameter(effect, parameter);
+            api.InvalidateFailedAsset(path); // a path that previously failed must retry the load, not stay dry-cached
             api.History.Execute(new SetEffectAssetCommand(effect, parameter, path));
             return StateFormatter.HistoryState(api.History,
                 string.IsNullOrEmpty(path)

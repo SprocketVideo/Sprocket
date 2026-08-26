@@ -111,6 +111,12 @@ internal sealed class FakeEditorSession : IEditorSession, IEditorApi
 
     public void RefreshPreview() => RefreshCount++;
 
+    /// <summary>Paths passed to <see cref="InvalidateFailedAsset"/>, in call order (the real App drops a
+    /// failed impulse-response cache entry here; the fake just records the request).</summary>
+    public List<string> InvalidatedAssets { get; } = new();
+
+    public void InvalidateFailedAsset(string path) => InvalidatedAssets.Add(path);
+
     public bool IsDirty => History.UndoCount != _savedUndoCount;
 
     public bool SaveProject()

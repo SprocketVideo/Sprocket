@@ -188,11 +188,16 @@ public class SprocketToolsTests
         int irIndex = (int)addedIr["effect_index"]!;
         await tools.SetEffectAsset(clipId, EffectParamNames.ImpulseResponse, @"C:\irs\hall.wav", effectIndex: irIndex);
         Assert.Equal(@"C:\irs\hall.wav", clip.Effects[irIndex].Assets[EffectParamNames.ImpulseResponse]);
+        // Setting the asset asks the App to drop a stale failed-load cache entry so the new path retries.
+        Assert.Contains(@"C:\irs\hall.wav", session.InvalidatedAssets);
         JsonNode detail = JsonNode.Parse(await tools.GetClip(clipId))!;
         Assert.Equal(@"C:\irs\hall.wav",
             (string?)detail["effects"]![irIndex]!["assets"]![EffectParamNames.ImpulseResponse]);
         await Assert.ThrowsAsync<McpException>(() =>
             tools.SetEffectAsset(clipId, EffectParamNames.Mix, "x.wav", effectIndex: irIndex)); // numeric param
+        await Assert.ThrowsAsync<McpException>(() =>
+            tools.SetEffectAsset(clipId, "notAParameter", "x.wav", effectIndex: irIndex)); // unknown param on a registered effect
+        Assert.DoesNotContain("notAParameter", clip.Effects[irIndex].Assets.Keys); // rejected, no junk entry written
         await Assert.ThrowsAsync<McpException>(() =>
             tools.SetEffectParameter(clipId, EffectParamNames.ImpulseResponse, 1.0, effectIndex: irIndex)); // asset param
         Assert.DoesNotContain(EffectParamNames.ImpulseResponse, clip.Effects[irIndex].Parameters.Keys);

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -1391,27 +1393,16 @@ public sealed class InspectorPanel : UserControl
         };
         clear.Click += (_, _) => ExecuteEdit(new SetEffectAssetCommand(effect, p.Name, null), coalescing: false);
 
-        // Existence is probed once per distinct path, not on every refresh: refreshers run on each playhead
-        // move, and File.Exists on an unreachable network path can block the UI thread for seconds.
+        // Existence is probed once per distinct path, not on every refresh (refreshers run on each playhead
+        // move), and the File.Exists itself runs off the UI thread: on an unreachable network path it can block
+        // for seconds, which on the UI thread would freeze the whole editor. The row paints optimistically
+        // (assume present) until the async probe lands, then repaints if the verdict differs and the path is
+        // still current.
         string? probedPath = null;
-        bool probedExists = false;
-        _valueRefreshers.Add(() =>
+        bool probedExists = true;
+
+        void PaintAssetRow(string path, bool exists)
         {
-            effect.Assets.TryGetValue(p.Name, out string? path);
-            if (string.IsNullOrEmpty(path))
-            {
-                fileName.Text = "None";
-                fileName.Foreground = FaintText;
-                ToolTip.SetTip(fileName, null);
-                clear.IsVisible = false;
-                return;
-            }
-            if (!string.Equals(path, probedPath, StringComparison.Ordinal))
-            {
-                probedPath = path;
-                probedExists = File.Exists(path);
-            }
-            bool exists = probedExists;
             // A present-but-unreadable file (not a WAV, corrupt) is flagged too, from the loader's own verdict.
             bool failed = exists && Sprocket.Audio.Effects.ImpulseResponseCache.HasFailed(path, SampleRate());
             string name = Path.GetFileName(path);
@@ -1423,6 +1414,36 @@ public sealed class InspectorPanel : UserControl
                     ? $"{path}\nNot a readable WAV impulse response — the effect passes audio through."
                     : path);
             clear.IsVisible = true;
+        }
+
+        _valueRefreshers.Add(() =>
+        {
+            effect.Assets.TryGetValue(p.Name, out string? path);
+            if (string.IsNullOrEmpty(path))
+            {
+                fileName.Text = "None";
+                fileName.Foreground = FaintText;
+                ToolTip.SetTip(fileName, null);
+                clear.IsVisible = false;
+                probedPath = null; // so re-adding a path re-probes
+                return;
+            }
+            if (!string.Equals(path, probedPath, StringComparison.Ordinal))
+            {
+                probedPath = path;
+                probedExists = true; // optimistic until the off-thread probe returns
+                string probing = path;
+                _ = Task.Run(() => File.Exists(probing)).ContinueWith(t =>
+                {
+                    // Ignore a stale probe — the path changed again while this one was in flight.
+                    if (!string.Equals(probing, probedPath, StringComparison.Ordinal))
+                        return;
+                    probedExists = t.Result;
+                    PaintAssetRow(probing, probedExists);
+                }, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion,
+                   TaskScheduler.FromCurrentSynchronizationContext());
+            }
+            PaintAssetRow(path, probedExists);
         });
 
         var group = new StackPanel

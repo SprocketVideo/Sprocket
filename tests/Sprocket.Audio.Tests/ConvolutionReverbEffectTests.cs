@@ -159,6 +159,31 @@ public class ConvolutionReverbEffectTests
     }
 
     [Fact]
+    public void An_In_Use_IR_Survives_A_Cache_Eviction()
+    {
+        // Once loaded, the effect holds its own reference: if the shared cache later evicts the entry
+        // (ImpulseResponseCache.Trim drops an in-use IR when more than MaxEntries are auditioned) the resolver
+        // starts returning null, but active playback must keep convolving rather than drop to a dry gap — the
+        // invariant the cache's eviction comment assumes.
+        ImpulseResponse ir = MonoIr(Delta(64, 3, 0.5f));
+        int calls = 0;
+        var effect = new ConvolutionReverbEffect((path, rate) =>
+        {
+            calls++;
+            return calls == 1 ? ir : null; // the first buffer loads it; a later "eviction" resolves to null
+        });
+
+        float[] first = Run(effect, Wet(), Impulse(100), 100);
+        Assert.Equal(0.5f, first[3 * Channels], 1e-6f);
+        Assert.True(effect.IsImpulseResponseLoaded);
+
+        float[] second = Run(effect, Wet(), Impulse(100), 100);
+        Assert.Equal(0.5f, second[3 * Channels], 1e-6f); // still convolving the retained IR
+        Assert.True(effect.IsImpulseResponseLoaded);
+        Assert.Equal(1, calls); // and no longer polling the cache once the IR is held
+    }
+
+    [Fact]
     public void Impulse_In_Reproduces_The_IR_At_Unity_Mix()
     {
         // The defining test: convolving δ with h gives h back — across the direct head AND the FFT partitions

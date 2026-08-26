@@ -76,6 +76,12 @@ public interface IEditorApi
     /// (a seek to the current position; no-op while playing).</summary>
     void RefreshPreview();
 
+    /// <summary>Clears the impulse-response cache entry for <paramref name="path"/> when it is remembered as
+    /// failed, so setting an asset to a path that previously failed to load retries it rather than staying
+    /// dry-cached (the Inspector does the same on a re-pick). No-op for a healthy cached IR — reloading one
+    /// mid-playback would cut its reverb tail — and for a null/empty path.</summary>
+    void InvalidateFailedAsset(string path);
+
     /// <summary>Whether the document has edits not yet written to <see cref="ProjectPath"/> (the App's
     /// title-bar dirty indicator).</summary>
     bool IsDirty { get; }

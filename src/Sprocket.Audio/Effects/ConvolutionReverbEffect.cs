@@ -39,6 +39,7 @@ public sealed class ConvolutionReverbEffect : IAudioEffect, IAudioEffectTail
 
     private readonly Func<string, int, ImpulseResponse?> _resolve;
     private ImpulseResponse? _ir;
+    private string _irPath = ""; // the asset path _ir was resolved for, so a steady buffer skips re-resolution
     private PartitionedConvolver[] _convolvers = [];
     private DelayLine[] _preDelay = [];
     private float[] _wet = [];        // per-channel wet scratch for the width stage
@@ -76,14 +77,29 @@ public sealed class ConvolutionReverbEffect : IAudioEffect, IAudioEffectTail
             return; // fully dry — exact pass-through, no state to advance
 
         string path = parameters.GetAsset(EffectParamNames.ImpulseResponse);
-        ImpulseResponse? ir = path.Length == 0 ? null : _resolve(path, sampleRate);
-        if (ir is null)
+        if (path.Length == 0)
         {
-            _ir = null; // no / not-yet-loaded / failed IR: dry pass-through (the next buffer re-checks the cache)
+            _ir = null;
+            _irPath = ""; // no IR: exact dry pass-through
             return;
         }
-        if (!ReferenceEquals(ir, _ir) || sampleRate != _rate || channels != _channels)
-            Allocate(ir, sampleRate, channels);
+        // Resolve through the shared cache only until we hold this path's IR at the current format. Once loaded we
+        // keep our own reference and stop polling the cache, so an eviction of an in-use IR (ImpulseResponseCache
+        // drops arbitrary entries beyond MaxEntries when many IRs are auditioned) never forces a reload-induced
+        // dry gap mid-playback — this is the "a live effect keeps its own reference" invariant the cache assumes.
+        if (_ir is null || !string.Equals(path, _irPath, StringComparison.Ordinal)
+            || sampleRate != _rate || channels != _channels)
+        {
+            ImpulseResponse? ir = _resolve(path, sampleRate);
+            if (ir is null)
+            {
+                _ir = null; // not-yet-loaded / failed IR: dry pass-through (the next buffer re-checks the cache)
+                return;
+            }
+            if (!ReferenceEquals(ir, _ir) || sampleRate != _rate || channels != _channels)
+                Allocate(ir, sampleRate, channels);
+            _irPath = path;
+        }
 
         int preDelaySamples = (int)(Math.Clamp(parameters.Get(EffectParamNames.PreDelayMs, 0.0), 0, MaxPreDelaySeconds * 1000)
                                     / 1000.0 * sampleRate);
