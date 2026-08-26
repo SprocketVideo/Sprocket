@@ -85,10 +85,11 @@ The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step bui
 
 ### Planned
 
-Code-signing & notarization (alpha artifacts are unsigned) · native plugin hosting — VST3/AU audio
-and OpenColorIO/OFX (the managed plugin host and built-in effects ship today) · variable/ramped
-speed & reverse retime (freeze frames ship today) · convolution reverb (Studio Reverb, Shimmer
-Reverb, and audio freeze ship today). See the [Roadmap](#roadmap).
+Code-signing & notarization (alpha artifacts are unsigned) · plugin hosting — VST3/AU audio,
+OpenColorIO/OFX video, the open standards (frei0r · LADSPA · LV2), and an in-app plugin manager
+(the managed plugin host and built-in effects ship today) · variable/ramped speed & reverse
+retime (freeze frames ship today) · convolution reverb (Studio Reverb, Shimmer Reverb, and audio
+freeze ship today) · grading presets / creative looks. See the [Roadmap](#roadmap).
 
 ---
 
@@ -324,13 +325,19 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
   `--doctor` environment self-check and informational multi-distro + arm64 release smokes; verifying
   real VAAPI/NVENC hardware acceleration on Intel/AMD/NVIDIA machines remains (software encode/decode
   is the dependable fallback).
-- **Native plugin & color hosting** — VST3/AU audio plugins and OpenColorIO / OFX. The managed
-  plugin host (collectible `AssemblyLoadContext`) and the built-in managed effects ship today.
+- **Plugin hosting & management** — native VST3/AU audio plugins, OpenColorIO / OFX, the open
+  C-ABI standards (frei0r video, LADSPA / LV2 audio), and a user-facing plugin manager
+  (see / enable / disable / install). The managed plugin host (collectible
+  `AssemblyLoadContext`) and the built-in managed effects ship today.
 - **Advanced retime** — variable/ramped speed and reverse (constant-speed retime, freeze frames,
   and stop-motion frame edits ship today).
 - **Audio extras** — convolution reverb (the Studio Reverb, the Shimmer Reverb, factory presets,
   the delay family — digital / tape / multi-tap / stereo ping-pong — the noise gate, the shelving
   EQ, and clip-audio freeze ship today).
+- **Grading presets / creative looks** — a Looks browser with one-click creative grades, saveable
+  looks, and creative `.cube` LUTs (the grading suite and camera-log input transforms ship today).
+- **Live stop-motion capture** — a capture mode with onion-skinning (deferred until packaging
+  stabilizes; image-sequence import and stop-motion frame editing ship today).
 
 ---
 

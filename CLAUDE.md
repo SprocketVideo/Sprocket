@@ -10,7 +10,7 @@ making non-trivial changes:
 
 - [BRIEF.md](BRIEF.md) — the feature brief (the *what*).
 - [ARCHITECTURE.md](ARCHITECTURE.md) — the detailed technical design the implementation must conform to (the *how/why*). Sections are referenced throughout the code as `§N`.
-- [PLAN.md](PLAN.md) — the build-order **status ledger** (one compact row per step, 1–57) plus
+- [PLAN.md](PLAN.md) — the build-order **status ledger** (one compact row per step) plus
   the **Open work** todo list. Step detail lives out of the hot path (2026-08-26 restructure):
   each step's original spec + "✅ DONE" implementation log is archived verbatim in
   `plan/history/steps-*.md` under a stable `## Step N` heading, and each large open feature has

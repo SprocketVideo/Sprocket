@@ -43,9 +43,10 @@ native buffers for the few crossings that must happen (audio samples). Server/Ba
 
 ## Build order — status ledger
 
-Steps 1–57 built the editor. Each step's full original spec + **✅ DONE** implementation log
-was moved verbatim to `plan/history/` in the 2026-08-26 restructure (this file had grown past
-400 KB); the **Detail** column links to it. The original feasibility preamble (recommended
+Steps 1–57 built the editor; steps 58+ are scheduled but not started (their detail lives in
+`plan/features/` until they ship). Each completed step's full original spec + **✅ DONE**
+implementation log was moved verbatim to `plan/history/` in the 2026-08-26 restructure (this
+file had grown past 400 KB); the **Detail** column links to it. The original feasibility preamble (recommended
 stack, FFmpeg-8 migration note, architecture sketch, vertical-slice definition of done) is
 archived at the top of [steps-01-20.md](plan/history/steps-01-20.md). References elsewhere
 (e.g. [FEATURES.md](FEATURES.md)'s "PLAN.md step N") resolve to these rows.
@@ -71,7 +72,7 @@ shipped step append to its history entry directly.
 | 8 | Export pipeline (full-res encode) | ✅ | [history](plan/history/steps-01-20.md#step-8) |
 | 9 | Project save/load (JSON) | ✅ | [history](plan/history/steps-01-20.md#step-9) |
 
-### Post-slice build-out (steps 10–57)
+### Post-slice build-out (steps 10–59)
 
 | # | Step | Status | Detail |
 |---|---|---|---|
@@ -128,6 +129,8 @@ shipped step append to its history entry directly.
 | 55 | Link clips (re-link A/V) | ✅ | [history](plan/history/steps-41-57.md#step-55) |
 | 56 | Windows 10 support (verify + declare) | 🟡 declaration ✅; Win10 VM smoke pending | [history](plan/history/steps-41-57.md#step-56) |
 | 57 | Linux support (verify + declare) | 🟡 phases 1–4 ✅; hardware-accel verify remaining | [history](plan/history/steps-41-57.md#step-57) |
+| 58 | Plugin Manager (user-facing plugin management UI) | ❌ not started → [plan](plan/features/plugin-manager.md) | — |
+| 59 | Open plugin standards (frei0r / LADSPA / LV2) | ❌ not started → [plan](plan/features/frei0r-ladspa-lv2.md) | — |
 
 ## Open work
 
@@ -143,8 +146,14 @@ verification-only items carry their checklist in the step's history entry.
   keyframed speed ramps, pitch-preserving stretch, frame-interpolated slow motion) →
   [plan/features/variable-retime.md](plan/features/variable-retime.md)
 - [ ] **Native plugin & color hosting** — steps 31 + 33 remainders (VST3/AU C-ABI bridges,
-  OpenColorIO config hosting, OFX/frei0r adapter, Manage Plugins UI) →
+  OpenColorIO config hosting, OFX adapter) →
   [plan/features/plugin-hosting.md](plan/features/plugin-hosting.md)
+- [ ] **Plugin Manager (user-facing)** — step 58: see/enable/disable/install/uninstall plugins
+  over the shipped managed host (ships independently of the native bridges) →
+  [plan/features/plugin-manager.md](plan/features/plugin-manager.md)
+- [ ] **Open plugin standards — frei0r / LADSPA / LV2** — step 59: C-ABI video + audio plugin
+  hosting (no bridge shims needed; frei0r requires the CPU-stage readback seam) →
+  [plan/features/frei0r-ladspa-lv2.md](plan/features/frei0r-ladspa-lv2.md)
 - [ ] **Code-signing & notarization** — step 36 remainder (alpha ships unsigned; also
   `linux-arm64` AppImage + sample-export CI validation) →
   [plan/features/code-signing.md](plan/features/code-signing.md)

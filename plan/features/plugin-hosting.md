@@ -29,13 +29,17 @@ this feeds.
 ### Video/color: native hosting (step 33 remainder)
 - Host a full **OpenColorIO/ACES config** (native lib via a C-ABI wrapper; per-RID bundling)
   with working-space management beyond the built-in ACES Filmic fit.
-- An **OFX / frei0r** C-ABI adapter surfacing hosted video effects through the existing
+- An **OFX** C-ABI adapter surfacing hosted video effects through the existing
   `SkiaEffectPipeline.RegisterEffect` registry (plugins never touch SkiaSharp directly).
+  CPU-only OFX plugins reuse the readback seam designed for frei0r in step 59
+  ([frei0r-ladspa-lv2.md](frei0r-ladspa-lv2.md)).
 
-### Shared UX
-- Plugin **unload/reload** (plugins currently load for the app's lifetime) and a
-  **Manage Plugins** panel (installed list, per-plugin errors from `PluginHost.Errors`,
-  enable/disable).
+### Split out as their own steps (2026-08-26)
+- **Plugin unload/reload + the Manage Plugins panel** → step 58,
+  [plugin-manager.md](plugin-manager.md) — ships on the existing managed host, independent
+  of the native bridges here.
+- **frei0r hosting** (with LADSPA / LV2) → step 59,
+  [frei0r-ladspa-lv2.md](frei0r-ladspa-lv2.md).
 
 ## Where it lands
 
