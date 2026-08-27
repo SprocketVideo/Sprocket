@@ -42,7 +42,8 @@ internal static class PluginService
             saveDisabled: SaveDisabled,
             registerShader: SkiaEffectPipeline.RegisterEffect,
             unregisterShader: id => SkiaEffectPipeline.UnregisterEffect(id),
-            log: (message, ex) => CrashLog.Write(message, ex));
+            log: (message, ex) => CrashLog.Write(message, ex),
+            ladspaDirectories: Sprocket.Plugins.Ladspa.LadspaHost.DefaultSearchDirectories());
 
         manager.Initialize();
         _manager = manager;

@@ -113,3 +113,97 @@ during step 58's code review were addressed together:
 
 Tests: `SprocketToolsTests` now asserts the unknown-param rejection and the invalidate-on-set request;
 `ConvolutionReverbEffectTests.An_In_Use_IR_Survives_A_Cache_Eviction` covers the retained-reference fix.
+
+## Step 59
+
+59. **Open plugin standards (frei0r / LADSPA / LV2).** Host the open-source plugin standards — frei0r (video),
+    LADSPA and LV2 (audio) — alongside the managed host. All three are plain C ABIs needing no C++ bridge shim
+    (P/Invoke directly, ARCHITECTURE.md §1). The original spec + sequencing (LADSPA → LV2 → frei0r) lives in
+    [plan/features/frei0r-ladspa-lv2.md](../features/frei0r-ladspa-lv2.md). Highest value on Linux, where these
+    are the native plugin ecosystems.
+
+🟡 **LADSPA audio hosting DONE (2026-08-26); LV2 + frei0r open.** Shipped the first (and cleanest) arm of the
+step — native LADSPA audio-plugin hosting end to end — per the plan's "ship LADSPA first" sequencing. LV2's
+Turtle/RDF discovery and frei0r's CPU-readback video stage remain scheduled.
+
+**Native binding (`Sprocket.Plugins/Ladspa/`).** A hand-rolled `[LibraryImport]`-style binding of the LADSPA 1.1
+C ABI in the same no-C++/CLI style as `Sprocket.Media`'s FFmpeg binding (§1):
+- `LadspaAbi.cs` — the port/hint bit constants and the `LadspaDescriptor` / `LadspaPortRangeHint` struct
+  layouts. **`unsigned long` is bound as `CULong`** (32-bit on Windows LLP64, 64-bit on Unix LP64) so ids, port
+  counts/indices, the sample rate and the block sample count are correct on every platform; the plugin's own
+  functions are reached through the function pointers carried in its descriptor (only `ladspa_descriptor` is a
+  named export). `AllowUnsafeBlocks` was enabled on `Sprocket.Plugins` for the function-pointer calls + pinned
+  native buffers.
+- `LadspaPluginInfo.cs` — pure managed records for a plugin's identity + ports, and `LadspaDescriptorReader`
+  which reads a native descriptor pointer into them (kept apart so it runs against an in-process descriptor in
+  tests, no `.so` needed).
+- `LadspaParameterMapping.cs` — the pure, fully-unit-tested core: each control-input port → a typed
+  `EffectParameterDescriptor` (min/max/default/kind from the LADSPA range hints, incl. TOGGLED→Toggle,
+  INTEGER→Integer, logarithmic default interpolation, and SAMPLE_RATE-scaled bounds against a nominal 48 kHz for
+  display); the plugin → an `EffectCategory.Audio` `EffectDescriptor` (so `EffectTypeIds.IsAudio` routes it to
+  the mixer chain and the Inspector builds its controls with no bespoke UI). Parameter keys are
+  `port<index>` (stable per plugin version — LADSPA gives no per-port symbol); the effect id is
+  `plugin.ladspa.<uniqueId>` (or `<label>` for an unregistered/dev plugin).
+- `LadspaEffect.cs` — the `IAudioEffect` adapter + `LadspaInstanceSet` RAII handle (in the `Native/Handles`
+  style, **with a finalizer** because the mixer replaces rather than disposes an effect on a chain rebuild). All
+  PCM stays in pinned native memory (§1); it de-interleaves the mixer's interleaved buffer into per-port mono
+  buffers around `run()`, then re-interleaves. Topology: a mono (1-in/1-out) plugin — the common case — is
+  instantiated **once per channel** (dual-mono); a matched multi-channel plugin runs one instance with a port
+  per channel; extra stream channels pass through. Instantiation faults latch into pass-through rather than
+  throwing on the audio thread (§15). The owning module is never unmapped within a session, so the descriptor's
+  function pointers stay valid for a live instance / the finalizer.
+- `LadspaEffectProvider.cs` / `LadspaLibrary.cs` / `LadspaHost.cs` — one provider per hostable plugin on the
+  existing `IAudioEffectProvider` seam (so **zero mixer changes**); one library per loaded file (walks
+  `ladspa_descriptor(0,1,…)`; skips sources/synths with no audio input); the host scans the `LADSPA_PATH`
+  env var + per-OS default dirs (`/usr/lib/ladspa`, `~/.ladspa`, macOS `…/Plug-Ins/LADSPA`, …), records every
+  per-file failure in `Errors` rather than throwing, and creates effects by id.
+
+**Lifetime policy.** A loaded LADSPA module stays mapped for the process lifetime; disabling a plugin only
+unregisters its catalog descriptors (the mixer drops its instances on the next buffer) — unmapping a shared
+library whose function pointers a DSP instance might be mid-`run()` on the audio thread would be a
+use-after-free with no safe quiescence barrier. This matches how DAWs keep audio-plugin binaries resident within
+a session; documented in `LadspaLibrary`.
+
+**Integration (`Sprocket.App`).** `PluginManager` gained a parallel LADSPA path (a `PluginFormat` tag on
+`PluginEntry`, a `LadspaHost`, injected search directories): `Initialize`/`Rescan` scan LADSPA after the managed
+scan, one row per library file (deduped by full path), skipping user-disabled files and registering the rest;
+`SetEnabled` toggles registration + the shared `DisabledPlugins` persistence; `CreateAudioEffect` routes managed
+first, then LADSPA. `PluginService` wires the real `LadspaHost.DefaultSearchDirectories()`. The
+`PluginManagerWindow` labels LADSPA rows "· LADSPA" and mentions native plugins in the header. The managed
+step-33/58 code path was left untouched (no regression). LADSPA plugins persist by effect id + `port<index>`
+values through the existing `EffectInstance`/`EffectDto` shape; a missing plugin passes through offline (§15) with
+no special handling.
+
+**Tests.** `Sprocket.Plugins.Tests/Ladspa/` — a `FakeLadspaPlugin` builds a real `LADSPA_Descriptor` in
+unmanaged memory whose function pointers target `[UnmanagedCallersOnly]` methods (a stateful gain + one-sample
+delay), the native equivalent of the managed tests' real `Sprocket.TestPlugin`. It exercises the binding,
+descriptor reader and `LadspaEffect` DSP end to end with no native `.so`: dual-mono per-channel gain,
+cross-buffer state continuity, reset, control defaults, and format-change reallocation. `LadspaParameterMapping`
+is unit-tested across every hint (bounded/unbounded ranges, all default hints, toggle/integer, log
+interpolation, sample-rate scaling, id scheme). `LadspaHostTests` covers discovery (OS-specific extension,
+`LADSPA_PATH` parsing + dedup), and per-file error capture for a non-library file. `Sprocket.App.Tests/`
+`PluginManagerTests` gained LADSPA rows: format-tagged discovery, disabled-at-startup skip, enable/disable
+persistence, and unknown-id → null (pass-through).
+
+Docs: FEATURES.md gains a LADSPA row under §4 Effects; THIRD-PARTY-NOTICES notes that user-installed native
+plugins carry their own licenses; README's plugin bullet mentions LADSPA. The remaining LV2 + frei0r arms
+(and the CPU-video-effect readback seam frei0r needs) stay in
+[plan/features/frei0r-ladspa-lv2.md](../features/frei0r-ladspa-lv2.md).
+
+**Hardening (post-review).** Two defense-in-depth fixes from the security review: (1) `LadspaDescriptorReader`
+bounds `PortCount` at 4096 (throws `BadImageFormatException`, recorded as a per-file load error) so a
+malformed/hostile descriptor can't drive the reader to walk its port arrays into unmapped memory — an
+uncatchable access violation that would crash the editor during startup discovery of every library on
+`LADSPA_PATH`; mirrors the existing `MaxDescriptors` runaway guard. (2) `LadspaEffect.Process` now wraps the
+steady-state `LadspaInstanceSet.Process` call in try/catch (latches to pass-through), making the "never throw on
+the audio thread" guarantee total rather than dependent on the mixer's buffer-length contract.
+
+Four more from the code review: (3) `LadspaEffect.Reset` now resets through `activate()` alone when the
+plugin has no `deactivate()` (optional in LADSPA, frequently null) — previously a plugin with `activate` but
+no `deactivate` was never reset, carrying stale delay/reverb state across a seek; (4) `Build` now requires
+`cleanup` too (mandatory in LADSPA; missing it leaks per teardown); (5) `LadspaHost.Forget` purges the
+library's recorded warnings/errors so an enable→disable→enable cycle doesn't accumulate duplicates; (6) a dead
+`integer ? 1.0 : 1.0` ternary in the range fallback was removed. Tests added for the null-deactivate reset and
+the port-count bound. (Noted but left as conscious v1 choices: LADSPA effects don't implement
+`IAudioEffectTail`, so a reverb/delay tail is cut at clip/export boundaries; and a mid-playback block-size
+*increase* rebuilds the instance, resetting state once — block size is otherwise constant.)

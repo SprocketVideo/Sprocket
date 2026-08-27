@@ -9,6 +9,17 @@ using Sprocket.Plugins;
 
 namespace Sprocket.App;
 
+/// <summary>Which plugin standard a discovered plugin file belongs to (PLAN.md steps 58 + 59). Determines how it
+/// is loaded, registered, and torn down, and gives the Plugin Manager a per-format label.</summary>
+public enum PluginFormat
+{
+    /// <summary>A managed Sprocket effect assembly loaded into a collectible <c>AssemblyLoadContext</c> (step 33).</summary>
+    Managed,
+
+    /// <summary>A native LADSPA audio plugin library discovered on the LADSPA search path (step 59).</summary>
+    Ladspa,
+}
+
 /// <summary>The runtime state of one discovered plugin file, as the Plugin Manager UI shows it (PLAN.md step 58).</summary>
 public enum PluginStatus
 {
@@ -29,14 +40,18 @@ public enum PluginStatus
 /// </summary>
 public sealed class PluginEntry
 {
-    internal PluginEntry(string assemblyPath, bool isUserPlugin)
+    internal PluginEntry(string assemblyPath, bool isUserPlugin, PluginFormat format = PluginFormat.Managed)
     {
         AssemblyPath = assemblyPath;
         IsUserPlugin = isUserPlugin;
+        Format = format;
     }
 
-    /// <summary>Full path of the plugin assembly.</summary>
+    /// <summary>Full path of the plugin assembly (managed) or library file (native).</summary>
     public string AssemblyPath { get; }
+
+    /// <summary>Which plugin standard this entry belongs to (managed assembly vs. a native open standard).</summary>
+    public PluginFormat Format { get; }
 
     /// <summary>Whether the plugin lives in the user-writable plugins folder (so it can be uninstalled), as
     /// opposed to the read-only bundled <c>&lt;exe&gt;/Plugins</c> location.</summary>
@@ -85,7 +100,9 @@ public sealed class PluginManager
     public readonly record struct PluginDirectory(string Path, bool IsUserWritable);
 
     private readonly PluginHost _host = new();
+    private readonly Sprocket.Plugins.Ladspa.LadspaHost _ladspa = new();
     private readonly IReadOnlyList<PluginDirectory> _directories;
+    private readonly IReadOnlyList<string> _ladspaDirectories;
     private readonly Action<IVideoEffect> _registerShader;
     private readonly Action<string> _unregisterShader;
     private readonly Action<IReadOnlyCollection<string>> _saveDisabled;
@@ -102,15 +119,19 @@ public sealed class PluginManager
     /// <param name="unregisterShader">Removes a video effect's shader from the render pipeline (no-op for
     /// audio ids or ids already gone).</param>
     /// <param name="log">Diagnostics sink for non-fatal load problems.</param>
+    /// <param name="ladspaDirectories">The LADSPA library search directories (PLAN.md step 59); null uses none
+    /// (tests pass an explicit set so discovery is deterministic and never picks up the host's real plugins).</param>
     public PluginManager(
         IReadOnlyList<PluginDirectory> directories,
         Func<IReadOnlyCollection<string>> loadDisabled,
         Action<IReadOnlyCollection<string>> saveDisabled,
         Action<IVideoEffect> registerShader,
         Action<string> unregisterShader,
-        Action<string, Exception?> log)
+        Action<string, Exception?> log,
+        IReadOnlyList<string>? ladspaDirectories = null)
     {
         _directories = directories;
+        _ladspaDirectories = ladspaDirectories ?? [];
         _saveDisabled = saveDisabled;
         _registerShader = registerShader;
         _unregisterShader = unregisterShader;
@@ -160,11 +181,49 @@ public sealed class PluginManager
                     LoadAndRegister(entry);
             }
         }
+
+        InitializeLadspa();
+    }
+
+    /// <summary>Discovers LADSPA libraries on the search path (PLAN.md step 59) and loads the enabled ones,
+    /// skipping the disabled — one entry per library file, deduplicated by full path across directories.</summary>
+    private void InitializeLadspa()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string dir in _ladspaDirectories)
+        {
+            IEnumerable<string> files;
+            try
+            {
+                files = Sprocket.Plugins.Ladspa.LadspaHost.EnumerateLibraryFiles(dir).ToArray();
+            }
+            catch (Exception ex)
+            {
+                _log($"LADSPA scan failed for '{dir}'", ex);
+                continue;
+            }
+
+            foreach (string file in files)
+            {
+                string full = Path.GetFullPath(file);
+                if (!seen.Add(full))
+                    continue;
+
+                var entry = new PluginEntry(full, isUserPlugin: false, PluginFormat.Ladspa);
+                _entries.Add(entry);
+
+                if (_disabled.Contains(full))
+                    entry.Status = PluginStatus.Disabled;
+                else
+                    LoadAndRegisterLadspa(entry);
+            }
+        }
     }
 
     /// <summary>The mixer's plugin audio effect factory: returns a fresh DSP instance for a plugin-contributed
-    /// effect type id, or <see langword="null"/> when no loaded plugin provides it.</summary>
-    public IAudioEffect? CreateAudioEffect(string effectTypeId) => _host.CreateAudioEffect(effectTypeId);
+    /// effect type id (managed first, then LADSPA), or <see langword="null"/> when none provides it.</summary>
+    public IAudioEffect? CreateAudioEffect(string effectTypeId) =>
+        _host.CreateAudioEffect(effectTypeId) ?? _ladspa.CreateAudioEffect(effectTypeId);
 
     /// <summary>
     /// Enables or disables one plugin and persists the choice. Enabling a not-loaded plugin loads and registers
@@ -177,9 +236,12 @@ public sealed class PluginManager
         {
             _disabled.Remove(entry.AssemblyPath);
             _saveDisabled(_disabled.ToArray());
-            if (entry.Loaded is not null && entry.Status == PluginStatus.Enabled)
+            if (entry.Status == PluginStatus.Enabled)
                 return false; // already active
-            LoadAndRegister(entry);
+            if (entry.Format == PluginFormat.Ladspa)
+                LoadAndRegisterLadspa(entry);
+            else
+                LoadAndRegister(entry);
             return true;
         }
 
@@ -254,6 +316,7 @@ public sealed class PluginManager
     {
         foreach (PluginEntry entry in _entries.ToArray())
             Unregister(entry);
+        _ladspa.Clear(); // drop discovery references (native modules stay mapped for the session, step 59)
         Initialize();
     }
 
@@ -334,6 +397,46 @@ public sealed class PluginManager
         }
     }
 
+    /// <summary>Loads one LADSPA library and registers its (audio) descriptors, filling in the entry's status /
+    /// message (PLAN.md step 59). The native module stays mapped; registration is what makes the effects live.</summary>
+    private void LoadAndRegisterLadspa(PluginEntry entry)
+    {
+        int errorsBefore = _ladspa.Errors.Count;
+        Sprocket.Plugins.Ladspa.LadspaLibraryLoad? load = _ladspa.Load(entry.AssemblyPath);
+        if (load is null)
+        {
+            entry.Status = PluginStatus.Error;
+            entry.Message = FirstLadspaErrorSince(entry.AssemblyPath, errorsBefore) ?? "Failed to load.";
+            return;
+        }
+
+        var registered = new List<EffectDescriptor>();
+        var problems = new List<string>();
+        foreach (EffectDescriptor descriptor in load.Descriptors)
+        {
+            if (EffectCatalog.Register(descriptor))
+                registered.Add(descriptor);
+            else
+            {
+                _log($"LADSPA '{entry.Name}': effect id '{descriptor.Id}' already registered — skipped", null);
+                problems.Add($"'{descriptor.Id}' already registered");
+            }
+        }
+        problems.AddRange(load.Warnings);
+
+        entry.Effects = registered;
+        if (registered.Count > 0)
+        {
+            entry.Status = PluginStatus.Enabled;
+            entry.Message = problems.Count > 0 ? string.Join("; ", problems) : null;
+        }
+        else
+        {
+            entry.Status = PluginStatus.Error;
+            entry.Message = problems.Count > 0 ? string.Join("; ", problems) : "No hostable effects.";
+        }
+    }
+
     /// <summary>Unregisters a plugin's effects everywhere and unloads its context; safe to call on any entry.</summary>
     private void Unregister(PluginEntry entry)
     {
@@ -344,11 +447,29 @@ public sealed class PluginManager
         }
         entry.Effects = [];
 
+        if (entry.Format == PluginFormat.Ladspa)
+        {
+            _ladspa.Forget(entry.AssemblyPath); // module stays mapped; stop creating its effects
+            return;
+        }
+
         if (entry.Loaded is { } plugin)
         {
             _host.Unload(plugin);
             entry.Loaded = null;
         }
+    }
+
+    /// <summary>The first LADSPA load error whose source is <paramref name="path"/> since index
+    /// <paramref name="fromIndex"/>, or <see langword="null"/>.</summary>
+    private string? FirstLadspaErrorSince(string path, int fromIndex)
+    {
+        IReadOnlyList<Sprocket.Plugins.PluginLoadError> errors = _ladspa.Errors;
+        string full = Path.GetFullPath(path);
+        for (int i = fromIndex; i < errors.Count; i++)
+            if (string.Equals(errors[i].Source, full, StringComparison.Ordinal))
+                return errors[i].Message;
+        return null;
     }
 
     /// <summary>The first recorded error whose source is <paramref name="path"/> since index

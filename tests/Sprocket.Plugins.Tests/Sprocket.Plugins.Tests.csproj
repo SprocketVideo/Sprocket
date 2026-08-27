@@ -6,6 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- The LADSPA tests build an in-process LADSPA_Descriptor via [UnmanagedCallersOnly] function pointers,
+         exercising the real native binding + DSP plumbing without shipping a platform-specific .so (step 59). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

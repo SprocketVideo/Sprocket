@@ -63,3 +63,13 @@ created for this project and carries no third-party license.
 |---|---|---|
 | **DJI D-Log / D-Log M → Rec.709 LUTs** | © DJI, distributed free of charge by DJI for grading DJI footage | Downloaded from DJI's Download Center for the input color-transform effect (PLAN.md step 37). Details: [`src/Sprocket.Render/Luts/NOTICE.md`](src/Sprocket.Render/Luts/NOTICE.md). |
 | **Sample clip** (`src/Sprocket.App/Samples/sample.mp4`, used by File ▸ Open Sample Project) | [Pixabay Content License](https://pixabay.com/service/license-summary/) | "Rain, Heavy Rain, Crowd, People" — <https://pixabay.com/videos/rain-heavy-rain-crowd-people-339586/>. Free to use per Pixabay's license; credited here as good practice. |
+
+## User-installed plugins
+
+Sprocket can host plugins the user installs on their own system: managed Sprocket effect assemblies
+(PLAN.md step 33/58) and native open-standard plugins — **LADSPA** audio plugins discovered on the
+system's `LADSPA_PATH` today (PLAN.md step 59), with LV2 and frei0r planned. **These plugins are not
+bundled with or distributed by Sprocket**; each is separately installed by the user and carries its own
+license (many LADSPA/frei0r plugins are GPL, which is compatible — Sprocket already ships GPL FFmpeg
+builds). Sprocket only loads them at runtime through their published C ABIs and imposes no additional
+license terms.

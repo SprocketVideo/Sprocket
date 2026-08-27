@@ -191,6 +191,83 @@ public sealed class PluginManagerTests : IDisposable
         Assert.NotNull(EffectCatalog.Find(InvertId));
     }
 
+    // ── LADSPA native audio plugins (PLAN.md step 59) ──
+    // A real LADSPA .so isn't available in the test environment (it is platform-specific), so these exercise the
+    // manager's LADSPA discovery, format tagging, error surfacing and enable/disable wiring with a non-library
+    // file; the DSP + descriptor mapping are covered end-to-end in Sprocket.Plugins.Tests via an in-process fake.
+
+    private static string LadspaLibExtension =>
+        OperatingSystem.IsWindows() ? ".dll" : OperatingSystem.IsMacOS() ? ".dylib" : ".so";
+
+    /// <summary>A manager with no managed directories and one LADSPA search directory.</summary>
+    private static PluginManager LadspaManager(string ladspaDir, HashSet<string> disabled) => new(
+        [],
+        loadDisabled: () => disabled.ToArray(),
+        saveDisabled: paths => { disabled.Clear(); foreach (string p in paths) disabled.Add(p); },
+        registerShader: _ => { },
+        unregisterShader: _ => { },
+        log: (_, _) => { },
+        ladspaDirectories: [ladspaDir]);
+
+    [Fact]
+    public void Ladspa_Directory_Surfaces_A_Row_Tagged_As_Ladspa()
+    {
+        string dir = NewDir();
+        File.WriteAllText(Path.Combine(dir, "notreal" + LadspaLibExtension), "not a shared library");
+
+        var manager = LadspaManager(dir, []);
+        manager.Initialize();
+
+        PluginEntry entry = Assert.Single(manager.Entries);
+        Assert.Equal(PluginFormat.Ladspa, entry.Format);
+        Assert.False(entry.IsUserPlugin); // discovered on the system LADSPA path, not user-installed
+        Assert.Equal(PluginStatus.Error, entry.Status); // it isn't a real library — recorded, not crashed
+        Assert.False(string.IsNullOrEmpty(entry.Message));
+    }
+
+    [Fact]
+    public void A_Disabled_Ladspa_Library_Is_Skipped_At_Startup()
+    {
+        string dir = NewDir();
+        string lib = Path.Combine(dir, "notreal" + LadspaLibExtension);
+        File.WriteAllText(lib, "not a shared library");
+
+        var disabled = new HashSet<string> { Path.GetFullPath(lib) };
+        var manager = LadspaManager(dir, disabled);
+        manager.Initialize();
+
+        PluginEntry entry = Assert.Single(manager.Entries);
+        Assert.Equal(PluginFormat.Ladspa, entry.Format);
+        Assert.Equal(PluginStatus.Disabled, entry.Status); // not even attempted to load
+    }
+
+    [Fact]
+    public void Disable_Then_Enable_A_Ladspa_Row_Persists_Through_The_Disabled_List()
+    {
+        string dir = NewDir();
+        string lib = Path.Combine(dir, "notreal" + LadspaLibExtension);
+        File.WriteAllText(lib, "not a shared library");
+        var disabled = new HashSet<string>();
+        var manager = LadspaManager(dir, disabled);
+        manager.Initialize();
+        PluginEntry entry = manager.Entries[0];
+
+        Assert.True(manager.SetEnabled(entry, false));
+        Assert.Equal(PluginStatus.Disabled, entry.Status);
+        Assert.Contains(entry.AssemblyPath, disabled);
+
+        Assert.True(manager.SetEnabled(entry, true));
+        Assert.DoesNotContain(entry.AssemblyPath, disabled); // re-enabled (still an Error row — it's a fake file)
+    }
+
+    [Fact]
+    public void CreateAudioEffect_Returns_Null_For_An_Unknown_Ladspa_Id()
+    {
+        var manager = LadspaManager(NewDir(), []);
+        manager.Initialize();
+        Assert.Null(manager.CreateAudioEffect("plugin.ladspa.999999")); // mixer then passes through (§15)
+    }
+
     public void Dispose()
     {
         // EffectCatalog is process-global: make sure this test's plugin ids don't leak to the next test.

@@ -14,7 +14,14 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The native open-standard hosts (LADSPA, PLAN.md step 59) P/Invoke a C ABI directly via function
+         pointers and write PCM into pinned native buffers (no managed pixels/samples per frame, §1). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sprocket.Plugins.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />

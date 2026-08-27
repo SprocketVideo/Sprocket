@@ -68,7 +68,8 @@ internal sealed class PluginManagerWindow : Window
                 new TextBlock
                 {
                     Text = "Effect plugins extend Sprocket with extra video and audio effects. Disable one to stop "
-                        + "loading it, or install a plugin assembly (.dll) into your user plugins folder.",
+                        + "loading it, or install a plugin assembly (.dll) into your user plugins folder. Native "
+                        + "LADSPA audio plugins found on your system's LADSPA path are listed here too.",
                     Foreground = Palette.MutedTextBrush,
                     FontSize = Typography.Body,
                     TextWrapping = TextWrapping.Wrap,
@@ -130,9 +131,12 @@ internal sealed class PluginManagerWindow : Window
             PluginStatus.Disabled => ("Disabled", Palette.MutedTextBrush),
             _ => ("Error", Palette.BadBrush),
         };
+        string sourceTag = entry.Format == PluginFormat.Ladspa ? " · LADSPA"
+            : entry.IsUserPlugin ? ""
+            : " · Bundled";
         var status = new TextBlock
         {
-            Text = statusText + (entry.IsUserPlugin ? "" : " · Bundled"),
+            Text = statusText + sourceTag,
             Foreground = statusColor,
             FontSize = Typography.Body,
         };

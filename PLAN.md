@@ -130,7 +130,7 @@ shipped step append to its history entry directly.
 | 56 | Windows 10 support (verify + declare) | 🟡 declaration ✅; Win10 VM smoke pending | [history](plan/history/steps-41-57.md#step-56) |
 | 57 | Linux support (verify + declare) | 🟡 phases 1–4 ✅; hardware-accel verify remaining | [history](plan/history/steps-41-57.md#step-57) |
 | 58 | Plugin Manager (user-facing plugin management UI) | ✅ | [history](plan/history/steps-58plus.md#step-58) |
-| 59 | Open plugin standards (frei0r / LADSPA / LV2) | ❌ not started → [plan](plan/features/frei0r-ladspa-lv2.md) | — |
+| 59 | Open plugin standards (frei0r / LADSPA / LV2) | 🟡 LADSPA audio hosting ✅; LV2 + frei0r open → [plan](plan/features/frei0r-ladspa-lv2.md) | [history](plan/history/steps-58plus.md#step-59) |
 
 ## Open work
 
@@ -154,7 +154,9 @@ verification-only items carry their checklist in the step's history entry.
   over the shipped managed host, independent of the native bridges →
   [history](plan/history/steps-58plus.md#step-58)
 - [ ] **Open plugin standards — frei0r / LADSPA / LV2** — step 59: C-ABI video + audio plugin
-  hosting (no bridge shims needed; frei0r requires the CPU-stage readback seam) →
+  hosting (no bridge shims needed; frei0r requires the CPU-stage readback seam). **LADSPA audio
+  hosting shipped 2026-08-26** (native scan → descriptor → catalog → mixer chain → persistence by
+  plugin id + port values; Plugin Manager rows). LV2 core-subset + frei0r remain →
   [plan/features/frei0r-ladspa-lv2.md](plan/features/frei0r-ladspa-lv2.md)
 - [ ] **Code-signing & notarization** — step 36 remainder (alpha ships unsigned; also
   `linux-arm64` AppImage + sample-export CI validation) →
