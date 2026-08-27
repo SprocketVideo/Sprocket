@@ -43,7 +43,10 @@ internal static class PluginService
             registerShader: SkiaEffectPipeline.RegisterEffect,
             unregisterShader: id => SkiaEffectPipeline.UnregisterEffect(id),
             log: (message, ex) => CrashLog.Write(message, ex),
-            ladspaDirectories: Sprocket.Plugins.Ladspa.LadspaHost.DefaultSearchDirectories());
+            ladspaDirectories: WithUserFolder(Sprocket.Plugins.Ladspa.LadspaHost.DefaultSearchDirectories(), "LADSPA"),
+            lv2Directories: WithUserFolder(Sprocket.Plugins.Lv2.Lv2Host.DefaultSearchDirectories(), "LV2"),
+            frei0rDirectories: WithUserFolder(Sprocket.Plugins.Frei0r.Frei0rHost.DefaultSearchDirectories(), "frei0r"),
+            registerCpuEffect: SkiaEffectPipeline.RegisterCpuEffect);
 
         manager.Initialize();
         _manager = manager;
@@ -55,6 +58,23 @@ internal static class PluginService
     {
         UserSettings current = UserSettingsFile.Load();
         UserSettingsFile.Save(current with { DisabledPlugins = disabled.ToArray() });
+    }
+
+    /// <summary>
+    /// A native format's system search directories plus its per-user Sprocket folder
+    /// (<c>&lt;app-data&gt;/Sprocket/Plugins/&lt;format&gt;</c>, PLAN.md step 59) — the one place that works on every
+    /// OS (Windows has no LADSPA/LV2/frei0r convention) and survives app upgrades. These live <em>beneath</em> the
+    /// managed user plugins folder, which is safe only because <see cref="PluginHost.EnumeratePluginFiles"/> is
+    /// non-recursive (top-level <c>*.dll</c> + one <c>&lt;Name&gt;/&lt;Name&gt;.dll</c> level); a native library dropped
+    /// directly into <c>Plugins/</c> is reported as a broken managed assembly, by design.
+    /// </summary>
+    private static IReadOnlyList<string> WithUserFolder(IReadOnlyList<string> systemDirectories, string formatFolder)
+    {
+        var dirs = new List<string>(systemDirectories);
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (!string.IsNullOrEmpty(appData))
+            dirs.Add(Path.Combine(appData, "Sprocket", "Plugins", formatFolder));
+        return dirs.Distinct(StringComparer.Ordinal).ToList();
     }
 
     /// <summary>

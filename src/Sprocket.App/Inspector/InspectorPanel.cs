@@ -1020,6 +1020,17 @@ public sealed class InspectorPanel : UserControl
                 TextWrapping = TextWrapping.Wrap,
             });
 
+        // CPU (readback) video effects (PLAN.md step 59 — frei0r): every frame costs a GPU→CPU→GPU round-trip,
+        // so point at the preview render cache rather than silently stuttering playback.
+        if (Sprocket.Render.SkiaEffectPipeline.IsCpuEffect(effect.EffectTypeId))
+            rows.Children.Add(new TextBlock
+            {
+                Text = "CPU plugin effect — heavy in playback; Sequence ▸ Render In to Out pre-renders it.",
+                FontSize = Typography.Caption,
+                Foreground = FaintText,
+                TextWrapping = TextWrapping.Wrap,
+            });
+
         IReadOnlyList<EffectParameterDescriptor> parameters =
             descriptor?.Parameters ?? FallbackDescriptors(effect);
         if (parameters.Count == 0)

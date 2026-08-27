@@ -197,6 +197,9 @@ public sealed class PreviewSurface : Control
                         return;
                     }
 
+                    // Time-driven CPU plugins (frei0r, PLAN.md step 59) get the presented playhead time.
+                    _pipeline.FrameTimeSeconds = _engine.Position.Ticks / (double)Sprocket.Core.Timing.Timecode.TicksPerSecond;
+
                     foreach (PresentedVideoLayer l in layers)
                     {
                         SKRect dest = haveFrame ? frameRect : FramePresenter.ComputeFitRect(bounds, l.Width, l.Height);

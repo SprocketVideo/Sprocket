@@ -235,7 +235,9 @@ in terms an app-side committer can check against their diff.
 | Reorder effects in the stack (drag a section header; Move Up/Down context menu) | InspectorPanel.cs; ModelCommands.cs `MoveChainEffectCommand`; PLAN.md step 51 | — | ❌ |
 | Inspector: Expand All / Collapse All section buttons (pane header) | MainWindow.axaml `InspectorExpandAllButton`; InspectorPanel.cs `SetAllSectionsExpanded` | — | ❌ |
 | Plugin Manager (Edit ▸ Plugins…): see installed effect plugins with version/status, enable/disable each, install a plugin `.dll`, uninstall user plugins, rescan, open the plugins folder | Sprocket.App/PluginManagerWindow.cs; PluginManager.cs; PluginService.cs; PLAN.md step 58 | — | ❌ |
-| LADSPA audio plugin hosting: native LADSPA plugins found on the system's LADSPA path (`LADSPA_PATH` + standard dirs) appear as audio effects with type-driven parameter controls; listed in the Plugin Manager, enable/disable per plugin | Sprocket.Plugins/Ladspa/*; PluginManager.cs; PLAN.md step 59 | — | ❌ |
+| LADSPA audio plugin hosting: native LADSPA plugins found on the system's LADSPA path (`LADSPA_PATH` + standard dirs, plus `<app-data>/Sprocket/Plugins/LADSPA`) appear as audio effects with type-driven parameter controls; listed in the Plugin Manager, enable/disable per plugin | Sprocket.Plugins/Ladspa/*; PluginManager.cs; PLAN.md step 59 | — | ❌ |
+| LV2 audio plugin hosting (core subset: audio + control ports, `urid:map`): `*.lv2` bundles on the LV2 path (`LV2_PATH` + standard dirs, plus `<app-data>/Sprocket/Plugins/LV2`) appear as audio effects with controls built from the bundle's port metadata (ranges, toggles, enumerations as dropdowns, units); plugins needing atoms/worker/UI features are listed with a reason and skipped | Sprocket.Plugins/Lv2/*; PluginManager.cs; PLAN.md step 59 | — | ❌ |
+| frei0r video filter hosting: frei0r filters on the frei0r path (`FREI0R_PATH` + standard dirs, plus `<app-data>/Sprocket/Plugins/frei0r`) appear as video effects (bool/double/colour/position parameters); run on the CPU via a GPU readback so they are heavy in playback — the Inspector points at Sequence ▸ Render In to Out; sources/mixers are listed but not hosted | Sprocket.Plugins/Frei0r/*; Sprocket.Render/CpuEffectStage.cs; PluginManager.cs; PLAN.md step 59 | — | ❌ |
 
 ### Transitions
 
@@ -375,7 +377,6 @@ features users can't use; recheck each audit and promote to the matrix when buil
 |---|---|
 | Variable / ramped speed retime (also reverse) | PLAN.md step 21 (constant-speed only is done; freeze-frame shipped as the step-43 frame hold); SpeedDialog notes deferral |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
-| Open plugin standards: LV2 (audio) + frei0r (video) hosting | PLAN.md step 59 (🟡 partial — LADSPA audio hosting shipped, see §4; LV2 core-subset + frei0r's CPU-readback video stage remain) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial); [COLOR_GRADING_ROADMAP.md](COLOR_GRADING_ROADMAP.md) has the detailed parity sequence and follow-on grading roadmap |
 | Bundled impulse-response library for the Convolution Reverb (CC0 / Sprocket-recorded captures) | PLAN.md step 49 follow-on (the convolution engine + user IR import shipped in step 49; licensing-clear IRs deferred) |
 | Code-signing & macOS notarization (installers themselves shipped: Windows Setup.exe, Linux AppImage, macOS .app via scripts/release.ps1 + Velopack; alpha is unsigned) | PLAN.md step 36 (✅ done except signing/notarization, deliberately deferred) |

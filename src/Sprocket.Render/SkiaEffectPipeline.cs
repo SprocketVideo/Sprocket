@@ -265,20 +265,52 @@ half4 main(float2 coord) {
             Registry[effect.Descriptor.Id] = effect;
     }
 
-    /// <summary>Removes a registered plugin effect (built-in ids are refused); its uses degrade to pass-through.
-    /// Returns whether it was present.</summary>
+    /// <summary>Removes a registered plugin effect — shader-backed or CPU (built-in ids are refused); its uses
+    /// degrade to pass-through. Returns whether it was present.</summary>
     public static bool UnregisterEffect(string effectTypeId)
     {
         if (effectTypeId.StartsWith("builtin.", StringComparison.Ordinal))
             return false;
         lock (RegistryGate)
-            return Registry.Remove(effectTypeId);
+            return Registry.Remove(effectTypeId) | CpuRegistry.Remove(effectTypeId);
     }
 
     private static IVideoEffect? FindRegistered(string effectTypeId)
     {
         lock (RegistryGate)
             return Registry.GetValueOrDefault(effectTypeId);
+    }
+
+    // ── Registered CPU effects (PLAN.md step 59) ─────────────────────────────────────────────────────
+    // Effects that process pixels in host memory (frei0r and other C-ABI standards) — executed by the
+    // per-instance CpuEffectStage through a GPU readback → pooled native buffer → re-upload round-trip.
+    private static readonly Dictionary<string, ICpuVideoEffect> CpuRegistry = new(StringComparer.Ordinal);
+
+    /// <summary>Registers (or replaces) a CPU effect for all pipeline instances (see <see cref="ICpuVideoEffect"/>).
+    /// Unlike a shader effect nothing is compiled up front; instantiation faults surface as pass-through at draw
+    /// time. Built-in (<c>builtin.</c>) ids are refused.</summary>
+    public static void RegisterCpuEffect(ICpuVideoEffect effect)
+    {
+        ArgumentNullException.ThrowIfNull(effect);
+        string id = effect.Descriptor.Id;
+        if (id.StartsWith("builtin.", StringComparison.Ordinal))
+            throw new ArgumentException("CPU effects cannot use the reserved 'builtin.' id prefix.", nameof(effect));
+        lock (RegistryGate)
+            CpuRegistry[id] = effect;
+    }
+
+    /// <summary>Whether <paramref name="effectTypeId"/> is a registered CPU (readback) effect — the "heavy"
+    /// class the Inspector warns about, since each frame through it costs a GPU→CPU→GPU round-trip.</summary>
+    public static bool IsCpuEffect(string effectTypeId)
+    {
+        lock (RegistryGate)
+            return CpuRegistry.ContainsKey(effectTypeId);
+    }
+
+    private static ICpuVideoEffect? FindRegisteredCpu(string effectTypeId)
+    {
+        lock (RegistryGate)
+            return CpuRegistry.GetValueOrDefault(effectTypeId);
     }
 
     private static SKRuntimeEffect CompileRegistered(IVideoEffect effect) =>
@@ -310,7 +342,20 @@ half4 main(float2 coord) {
     private readonly SKRuntimeEffect _wipe;
     private readonly SKPaint _paint = new();
     private readonly List<SKShader> _scratch = new(); // shaders built for the current draw, disposed after it
+    private readonly List<SKImage> _scratchImages = new(); // CPU-stage outputs wrapped for the current draw
+    private readonly CpuEffectStage _cpuStage = new();
     private bool _disposed;
+
+    /// <summary>
+    /// The timeline time of the frame being drawn, in seconds — handed to CPU effects whose plugins take a time
+    /// argument (frei0r's <c>f0r_update(time, …)</c>). Callers that know the frame time (export, the preview
+    /// pump) set it before drawing; it defaults to 0 for time-agnostic callers such as thumbnails.
+    /// </summary>
+    public double FrameTimeSeconds { get; set; }
+
+    /// <summary>The number of times the CPU stage's pooled native pixel buffers were (re)allocated — steady-state
+    /// rendering at one frame size holds this constant (§1); exposed for the allocation tests.</summary>
+    public int CpuStageBufferAllocations => _cpuStage.BufferAllocations;
 
     /// <summary>Compiles the built-in effect and transition shaders. Throws if any SkSL program fails to compile.</summary>
     public SkiaEffectPipeline()
@@ -440,7 +485,7 @@ half4 main(float2 coord) {
         }
 
         _scratch.Clear();
-        SKShader shader = BuildChainShader(image, dest, effects);
+        SKShader shader = BuildChainShader(image, dest, effects, canvas.Context);
 
         _paint.Shader = shader;
         _paint.Color = SKColors.White.WithAlpha(alpha); // paint alpha modulates the shader output
@@ -490,8 +535,8 @@ half4 main(float2 coord) {
         SKRect toDest = FramePresenter.ComputeConformRect(bounds, to.Width, to.Height, transition.To.ConformMode);
 
         _scratch.Clear();
-        SKShader fromShader = BuildChainShader(from, fromDest, fromEffects, forceDecal: true);
-        SKShader toShader = BuildChainShader(to, toDest, toEffects, forceDecal: true);
+        SKShader fromShader = BuildChainShader(from, fromDest, fromEffects, canvas.Context, forceDecal: true);
+        SKShader toShader = BuildChainShader(to, toDest, toEffects, canvas.Context, forceDecal: true);
         SKShader combined = BuildTransitionShader(transition, fromShader, toShader, bounds);
         _scratch.Add(combined);
 
@@ -511,7 +556,7 @@ half4 main(float2 coord) {
     /// frame, so Decal tiling reads that as transparent; <paramref name="forceDecal"/> forces the same for a
     /// transition side so a letterboxed frame's surround stays transparent instead of edge-clamping.
     /// </summary>
-    private SKShader BuildChainShader(SKImage image, SKRect dest, IReadOnlyList<ResolvedEffect>? effects, bool forceDecal = false)
+    private SKShader BuildChainShader(SKImage image, SKRect dest, IReadOnlyList<ResolvedEffect>? effects, GRRecordingContext? context, bool forceDecal = false)
     {
         float scale = dest.Width / image.Width;
         SKMatrix localMatrix = SKMatrix.CreateScaleTranslation(scale, scale, dest.Left, dest.Top);
@@ -525,9 +570,26 @@ half4 main(float2 coord) {
         {
             foreach (ResolvedEffect effect in effects)
             {
+                // A CPU (readback) effect (PLAN.md step 59) materialises the chain so far, processes it in native
+                // memory, and becomes the new root image the rest of the chain samples from.
+                if (FindRegisteredCpu(effect.EffectTypeId) is { } cpu)
+                {
+                    SKImage? processed = _cpuStage.Run(context, image.Width, image.Height, shader, dest, localMatrix,
+                        cpu, effect, FrameTimeSeconds);
+                    if (processed is null)
+                        continue; // instantiation/readback fault: pass through (§15)
+                    _scratchImages.Add(processed);
+                    shader = processed.ToShader(tile, tile, Sampling, localMatrix);
+                    _scratch.Add(shader);
+                    continue;
+                }
+
                 SKShader? next = BuildEffectShader(effect, shader, dest);
                 if (next is null)
+                {
+                    _cpuStage.Forget(effect.EffectTypeId); // in case it was a CPU effect that has since been unregistered
                     continue; // unknown effect id: pass through unchanged
+                }
                 shader = next;
                 _scratch.Add(shader);
             }
@@ -576,6 +638,9 @@ half4 main(float2 coord) {
         foreach (SKShader s in _scratch)
             s.Dispose();
         _scratch.Clear();
+        foreach (SKImage i in _scratchImages)
+            i.Dispose(); // wrappers over the CPU stage's pooled buffers, consumed by the draw just issued
+        _scratchImages.Clear();
     }
 
     /// <summary>
@@ -881,6 +946,10 @@ half4 main(float2 coord) {
         foreach (SKShader s in _scratch)
             s.Dispose();
         _scratch.Clear();
+        foreach (SKImage i in _scratchImages)
+            i.Dispose();
+        _scratchImages.Clear();
+        _cpuStage.Dispose();
         foreach (CachedRegisteredEffect cached in _registeredCache.Values)
             cached.Compiled.Dispose();
         _registeredCache.Clear();

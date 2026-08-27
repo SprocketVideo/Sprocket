@@ -122,9 +122,9 @@ Tests: `SprocketToolsTests` now asserts the unknown-param rejection and the inva
     [plan/features/frei0r-ladspa-lv2.md](../features/frei0r-ladspa-lv2.md). Highest value on Linux, where these
     are the native plugin ecosystems.
 
-🟡 **LADSPA audio hosting DONE (2026-08-26); LV2 + frei0r open.** Shipped the first (and cleanest) arm of the
-step — native LADSPA audio-plugin hosting end to end — per the plan's "ship LADSPA first" sequencing. LV2's
-Turtle/RDF discovery and frei0r's CPU-readback video stage remain scheduled.
+✅ **DONE — LADSPA 2026-08-26; LV2 + frei0r 2026-08-27** (the LV2/frei0r log follows the LADSPA log below).
+Shipped the first (and cleanest) arm of the step first — native LADSPA audio-plugin hosting end to end — per the
+plan's "ship LADSPA first" sequencing; LV2's Turtle/RDF discovery and frei0r's CPU-readback video stage followed.
 
 **Native binding (`Sprocket.Plugins/Ladspa/`).** A hand-rolled `[LibraryImport]`-style binding of the LADSPA 1.1
 C ABI in the same no-C++/CLI style as `Sprocket.Media`'s FFmpeg binding (§1):
@@ -207,3 +207,130 @@ library's recorded warnings/errors so an enable→disable→enable cycle doesn't
 the port-count bound. (Noted but left as conscious v1 choices: LADSPA effects don't implement
 `IAudioEffectTail`, so a reverb/delay tail is cut at clip/export boundaries; and a mid-playback block-size
 *increase* rebuilds the instance, resetting state once — block size is otherwise constant.)
+
+**LV2 core-subset + frei0r DONE (2026-08-27).** The remaining two arms, both on the LADSPA pattern (hand-rolled
+C-ABI bindings, no C++/CLI, per-file errors recorded never thrown, modules resident for the session).
+
+**LV2 (`Sprocket.Plugins/Lv2/`).**
+- `TurtleReader.cs` — a minimal managed Turtle (RDF 1.1) reader (chosen over bundling `lilv`, per the plan's
+  "prefer managed if the subset stays small"): `@prefix`/`PREFIX`/`@base`/`BASE`, IRIs + relative resolution,
+  prefixed names, `a`, `;`/`,` lists, `_:` and `[ … ]` blank nodes, `( … )` collections (expanded to
+  `rdf:first`/`rdf:rest`), string/long-string/numeric/boolean literals with datatypes and language tags,
+  comments, escapes. Produces a `TurtleGraph` with the lookups the bundle reader needs. Malformed input →
+  `FormatException` with a line number.
+- `Lv2PluginInfo.cs` — pure records (`Lv2PluginInfo`, `Lv2PortInfo`, `Lv2ScalePoint`, `Lv2BundleInfo`) plus
+  `Lv2BundleReader`: parses `manifest.ttl`, finds every `lv2:Plugin`, follows `rdfs:seeAlso`, and gathers
+  `doap:name`/maintainer/license, `rdfs:comment`, minor/micro versions, `lv2:requiredFeature`, and each port's
+  index / symbol / name / types / properties / default / min / max / `units:unit` / scale points / comment.
+  Bundle IRIs resolve against a `file:` base for the bundle directory.
+- `Lv2Abi.cs` / `Lv2Features.cs` — the `LV2_Descriptor` / `LV2_Feature` / `LV2_URID_Map|Unmap` layouts and the
+  namespace constants; a process-wide `urid:map` / `urid:unmap` implementation (`[UnmanagedCallersOnly]`,
+  lock-protected, URIs pinned in native memory for the process lifetime as the spec requires) exposed through a
+  null-terminated feature array. **Supported required features:** `urid:map`, `urid:unmap`, `lv2:inPlaceBroken`
+  (the host always uses distinct buffers), `lv2:hardRTCapable`. Plugins requiring anything else (atoms, worker,
+  options, buf-size, UIs…) are listed with the reason and not instantiated, as the spec demands.
+- `Lv2ParameterMapping.cs` — control-input port → `EffectParameterDescriptor` keyed by the stable `lv2:symbol`
+  (`port<index>` fallback): `lv2:toggled` → Toggle, `lv2:integer` → Integer, an `lv2:enumeration` whose scale
+  points are exactly `0…n-1` → Dropdown with the labels (any other enumeration → integer slider bounded by its
+  scale points), `lv2:sampleRate` bounds scaled against a nominal 48 kHz for display only, `units:` → unit
+  suffix, port `rdfs:comment` → tooltip, `pprops:notOnGUI` ports hidden. Effect id `plugin.lv2.<plugin URI>`,
+  `EffectCategory.Audio`.
+- `Lv2Effect.cs` (`Lv2InstanceSet` + `Lv2Effect`), `Lv2EffectProvider.cs`, `Lv2Library.cs`, `Lv2Host.cs` —
+  the LADSPA topology rules (dual-mono / matched multi-channel / pass-through extras), pinned native PCM,
+  finalizer-backed RAII, `double` sample rate, `uint32` port indices and sample counts, separator-terminated
+  bundle path, feature array to `instantiate`; every port connected before `run` (control outputs → scratch,
+  connection-optional unsupported ports → `NULL`); deactivate-before-cleanup. A plugin is hostable when its
+  required features are supported, it has no *blocking* port (a non-audio/control port that isn't
+  `lv2:connectionOptional`) and ≥1 audio in + out. Descriptors are matched to metadata by URI while walking
+  `lv2_descriptor(0,1,…)`. Discovery: `LV2_PATH` + per-OS defaults (`~/.lv2`, `/usr/lib/lv2`,
+  `/usr/lib/<triplet>/lv2`, macOS `~/Library/Audio/Plug-Ins/LV2`, Windows `%APPDATA%\LV2` /
+  `%COMMONPROGRAMFILES%\LV2`); one Plugin Manager row per `*.lv2` bundle directory (version = minor.micro).
+
+**frei0r + the CPU-effect readback seam.**
+- `Sprocket.Core/Rendering/ICpuVideoEffect.cs` — the new seam: `ICpuVideoEffect` (descriptor, `CpuPixelFormat`
+  RGBA/BGRA, `CreateInstance(width, height)`) and `ICpuVideoEffectInstance.Process(input, output, timeSeconds,
+  parameters)` over tightly packed straight-alpha 8-bit native buffers. Deliberately the one bounded exception to
+  the GPU-only pipeline (§1), designed once so CPU-only OFX plugins reuse it.
+- `Sprocket.Render/CpuEffectStage.cs` + `SkiaEffectPipeline` — a second static registry
+  (`RegisterCpuEffect` / `IsCpuEffect`; `UnregisterEffect` now clears both). In `BuildChainShader` a registered
+  CPU effect materialises the chain-so-far into a cached offscreen surface (GPU when the canvas has a
+  `GRRecordingContext`, raster otherwise) at the layer's *source* resolution by drawing through the inverse of
+  the image→dest local matrix, `ReadPixels` into a pooled **native** input buffer (premul → unpremul, in the
+  plugin's byte order — Skia does the swizzle), runs the instance into the pooled output buffer, and wraps it
+  with `SKImage.FromPixels` as the new chain root (disposed with the draw's scratch, same lifetime contract as a
+  decoded frame's pixels). Buffers grow only on a size increase (`CpuStageBufferAllocations` proves steady-state
+  reuse); one instance per pipeline per effect id, recreated on size change / re-registration; any fault →
+  pass-through (§15). `FrameTimeSeconds` on the pipeline carries the frame time (set by `VideoExporter` from the
+  plan and by `PreviewSurface` from the playhead) for time-driven plugins.
+- `Sprocket.Plugins/Frei0r/` — `Frei0rAbi.cs` (frei0r 1.x constants + `f0r_plugin_info_t` / `f0r_param_info_t`
+  / colour / position layouts and a `Frei0rFunctions` table of resolved named exports), `Frei0rPluginInfo.cs`
+  (+ `Frei0rInfoReader`, parameter count bounded at 1024), `Frei0rParameterMapping.cs` (BOOL → Toggle, DOUBLE →
+  0…1 slider, COLOR → `.r/.g/.b`, POSITION → `.x/.y`, STRING left at the plugin default and noted; keys
+  `p<index>[.c]`; id `plugin.frei0r.<library file name>` — the identity MLT/Kdenlive/Shotcut use;
+  `EffectCategory.Video`; description flags the CPU cost), `Frei0rCpuEffect.cs` (`ICpuVideoEffect` +
+  `Frei0rInstance`: `f0r_construct(w,h)`, change-only `f0r_set_param_value` pushes, `f0r_update(time,in,out)`,
+  finalizer-backed `f0r_destruct`), `Frei0rLibrary.cs` (loads, resolves exports, `f0r_init`, reads info; only
+  **filters** with `frei0r_version == 1` are hosted — sources/mixers are listed with a note), `Frei0rHost.cs`
+  (`FREI0R_PATH` + `~/.frei0r-1/lib`, `/usr/local/lib/frei0r-1`, `/usr/lib/frei0r-1`, `/usr/lib/<triplet>/frei0r-1`,
+  macOS `/opt/local/lib/frei0r-1`).
+
+**Integration (`Sprocket.App`).** `PluginFormat` gains `Lv2` + `Frei0r`; `PluginManager` generalises the LADSPA
+path into `InitializeNative` / `LoadAndRegisterNative` (audio descriptors → catalog; a frei0r effect → catalog +
+`registerCpuEffect` callback, unregistered through the shared `unregisterShader` which now covers both
+registries), with `SetEnabled` / `Unregister` / `Rescan` routing per format and `FindCpuEffect` for tests.
+`PluginService` wires the real search dirs, each plus a per-user `<app-data>/Sprocket/Plugins/{LADSPA,LV2,frei0r}`
+folder (the one cross-platform location), and `SkiaEffectPipeline.RegisterCpuEffect`. The Plugin Manager window
+tags rows `· LV2` / `· frei0r`; the Inspector shows a "CPU plugin effect — heavy in playback; Sequence ▸ Render
+In to Out pre-renders it" hint for CPU effects (the video analogue of the step-41 heavy-audio hint).
+
+**Tests.** `Sprocket.Plugins.Tests/Lv2/` — `TurtleReaderTests` (every supported construct + malformed input),
+`Lv2BundleReaderTests` (a real on-disk bundle: identity, sorted ports, ranges, units, scale points, features,
+versions; missing manifest / seeAlso / binary; blocking-port rules), `Lv2ParameterMappingTests` (all kinds,
+enumeration→dropdown, sample-rate scaling, invented bounds, notOnGUI, units, feature support),
+`FakeLv2Plugin` + `Lv2EffectTests` (an in-process `LV2_Descriptor` whose `instantiate` walks the host feature
+array and maps a URID: dual-mono gain/delay, state continuity, reset with/without deactivate, defaults, format
+change, feature + bundle-path delivery, URID stability), `Lv2HostTests` (bundle enumeration, error capture for
+bad binaries / manifests, Forget, `LV2_PATH`). `Sprocket.Plugins.Tests/Frei0r/` — `FakeFrei0rPlugin` (an
+in-process function table: tinted invert with bool/double/colour/position/string params, RGBA or BGRA) +
+`Frei0rEffectTests` (info reader, mapping, colour model → pixel format, source/mixer/API-version skips, a full
+`Process` with change-only param pushes and destruct accounting, host add/forget, missing entry point) and
+`Frei0rHostTests`. `Sprocket.Render.Tests/CpuEffectStageTests` — a managed invert `ICpuVideoEffect` on the
+raster backend: GPU→CPU→GPU chain values, BGRA byte order both ways, frame time delivery, **no buffer
+reallocation / instance reuse across frames**, recreate-on-resize, faulting instantiation and unregistered ids
+pass through, `builtin.` ids refused. `Sprocket.App.Tests/PluginManagerTests` — LV2 + frei0r rows (format
+tags, bundle-directory keying, error surfacing, disabled-at-startup, enable/disable persistence, rescan).
+
+**Conscious v1 limits.** LV2: no atoms/worker/options/state/UI extensions (plugins requiring them are skipped
+with the reason); no `IAudioEffectTail`. frei0r: filters only (sources need the generator seam, mixers the
+transition seam); STRING parameters are not editable; one instance per pipeline per effect id, so two clips
+using the same *temporal* frei0r filter share its state; frame sizes are passed as-is (frei0r recommends
+multiples of 8). Native install/uninstall from the Plugin Manager is not offered — users drop files into the
+per-user format folders and Rescan.
+
+**Hardening (post-review, 2026-08-27).** From the security review: (1) the Turtle reader bounds `[ … ]` / `( … )`
+nesting at 64 levels (a text file of unclosed brackets would otherwise recurse into an uncatchable stack overflow
+during startup discovery) and refuses Turtle files over 16 MB; (2) LV2 port indices must be exactly the dense
+`0 … N-1` (≤ 4096) or the plugin is skipped — the host hands them to `connect_port`, which plugins index with
+unchecked, so a hostile `.ttl` paired with a benign system binary could otherwise drive it out of bounds; (3)
+`lv2:binary` / `rdfs:seeAlso` IRIs must resolve to files **inside the bundle** — UNC / remote-host `file:` IRIs
+(an SMB credential-leak primitive on Windows) and out-of-bundle paths are refused with a warning (deliberately
+stricter than lilv), and at most 32 `seeAlso` files are followed; (4) `\u`/`\U` escapes are validated
+(surrogates, > U+10FFFF, non-hex); (5) the manifest is no longer copied whole per plugin (was O(N²)) — each
+plugin's blank-node closure is copied through the indexed subject lookup (which also fixed a bug the review
+surfaced: ports declared inline in the manifest were being dropped); (6) the URID map caps at 1 000 000 distinct
+URIs and returns 0 past it.
+
+From the code review: (7) **the CPU stage no longer hands out an `SKImage.FromPixels` wrapper over its pooled
+output buffer** — a transition with a CPU effect on both sides builds both chains before drawing, so the second
+side's run overwrote the first's pixels (and reallocating the pool could race a deferred GPU upload); the result
+is now drawn back into the offscreen surface (`DrawImage` of a wrapper + `Flush`, so the upload reads the pool
+immediately) and returned as a copy-on-write snapshot, cropped with `Subset` only when padding was added — Skia
+returns the *same* image for a full-bounds subset, which SkiaSharp surfaces as the same managed object, so the
+parent must not be disposed in that case; tested with a two-sided transition; (8) `ICpuVideoEffect.SizeGranularity` (default 1,
+frei0r 8) — the stage pads the working frame up to a multiple with a transparent border and crops the result,
+honouring frei0r.h's multiple-of-8 rule; (9) `Frei0rLibrary.Load` caches libraries process-wide so a
+disable → enable / rescan never calls `f0r_init` twice (frei0r.h forbids it); (10) frei0r parameter defaults are
+read from a throwaway 8×8 instance via `f0r_get_param_value` (what MLT/Kdenlive do) instead of invented
+0.5 / white / centre values, with the generic values as the documented fallback; (11) `lv2_lib_descriptor`
+fallback for binaries lacking the classic `lv2_descriptor`; (12) the per-user native folders live under the
+managed plugins folder — documented as safe only because `PluginHost.EnumeratePluginFiles` is non-recursive.

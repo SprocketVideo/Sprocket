@@ -268,6 +268,98 @@ public sealed class PluginManagerTests : IDisposable
         Assert.Null(manager.CreateAudioEffect("plugin.ladspa.999999")); // mixer then passes through (§15)
     }
 
+    // ── LV2 bundles + frei0r libraries (PLAN.md step 59, the other two arms) ──
+    // Same approach as LADSPA: no real native plugin is available here, so these prove discovery, format tagging,
+    // error surfacing and enable/disable wiring; the bindings themselves are covered by Sprocket.Plugins.Tests.
+
+    private static PluginManager NativeManager(string? lv2Dir, string? frei0rDir, HashSet<string> disabled, List<string>? cpuRegistered = null) => new(
+        [],
+        loadDisabled: () => disabled.ToArray(),
+        saveDisabled: paths => { disabled.Clear(); foreach (string p in paths) disabled.Add(p); },
+        registerShader: _ => { },
+        unregisterShader: _ => { },
+        log: (_, _) => { },
+        lv2Directories: lv2Dir is null ? null : [lv2Dir],
+        frei0rDirectories: frei0rDir is null ? null : [frei0rDir],
+        registerCpuEffect: e => cpuRegistered?.Add(e.Descriptor.Id));
+
+    [Fact]
+    public void Lv2_Bundle_Surfaces_A_Row_Tagged_As_Lv2_Keyed_By_Its_Directory()
+    {
+        string dir = NewDir();
+        string bundle = Path.Combine(dir, "amp.lv2");
+        Directory.CreateDirectory(bundle);
+        File.WriteAllText(Path.Combine(bundle, "manifest.ttl"), "not turtle <<<");
+
+        var manager = NativeManager(dir, null, []);
+        manager.Initialize();
+
+        PluginEntry entry = Assert.Single(manager.Entries);
+        Assert.Equal(PluginFormat.Lv2, entry.Format);
+        Assert.Equal(Path.GetFullPath(bundle), entry.AssemblyPath);
+        Assert.Equal("amp", entry.Name); // the bundle name, not "manifest"
+        Assert.Equal(PluginStatus.Error, entry.Status); // malformed manifest — recorded, not thrown
+        Assert.Contains("FormatException", entry.Message);
+    }
+
+    [Fact]
+    public void A_Disabled_Lv2_Bundle_Is_Skipped_And_Can_Be_Re_Enabled()
+    {
+        string dir = NewDir();
+        string bundle = Path.Combine(dir, "amp.lv2");
+        Directory.CreateDirectory(bundle);
+        File.WriteAllText(Path.Combine(bundle, "manifest.ttl"), "garbage <<<");
+
+        var disabled = new HashSet<string> { Path.GetFullPath(bundle) };
+        var manager = NativeManager(dir, null, disabled);
+        manager.Initialize();
+
+        PluginEntry entry = Assert.Single(manager.Entries);
+        Assert.Equal(PluginStatus.Disabled, entry.Status);
+
+        Assert.True(manager.SetEnabled(entry, true));
+        Assert.DoesNotContain(entry.AssemblyPath, disabled);
+        Assert.Equal(PluginStatus.Error, entry.Status); // attempted now (still a fake bundle)
+    }
+
+    [Fact]
+    public void Frei0r_Directory_Surfaces_A_Row_Tagged_As_Frei0r()
+    {
+        string dir = NewDir();
+        File.WriteAllText(Path.Combine(dir, "glow" + LadspaLibExtension), "not a shared library");
+
+        var cpu = new List<string>();
+        var manager = NativeManager(null, dir, [], cpu);
+        manager.Initialize();
+
+        PluginEntry entry = Assert.Single(manager.Entries);
+        Assert.Equal(PluginFormat.Frei0r, entry.Format);
+        Assert.Equal(PluginStatus.Error, entry.Status);
+        Assert.False(string.IsNullOrEmpty(entry.Message));
+        Assert.Empty(cpu); // nothing hostable → nothing registered with the render pipeline
+        Assert.Null(manager.FindCpuEffect("plugin.frei0r.glow"));
+    }
+
+    [Fact]
+    public void Disable_Then_Enable_A_Frei0r_Row_Persists_Through_The_Disabled_List_And_Rescan_Keeps_It()
+    {
+        string dir = NewDir();
+        string lib = Path.Combine(dir, "glow" + LadspaLibExtension);
+        File.WriteAllText(lib, "not a shared library");
+        var disabled = new HashSet<string>();
+        var manager = NativeManager(null, dir, disabled);
+        manager.Initialize();
+        PluginEntry entry = manager.Entries[0];
+
+        Assert.True(manager.SetEnabled(entry, false));
+        Assert.Contains(entry.AssemblyPath, disabled);
+
+        manager.Rescan();
+        PluginEntry again = Assert.Single(manager.Entries);
+        Assert.Equal(PluginFormat.Frei0r, again.Format);
+        Assert.Equal(PluginStatus.Disabled, again.Status);
+    }
+
     public void Dispose()
     {
         // EffectCatalog is process-global: make sure this test's plugin ids don't leak to the next test.

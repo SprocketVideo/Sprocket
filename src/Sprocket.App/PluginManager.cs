@@ -18,6 +18,13 @@ public enum PluginFormat
 
     /// <summary>A native LADSPA audio plugin library discovered on the LADSPA search path (step 59).</summary>
     Ladspa,
+
+    /// <summary>A native LV2 audio plugin bundle (a <c>*.lv2</c> directory) discovered on the LV2 search path (step 59).</summary>
+    Lv2,
+
+    /// <summary>A native frei0r video plugin library discovered on the frei0r search path (step 59); hosted on the
+    /// CPU-effect readback seam.</summary>
+    Frei0r,
 }
 
 /// <summary>The runtime state of one discovered plugin file, as the Plugin Manager UI shows it (PLAN.md step 58).</summary>
@@ -47,7 +54,7 @@ public sealed class PluginEntry
         Format = format;
     }
 
-    /// <summary>Full path of the plugin assembly (managed) or library file (native).</summary>
+    /// <summary>Full path of the plugin assembly (managed), library file (LADSPA / frei0r) or bundle directory (LV2).</summary>
     public string AssemblyPath { get; }
 
     /// <summary>Which plugin standard this entry belongs to (managed assembly vs. a native open standard).</summary>
@@ -101,9 +108,14 @@ public sealed class PluginManager
 
     private readonly PluginHost _host = new();
     private readonly Sprocket.Plugins.Ladspa.LadspaHost _ladspa = new();
+    private readonly Sprocket.Plugins.Lv2.Lv2Host _lv2 = new();
+    private readonly Sprocket.Plugins.Frei0r.Frei0rHost _frei0r = new();
     private readonly IReadOnlyList<PluginDirectory> _directories;
     private readonly IReadOnlyList<string> _ladspaDirectories;
+    private readonly IReadOnlyList<string> _lv2Directories;
+    private readonly IReadOnlyList<string> _frei0rDirectories;
     private readonly Action<IVideoEffect> _registerShader;
+    private readonly Action<ICpuVideoEffect> _registerCpuEffect;
     private readonly Action<string> _unregisterShader;
     private readonly Action<IReadOnlyCollection<string>> _saveDisabled;
     private readonly Action<string, Exception?> _log;
@@ -121,6 +133,10 @@ public sealed class PluginManager
     /// <param name="log">Diagnostics sink for non-fatal load problems.</param>
     /// <param name="ladspaDirectories">The LADSPA library search directories (PLAN.md step 59); null uses none
     /// (tests pass an explicit set so discovery is deterministic and never picks up the host's real plugins).</param>
+    /// <param name="lv2Directories">The LV2 bundle search directories (step 59); null uses none.</param>
+    /// <param name="frei0rDirectories">The frei0r library search directories (step 59); null uses none.</param>
+    /// <param name="registerCpuEffect">Registers a CPU (readback) video effect with the render pipeline (step 59);
+    /// null = no-op (headless tests). Removal goes through <paramref name="unregisterShader"/>, which covers both.</param>
     public PluginManager(
         IReadOnlyList<PluginDirectory> directories,
         Func<IReadOnlyCollection<string>> loadDisabled,
@@ -128,12 +144,18 @@ public sealed class PluginManager
         Action<IVideoEffect> registerShader,
         Action<string> unregisterShader,
         Action<string, Exception?> log,
-        IReadOnlyList<string>? ladspaDirectories = null)
+        IReadOnlyList<string>? ladspaDirectories = null,
+        IReadOnlyList<string>? lv2Directories = null,
+        IReadOnlyList<string>? frei0rDirectories = null,
+        Action<ICpuVideoEffect>? registerCpuEffect = null)
     {
         _directories = directories;
         _ladspaDirectories = ladspaDirectories ?? [];
+        _lv2Directories = lv2Directories ?? [];
+        _frei0rDirectories = frei0rDirectories ?? [];
         _saveDisabled = saveDisabled;
         _registerShader = registerShader;
+        _registerCpuEffect = registerCpuEffect ?? (_ => { });
         _unregisterShader = unregisterShader;
         _log = log;
         _disabled = new HashSet<string>(loadDisabled(), StringComparer.Ordinal);
@@ -182,48 +204,56 @@ public sealed class PluginManager
             }
         }
 
-        InitializeLadspa();
+        // The native open standards (PLAN.md step 59): one row per LADSPA library file, LV2 bundle directory,
+        // and frei0r library file, each deduplicated by full path across its search directories.
+        InitializeNative(PluginFormat.Ladspa, "LADSPA", _ladspaDirectories, Sprocket.Plugins.Ladspa.LadspaHost.EnumerateLibraryFiles);
+        InitializeNative(PluginFormat.Lv2, "LV2", _lv2Directories, Sprocket.Plugins.Lv2.Lv2Host.EnumerateBundles);
+        InitializeNative(PluginFormat.Frei0r, "frei0r", _frei0rDirectories, Sprocket.Plugins.Frei0r.Frei0rHost.EnumerateLibraryFiles);
     }
 
-    /// <summary>Discovers LADSPA libraries on the search path (PLAN.md step 59) and loads the enabled ones,
-    /// skipping the disabled — one entry per library file, deduplicated by full path across directories.</summary>
-    private void InitializeLadspa()
+    /// <summary>Discovers one native plugin format's files/bundles on its search path and loads the enabled ones,
+    /// skipping the disabled — one entry per discovered path, deduplicated across directories.</summary>
+    private void InitializeNative(PluginFormat format, string label, IReadOnlyList<string> directories, Func<string, IEnumerable<string>> enumerate)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string dir in _ladspaDirectories)
+        foreach (string dir in directories)
         {
-            IEnumerable<string> files;
+            IEnumerable<string> paths;
             try
             {
-                files = Sprocket.Plugins.Ladspa.LadspaHost.EnumerateLibraryFiles(dir).ToArray();
+                paths = enumerate(dir).ToArray();
             }
             catch (Exception ex)
             {
-                _log($"LADSPA scan failed for '{dir}'", ex);
+                _log($"{label} scan failed for '{dir}'", ex);
                 continue;
             }
 
-            foreach (string file in files)
+            foreach (string path in paths)
             {
-                string full = Path.GetFullPath(file);
+                string full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 if (!seen.Add(full))
                     continue;
 
-                var entry = new PluginEntry(full, isUserPlugin: false, PluginFormat.Ladspa);
+                var entry = new PluginEntry(full, isUserPlugin: false, format);
                 _entries.Add(entry);
 
                 if (_disabled.Contains(full))
                     entry.Status = PluginStatus.Disabled;
                 else
-                    LoadAndRegisterLadspa(entry);
+                    LoadAndRegisterNative(entry);
             }
         }
     }
 
     /// <summary>The mixer's plugin audio effect factory: returns a fresh DSP instance for a plugin-contributed
-    /// effect type id (managed first, then LADSPA), or <see langword="null"/> when none provides it.</summary>
+    /// effect type id (managed first, then LADSPA, then LV2), or <see langword="null"/> when none provides it.</summary>
     public IAudioEffect? CreateAudioEffect(string effectTypeId) =>
-        _host.CreateAudioEffect(effectTypeId) ?? _ladspa.CreateAudioEffect(effectTypeId);
+        _host.CreateAudioEffect(effectTypeId) ?? _ladspa.CreateAudioEffect(effectTypeId) ?? _lv2.CreateAudioEffect(effectTypeId);
+
+    /// <summary>The hosted frei0r CPU effect for an effect type id, or <see langword="null"/> (for tests / diagnostics;
+    /// the render pipeline reaches CPU effects through its own registry).</summary>
+    public ICpuVideoEffect? FindCpuEffect(string effectTypeId) => _frei0r.FindEffect(effectTypeId);
 
     /// <summary>
     /// Enables or disables one plugin and persists the choice. Enabling a not-loaded plugin loads and registers
@@ -238,10 +268,10 @@ public sealed class PluginManager
             _saveDisabled(_disabled.ToArray());
             if (entry.Status == PluginStatus.Enabled)
                 return false; // already active
-            if (entry.Format == PluginFormat.Ladspa)
-                LoadAndRegisterLadspa(entry);
-            else
+            if (entry.Format == PluginFormat.Managed)
                 LoadAndRegister(entry);
+            else
+                LoadAndRegisterNative(entry);
             return true;
         }
 
@@ -316,7 +346,10 @@ public sealed class PluginManager
     {
         foreach (PluginEntry entry in _entries.ToArray())
             Unregister(entry);
-        _ladspa.Clear(); // drop discovery references (native modules stay mapped for the session, step 59)
+        // Drop discovery references (native modules stay mapped for the session, step 59).
+        _ladspa.Clear();
+        _lv2.Clear();
+        _frei0r.Clear();
         Initialize();
     }
 
@@ -397,32 +430,93 @@ public sealed class PluginManager
         }
     }
 
-    /// <summary>Loads one LADSPA library and registers its (audio) descriptors, filling in the entry's status /
-    /// message (PLAN.md step 59). The native module stays mapped; registration is what makes the effects live.</summary>
-    private void LoadAndRegisterLadspa(PluginEntry entry)
+    /// <summary>Loads one native plugin file/bundle through its format's host and registers what it contributes,
+    /// filling in the entry's version / status / message (PLAN.md step 59). Native modules stay mapped; catalog
+    /// (and, for frei0r, render-pipeline) registration is what makes the effects live.</summary>
+    private void LoadAndRegisterNative(PluginEntry entry)
     {
-        int errorsBefore = _ladspa.Errors.Count;
-        Sprocket.Plugins.Ladspa.LadspaLibraryLoad? load = _ladspa.Load(entry.AssemblyPath);
-        if (load is null)
+        IReadOnlyList<EffectDescriptor> audioDescriptors = [];
+        ICpuVideoEffect? cpuEffect = null;
+        IReadOnlyList<string> warnings = [];
+        string? version = null;
+        string? failure = null;
+
+        switch (entry.Format)
+        {
+            case PluginFormat.Ladspa:
+            {
+                int before = _ladspa.Errors.Count;
+                if (_ladspa.Load(entry.AssemblyPath) is { } load)
+                    (audioDescriptors, warnings) = (load.Descriptors, load.Warnings);
+                else
+                    failure = FirstErrorSince(_ladspa.Errors, entry.AssemblyPath, before) ?? "Failed to load.";
+                break;
+            }
+            case PluginFormat.Lv2:
+            {
+                int before = _lv2.Errors.Count;
+                if (_lv2.Load(entry.AssemblyPath) is { } load)
+                    (audioDescriptors, warnings, version) = (load.Descriptors, load.Warnings, load.Version);
+                else
+                    failure = FirstErrorSince(_lv2.Errors, entry.AssemblyPath, before) ?? "Failed to load.";
+                break;
+            }
+            case PluginFormat.Frei0r:
+            {
+                int before = _frei0r.Errors.Count;
+                if (_frei0r.Load(entry.AssemblyPath) is { } load)
+                    (cpuEffect, warnings, version) = (load.Effect, load.Warnings, load.Version);
+                else
+                    failure = FirstErrorSince(_frei0r.Errors, entry.AssemblyPath, before) ?? "Failed to load.";
+                break;
+            }
+            default:
+                throw new InvalidOperationException($"{entry.Format} is not a native plugin format.");
+        }
+
+        if (failure is not null)
         {
             entry.Status = PluginStatus.Error;
-            entry.Message = FirstLadspaErrorSince(entry.AssemblyPath, errorsBefore) ?? "Failed to load.";
+            entry.Message = failure;
             return;
         }
+        entry.Version = version;
 
         var registered = new List<EffectDescriptor>();
         var problems = new List<string>();
-        foreach (EffectDescriptor descriptor in load.Descriptors)
+        foreach (EffectDescriptor descriptor in audioDescriptors)
         {
             if (EffectCatalog.Register(descriptor))
                 registered.Add(descriptor);
             else
             {
-                _log($"LADSPA '{entry.Name}': effect id '{descriptor.Id}' already registered — skipped", null);
+                _log($"{entry.Format} '{entry.Name}': effect id '{descriptor.Id}' already registered — skipped", null);
                 problems.Add($"'{descriptor.Id}' already registered");
             }
         }
-        problems.AddRange(load.Warnings);
+        if (cpuEffect is not null)
+        {
+            if (!EffectCatalog.Register(cpuEffect.Descriptor))
+            {
+                _log($"frei0r '{entry.Name}': effect id '{cpuEffect.Descriptor.Id}' already registered — skipped", null);
+                problems.Add($"'{cpuEffect.Descriptor.Id}' already registered");
+            }
+            else
+            {
+                try
+                {
+                    _registerCpuEffect(cpuEffect);
+                    registered.Add(cpuEffect.Descriptor);
+                }
+                catch (Exception ex)
+                {
+                    EffectCatalog.Unregister(cpuEffect.Descriptor.Id);
+                    _log($"frei0r '{entry.Name}': effect '{cpuEffect.Descriptor.Id}' failed to register", ex);
+                    problems.Add($"'{cpuEffect.Descriptor.Id}' failed to register");
+                }
+            }
+        }
+        problems.AddRange(warnings);
 
         entry.Effects = registered;
         if (registered.Count > 0)
@@ -447,10 +541,12 @@ public sealed class PluginManager
         }
         entry.Effects = [];
 
-        if (entry.Format == PluginFormat.Ladspa)
+        switch (entry.Format)
         {
-            _ladspa.Forget(entry.AssemblyPath); // module stays mapped; stop creating its effects
-            return;
+            // Native modules stay mapped; forgetting just stops the host creating their effects.
+            case PluginFormat.Ladspa: _ladspa.Forget(entry.AssemblyPath); return;
+            case PluginFormat.Lv2: _lv2.Forget(entry.AssemblyPath); return;
+            case PluginFormat.Frei0r: _frei0r.Forget(entry.AssemblyPath); return;
         }
 
         if (entry.Loaded is { } plugin)
@@ -460,12 +556,11 @@ public sealed class PluginManager
         }
     }
 
-    /// <summary>The first LADSPA load error whose source is <paramref name="path"/> since index
+    /// <summary>The first native-host load error whose source is <paramref name="path"/> since index
     /// <paramref name="fromIndex"/>, or <see langword="null"/>.</summary>
-    private string? FirstLadspaErrorSince(string path, int fromIndex)
+    private static string? FirstErrorSince(IReadOnlyList<PluginLoadError> errors, string path, int fromIndex)
     {
-        IReadOnlyList<Sprocket.Plugins.PluginLoadError> errors = _ladspa.Errors;
-        string full = Path.GetFullPath(path);
+        string full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         for (int i = fromIndex; i < errors.Count; i++)
             if (string.Equals(errors[i].Source, full, StringComparison.Ordinal))
                 return errors[i].Message;

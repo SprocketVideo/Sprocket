@@ -528,6 +528,7 @@ public static class VideoExporter
         Dictionary<MediaRefId, ExportFrameProvider?> providers)
     {
         SKCanvas canvas = surface.Canvas;
+        pipeline.FrameTimeSeconds = plan.Time.Ticks / (double)Timecode.TicksPerSecond; // for time-driven CPU plugins (step 59)
         foreach (VideoLayer layer in plan.Layers)
         {
             switch (layer.Kind)

@@ -67,8 +67,9 @@ created for this project and carries no third-party license.
 ## User-installed plugins
 
 Sprocket can host plugins the user installs on their own system: managed Sprocket effect assemblies
-(PLAN.md step 33/58) and native open-standard plugins — **LADSPA** audio plugins discovered on the
-system's `LADSPA_PATH` today (PLAN.md step 59), with LV2 and frei0r planned. **These plugins are not
+(PLAN.md step 33/58) and native open-standard plugins — **LADSPA** and **LV2** audio plugins and
+**frei0r** video filters discovered on the system's `LADSPA_PATH` / `LV2_PATH` / `FREI0R_PATH` and the
+per-user Sprocket plugins folder (PLAN.md step 59). **These plugins are not
 bundled with or distributed by Sprocket**; each is separately installed by the user and carries its own
 license (many LADSPA/frei0r plugins are GPL, which is compatible — Sprocket already ships GPL FFmpeg
 builds). Sprocket only loads them at runtime through their published C ABIs and imposes no additional

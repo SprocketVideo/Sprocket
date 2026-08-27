@@ -1,7 +1,8 @@
 # Open plugin standards: frei0r (video) + LADSPA / LV2 (audio) — build-order step 59
 
-🟡 **LADSPA audio hosting shipped 2026-08-26** (see [history](../history/steps-58plus.md#step-59)); **LV2
-core-subset + frei0r remain.** Host the open-source plugin standards alongside the commercial ones
+✅ **All three arms shipped** — LADSPA 2026-08-26, LV2 core subset + frei0r (with the CPU-effect readback seam)
+2026-08-27; the implementation log lives in [history](../history/steps-58plus.md#step-59). This document is the
+original plan, kept for the design rationale. Host the open-source plugin standards alongside the commercial ones
 tracked in [plugin-hosting.md](plugin-hosting.md) (VST3/AU, OpenColorIO/OFX). All three are
 **plain C ABIs** — unlike VST3 (C++/COM) they need **no bridge shim**: P/Invoke directly, per
 the no-C++/CLI rule (ARCHITECTURE §1). Highest value on Linux, where these are the native
