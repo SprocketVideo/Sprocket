@@ -252,30 +252,32 @@ public sealed partial class SprocketTools(IEditorSession session)
 
     private static IEditCommand BuildTrimCommand(Project project, Clip clip, bool trimIn, Timecode at)
     {
-        if (trimIn)
-        {
-            if (at >= clip.TimelineEnd)
-                throw new McpException($"the in edge must stay before clip {RuntimeIds.IdOf(clip)}'s end.");
-            Timecode newSourceIn = clip.MapToSource(at);
-            if (newSourceIn < Timecode.Zero || newSourceIn >= clip.SourceOut)
-                throw new McpException(
-                    $"that trim runs clip {RuntimeIds.IdOf(clip)} out of source media (pass includeLinked=false " +
-                    "to trim only the addressed clip).");
-            return new SetClipPlacementCommand(clip, newSourceIn, clip.SourceOut, at, "Trim clip");
-        }
-        if (at <= clip.TimelineStart)
+        if (clip.HasSpeedRamp)
+            throw new McpException(
+                $"clip {RuntimeIds.IdOf(clip)} has a keyframed speed ramp; trim_clip doesn't re-anchor ramps — trim it in the editor.");
+        if (trimIn && at >= clip.TimelineEnd)
+            throw new McpException($"the in edge must stay before clip {RuntimeIds.IdOf(clip)}'s end.");
+        if (!trimIn && at <= clip.TimelineStart)
             throw new McpException($"the out edge must stay after clip {RuntimeIds.IdOf(clip)}'s start.");
-        Timecode newSourceOut = clip.MapToSource(at);
-        if (newSourceOut <= clip.SourceIn)
-            throw new McpException($"that trim collapses clip {RuntimeIds.IdOf(clip)} to nothing.");
+
+        // The timeline edge drives the source edge the clip's map puts there: forward, the in edge is the source
+        // in-point; on a reversed clip the timeline in edge is the source *out*-point and vice versa (step 21).
+        bool movesSourceIn = trimIn != clip.Reverse;
+        Timecode mapped = clip.MapToSource(at);
+        Timecode newIn = movesSourceIn ? mapped : clip.SourceIn;
+        Timecode newOut = movesSourceIn ? clip.SourceOut : mapped;
+        if (newIn < Timecode.Zero || newIn >= newOut)
+            throw new McpException(
+                $"that trim runs clip {RuntimeIds.IdOf(clip)} out of source media (pass includeLinked=false " +
+                "to trim only the addressed clip).");
         // A bounded source's out-point cannot pass the end of its media (stills/held clips are unbounded by design).
         MediaRef? media = project.MediaPool.Get(clip.MediaRefId);
-        if (!clip.IsHeld && media is { HasUnboundedDuration: false, Info.Duration.Ticks: > 0 }
-            && newSourceOut.Ticks > media.Info.Duration.Ticks)
+        if (!movesSourceIn && !clip.IsHeld && media is { HasUnboundedDuration: false, Info.Duration.Ticks: > 0 }
+            && newOut.Ticks > media.Info.Duration.Ticks)
             throw new McpException(
                 $"that trim runs clip {RuntimeIds.IdOf(clip)} past the end of its source media (pass " +
                 "includeLinked=false to trim only the addressed clip).");
-        return new SetClipPlacementCommand(clip, clip.SourceIn, newSourceOut, clip.TimelineStart, "Trim clip");
+        return new SetClipPlacementCommand(clip, newIn, newOut, trimIn ? at : clip.TimelineStart, "Trim clip");
     }
 
     [McpServerTool(Name = "move_clip")]

@@ -50,12 +50,31 @@ public sealed class AudioMixer : IDisposable
         public int WindowFrames;
         public double Phase;
 
+        // Reverse playback state (PLAN.md step 21 remainder). A reversed layer walks the source *down* from
+        // NextSourceTime: the mixer pulls a block of source PCM ending at the cursor, flips it, and serves it
+        // sample-by-sample (through the same resampler when retimed). The block is carried across buffers so a
+        // reader seek happens once per block, not per buffer. Direction flips reset the block and the resampler.
+        public bool Reverse;
+        public float[] RevBlock = [];
+        public int RevRemaining;          // frames of RevBlock not yet served (served from the end backwards)
+        public Timecode? RevNextBlockEnd; // exclusive top of the next block to pull (null = start at the cursor)
+
         public void ResetResampler()
         {
             WindowFrames = 0;
             Phase = 0;
         }
+
+        public void ResetReverseBlock()
+        {
+            RevRemaining = 0;
+            RevNextBlockEnd = null;
+        }
     }
+
+    // Source frames pulled per reverse block (~170 ms at 48 kHz): large enough that a block seek is rare relative
+    // to the mix cadence, small enough that scrubbing backwards stays responsive.
+    private const int ReverseBlockFrames = 8192;
 
     // The stateful effect instances of one chain, keyed by the resolved ids so a chain edit (add/remove/reorder)
     // rebuilds the instances while parameter-only changes keep the DSP state (PLAN.md step 31).
@@ -184,21 +203,26 @@ public sealed class AudioMixer : IDisposable
                 continue;
             }
 
-            IPcmReader? reader = ResolvePositioned(al.MediaRefId, al.SourceStart);
+            IPcmReader? reader = ResolvePositioned(al.MediaRefId, al.SourceStart, al.Reverse);
             if (reader is null)
                 continue;
 
             layer.Clear();
             SourceState state = _states[al.MediaRefId];
-            // Speed 1/1 is the common case: read sequentially, no resample (the original fast path, untouched).
-            if (al.SpeedRatio.Num == al.SpeedRatio.Den)
+            // The effective speed over this buffer: the exact source span the plan mapped over the buffer
+            // (drift-free under a speed ramp, PLAN.md step 21 remainder), or the constant ratio for older callers.
+            double speed = EffectiveSpeed(al, plan.BufferDuration);
+            // Speed 1/1 with nothing carried in the resampler is the common case: read sequentially, no resample
+            // (the original fast path, untouched for forward layers). A ramp passing through exactly 1× with a
+            // carried window keeps resampling so the pre-pulled frames are consumed in order.
+            if (speed == 1.0 && state.WindowFrames == 0 && state.Phase == 0)
             {
-                int got = reader.Read(layer);
-                state.NextSourceTime += Timecode.FromSamples(got, SampleRate);
+                int got = Pull(state, layer);
+                Advance(state, got);
             }
             else
             {
-                ReadResampled(state, layer, frames, al.SpeedRatio.ToDouble());
+                ReadResampled(state, layer, frames, speed);
             }
 
             ProcessAndSumLayer(dest, layer, frames, al);
@@ -315,8 +339,8 @@ public sealed class AudioMixer : IDisposable
         }
     }
 
-    /// <summary>Resolves the reader for a media id and seeks it if the requested source time has jumped.</summary>
-    private IPcmReader? ResolvePositioned(MediaRefId id, Timecode sourceStart)
+    /// <summary>Resolves the reader for a media id and seeks it if the requested source time (or direction) has jumped.</summary>
+    private IPcmReader? ResolvePositioned(MediaRefId id, Timecode sourceStart, bool reverse)
     {
         if (!_states.TryGetValue(id, out SourceState? state))
         {
@@ -327,22 +351,115 @@ public sealed class AudioMixer : IDisposable
             _states[id] = state;
         }
 
-        if (!state.Positioned || Math.Abs(state.NextSourceTime.Ticks - sourceStart.Ticks) > SeekToleranceTicks)
+        if (!state.Positioned || state.Reverse != reverse
+            || Math.Abs(state.NextSourceTime.Ticks - sourceStart.Ticks) > SeekToleranceTicks)
         {
-            state.Reader.SeekTo(sourceStart);
+            // Forward: seek the reader now so the next Read starts at the cursor. Reverse: the cursor is the *top*
+            // of the walk; the block fill seeks the reader itself when it pulls the span below the cursor.
+            if (!reverse)
+                state.Reader.SeekTo(sourceStart);
             state.NextSourceTime = sourceStart;
             state.Positioned = true;
-            state.ResetResampler(); // the carried resample window is stale after a jump
+            state.Reverse = reverse;
+            state.ResetResampler();    // the carried resample window is stale after a jump
+            state.ResetReverseBlock(); // and so is the carried reverse block
         }
         return state.Reader;
+    }
+
+    /// <summary>
+    /// The speed the mixer resamples a layer at over one buffer: the plan's exact mapped source span divided by
+    /// the buffer duration when the plan supplies <see cref="AudioLayer.SourceEnd"/> (PLAN.md step 21 remainder —
+    /// exact under a ramp / reverse map), else the constant <see cref="AudioLayer.SpeedRatio"/>.
+    /// </summary>
+    private static double EffectiveSpeed(AudioLayer al, Timecode bufferDuration)
+    {
+        // An equal span divides to exactly 1.0 (both operands are exact integers), so the 1× fast path is preserved
+        // bit-for-bit. A zero span (a held clip's constant map) falls back to the constant ratio rather than a
+        // speed of 0 — holds are video-only by convention; a held audio layer keeps its pre-hold behaviour.
+        if (al.SourceEnd is { } end && bufferDuration.Ticks > 0 && end != al.SourceStart)
+            return (double)Math.Abs(end.Ticks - al.SourceStart.Ticks) / bufferDuration.Ticks;
+        return al.SpeedRatio.ToDouble();
+    }
+
+    /// <summary>
+    /// Pulls the next source frames in the layer's playback order into <paramref name="dest"/> (whole frames):
+    /// forward = a sequential <see cref="IPcmReader.Read"/>; reverse = served backwards out of the carried reverse
+    /// block (refilled from the span just below the cursor when empty). Returns the frames written; a short
+    /// count is end-of-stream (forward) or the start of the source (reverse). Does not move the cursor — see
+    /// <see cref="Advance"/>.
+    /// </summary>
+    private int Pull(SourceState state, Span<float> dest)
+    {
+        int c = Channels;
+        int want = dest.Length / c;
+        if (!state.Reverse)
+            return state.Reader.Read(dest);
+
+        int written = 0;
+        while (written < want)
+        {
+            if (state.RevRemaining == 0 && !FillReverseBlock(state))
+                break; // walked back to the start of the source
+            int take = Math.Min(want - written, state.RevRemaining);
+            // The block is stored in source order; serve it from the end backwards, frame by frame.
+            for (int i = 0; i < take; i++)
+            {
+                int srcFrame = state.RevRemaining - 1 - i;
+                state.RevBlock.AsSpan(srcFrame * c, c).CopyTo(dest.Slice((written + i) * c, c));
+            }
+            state.RevRemaining -= take;
+            written += take;
+        }
+        return written;
+    }
+
+    /// <summary>
+    /// Refills the reverse block with the source span immediately below the frames already served: seeks the
+    /// reader to <c>blockEnd − ReverseBlockFrames</c> (clamped at 0) and reads forward to <c>blockEnd</c>, where
+    /// <c>blockEnd</c> is the source time the previous block started at (initially the layer's cursor). Frames the
+    /// reader can't supply (a short read at end of stream) read as silence. Returns false once the walk has
+    /// reached source time zero.
+    /// </summary>
+    private bool FillReverseBlock(SourceState state)
+    {
+        int c = Channels;
+        // Blocks are pulled ahead of consumption, so the next block's top is tracked separately from the served
+        // cursor: the first block ends at the layer's cursor, each later one where the previous began.
+        Timecode blockEnd = state.RevNextBlockEnd ?? state.NextSourceTime;
+        long endFrame = (long)Math.Round(blockEnd.Ticks * (double)SampleRate / Timecode.TicksPerSecond);
+        if (endFrame <= 0)
+            return false;
+        int frames = (int)Math.Min(ReverseBlockFrames, endFrame);
+        long startFrame = endFrame - frames;
+
+        if (state.RevBlock.Length < frames * c)
+            Array.Resize(ref state.RevBlock, frames * c);
+        Span<float> block = state.RevBlock.AsSpan(0, frames * c);
+        state.Reader.SeekTo(Timecode.FromSamples(startFrame, SampleRate));
+        int got = state.Reader.Read(block);
+        if (got < frames)
+            block[(got * c)..].Clear(); // past the end of the media: silence at the top of the block
+        state.RevRemaining = frames;
+        state.RevNextBlockEnd = Timecode.FromSamples(startFrame, SampleRate);
+        return true;
+    }
+
+    /// <summary>Moves the layer's source cursor by <paramref name="frames"/> in its playback direction.</summary>
+    private void Advance(SourceState state, int frames)
+    {
+        Timecode delta = Timecode.FromSamples(frames, SampleRate);
+        state.NextSourceTime = state.Reverse ? state.NextSourceTime - delta : state.NextSourceTime + delta;
     }
 
     /// <summary>
     /// Fills <paramref name="layer"/> (one buffer of <paramref name="frames"/> output sample-frames) by reading
     /// the source at <paramref name="speed"/>× through a streaming linear resampler (PLAN.md step 21). The state's
     /// <see cref="SourceState.Window"/> carries source frames already pulled but not yet consumed, so reads stay
-    /// sequential across buffers (no per-buffer seek) and the source cursor never drifts. Pitch is not preserved
-    /// (a deliberate first cut — pitch-preserving time-stretch is step 31). End of stream resamples as silence.
+    /// sequential across buffers (no per-buffer seek) and the source cursor never drifts. Source frames arrive in
+    /// the layer's playback order through <see cref="Pull"/>, so a reversed layer resamples the same way. Pitch is
+    /// not preserved (a deliberate first cut — pitch-preserving time-stretch is a later DSP tier). End of stream
+    /// resamples as silence.
     /// </summary>
     private void ReadResampled(SourceState state, Span<float> layer, int frames, double speed)
     {
@@ -361,7 +478,7 @@ public sealed class AudioMixer : IDisposable
         if (state.WindowFrames < framesNeeded)
         {
             int toRead = framesNeeded - state.WindowFrames;
-            int got = state.Reader.Read(state.Window.AsSpan(state.WindowFrames * c, toRead * c));
+            int got = Pull(state, state.Window.AsSpan(state.WindowFrames * c, toRead * c));
             if (got < toRead)
                 Array.Clear(state.Window, (state.WindowFrames + got) * c, (toRead - got) * c);
             state.WindowFrames = framesNeeded;
@@ -389,7 +506,7 @@ public sealed class AudioMixer : IDisposable
             Array.Copy(state.Window, drop * c, state.Window, 0, remaining * c);
         state.WindowFrames = remaining;
         state.Phase = endPos - baseAdvance;
-        state.NextSourceTime += Timecode.FromSamples(drop, SampleRate);
+        Advance(state, drop);
     }
 
     private static void EnsureWindow(SourceState state, int floats)

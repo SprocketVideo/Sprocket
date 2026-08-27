@@ -98,7 +98,7 @@ public static class EdlExporter
         {
             if (clip.Effects.Count > 0)
                 report.Count("Clip effects dropped");
-            if (clip.SpeedRatio != Rational.One)
+            if (clip.SpeedRatio != Rational.One || clip.Reverse || clip.HasSpeedRamp)
                 report.Count("Clip retime/speed dropped");
             if (clip.IsHeld)
                 report.Count("Clip frame hold dropped");

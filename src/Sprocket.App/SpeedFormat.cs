@@ -33,4 +33,18 @@ public static class SpeedFormat
         speed = new Rational(num, 10000);
         return true;
     }
+
+    /// <summary>
+    /// Converts a speed given as a fraction of normal (1.0 = 100%, the unit the keyframed speed lane and
+    /// <see cref="Sprocket.Core.Model.SpeedRamp"/> use) into the exact ratio a constant-speed clip stores, keeping
+    /// two decimals of the percentage (0.5 → 1/2, 1.5 → 3/2). Non-positive / NaN input clamps to the ramp's
+    /// minimum speed rather than failing, since a slider can't express "invalid".
+    /// </summary>
+    public static Rational FromFraction(double fraction)
+    {
+        if (double.IsNaN(fraction) || fraction <= 0)
+            fraction = Sprocket.Core.Model.SpeedRamp.MinSpeed;
+        int num = Math.Max(1, (int)Math.Round(fraction * 10000));
+        return new Rational(num, 10000);
+    }
 }

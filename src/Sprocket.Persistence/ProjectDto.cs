@@ -208,7 +208,13 @@ internal sealed record ClipDto(
     // Conform mode — the clip's Fit/Fill framing policy for a content/canvas aspect mismatch. Additive +
     // nullable: a Fit (default) clip writes nothing (WhenWritingNull), so earlier files load as Fit and
     // fill-free projects serialize byte-identically.
-    ClipConformMode? ConformMode = null);
+    ClipConformMode? ConformMode = null,
+    // Reverse playback + keyframed speed ramp (PLAN.md step 21 remainder). Additive + nullable: a forward clip
+    // writes no Reverse and a constant-speed clip writes no SpeedCurve (WhenWritingNull), so earlier files load
+    // forward / constant and untouched projects serialize byte-identically. The curve's keyframe times are
+    // clip-local ticks (see Clip.SpeedCurve).
+    bool? Reverse = null,
+    AnimatableValueDto? SpeedCurve = null);
 
 /// <summary>A marker (PLAN.md step 20): a time, optional name/comment, colour band, and an optional span
 /// (<see cref="DurationTicks"/> &gt; 0). Colour serializes as a string enum.</summary>

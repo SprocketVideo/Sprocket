@@ -106,7 +106,8 @@ public sealed record VideoLayer(
     ResolvedGenerator? Generator = null,
     VideoFramePlan? NestedPlan = null,
     ResolvedTransition? Transition = null,
-    ClipConformMode ConformMode = ClipConformMode.Fit);
+    ClipConformMode ConformMode = ClipConformMode.Fit,
+    bool Reverse = false);
 
 /// <summary>
 /// A transition resolved at a frame's time (PLAN.md step 25): which two clips to blend (<see cref="From"/> outgoing,
@@ -177,6 +178,13 @@ public sealed record ResolvedAudioChain(object StateKey, IReadOnlyList<ResolvedE
 /// <param name="ClipChain">The clip's audio effect chain (PLAN.md step 31), or <see langword="null"/> when the
 /// clip has no audio effects (the common fast path).</param>
 /// <param name="TrackChain">The track's insert chain (PLAN.md step 31), or <see langword="null"/> when empty.</param>
+/// <param name="SourceEnd">Time within the source corresponding to the <em>end</em> of the buffer (PLAN.md step 21
+/// remainder), so the mixer resamples exactly the span <c>[SourceStart, SourceEnd)</c> into the buffer — the
+/// effective speed is the span over the buffer duration, which follows a speed ramp with no drift and reduces to
+/// <see cref="SpeedRatio"/> for a constant speed. <see langword="null"/> (older callers / nested plans) means
+/// "derive from <see cref="SpeedRatio"/>". For a reversed layer it precedes <see cref="SourceStart"/>.</param>
+/// <param name="Reverse">Whether the layer plays its source backwards (<see cref="Model.Clip.Reverse"/>): the
+/// mixer reads the span behind <see cref="SourceStart"/> and emits it in reverse order.</param>
 public sealed record AudioLayer(
     MediaRefId MediaRefId,
     Timecode SourceStart,
@@ -188,7 +196,9 @@ public sealed record AudioLayer(
     double PanLeft = 1.0,
     double PanRight = 1.0,
     ResolvedAudioChain? ClipChain = null,
-    ResolvedAudioChain? TrackChain = null)
+    ResolvedAudioChain? TrackChain = null,
+    Timecode? SourceEnd = null,
+    bool Reverse = false)
 {
     /// <summary>The combined linear gain (clip × track) at the start of the buffer — what a chain-less mix
     /// applies in one ramp, and the value gain-focused tests/consumers read.</summary>
@@ -230,3 +240,6 @@ public sealed record AudioBufferPlan(
     IReadOnlyList<AudioLayer> Layers,
     double MasterGainLinear,
     IReadOnlyList<ResolvedAudioChain>? OutputChains = null);
+/// <param name="Reverse">Whether the clip plays its source backwards (<see cref="Model.Clip.Reverse"/>, PLAN.md step 21
+/// remainder). A reversed <see cref="SourceTime"/> is an <em>exclusive</em> upper bound — the frame provider serves the
+/// latest frame strictly before it — so frame <c>k</c> of the clip mirrors exactly to source frame <c>N−1−k</c>.</param>

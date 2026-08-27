@@ -18,11 +18,12 @@ namespace Sprocket.Playback;
 /// </remarks>
 internal sealed class VideoTrackPlayer : IAsyncDisposable
 {
-    private readonly Func<MediaRefId, IVideoFrameFeed?>? _feedFactory;
+    private readonly Func<MediaRefId, bool, IVideoFrameFeed?>? _feedFactory;
     private readonly object _frameGate;
 
     private IVideoFrameFeed? _feed;
     private MediaRefId? _feedSource;   // which source _feed currently decodes (factory mode)
+    private bool _feedReverse;         // which direction the factory-built feed walks (a reversed clip needs a reverse feed)
     private Clip? _feedClip;           // which clip the feed is currently positioned for (so a same-source clip change re-seeks)
     private bool _feedStarted;
     private bool _needsSeek = true;    // a fresh player (or one after a seek) must seek before presenting
@@ -37,6 +38,11 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
     // requesting the identical target — when it matches, the seek (and the re-decode behind it) is skipped and
     // the presented frame simply stays. Cleared whenever the feed or the presented frame is invalidated.
     private Timecode? _presentedTarget;
+
+    // How far before a reversed clip's target the forward-only fallback seeks (see PumpAsync): a second covers one
+    // frame interval of any source down to a 1 fps timelapse, so the promote loop finds the frame before the target,
+    // while bounding the per-pump decode to about a second of frames (this path is tests / render cache only).
+    private static readonly long ReverseFallbackLookbackTicks = Timecode.TicksPerSecond;
 
     // Decode info (codec + hw device) of the current feed, snapshotted when the feed is (re)built — it is
     // immutable for a feed's life, so caching it lets the diagnostics overlay read it from the UI thread
@@ -55,8 +61,10 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         _decodeInfo = feed.DecodeInfo;
     }
 
-    /// <summary>Factory player (app path): creates the feed lazily for the active clip's source.</summary>
-    public VideoTrackPlayer(VideoTrack track, Func<MediaRefId, IVideoFrameFeed?> feedFactory, object frameGate)
+    /// <summary>Factory player (app path): creates the feed lazily for the active clip's source and playback
+    /// direction — the factory receives <c>(source id, reverse)</c> and returns a forward or reverse feed
+    /// (PLAN.md step 21 remainder).</summary>
+    public VideoTrackPlayer(VideoTrack track, Func<MediaRefId, bool, IVideoFrameFeed?> feedFactory, object frameGate)
     {
         ArgumentNullException.ThrowIfNull(track);
         ArgumentNullException.ThrowIfNull(feedFactory);
@@ -126,7 +134,7 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
             _feedClip = clip;
         }
 
-        if (!EnsureFeedFor(clip.MediaRefId))
+        if (!EnsureFeedFor(clip.MediaRefId, clip.Reverse))
         {
             ClearCurrent();
             return false;
@@ -139,8 +147,30 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         }
 
         Timecode target = clip.MapToSource(pos);
+        bool reverse = _feed!.IsReverse;
+        // A reversed clip's mapped time is an *exclusive* upper bound (the clip start maps to the out-point), so the
+        // frame to show is the latest strictly before it: the forward promote rule runs against target − 1 tick.
+        Timecode forwardTarget = clip.Reverse ? new Timecode(target.Ticks - 1) : target;
         bool localForce = force || _needsSeek;
-        if (_needsSeek)
+        if (clip.Reverse && !reverse)
+        {
+            // A reversed clip on a forward-only feed (the fixed-feed path: tests, the render cache) has no backward
+            // decode to lean on, so every new target re-seeks the feed a little *before* the target and promotes
+            // forward to the latest frame at/before it — correct output at a GOP-decode cost per frame. The factory
+            // path builds a genuine reverse feed instead (ReverseRingVideoFrameFeed).
+            if (_presentedTarget == target && _current is not null)
+            {
+                _needsSeek = false;
+                return false;
+            }
+            _feed.RequestSeek(new Timecode(Math.Max(0, target.Ticks - ReverseFallbackLookbackTicks)));
+            _next?.Dispose();
+            _next = null;
+            _atEof = false;
+            _needsSeek = false;
+            localForce = false; // the look-back frame itself must not be force-presented
+        }
+        else if (_needsSeek)
         {
             // Repeat-frame fast path: the presented frame is already exactly right for this source target (a
             // held clip's constant map, or repeated seeks to one spot), so don't disturb the feed at all.
@@ -179,7 +209,20 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         // skipped here are NOT all "dropped" in the stutter sense: when the source runs faster than the sequence
         // rate, skipping the in-between source frames is correct downsampling. The engine measures genuine drops
         // off the playhead's timeline-frame advance instead, so that intentional downsampling isn't miscounted.
-        while (_next is not null && PlaybackMath.ShouldPromote(_next.Pts, target, forcePresent: false))
+        // A reverse feed's frames descend: the next (earlier) frame becomes due once the *shown* frame's PTS has
+        // risen above the target — so the walk lands on the latest frame at/before the target from above.
+        while (_next is not null && (reverse
+                   ? PlaybackMath.ShouldPromoteReverse(_current?.Pts, target)
+                   : PlaybackMath.ShouldPromote(_next.Pts, forwardTarget, forcePresent: false)))
+        {
+            Promote(_next);
+            promoted = true;
+            _next = await _feed!.ReadAsync(ct).ConfigureAwait(false);
+        }
+
+        // Forward-only fallback for a reversed clip: a target before the source's first frame yields nothing at/before
+        // it — show the first decoded frame rather than hold a stale one (mirrors the force-present convention).
+        if (clip.Reverse && !reverse && !promoted && _current is null && _next is not null)
         {
             Promote(_next);
             promoted = true;
@@ -192,20 +235,23 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
             _atEof = true;
 
         // Remember the target the presented frame is known-correct for (the repeat-frame fast path above). Only
-        // when it is the latest frame at/before the target — the force-present path can show a frame past it.
-        _presentedTarget = _current is not null && _current.Pts <= target ? target : null;
+        // when it is the right frame for the target — at/before it forward, strictly before it for a reversed clip;
+        // the force-present path can show a frame past it, and the forward-only fallback can miss.
+        bool exact = _current is not null && (reverse || clip.Reverse ? _current.Pts < target : _current.Pts <= target);
+        _presentedTarget = exact ? target : null;
 
         return promoted;
     }
 
-    /// <summary>Ensures <see cref="_feed"/> decodes <paramref name="sourceId"/>, (re)building it in factory mode
-    /// when the source changes. Returns false when no feed is available (offline / no-video source).</summary>
-    private bool EnsureFeedFor(MediaRefId sourceId)
+    /// <summary>Ensures <see cref="_feed"/> decodes <paramref name="sourceId"/> in the requested direction,
+    /// (re)building it in factory mode when the source or direction changes. Returns false when no feed is
+    /// available (offline / no-video source).</summary>
+    private bool EnsureFeedFor(MediaRefId sourceId, bool reverse)
     {
         if (_feedFactory is null)
             return _feed is not null; // fixed feed: source assumed constant
 
-        if (_feed is not null && _feedSource == sourceId && !_needsRebuild)
+        if (_feed is not null && _feedSource == sourceId && _feedReverse == reverse && !_needsRebuild)
             return true;
 
         // Either the active clip's source changed, or the source's best-available file changed under us (a proxy
@@ -213,8 +259,9 @@ internal sealed class VideoTrackPlayer : IAsyncDisposable
         DisposeFeed();
         _presentedTarget = null; // a new feed must decode the frame fresh — never skip its first seek
         _needsRebuild = false;
-        _feed = _feedFactory(sourceId);
+        _feed = _feedFactory(sourceId, reverse);
         _feedSource = sourceId;
+        _feedReverse = reverse;
         _feedStarted = false;
         _needsSeek = true;
         // Snapshot the (immutable) decode info now, before the feed's worker starts, so the overlay never reads

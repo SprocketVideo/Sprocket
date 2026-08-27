@@ -76,6 +76,81 @@
         which models it as a `HoldFrameAt`/`HoldDuration` field rather than speed 0, leaving the
         `SpeedRatio > 0` invariant intact), and **pitch-preserving**
         time-stretch / frame-interpolated slow-motion (step 31 / a later quality tier behind the same seam).
+    - **✅ DONE 2026-08-27 — reverse playback + keyframed speed ramps (the step 21 remainder;
+      `Sprocket.Core/Model/{Clip,SpeedRamp}` + `Commands/ModelCommands` + `Rendering/{RenderPlan,RenderGraph}`;
+      `Sprocket.Media/{GopFrameWindow,ReverseVideoDecodeRing}`; `Sprocket.Playback/{IVideoFrameFeed,VideoTrackPlayer,
+      PlaybackMath,PlaybackEngine}`; `Sprocket.Audio/AudioMixer`; `Sprocket.Export/ExportFrameProvider`;
+      `Sprocket.Persistence/{ProjectDto,ProjectSerializer}`; `Sprocket.Mcp/{SprocketTools.Clips,StateFormatter}`;
+      `Sprocket.App/{SpeedFormat,Dialogs,MainWindow,MediaBootstrap,Timeline/TimelineControl,Inspector/InspectorPanel}`;
+      46 new tests — Core +21, Audio +7, Persistence +3, Playback +4, Export +2, Media +5, App +4; full suite
+      2235 green).** Both land on the seams the constant-speed cut left open (ARCHITECTURE.md §5/§17):
+      - **Model (Core, §4).** `Clip.Reverse` (a flag beside the always-positive `SpeedRatio`, the "Reverse Speed"
+        convention of leading editors rather than a negative ratio) and `Clip.SpeedCurve` — an `AnimatableValue?`
+        of speed-as-fraction-of-normal whose keyframe times are **clip-local ticks** (0 = the clip start; a
+        deliberate departure from effect keyframes' absolute time, because the ramp determines the clip's own
+        duration, so anchoring it to the clip keeps a moved clip's length/content unchanged without a rebase; the
+        Inspector lane shifts by the clip start for display). The new `SpeedRamp` static class is the integrated
+        time map: `Integrate` (exact trapezoids for Hold/Linear, fixed-step Simpson for eased/Bezier — a pure,
+        deterministic function so preview and export agree, §5), `SourceOffsetAt`, and `SolveDuration` (segment
+        walk + bisection for the local time at which the integral covers the source span). Speed values are
+        clamped to [1%, 100×] so the integral always advances (speed 0 stays the step-43 frame hold).
+        `Clip.Duration` derives from `SolveDuration` under a ramp (cached per curve/span), `MapToSource` becomes
+        `SourceIn + offset` / `SourceOut − offset` (reverse mirrors from the exclusive out-point, so the last
+        frame of the span shows first and every frame provider's "latest frame ≤ target" rule needs no change);
+        the map stays unclamped so transition handles still resolve. Precedence: hold ▸ ramp ▸ constant speed.
+        `CloneContentForSpan` copies both fields.
+      - **Commands (step 10).** `SetClipSpeedCurveCommand` (coalescing — a lane drag is one undo entry) and
+        `SetClipReverseCommand`. `SplitClipCommand` is direction-aware — a reversed clip's left half keeps the
+        *top* of the span (`SourceIn = split`) and the right half gets `[SourceIn, split)`, so frame continuity
+        across the cut holds — and re-anchors a right-hand half's clip-local curve (`Shifted(start − at)`) so the
+        keyframes stay put on the timeline.
+      - **Render graph (§5).** Video needs nothing new. `AudioLayer` gains `SourceEnd` (the map at the buffer
+        *end*) and `Reverse`; `PlanAudioBuffer` fills both (multicam angles offset both ends), so the mixer
+        resamples exactly the source span the clip covers per buffer — drift-free under a ramp, and reducing to
+        the constant ratio for constant speed.
+      - **Audio.** `AudioMixer` derives the per-buffer speed from `SourceEnd − SourceStart` (exact identity keeps
+        the untouched 1× fast path, guarded so a ramp crossing 1× with a carried resample window keeps
+        resampling). Reverse reads through a `Pull` abstraction: an 8192-frame block below the cursor is pulled
+        (one reader seek), flipped, and served sample-by-sample across buffers — through the same streaming
+        resampler when retimed; past source time zero reads as silence. Pitch is still not preserved (later tier).
+      - **Media.** `GopFrameWindow` — GOP-aware backward access: seeks one window's worth before the target
+        (landing on the preceding keyframe), decodes forward to the target, retains the last N (default 32)
+        pooled frames in presentation order, and hands them out newest-first; pixels stay native (§1).
+        `ReverseVideoDecodeRing` — the descending-order sibling of `VideoDecodeRing` (same generation-tagged
+        seek / bounded channel / park-at-end contract): after a seek it emits the window's frames newest-first,
+        refills at `JustBefore(FirstPts)` (past the 1 ms match tolerance, so no boundary duplicates) and parks at
+        source time zero. Each GOP is decoded once per walk (plus a bounded head re-decode when a GOP exceeds the
+        window).
+      - **Playback.** `IVideoFrameFeed.IsReverse` (default false) + `ReverseRingVideoFrameFeed`. The feed
+        factory is now direction-aware — `Func<MediaRefId, bool, IVideoFrameFeed?>` (new `PlaybackEngine` ctor;
+        the old one wraps forward-only) — and `VideoTrackPlayer` rebuilds its feed when the active clip's
+        direction changes. The reverse promote rule (`PlaybackMath.ShouldPromoteReverse`) advances to the next
+        (earlier) frame while the *shown* frame's PTS is above the target, landing on the latest frame ≤ target
+        from above. A reversed clip on a forward-only fixed feed (tests, the render cache) falls back to
+        re-seeking ¼ s before each new target and promoting forward — correct output at a GOP-decode cost.
+      - **Export.** `ExportFrameProvider` enters a reverse mode when requests run backwards (detected against the
+        last request too, since the exclusive out-point leaves no current frame), serving from a `GopFrameWindow`
+        and refilling below it; a request at/past the end falls back to the window's latest frame. Verified by a
+        frame-order golden test (exported frame k ≈ source frame N−1−k by pixel MAE) and a ramp-duration test.
+      - **Persistence (§12).** `ClipDto.Reverse` / `SpeedCurve` — additive + nullable; forward constant-speed
+        clips write neither (byte-identical to earlier files). Curve keyframes serialize through the existing
+        `AnimatableValueDto`.
+      - **UI (App, manual-verified).** Speed / Duration dialog gains a **Reverse speed** checkbox (result is
+        speed + direction; a constant speed from the dialog replaces any ramp, the leading-editor convention);
+        clip context menu gains **Reverse Speed / Play Forward**; the Inspector's Speed row is now the shared
+        keyframeable slider row (◇ toggles keyframing at the playhead, the step-16b/16d lane + velocity graph
+        edit the ramp; percentage display via `DisplayScale`) plus a **Reverse** checkbox — all retime linked
+        companions together as one undo entry. Clip bodies show a retime pill (`50%`, `RAMP`, `◀` prefix when
+        reversed) beside HOLD. The Select tool's plain trim is now speed-, direction- and ramp-aware (a reversed
+        clip's end edge moves its source *in*-point; a ramp's start trim re-anchors the curve and consumes the
+        integrated head), fixing the pre-existing approximation where a plain trim moved the source edge by the
+        timeline delta regardless of speed. Ripple / roll / slide abort on reversed or ramped clips (like held
+        ones) — their constant-speed source-edge math doesn't model those maps; the plain trim covers them.
+      - **MCP.** `set_clip_speed` gains an optional `reverse` argument; clip state reports `reverse` /
+        `speed_ramp`.
+      - **Deferred (later quality tiers, same seams):** pitch-preserving time-stretch (audio-effects DSP tier),
+        frame-interpolated slow motion (blend / optical flow behind the render-graph seam — nearest-source-frame
+        remains the behaviour), and ripple/roll/slide gestures on reversed / ramped clips.
 ## Step 22
 
 22. **Ripple / roll / slide editing.** Trim modes that preserve timeline continuity — basic editor

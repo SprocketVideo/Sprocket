@@ -44,8 +44,9 @@ frames never touch the managed heap per frame.
   source media is never rewritten.
 - **Full editing toolset** — multi-track timeline (filmstrips, waveforms, snapping, zoom) with
   Select / Blade / Slip / Hand / Zoom tools, ripple & roll trims, multi-clip selection (marquee,
-  Select All, batch edits), linked A/V (link & unlink), markers, constant-speed retime, freeze frames &
-  stop-motion frame edits (frame hold, duplicate/remove frame), nested sequences, and multicam.
+  Select All, batch edits), linked A/V (link & unlink), markers, retime (constant speed, reverse, and
+  keyframed speed ramps), freeze frames & stop-motion frame edits (frame hold, duplicate/remove frame),
+  nested sequences, and multicam.
 - **Any sequence format, incl. portrait/social** — editable sequence frame size with presets
   (16:9, 9:16, 4:5, square, 4K) or custom sizes, per-clip Fit/Fill conform for mismatched-resolution
   media, Inspector framing shortcuts, and matching portrait export presets.
@@ -87,8 +88,9 @@ The full per-feature inventory lives in [FEATURES.md](FEATURES.md); per-step bui
 
 Code-signing & notarization (alpha artifacts are unsigned) · plugin hosting — VST3/AU audio and
 OpenColorIO/OFX video (the managed plugin host, built-in effects, in-app Plugin Manager, and native
-**LADSPA / LV2** audio and **frei0r** video plugin hosting ship today) · variable/ramped speed & reverse
-retime (freeze frames ship today) · a bundled impulse-response library (the Convolution Reverb with
+**LADSPA / LV2** audio and **frei0r** video plugin hosting ship today) · pitch-preserving time-stretch and
+frame-interpolated slow motion (constant / ramped / reverse retime and freeze frames ship today) · a bundled
+impulse-response library (the Convolution Reverb with
 user IR import, Studio Reverb, Shimmer Reverb, and audio freeze ship today) · grading presets /
 creative looks. See the [Roadmap](#roadmap).
 
@@ -331,8 +333,9 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
   **LADSPA** and **LV2** audio plugins and **frei0r** video filters discovered on the system's
   `LADSPA_PATH` / `LV2_PATH` / `FREI0R_PATH` — and the in-app **Plugin Manager** (Edit ▸ Plugins… —
   see / enable / disable / install / uninstall / rescan) ship today.
-- **Advanced retime** — variable/ramped speed and reverse (constant-speed retime, freeze frames,
-  and stop-motion frame edits ship today).
+- **Retime quality tiers** — pitch-preserving audio time-stretch and frame-interpolated (blend /
+  optical-flow) slow motion (constant-speed, reverse, and keyframed speed-ramp retime, freeze frames, and
+  stop-motion frame edits ship today).
 - **Audio extras** — a bundled, licensing-clear impulse-response library (the Convolution Reverb
   itself with user WAV IR import, the Studio Reverb, the Shimmer Reverb, factory presets, the delay
   family — digital / tape / multi-tap / stereo ping-pong — the noise gate, the shelving EQ, and

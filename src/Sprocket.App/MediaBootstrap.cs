@@ -140,7 +140,7 @@ internal static class MediaBootstrap
         project.Timeline.Tracks.Add(new AudioTrack { Name = "A1" });
 
         var proxy = new ProxyService(project.Settings.UseProxies, project.Settings.ProxyTier);
-        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), (IMasterClock?)null)
+        var engine = new PlaybackEngine(project, (id, reverse) => OpenVideoFeed(project, id, proxy, reverse), (IMasterClock?)null)
         {
             AllowPlayheadPastEnd = true, // sequence timelines are open-ended past the last clip
         };
@@ -174,7 +174,7 @@ internal static class MediaBootstrap
             status += "  ·  Audio device unavailable — playing without audio";
 
         var proxy = new ProxyService(project.Settings.UseProxies, project.Settings.ProxyTier);
-        var engine = new PlaybackEngine(project, id => OpenVideoFeed(project, id, proxy), clock) // engine owns + disposes the clock
+        var engine = new PlaybackEngine(project, (id, reverse) => OpenVideoFeed(project, id, proxy, reverse), clock) // engine owns + disposes the clock
         {
             AllowPlayheadPastEnd = true, // sequence timelines are open-ended past the last clip
         };
@@ -243,14 +243,14 @@ internal static class MediaBootstrap
     /// <summary>Opens a video frame feed for a source, or <c>null</c> for an offline / no-video source (the engine
     /// then contributes no layer for that track). The feed opens the source's best-available file — its proxy when
     /// ready, else the original (PLAN.md step 18). Each call opens its own decoder; the feed owns + disposes it.</summary>
-    private static IVideoFrameFeed? OpenVideoFeed(Project project, MediaRefId id, ProxyService? proxy) =>
-        OpenVideoFeed(project.MediaPool.Get(id), proxy);
+    private static IVideoFrameFeed? OpenVideoFeed(Project project, MediaRefId id, ProxyService? proxy, bool reverse) =>
+        OpenVideoFeed(project.MediaPool.Get(id), proxy, reverse);
 
     /// <summary>Opens a standalone video frame feed for a single source (reused by the Source monitor, PLAN.md
     /// step 17), or <c>null</c> for an offline / no-video source. When <paramref name="proxy"/> is given it opens
     /// the best-available file (proxy when ready, else original); otherwise the original. Each call opens its own
     /// decoder; the feed owns + disposes it.</summary>
-    internal static IVideoFrameFeed? OpenVideoFeed(MediaRef? media, ProxyService? proxy = null)
+    internal static IVideoFrameFeed? OpenVideoFeed(MediaRef? media, ProxyService? proxy = null, bool reverse = false)
     {
         if (media is not { Info.HasVideo: true })
             return null;
@@ -267,7 +267,10 @@ internal static class MediaBootstrap
             MediaOpenRequest request = media.Kind == MediaKind.ImageSequence
                 ? MediaOpenRequest.FromMediaRef(media)
                 : MediaOpenRequest.ForPath(proxy?.BestPath(media) ?? media.AbsolutePath);
-            return new RingVideoFrameFeed(new VideoDecodeRing(MediaSource.Open(request)));
+            // A reversed clip decodes backwards GOP-by-GOP through the reverse ring (PLAN.md step 21 remainder).
+            return reverse
+                ? new ReverseRingVideoFrameFeed(new ReverseVideoDecodeRing(MediaSource.Open(request)))
+                : new RingVideoFrameFeed(new VideoDecodeRing(MediaSource.Open(request)));
         }
         catch
         {

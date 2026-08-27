@@ -191,7 +191,9 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Clip Speed / Duration dialog (constant speed, presets) | Dialogs.cs `SpeedDialog`; PLAN.md step 21 | edit/editing-on-the-timeline.md#changing-a-clips-speed | ✅ |
+| Clip Speed / Duration dialog (constant speed, presets, Reverse speed toggle) | Dialogs.cs `SpeedDialog`; PLAN.md step 21 | edit/editing-on-the-timeline.md#changing-a-clips-speed | 🟡 stale — the dialog gained a Reverse speed checkbox (and the clip context menu a Reverse Speed / Play Forward item); a constant speed from the dialog replaces a speed ramp |
+| Reverse playback (Reverse speed in the Speed / Duration dialog, Inspector Reverse checkbox, clip context menu; ◀ clip badge; GOP-aware backward decode on preview + export, reversed audio) | PLAN.md step 21 remainder; Clip `Reverse`, Media `ReverseVideoDecodeRing` / `GopFrameWindow`, AudioMixer reverse read | — | ❌ |
+| Keyframed speed ramps (Inspector Speed lane: ◇ keyframe toggle, keyframe strip + velocity graph; RAMP clip badge; duration follows the curve; ramp-aware plain trim + split) | PLAN.md step 21 remainder; Clip `SpeedCurve`, Core `SpeedRamp`, InspectorPanel `BuildSpeedRow` | — | ❌ |
 | Frame hold / freeze frame: Frame Hold Options…, Add Frame Hold, Insert Frame Hold Segment (Clip menu; HOLD badge, Inspector Hold row) | PLAN.md step 43; FrameHoldOptionsDialog.cs, TimelineControl `AddFrameHoldAtPlayhead` | edit/editing-on-the-timeline.md#freezing-a-frame-frame-hold | ✅ |
 | Stop-motion frame edits: Duplicate Frame / Remove Frame (source-frame grid, ripple ±1 frame) | PLAN.md step 43; Sprocket.Core/Commands/FrameHoldEdits.cs | edit/editing-on-the-timeline.md#duplicate-or-remove-a-single-frame-stop-motion | ✅ |
 
@@ -375,7 +377,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 
 | Feature | Status source |
 |---|---|
-| Variable / ramped speed retime (also reverse) | PLAN.md step 21 (constant-speed only is done; freeze-frame shipped as the step-43 frame hold); SpeedDialog notes deferral |
+| Pitch-preserving time-stretch / frame-interpolated slow motion | PLAN.md step 21 (reverse + speed ramps shipped 2026-08-27; these two remain later quality tiers) |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial); [COLOR_GRADING_ROADMAP.md](COLOR_GRADING_ROADMAP.md) has the detailed parity sequence and follow-on grading roadmap |
 | Bundled impulse-response library for the Convolution Reverb (CC0 / Sprocket-recorded captures) | PLAN.md step 49 follow-on (the convolution engine + user IR import shipped in step 49; licensing-clear IRs deferred) |

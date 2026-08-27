@@ -476,16 +476,41 @@ internal static class MessageDialog
     }
 }
 
+/// <summary>The Speed / Duration dialog's result: the constant speed ratio plus the playback direction.</summary>
+internal sealed record SpeedDialogResult(Rational Speed, bool Reverse);
+
 /// <summary>
 /// The Clip ▸ Speed / Duration dialog (PLAN.md step 21): edits a clip's playback speed as a percentage
-/// (100% = normal), with quick presets. Returns the chosen speed as an exact <see cref="Rational"/>, or
-/// <see langword="null"/> on cancel. Reverse and freeze (0%) are deferred, so the input is clamped to a
-/// positive percentage.
+/// (100% = normal), with quick presets, and a <b>Reverse Speed</b> toggle (the naming leading editors use; the
+/// percentage stays positive and the direction is a separate flag). Returns the chosen speed + direction, or
+/// <see langword="null"/> on cancel. Freeze (0%) is the Frame Hold feature, so the input is clamped to a
+/// positive percentage; keyframed speed ramps are authored in the Inspector's Speed lane.
 /// </summary>
 internal static class SpeedDialog
 {
-    public static Task<Rational?> Show(Window owner, Rational current)
+    public static Task<SpeedDialogResult?> Show(Window owner, Rational current, bool currentReverse, bool hasRamp = false, bool canReverse = true)
     {
+        var reverse = new CheckBox
+        {
+            Content = "Reverse speed",
+            IsChecked = currentReverse,
+            IsEnabled = canReverse,
+            Foreground = Palette.TextBrush,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        ToolTip.SetTip(reverse, canReverse
+            ? "Play the clip backwards at the chosen speed (the duration is unchanged)"
+            : "A nested sequence can't be reversed");
+        // A ramped clip's constant speed is dormant; say so, since applying a *different* speed removes the ramp.
+        var rampNote = new TextBlock
+        {
+            Text = "This clip has a speed ramp. Applying a different speed replaces the ramp.",
+            Foreground = Palette.MutedTextBrush,
+            FontSize = Typography.Caption,
+            TextWrapping = TextWrapping.Wrap,
+            IsVisible = hasRamp,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
         var box = new TextBox
         {
             Text = SpeedFormat.ToPercentString(current),
@@ -533,7 +558,7 @@ internal static class SpeedDialog
             Title = "Speed / Duration",
             Icon = AppIcon.Window,
             Width = 360,
-            Height = 210,
+            Height = hasRamp ? 290 : 250,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
@@ -568,6 +593,8 @@ internal static class SpeedDialog
                                 },
                             },
                             presets,
+                            reverse,
+                            rampNote,
                         },
                     },
                 },
@@ -577,13 +604,13 @@ internal static class SpeedDialog
         void Accept()
         {
             if (SpeedFormat.TryParsePercent(box.Text, out Rational speed))
-                dialog.Close(speed);
+                dialog.Close(new SpeedDialogResult(speed, reverse.IsChecked == true));
         }
         ok.Click += (_, _) => Accept();
         cancel.Click += (_, _) => dialog.Close(null);
         box.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) Accept(); };
 
-        return dialog.ShowDialog<Rational?>(owner);
+        return dialog.ShowDialog<SpeedDialogResult?>(owner);
     }
 }
 

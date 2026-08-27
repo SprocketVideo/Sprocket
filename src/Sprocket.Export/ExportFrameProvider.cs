@@ -6,8 +6,11 @@ namespace Sprocket.Export;
 /// <summary>
 /// Supplies the decoded full-resolution frame for one source media at a requested source time during export.
 /// Export pulls frames at the <b>full source resolution</b> (never a proxy, ARCHITECTURE.md §17) and walks the
-/// timeline forward, so this decodes sequentially — keeping a one-frame look-ahead and only seeking backward
-/// if a request ever moves back (e.g. a clip whose source runs in reverse, not in the slice).
+/// timeline forward, so a forward clip decodes sequentially — keeping a one-frame look-ahead and only seeking
+/// backward if a request ever moves back (a cut to an earlier in-point). A <em>reversed</em> clip (PLAN.md step 21
+/// remainder) asks explicitly for the latest frame strictly before its mapped time; those requests are served from
+/// a GOP-aware <see cref="GopFrameWindow"/>, which decodes each GOP tail once and hands out the preceding frames,
+/// so a reverse clip exports at roughly one decode pass per GOP rather than one per frame.
 /// </summary>
 /// <remarks>
 /// Decode runs in software (<see cref="HardwareAccelMode.Disabled"/>) for bit-deterministic output, which is
@@ -25,10 +28,17 @@ internal sealed class ExportFrameProvider : IDisposable
     private readonly VideoFramePool _pool;
     private readonly bool _isStill;   // a single-frame still: hold the one frame for every requested time (step 42)
 
+    // Forward (sequential) state.
     private VideoFrame? _current;   // the frame currently "on screen" for the last request
     private VideoFrame? _pending;   // decoded look-ahead whose PTS is past the last request
     private bool _started;
     private bool _eof;
+
+    // Reverse state: the GOP window holding frames before the last reverse request, in ascending order. The two
+    // modes never hold frames at the same time — switching direction resets the other side.
+    private GopFrameWindow? _window;
+    private bool _inReverse;
+
     private bool _disposed;
 
     /// <param name="source">The full-resolution source to decode. The provider owns and disposes it.</param>
@@ -49,27 +59,46 @@ internal sealed class ExportFrameProvider : IDisposable
     public int Height => _source.Info.Height;
 
     /// <summary>
-    /// Returns the source frame to display at <paramref name="sourceTime"/> — the latest decoded frame whose
-    /// PTS is at or before it — advancing the decoder as needed, or <see langword="null"/> only if the source
-    /// yields no frames at all. The result is valid until the next call.
+    /// Returns the source frame to display at <paramref name="sourceTime"/>, advancing the decoder as needed, or
+    /// <see langword="null"/> only if the source yields no usable frame. Forward (<paramref name="reverse"/> false):
+    /// the latest decoded frame whose PTS is at or before the time. Reverse: the latest frame strictly
+    /// <em>before</em> it — a reversed clip's mapped time is an exclusive upper bound (<see cref="Core.Rendering.VideoLayer.Reverse"/>).
+    /// The result is valid until the next call.
     /// </summary>
-    public VideoFrame? GetFrame(Timecode sourceTime)
+    public VideoFrame? GetFrame(Timecode sourceTime, bool reverse = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         // A still has one frame at (about) time zero; every timeline time inside the clip maps to it, so pin the
         // request to zero instead of seeking to the mapped source time (which would run off the single frame).
         if (_isStill)
+        {
             sourceTime = Timecode.Zero;
+            reverse = false;
+        }
 
-        if (!_started)
+        return reverse ? GetReverse(sourceTime) : GetForward(sourceTime);
+    }
+
+    private VideoFrame? GetForward(Timecode sourceTime)
+    {
+        if (_inReverse)
+        {
+            // Leaving reverse mode: drop the window and rebuild the sequential look-ahead from the request.
+            _window?.Clear();
+            _inReverse = false;
+            Reset();
+            _source.SeekTo(sourceTime);
+            _started = true;
+        }
+        else if (!_started)
         {
             _source.SeekTo(sourceTime);
             _started = true;
         }
         else if (_current is not null && sourceTime.Ticks < _current.Pts.Ticks - MatchToleranceTicks)
         {
-            // The request moved backwards (a scrub-style jump); re-seek and rebuild the look-ahead.
+            // The request moved backwards (a cut to an earlier in-point); re-seek and rebuild the look-ahead.
             Reset();
             _source.SeekTo(sourceTime);
         }
@@ -100,6 +129,28 @@ internal sealed class ExportFrameProvider : IDisposable
         return _current ?? _pending;
     }
 
+    private VideoFrame? GetReverse(Timecode exclusiveEnd)
+    {
+        if (!_inReverse)
+        {
+            // Entering reverse mode: the sequential look-ahead is useless below the request; the window takes over.
+            Reset();
+            _started = false;
+            _inReverse = true;
+        }
+        _window ??= new GopFrameWindow(_source, _pool);
+
+        // Serve from the window while the walk stays inside it; refill below it when it runs dry. (A request that
+        // turns around — later than the window's top — also refills, since PeekBelow can only shed frames.)
+        VideoFrame? hit = _window.Count > 0 && (_window.LastPts is { } top && top.Ticks < exclusiveEnd.Ticks - MatchToleranceTicks
+                                                 || _window.FirstPts is { } first && first.Ticks < exclusiveEnd.Ticks)
+            ? _window.PeekBelow(exclusiveEnd)
+            : null;
+        if (hit is null && _window.FillBelow(exclusiveEnd) > 0)
+            hit = _window.PeekBelow(exclusiveEnd);
+        return hit;
+    }
+
     private void Reset()
     {
         _current?.Dispose();
@@ -117,6 +168,7 @@ internal sealed class ExportFrameProvider : IDisposable
 
         _current?.Dispose();
         _pending?.Dispose();
+        _window?.Dispose();
         _pool.Dispose();
         _source.Dispose();
     }

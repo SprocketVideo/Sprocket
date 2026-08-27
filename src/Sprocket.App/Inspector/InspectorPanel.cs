@@ -327,54 +327,85 @@ public sealed class InspectorPanel : UserControl
         return Section("Clip", info, expanded: true);
     }
 
-    /// <summary>An editable Speed row (retime, PLAN.md step 21): a percentage box committing a
-    /// <see cref="SetClipSpeedCommand"/> on Enter/blur. Linked companions are retimed together so A/V stays in
-    /// sync. The Duration row above updates on the resulting rebuild.</summary>
+    /// <summary>The Inspector's Speed parameter (retime, PLAN.md step 21): speed as a fraction of normal, shown as a
+    /// percentage. Keyframing it authors a speed ramp (Premiere's Time Remapping / Resolve's retime curve).</summary>
+    private static readonly EffectParameterDescriptor SpeedDescriptor = new(
+        "speed", "Speed", 1.0, SpeedRamp.MinSpeed, 10.0, 0.01, "%",
+        "Playback speed as a percentage of normal (100% = normal, 50% = half-speed slow motion). Keyframe it for a " +
+        "speed ramp — the clip's duration follows the curve. Reverse flips the direction at the same speed.")
+    { DisplayScale = 100 };
+
+    /// <summary>
+    /// The editable Speed rows (retime, PLAN.md step 21): the shared slider + numeric box + keyframe toggle + lane
+    /// row over the clip's speed — a constant commits a <see cref="SetClipSpeedCommand"/>, a keyframed value a
+    /// <see cref="SetClipSpeedCurveCommand"/> (the speed ramp) — plus a Reverse toggle
+    /// (<see cref="SetClipReverseCommand"/>). Linked companions are retimed together so A/V stays in sync. The
+    /// speed curve is clip-local while the lane and playhead are absolute timeline time, so the value is shifted by
+    /// the clip start in both directions. The Duration row above updates on the resulting rebuild.
+    /// </summary>
     private Control BuildSpeedRow(Clip clip)
     {
-        var box = new TextBox
+        Control speed = BuildAnimatableRow(
+            SpeedDescriptor,
+            () => clip.SpeedCurve is { } curve
+                ? curve.Shifted(clip.TimelineStart)
+                : AnimatableValue.Constant(clip.SpeedRatio.ToDouble()),
+            (next, coalescing) => ExecuteSpeedEdit(clip, next, coalescing));
+
+        var reverse = new CheckBox
         {
-            Width = 72,
+            Content = "Reverse",
+            IsChecked = clip.Reverse,
+            IsVisible = clip.SupportsReverse, // a nested sequence can't be reversed (its sub-mix plays forward)
             FontSize = Typography.Caption,
-            // Defeat the Fluent theme's 32px MinHeight so the box hugs the 11px text (otherwise the
-            // top-aligned text leaves a large gap that reads as excess bottom padding).
+            Foreground = MutedText,
             MinHeight = 22,
-            Height = 22,
-            Padding = new Avalonia.Thickness(6, 2),
-            Background = PanelBg,
-            BorderBrush = InputEdge,
-            Foreground = TextBrush,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Text = SpeedFormat.ToPercentString(clip.SpeedRatio),
+            Padding = new Avalonia.Thickness(4, 0, 0, 0),
         };
-        void Commit()
+        ToolTip.SetTip(reverse, "Play the clip backwards at the same speed (Reverse Speed)");
+        reverse.IsCheckedChanged += (_, _) =>
         {
-            if (_history is null || _project is null)
+            if (_suppress || _project is null)
                 return;
-            if (!SpeedFormat.TryParsePercent(box.Text, out Rational speed))
-            {
-                box.Text = SpeedFormat.ToPercentString(clip.SpeedRatio);
-                return;
-            }
-            if (speed == clip.SpeedRatio)
+            bool value = reverse.IsChecked == true;
+            if (value == clip.Reverse)
                 return;
             var members = new List<Clip> { clip };
             members.AddRange(_project.Timeline.ClipsLinkedTo(clip).Select(l => l.Clip));
-            var commands = members.Select(c => (IEditCommand)new SetClipSpeedCommand(c, speed)).ToList();
-            _history.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Change speed", commands));
-        }
-        box.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
-        box.LostFocus += (_, _) => Commit();
+            var commands = members.Where(c => c.SupportsReverse || !value)
+                .Select(c => (IEditCommand)new SetClipReverseCommand(c, value)).ToList();
+            ExecuteEdit(commands.Count == 1 ? commands[0] : new CompositeCommand(value ? "Reverse clip" : "Play clip forward", commands), false);
+        };
 
-        var row = new DockPanel();
-        var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, HorizontalAlignment = HorizontalAlignment.Right };
-        right.Children.Add(box);
-        right.Children.Add(new TextBlock { Text = "%", FontSize = Typography.Caption, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center });
-        DockPanel.SetDock(right, Dock.Right);
-        row.Children.Add(right);
-        row.Children.Add(new TextBlock { Text = "Speed", FontSize = Typography.Caption, Foreground = FaintText, VerticalAlignment = VerticalAlignment.Center });
-        return row;
+        var stack = new StackPanel { Spacing = 2 };
+        stack.Children.Add(speed);
+        stack.Children.Add(reverse);
+        return stack;
+    }
+
+    /// <summary>Commits a Speed-row edit for <paramref name="clip"/> and its linked companions: an animated value
+    /// becomes each clip's (clip-local) speed ramp; a constant becomes its <see cref="Clip.SpeedRatio"/> and clears
+    /// any ramp.</summary>
+    private void ExecuteSpeedEdit(Clip clip, AnimatableValue next, bool coalescing)
+    {
+        if (_project is null)
+            return;
+        var members = new List<Clip> { clip };
+        members.AddRange(_project.Timeline.ClipsLinkedTo(clip).Select(l => l.Clip));
+        var commands = new List<IEditCommand>();
+        foreach (Clip c in members)
+        {
+            if (next.IsAnimated)
+            {
+                commands.Add(new SetClipSpeedCurveCommand(c, next.Shifted(-c.TimelineStart)));
+            }
+            else
+            {
+                // A changed constant speed replaces any ramp (SetClipSpeedCommand owns that rule).
+                commands.Add(new SetClipSpeedCommand(c, SpeedFormat.FromFraction(next.Evaluate(Timecode.Zero))));
+            }
+        }
+        ExecuteEdit(commands.Count == 1 ? commands[0] : new CompositeCommand("Change speed", commands), coalescing);
     }
 
     /// <summary>The Multicam section (PLAN.md step 24): the synced source plus one button per camera angle (the

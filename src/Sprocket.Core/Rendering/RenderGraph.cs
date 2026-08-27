@@ -114,11 +114,12 @@ public static class RenderGraph
                 // contributes nothing (renders as empty, §15).
                 return ResolveMulticamAngle(project, clip) is { } angle
                     ? new VideoLayer(angle.MediaRefId, ClipSync.AngleSourceTime(angle, sourceT), effects, opacity, blend,
-                        ConformMode: clip.ConformMode)
+                        ConformMode: clip.ConformMode, Reverse: clip.Reverse)
                     : null;
 
             default:
-                return new VideoLayer(clip.MediaRefId, sourceT, effects, opacity, blend, ConformMode: clip.ConformMode);
+                return new VideoLayer(clip.MediaRefId, sourceT, effects, opacity, blend, ConformMode: clip.ConformMode,
+                    Reverse: clip.Reverse);
         }
     }
 
@@ -274,12 +275,16 @@ public static class RenderGraph
                     layers.Add(new AudioLayer(
                         angle.EffectiveAudioRefId, ClipSync.AngleSourceTime(angle, clip.MapToSource(bufferStart)),
                         clipGainStart, clipGainEnd, trackGain, clip.SpeedRatio,
-                        PanLeft: panL, PanRight: panR, ClipChain: clipChain, TrackChain: trackChain));
+                        PanLeft: panL, PanRight: panR, ClipChain: clipChain, TrackChain: trackChain,
+                        SourceEnd: ClipSync.AngleSourceTime(angle, clip.MapToSource(bufferEnd)), Reverse: clip.Reverse));
             }
             else
             {
+                // Both ends of the buffer are mapped so the mixer resamples the exact source span the clip covers
+                // over this buffer — a speed ramp / reverse map is then followed sample-exactly (PLAN.md step 21).
                 layers.Add(new AudioLayer(clip.MediaRefId, clip.MapToSource(bufferStart), clipGainStart, clipGainEnd,
-                    trackGain, clip.SpeedRatio, PanLeft: panL, PanRight: panR, ClipChain: clipChain, TrackChain: trackChain));
+                    trackGain, clip.SpeedRatio, PanLeft: panL, PanRight: panR, ClipChain: clipChain, TrackChain: trackChain,
+                    SourceEnd: clip.MapToSource(bufferEnd), Reverse: clip.Reverse));
             }
         }
 

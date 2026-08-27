@@ -132,7 +132,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
     private long _lastPacedClockTicks = -1;
     private double _delay1Ms = 2.0;
 
-    private readonly Func<MediaRefId, IVideoFrameFeed?>? _feedFactory;
+    private readonly Func<MediaRefId, bool, IVideoFrameFeed?>? _feedFactory;
     private readonly bool _reconcile;
 
     private readonly object _frameGate = new();
@@ -209,6 +209,17 @@ public sealed class PlaybackEngine : IAsyncDisposable
     /// picked up. <paramref name="clock"/> as in the single-feed constructor.
     /// </summary>
     public PlaybackEngine(Project project, Func<MediaRefId, IVideoFrameFeed?> feedFactory, IMasterClock? clock = null)
+        : this(project, WrapForwardOnly(feedFactory), clock)
+    {
+    }
+
+    /// <summary>
+    /// Multi-track engine whose feed factory is <em>direction-aware</em> (PLAN.md step 21 remainder): it receives
+    /// <c>(source id, reverse)</c> and returns a forward feed or a reverse-order feed
+    /// (<see cref="ReverseRingVideoFrameFeed"/>) for a reversed clip, so reverse playback decodes backwards
+    /// GOP-by-GOP instead of re-seeking per frame. Otherwise as the single-argument-factory constructor.
+    /// </summary>
+    public PlaybackEngine(Project project, Func<MediaRefId, bool, IVideoFrameFeed?> feedFactory, IMasterClock? clock = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(feedFactory);
@@ -217,6 +228,13 @@ public sealed class PlaybackEngine : IAsyncDisposable
         _clock = clock ?? new SoftwareClock();
         _feedFactory = feedFactory;
         _reconcile = true;
+    }
+
+    // A forward-only factory serves reversed clips through the player's per-frame re-seek fallback.
+    private static Func<MediaRefId, bool, IVideoFrameFeed?> WrapForwardOnly(Func<MediaRefId, IVideoFrameFeed?> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        return (id, _) => factory(id);
     }
 
     /// <summary>

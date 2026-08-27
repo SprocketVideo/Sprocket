@@ -491,17 +491,21 @@ public sealed class SlideClipCommand : EditCommand
 }
 
 /// <summary>
-/// Sets a clip's playback speed (retime, PLAN.md step 21). The selected source span is unchanged; only the
+/// Sets a clip's constant playback speed (retime, PLAN.md step 21). The selected source span is unchanged; only the
 /// clip's timeline <see cref="Clip.Duration"/> and its time map derive from the new <see cref="Clip.SpeedRatio"/>.
-/// Coalesces with further speed changes of the same clip so dragging the speed control is one undo entry.
+/// A constant speed is <em>defined</em> as "no ramp": changing the speed of a clip that carries a keyframed
+/// <see cref="Clip.SpeedCurve"/> clears the ramp (undo restores it) — the Speed/Duration convention in leading
+/// editors — while re-applying the clip's existing speed leaves a ramp untouched. Coalesces with further speed
+/// changes of the same clip so dragging the speed control is one undo entry.
 /// </summary>
 public sealed class SetClipSpeedCommand : EditCommand
 {
     private readonly Clip _clip;
     private readonly Rational _oldSpeed;
+    private readonly AnimatableValue? _oldCurve;
     private Rational _newSpeed;
 
-    /// <summary>Captures the clip's current speed and records the new (strictly positive) ratio to apply.</summary>
+    /// <summary>Captures the clip's current speed (and ramp) and records the new (strictly positive) ratio to apply.</summary>
     public SetClipSpeedCommand(Clip clip, Rational newSpeed) : base("Change speed")
     {
         ArgumentNullException.ThrowIfNull(clip);
@@ -509,14 +513,24 @@ public sealed class SetClipSpeedCommand : EditCommand
             throw new ArgumentOutOfRangeException(nameof(newSpeed), "Speed must be strictly positive.");
         _clip = clip;
         _oldSpeed = clip.SpeedRatio;
+        _oldCurve = clip.SpeedCurve;
         _newSpeed = newSpeed;
     }
 
     /// <inheritdoc />
-    public override void Apply() => _clip.SpeedRatio = _newSpeed;
+    public override void Apply()
+    {
+        _clip.SpeedRatio = _newSpeed;
+        if (_oldCurve is not null)
+            _clip.SpeedCurve = _newSpeed == _oldSpeed ? _oldCurve : null;
+    }
 
     /// <inheritdoc />
-    public override void Revert() => _clip.SpeedRatio = _oldSpeed;
+    public override void Revert()
+    {
+        _clip.SpeedRatio = _oldSpeed;
+        _clip.SpeedCurve = _oldCurve;
+    }
 
     /// <inheritdoc />
     public override bool TryMergeWith(IEditCommand next)
@@ -528,6 +542,74 @@ public sealed class SetClipSpeedCommand : EditCommand
         }
         return false;
     }
+}
+
+/// <summary>
+/// Sets or clears a clip's keyframed speed ramp (<see cref="Clip.SpeedCurve"/>, PLAN.md step 21 remainder). The
+/// source span is untouched; the clip's timeline <see cref="Clip.Duration"/> and time map derive from the curve.
+/// Coalesces with further curve edits of the same clip so a keyframe drag in the speed lane is one undo entry.
+/// A <see langword="null"/> (or constant) curve returns the clip to its constant <see cref="Clip.SpeedRatio"/>.
+/// </summary>
+public sealed class SetClipSpeedCurveCommand : EditCommand
+{
+    private readonly Clip _clip;
+    private readonly AnimatableValue? _oldCurve;
+    private AnimatableValue? _newCurve;
+
+    /// <summary>Captures the clip's current curve and records the new one (clip-local keyframe times) to apply.</summary>
+    public SetClipSpeedCurveCommand(Clip clip, AnimatableValue? newCurve) : base("Change speed ramp")
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        _clip = clip;
+        _oldCurve = clip.SpeedCurve;
+        _newCurve = newCurve;
+    }
+
+    /// <inheritdoc />
+    public override void Apply() => _clip.SpeedCurve = _newCurve;
+
+    /// <inheritdoc />
+    public override void Revert() => _clip.SpeedCurve = _oldCurve;
+
+    /// <inheritdoc />
+    public override bool TryMergeWith(IEditCommand next)
+    {
+        if (next is SetClipSpeedCurveCommand other && ReferenceEquals(other._clip, _clip))
+        {
+            _newCurve = other._newCurve;
+            return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
+/// Sets a clip's playback direction (<see cref="Clip.Reverse"/>, PLAN.md step 21 remainder). Only the time map
+/// changes — the source span, speed and duration are untouched. A discrete toggle, so it does not coalesce.
+/// </summary>
+public sealed class SetClipReverseCommand : EditCommand
+{
+    private readonly Clip _clip;
+    private readonly bool _old;
+    private readonly bool _new;
+
+    /// <summary>Records the direction to apply. Throws for a clip kind that can't be reversed
+    /// (<see cref="Clip.SupportsReverse"/>) when <paramref name="reverse"/> is requested.</summary>
+    public SetClipReverseCommand(Clip clip, bool reverse) : base(reverse ? "Reverse clip" : "Play clip forward")
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (reverse && !clip.SupportsReverse)
+            throw new InvalidOperationException("A nested-sequence clip cannot be reversed (its sub-mix is planned forward).");
+        _clip = clip;
+        _old = clip.Reverse;
+        _new = reverse;
+    }
+
+    /// <inheritdoc />
+    public override void Apply() => _clip.Reverse = _new;
+
+    /// <inheritdoc />
+    public override void Revert() => _clip.Reverse = _old;
 }
 
 /// <summary>
@@ -545,6 +627,8 @@ public sealed class SplitClipCommand : EditCommand
     private readonly Track _track;
     private readonly Clip _left;
     private readonly Clip _right;
+    private readonly bool _reverse; // the direction the split was built for (which source edge the left half keeps)
+    private readonly Timecode _oldIn;
     private readonly Timecode _oldOut;
     private readonly Timecode _oldHoldDuration;
     private readonly Timecode _splitSource;
@@ -568,18 +652,28 @@ public sealed class SplitClipCommand : EditCommand
 
         _track = track;
         _left = clip;
+        _reverse = clip.Reverse;
+        _oldIn = clip.SourceIn;
         _oldOut = clip.SourceOut;
         _oldHoldDuration = clip.HoldDuration;
         _splitSource = clip.MapToSource(at);
         _leftHoldDuration = at - clip.TimelineStart;
 
-        // A held clip's halves both keep the full retained source span (for exact un-hold on either side);
-        // an ordinary clip's right half starts where the left half's source ends.
+        // A held clip's halves both keep the full retained source span (for exact un-hold on either side). An
+        // ordinary clip's right half takes over where the left half's source walk ends: playing forward that is
+        // [split, SourceOut); playing in reverse the left half has consumed the *top* of the span, so the right
+        // half gets [SourceIn, split) and the left keeps [split, SourceOut) (PLAN.md step 21 remainder).
         _right = clip.IsHeld
             ? clip.CloneContentForSpan(clip.SourceIn, clip.SourceOut, at)
-            : clip.CloneContentForSpan(_splitSource, clip.SourceOut, at);
+            : clip.Reverse
+                ? clip.CloneContentForSpan(clip.SourceIn, _splitSource, at)
+                : clip.CloneContentForSpan(_splitSource, clip.SourceOut, at);
         if (_right.IsHeld)
             _right.HoldDuration = clip.TimelineEnd - at;
+        // A speed ramp is clip-local, so the right half re-anchors the curve to its own start (the keyframes stay
+        // put on the timeline); the left half's curve is unchanged and its duration follows its shortened span.
+        if (clip.SpeedCurve is { } curve)
+            _right.SpeedCurve = curve.Shifted(clip.TimelineStart - at);
         _right.LinkGroupId = rightLinkGroup;
         foreach (EffectInstance e in clip.Effects)
             _right.Effects.Add(e.Clone());
@@ -593,6 +687,8 @@ public sealed class SplitClipCommand : EditCommand
     {
         if (_left.IsHeld)
             _left.HoldDuration = _leftHoldDuration;
+        else if (_reverse)
+            _left.SourceIn = _splitSource;
         else
             _left.SourceOut = _splitSource;
         int leftIndex = _track.Clips.IndexOf(_left);
@@ -606,6 +702,8 @@ public sealed class SplitClipCommand : EditCommand
         _track.Clips.Remove(_right);
         if (_left.IsHeld)
             _left.HoldDuration = _oldHoldDuration;
+        else if (_reverse)
+            _left.SourceIn = _oldIn;
         else
             _left.SourceOut = _oldOut;
     }

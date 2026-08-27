@@ -56,4 +56,14 @@ internal static class PlaybackMath
     /// </summary>
     public static bool ShouldPromote(Timecode nextFramePts, Timecode targetSourceTime, bool forcePresent) =>
         forcePresent || nextFramePts <= targetSourceTime;
+
+    /// <summary>
+    /// The reverse-feed counterpart of <see cref="ShouldPromote"/> (PLAN.md step 21 remainder). A reversed clip's
+    /// target is an <em>exclusive</em> upper bound and frames arrive in descending order, so the shown frame is
+    /// right as long as its PTS is strictly below the target; once the target has fallen to or below the shown frame
+    /// (<paramref name="currentPts"/> ≥ target) the next, earlier frame is due — and with nothing shown yet the
+    /// first frame is always due.
+    /// </summary>
+    public static bool ShouldPromoteReverse(Timecode? currentPts, Timecode targetSourceTime) =>
+        currentPts is not { } shown || shown >= targetSourceTime;
 }

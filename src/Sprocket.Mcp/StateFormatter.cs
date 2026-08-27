@@ -345,6 +345,10 @@ public static class StateFormatter
             obj["source_sequence_id"] = seq.ToString();
         if (clip.SpeedRatio != Rational.One)
             obj["speed"] = $"{clip.SpeedRatio.Num}/{clip.SpeedRatio.Den}";
+        if (clip.Reverse)
+            obj["reverse"] = true;
+        if (clip.HasSpeedRamp)
+            obj["speed_ramp"] = true;
         if (clip.GainDb != 0)
             obj["gain_db"] = clip.GainDb;
         if (clip.LinkGroupId is { } link)
@@ -403,6 +407,8 @@ public static class StateFormatter
         obj["fade_in_ticks"] = fadeIn;
         obj["fade_out_ticks"] = fadeOut;
         obj["speed"] = $"{clip.SpeedRatio.Num}/{clip.SpeedRatio.Den}";
+        obj["reverse"] = clip.Reverse;
+        obj["speed_ramp"] = clip.HasSpeedRamp;
         obj["gain_db"] = clip.GainDb;
 
         // Replace the summary effects array with the full parameter detail.

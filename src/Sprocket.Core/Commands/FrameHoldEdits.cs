@@ -33,6 +33,8 @@ public static class FrameHoldEdits
             throw new ArgumentOutOfRangeException(nameof(frameRate), "Frame rate must be strictly positive.");
         if (clip.IsHeld)
             throw new InvalidOperationException("A held clip has a constant time map — there is no frame grid on its span.");
+        if (clip.Reverse || clip.HasSpeedRamp)
+            throw new InvalidOperationException("Frame edits need a constant forward time map (the clip is reversed or speed-ramped).");
         if (at < clip.TimelineStart || at >= clip.TimelineEnd)
             throw new ArgumentException("The time must lie inside the clip.", nameof(at));
 

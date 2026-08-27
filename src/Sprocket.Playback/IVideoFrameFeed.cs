@@ -31,6 +31,13 @@ public interface IVideoFrameFeed : IAsyncDisposable
     /// <see langword="null"/> so a minimal/alternate feed need not supply it.
     /// </summary>
     VideoDecodeInfo? DecodeInfo => null;
+
+    /// <summary>
+    /// Whether <see cref="ReadAsync"/> yields frames in <em>descending</em> presentation order (a reverse-playback
+    /// feed, PLAN.md step 21 remainder). The player flips its promote test accordingly: a reversed feed's next frame
+    /// is due once its PTS is at or <em>below</em> the target. Defaults to forward.
+    /// </summary>
+    bool IsReverse => false;
 }
 
 /// <summary>The default <see cref="IVideoFrameFeed"/>: a thin adapter over a <see cref="VideoDecodeRing"/>.</summary>
@@ -57,6 +64,39 @@ public sealed class RingVideoFrameFeed : IVideoFrameFeed
 
     /// <inheritdoc />
     public VideoDecodeInfo? DecodeInfo => _ring.DecodeInfo;
+
+    /// <inheritdoc />
+    public ValueTask DisposeAsync() => _ring.DisposeAsync();
+}
+
+/// <summary>The reverse-playback <see cref="IVideoFrameFeed"/> (PLAN.md step 21 remainder): a thin adapter over a
+/// <see cref="ReverseVideoDecodeRing"/>, yielding frames in descending presentation order.</summary>
+public sealed class ReverseRingVideoFrameFeed : IVideoFrameFeed
+{
+    private readonly ReverseVideoDecodeRing _ring;
+
+    /// <summary>Wraps <paramref name="ring"/>. The feed takes ownership and disposes it on <see cref="DisposeAsync"/>.</summary>
+    public ReverseRingVideoFrameFeed(ReverseVideoDecodeRing ring)
+    {
+        ArgumentNullException.ThrowIfNull(ring);
+        _ring = ring;
+    }
+
+    /// <inheritdoc />
+    public void Start() => _ring.Start();
+
+    /// <inheritdoc />
+    public ValueTask<VideoFrame?> ReadAsync(CancellationToken cancellationToken = default) =>
+        _ring.ReadAsync(cancellationToken);
+
+    /// <inheritdoc />
+    public void RequestSeek(Timecode sourceTarget) => _ring.RequestSeek(sourceTarget);
+
+    /// <inheritdoc />
+    public VideoDecodeInfo? DecodeInfo => _ring.DecodeInfo;
+
+    /// <inheritdoc />
+    public bool IsReverse => true;
 
     /// <inheritdoc />
     public ValueTask DisposeAsync() => _ring.DisposeAsync();

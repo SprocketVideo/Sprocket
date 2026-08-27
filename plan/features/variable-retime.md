@@ -1,47 +1,41 @@
 # Variable / ramped speed & reverse retime
 
-❌ **Not started** (the step 21 remainder). Constant-speed retime shipped — full record in
-[plan/history/steps-21-40.md#step-21](../history/steps-21-40.md#step-21); freeze frames shipped
-separately as step 43's frame hold. Tracked in [PLAN.md](../../PLAN.md) Open work.
+✅ **Shipped 2026-08-27** — reverse playback and keyframed speed ramps (the step 21 remainder). Constant-speed
+retime shipped earlier and freeze frames shipped separately as step 43's frame hold. Full implementation log in
+[plan/history/steps-21-40.md#step-21](../history/steps-21-40.md#step-21); ledger row in [PLAN.md](../../PLAN.md).
 
-## What remains (deferred from step 21, on the same seams — additive when picked up)
+## What shipped
 
-- **Reverse playback** — the `Reverse` flag from the original spec. Not just a negated
-  `MapToSource`: needs **backward decode** in the video feed / export provider (GOP-aware:
-  seek to the previous keyframe, decode forward, serve frames in reverse order from a small
-  ring) and reversed audio (play the source PCM backward through the existing streaming
-  resampler seam in `Sprocket.Audio/AudioMixer`).
-- **Keyframed speed ramps** — an integrated time map from a keyframed-speed `AnimatableValue`
-  (`sourceTime = SourceIn + ∫ speed dt`), so the clip's duration derives from the integral.
-  UI: a speed keyframe lane reusing the step-16b/16d keyframe editor; compare Premiere's
-  Time Remapping rubber-band and Resolve's retime curve for gesture conventions.
-- **Pitch-preserving time-stretch** — a DSP quality tier for retimed audio (the current
-  resampler shifts pitch; deliberate first cut). Sequenced with the audio-effects layer
-  (step 31 seams).
-- **Frame-interpolated slow motion** (blend / optical flow) — a later *video* quality tier
-  behind the same render-graph seam; ship nearest-source-frame first (already the behavior).
+- **Reverse playback** — `Clip.Reverse` (a flag beside the always-positive `SpeedRatio`, the "Reverse Speed"
+  convention of leading editors). The time map mirrors from the exclusive out-point; providers take the latest
+  frame *strictly before* the mapped time, so timeline frame *k* mirrors exactly to source frame *N−1−k*. Video
+  decodes backwards GOP-by-GOP (`Sprocket.Media/GopFrameWindow` + `ReverseVideoDecodeRing`, the direction-aware
+  feed factory in `MediaBootstrap`, `ExportFrameProvider`'s reverse mode driven by `VideoLayer.Reverse`); audio
+  plays the source PCM backwards through the mixer's carried reverse block and the existing streaming resampler.
+- **Keyframed speed ramps** — `Clip.SpeedCurve` (speed as a fraction of normal, **clip-local** keyframe ticks) and
+  the pure `SpeedRamp` integrator (`Integrate` / `SourceOffsetAt` / `SolveDuration`); the clip's duration derives
+  from where the integral covers the source span. UI: the Inspector's Speed row is the shared keyframeable slider
+  row (◇ + the step-16b/16d lane and velocity graph). Plain trims and blade splits are ramp-aware.
+- Surfaces: Speed / Duration dialog (Reverse speed checkbox, ramp note), clip context menu (Reverse Speed / Play
+  Forward), Inspector (Speed lane + Reverse), clip badges (`50%` / `RAMP` / `◀`), MCP `set_clip_speed(reverse)`.
 
-## Where it lands
+## Deliberate departures / limits (documented in code)
 
-- `src/Sprocket.Core/Model/Clip.cs` — `SpeedRatio` (`Rational`, strictly positive today) grows
-  the `Reverse` flag and/or an animatable speed; `MapToSource` becomes the integrated map.
-- `src/Sprocket.Core/Rendering/RenderGraph.cs` — already maps through `clip.MapToSource`;
-  ramps only change how the map is computed (preview/export stay identical, §5).
-- `src/Sprocket.Media` / `src/Sprocket.Playback` — backward decode support in the frame feed.
-- `src/Sprocket.Audio/AudioMixer.cs` — reverse read + (later) pitch-preserving stretch.
-- `src/Sprocket.App` — Speed/Duration dialog (`Dialogs.cs SpeedDialog`) gains Reverse + ramp
-  entry points; the dialog's non-positive-input rejection notes this deferral today.
+- Speed keyframes are clip-local, not absolute like effect keyframes: the ramp defines the clip's own duration, so
+  anchoring it to the clip keeps a moved clip's length/content unchanged without a rebase.
+- A *changed* constant speed replaces a ramp (`SetClipSpeedCommand` owns the rule; undo restores the ramp).
+- Nested-sequence clips can't be reversed (`Clip.SupportsReverse`): the child audio sub-mix is planned forward
+  (nested retime is deferred, step 23).
+- Ripple / roll / slide (editor + MCP) refuse reversed or ramped clips — their constant-speed source-edge math
+  doesn't model those maps; the Select tool's plain trim (and MCP `trim_clip` for reversed clips) covers them.
+  Stop-motion Duplicate / Remove Frame likewise need a constant forward map.
 
-## Constraints
+## Still open (later quality tiers, same seams)
 
-- Non-destructive: only the time map changes; source bytes and `SourceIn/Out` untouched.
-- All edits through the command stack (`SetClipSpeedCommand` pattern, coalescing preserved).
-- Persistence additive + nullable (pre-existing files load unchanged; 1×/no-reverse writes
-  nothing — the step 21 pattern).
-- §1 hot-path rule: backward decode must reuse the pooled `AVFrame` path — no managed pixels.
-
-## Tests
-
-Extend the step-21 suite: integrated-map correctness at ramped speeds (analytic cases),
-reverse frame order end-to-end (decode → pump → export golden frames), duration derivation
-from a keyframed speed, persistence round-trip, linked-companion retime staying in sync.
+- **Pitch-preserving time-stretch** — a DSP tier for retimed audio (the resampler shifts pitch today). Sequenced
+  with the audio-effects layer (step 31 seams): `Sprocket.Audio/AudioMixer` `Pull`/`ReadResampled`.
+- **Frame-interpolated slow motion** (blend / optical flow) — a *video* quality tier behind the render-graph seam;
+  nearest-source-frame remains the behaviour.
+- Ripple / roll / slide gestures on reversed / ramped clips (would need the direction/ramp-aware span math that
+  `TimelineControl`'s plain trim now has — `SourceSpanOver` / `TimelineSpanFor` — moved onto `Clip` in Core).
+- Nested-sequence retime (audio sub-mix at the parent clip's speed / direction).

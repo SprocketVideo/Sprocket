@@ -91,7 +91,7 @@ shipped step append to its history entry directly.
 | 18 | Proxy media | ✅ | [history](plan/history/steps-01-20.md#step-18) |
 | 19 | Generators & adjustment layers | ✅ | [history](plan/history/steps-01-20.md#step-19) |
 | 20 | Markers & comments + autosave / crash recovery | ✅ | [history](plan/history/steps-01-20.md#step-20) |
-| 21 | Retime & speed controls | 🟡 constant-speed ✅; reverse / speed ramps / pitch-preserving stretch open → [plan](plan/features/variable-retime.md) | [history](plan/history/steps-21-40.md#step-21) |
+| 21 | Retime & speed controls | 🟡 constant-speed ✅; reverse ✅ + keyframed speed ramps ✅ (2026-08-27); pitch-preserving stretch / frame-interpolated slow-mo are later quality tiers → [plan](plan/features/variable-retime.md) | [history](plan/history/steps-21-40.md#step-21) |
 | 22 | Ripple / roll / slide editing | ✅ | [history](plan/history/steps-21-40.md#step-22) |
 | 23 | Sequences (nesting / compound clips) | ✅ | [history](plan/history/steps-21-40.md#step-23) |
 | 24 | Multicam editing & clip sync | ✅ | [history](plan/history/steps-21-40.md#step-24) |
@@ -142,8 +142,9 @@ verification-only items carry their checklist in the step's history entry.
   [plan/features/looks-browser.md](plan/features/looks-browser.md)
 - [x] **Convolution reverb (Acoustic Space)** — step 49, shipped 2026-08-26 (user WAV IR import; bundled
   IR library deliberately deferred on licensing) → [history](plan/history/steps-41-57.md#step-49)
-- [ ] **Variable / ramped speed & reverse retime** — step 21 remainder (reverse playback,
-  keyframed speed ramps, pitch-preserving stretch, frame-interpolated slow motion) →
+- [x] **Variable / ramped speed & reverse retime** — step 21 remainder, shipped 2026-08-27 (reverse
+  playback with GOP-aware backward decode + reversed audio; keyframed speed ramps via the Inspector Speed
+  lane). Pitch-preserving stretch and frame-interpolated slow motion remain later quality tiers →
   [plan/features/variable-retime.md](plan/features/variable-retime.md)
 - [ ] **Native plugin & color hosting** — steps 31 + 33 remainders (VST3/AU C-ABI bridges,
   OpenColorIO config hosting, OFX adapter) →

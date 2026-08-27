@@ -2670,6 +2670,8 @@ public partial class MainWindow : Window
             Item("_Link", timeline.LinkSelected, timeline.CanLinkSelection, _linkMenuItem?.InputGesture),
             new Separator(),
             Item("_Speed / Duration…", () => _ = ShowSpeedDialogAsync()),
+            Item(timeline.SelectedClipReverse ? "Play For_ward" : "Re_verse Speed", timeline.ToggleSelectedReverse,
+                timeline.SelectedCanReverse),
         };
 
         if (isVideoLane)
@@ -2817,17 +2819,19 @@ public partial class MainWindow : Window
         _effectsMenu.ItemsSource = items;
     }
 
-    /// <summary>Clip ▸ Speed / Duration (PLAN.md step 21): prompts for a speed percentage and retimes the
-    /// selected clip (and its linked companions) through the command stack.</summary>
+    /// <summary>Clip ▸ Speed / Duration (PLAN.md step 21): prompts for a speed percentage + direction and retimes
+    /// the selected clip (and its linked companions) through the command stack. A constant speed from the dialog
+    /// replaces any keyframed speed ramp, as in leading editors.</summary>
     private async Task ShowSpeedDialogAsync()
     {
         if (_timeline is not { HasSelection: true } timeline)
             return;
-        Sprocket.Core.Timing.Rational? speed = await SpeedDialog.Show(this, timeline.SelectedClipSpeed);
-        if (speed is { } s)
+        SpeedDialogResult? result = await SpeedDialog.Show(
+            this, timeline.SelectedClipSpeed, timeline.SelectedClipReverse, timeline.SelectedClipHasRamp, timeline.SelectedCanReverse);
+        if (result is { } r)
         {
-            timeline.SetSelectedClipSpeed(s);
-            SetStatus($"Clip speed set to {(s.ToDouble() * 100):0.##}%.");
+            timeline.SetSelectedClipSpeed(r.Speed, r.Reverse);
+            SetStatus($"Clip speed set to {(r.Speed.ToDouble() * 100):0.##}%{(r.Reverse ? ", reversed" : "")}.");
         }
     }
 

@@ -727,25 +727,55 @@ public sealed class TimelineControl : Control
     }
 
     /// <summary>
-    /// Retimes the selected clip to <paramref name="speed"/> (PLAN.md step 21), and — so companion audio stays in
-    /// sync — every clip linked to it, as one undo entry. The source span is unchanged; the clip's timeline
-    /// duration derives from the new speed.
+    /// Retimes the selected clip to the constant <paramref name="speed"/> (PLAN.md step 21) and, when
+    /// <paramref name="reverse"/> is given, sets its playback direction — and, so companion audio stays in sync,
+    /// does the same to every clip linked to it, as one undo entry. The source span is unchanged; the clip's
+    /// timeline duration derives from the new speed. A constant speed replaces any keyframed speed ramp (the
+    /// Speed/Duration dialog convention in leading editors).
     /// </summary>
-    public void SetSelectedClipSpeed(Rational speed)
+    public void SetSelectedClipSpeed(Rational speed, bool? reverse = null)
     {
         if (_selected is null || _history is null || _project is null || speed.Num <= 0)
             return;
         var members = new List<Clip> { _selected };
         members.AddRange(_project.Timeline.ClipsLinkedTo(_selected).Select(l => l.Clip));
 
-        var commands = members
-            .Select(c => (IEditCommand)new SetClipSpeedCommand(c, speed))
-            .ToList();
+        var commands = new List<IEditCommand>();
+        foreach (Clip c in members)
+        {
+            commands.Add(new SetClipSpeedCommand(c, speed)); // a changed constant speed replaces any speed ramp
+            if (reverse is { } r && r != c.Reverse && (!r || c.SupportsReverse))
+                commands.Add(new SetClipReverseCommand(c, r));
+        }
         Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Change speed", commands));
+    }
+
+    /// <summary>Flips the selected clip's playback direction (and its linked companions', PLAN.md step 21
+    /// remainder) — the Reverse Speed toggle. One undo entry.</summary>
+    public void ToggleSelectedReverse()
+    {
+        if (_selected is null || _history is null || _project is null || !_selected.SupportsReverse)
+            return;
+        bool reverse = !_selected.Reverse;
+        var members = new List<Clip> { _selected };
+        members.AddRange(_project.Timeline.ClipsLinkedTo(_selected).Select(l => l.Clip));
+        var commands = members.Where(c => c.SupportsReverse || !reverse)
+            .Select(c => (IEditCommand)new SetClipReverseCommand(c, reverse)).ToList();
+        Execute(commands.Count == 1 ? commands[0] : new CompositeCommand(reverse ? "Reverse clip" : "Play clip forward", commands));
     }
 
     /// <summary>The selected clip's current playback speed (1/1 when nothing is selected), for the Speed dialog.</summary>
     public Rational SelectedClipSpeed => _selected?.SpeedRatio ?? Rational.One;
+
+    /// <summary>Whether the selected clip plays in reverse (false when nothing is selected), for the Speed dialog / menu.</summary>
+    public bool SelectedClipReverse => _selected?.Reverse == true;
+
+    /// <summary>Whether the selected clip can be reversed (<see cref="Clip.SupportsReverse"/>), for the menu state.</summary>
+    public bool SelectedCanReverse => _selected?.SupportsReverse == true;
+
+    /// <summary>Whether the selected clip carries a keyframed speed ramp, so the Speed dialog can warn that a
+    /// changed constant speed replaces it.</summary>
+    public bool SelectedClipHasRamp => _selected?.HasSpeedRamp == true;
 
     // ── Frame hold + stop-motion frame edits (PLAN.md step 43) ──────────────────────────────────────
 
@@ -768,7 +798,7 @@ public sealed class TimelineControl : Control
     /// <see langword="null"/> when the playhead is outside the clip.</summary>
     public Timecode? SelectedClipSourceAtPlayhead =>
         _selected is { } clip && clip.Contains(_playhead)
-            ? clip.SourceIn + (_playhead - clip.TimelineStart).Scale(clip.SpeedRatio)
+            ? clip.Reverse ? clip.SourceOut - clip.SourceOffset(_playhead) : clip.SourceIn + clip.SourceOffset(_playhead)
             : null;
 
     /// <summary>Freezes the whole selected clip at source time <paramref name="holdAt"/> (Clip ▸ Frame Hold
@@ -872,7 +902,8 @@ public sealed class TimelineControl : Control
     /// </summary>
     public void DuplicateFrameAtPlayhead()
     {
-        if (_selected is not { IsHeld: false } clip || _history is null || _project is null || !CanFrameHold(clip))
+        if (_selected is not { IsHeld: false } clip || _history is null || _project is null || !CanFrameHold(clip)
+            || !HasConstantForwardMap(clip)) // frame edits walk the constant forward source grid (step 21 remainder)
             return;
         Track? track = TrackOf(clip);
         Timecode at = _playhead;
@@ -895,7 +926,8 @@ public sealed class TimelineControl : Control
     /// </summary>
     public void RemoveFrameAtPlayhead()
     {
-        if (_selected is not { IsHeld: false } clip || _history is null || _project is null || !CanFrameHold(clip))
+        if (_selected is not { IsHeld: false } clip || _history is null || _project is null || !CanFrameHold(clip)
+            || !HasConstantForwardMap(clip)) // frame edits walk the constant forward source grid (step 21 remainder)
             return;
         Track? track = TrackOf(clip);
         Timecode at = _playhead;
@@ -1494,8 +1526,11 @@ public sealed class TimelineControl : Control
                     ctx.DrawText(Label(ClipName(clip), 11, Text), new Point(rect.X + 6, rect.Y + 4));
                     DrawClipMarkers(ctx, clip, rect);
                     DrawFadeOverlay(ctx, clip, rect);
+                    double badgeRight = rect.Right - 4;
                     if (clip.IsHeld)
-                        DrawHoldBadge(ctx, rect);
+                        badgeRight = DrawBadge(ctx, rect, "HOLD", badgeRight);
+                    if (RetimeBadgeText(clip) is { } retime)
+                        DrawBadge(ctx, rect, retime, badgeRight);
                 }
 
                 // A disabled clip draws dimmed (PLAN.md step 53) — same body/detail, shaded to read at a glance.
@@ -1510,19 +1545,35 @@ public sealed class TimelineControl : Control
         }
     }
 
-    // A held clip's "HOLD" pill, pinned to the clip body's top-right corner (PLAN.md step 43) — the freeze-frame
-    // marker, so a hold reads at a glance like a fade or marker does. Skipped when the clip is too narrow.
+    // Status pills pinned to the clip body's top-right corner: a held clip's "HOLD" (PLAN.md step 43) and a
+    // retimed clip's speed / "RAMP" / reverse arrow (step 21), so a freeze, a speed change or a reversal reads at a
+    // glance like a fade or marker does. Pills stack leftwards; skipped when the clip is too narrow.
     private static readonly IBrush HoldBadgeFill = Brush("#B3141821");
 
-    private static void DrawHoldBadge(DrawingContext ctx, Rect rect)
+    /// <summary>Draws one pill whose right edge sits at <paramref name="right"/>; returns the x where the next pill
+    /// to its left should end (unchanged when the pill didn't fit).</summary>
+    private static double DrawBadge(DrawingContext ctx, Rect rect, string label, double right)
     {
-        FormattedText text = Label("HOLD", 9, Text);
+        FormattedText text = Label(label, 9, Text);
         double w = text.Width + 10, h = text.Height + 3;
-        var badge = new Rect(rect.Right - w - 4, rect.Y + 3, w, h);
+        var badge = new Rect(right - w, rect.Y + 3, w, h);
         if (badge.X < rect.X + 4)
-            return;
+            return right;
         ctx.DrawRectangle(HoldBadgeFill, null, new RoundedRect(badge, 3));
         ctx.DrawText(text, new Point(badge.X + 5, badge.Y + 1.5));
+        return badge.X - 3;
+    }
+
+    /// <summary>The retime pill's text for a clip, or <see langword="null"/> for an untouched forward 100% clip:
+    /// "RAMP" for a keyframed speed, else the percentage when it isn't 100%, with a ◀ prefix when reversed.</summary>
+    public static string? RetimeBadgeText(Clip clip)
+    {
+        string? body = clip.HasSpeedRamp ? "RAMP"
+            : clip.SpeedRatio != Rational.One ? SpeedFormat.ToPercentString(clip.SpeedRatio) + "%"
+            : null;
+        if (clip.Reverse)
+            return body is null ? "◀" : "◀ " + body;
+        return body;
     }
 
     // Transitions on the cut (PLAN.md step 25): the classic NLE overlay — a translucent box spanning the
@@ -2259,6 +2310,7 @@ public sealed class TimelineControl : Control
     // A held clip's drag baseline (PLAN.md step 43): its independent hold duration and frozen source time —
     // trimming a held clip edits the hold duration (no media clamp) and slipping moves the frozen frame.
     private long _dragOrigHoldDur;
+    private AnimatableValue? _dragOrigCurve; // the pressed clip's speed ramp (clip-local), frozen for the gesture
     private long _dragOrigHoldAt;
     private long _dragOrigDur; // clip.Duration at drag start (≠ out−in for a held clip)
 
@@ -2270,6 +2322,7 @@ public sealed class TimelineControl : Control
         _dragPressTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, _headerWidth);
         _dragOrigIn = clip.SourceIn;
         _dragOrigOut = clip.SourceOut;
+        _dragOrigCurve = clip.SpeedCurve;
         _dragOrigStart = clip.TimelineStart;
         _dragOrigHoldDur = clip.HoldDuration.Ticks;
         _dragOrigHoldAt = clip.HoldFrameAt?.Ticks ?? 0;
@@ -2376,44 +2429,108 @@ public sealed class TimelineControl : Control
             return;
         }
 
-        // Otherwise an edge trim: mutate live and coalesce so the whole drag is one undo entry.
-        long newIn = _dragOrigIn.Ticks, newOut = _dragOrigOut.Ticks, newStart = _dragOrigStart.Ticks;
+        // Otherwise an edge trim: mutate live and coalesce so the whole drag is one undo entry. The edge moves in
+        // timeline ticks; the source edge it drives moves by what the clip's time map consumes over that span
+        // (constant speed or ramp, PLAN.md step 21) — and a reversed clip's timeline end edge is its source
+        // *in*-point, its start edge the source *out*-point, so the direction picks which source edge moves.
+        Clip dc = _dragClip!;
+        bool rev = dc.Reverse;
+        long origIn = _dragOrigIn.Ticks, origOut = _dragOrigOut.Ticks, origStart = _dragOrigStart.Ticks;
+        long media = MediaDurationTicks(dc);
+        long origDur = TimelineSpanFor(dc, _dragOrigCurve, origOut - origIn);
+        long minSpan = Math.Max(1, SourceSpanOver(dc, _dragOrigCurve, 0, _minDurTicks));
+        long newIn = origIn, newOut = origOut, newStart = origStart;
+        AnimatableValue? newCurve = _dragOrigCurve;
 
         switch (_dragMode)
         {
             case ClipDragMode.TrimEnd:
-                newOut = Math.Max(_dragOrigIn.Ticks + _minDurTicks, _dragOrigOut.Ticks + delta);
+            {
+                long newDur = Math.Max(_minDurTicks, origDur + delta);
                 if (Snapping)
                 {
-                    long end = _dragOrigStart.Ticks + (newOut - _dragOrigIn.Ticks);
+                    long end = origStart + newDur;
                     long snapped = TimelineMath.Snap(end, _snapPoints, SnapTolerancePx, _pxPerSecond);
                     if (snapped != end)
-                        newOut = Math.Max(_dragOrigIn.Ticks + _minDurTicks, _dragOrigIn.Ticks + (snapped - _dragOrigStart.Ticks));
+                        newDur = Math.Max(_minDurTicks, snapped - origStart);
                 }
-                // The out-point stops at the end of the source media, like slip/ripple/roll/slide (and every
-                // major NLE); the min-duration floor wins if the media is shorter than one frame.
-                newOut = Math.Max(_dragOrigIn.Ticks + _minDurTicks, Math.Min(newOut, MediaDurationTicks(_dragClip!)));
+                long span = Math.Max(minSpan, SourceSpanOver(dc, _dragOrigCurve, 0, newDur));
+                // The moving source edge stops at the media's bounds, like slip/ripple/roll/slide (and every major
+                // NLE); the min-duration floor wins if the media is shorter than one frame.
+                if (rev)
+                    newIn = Math.Min(origOut - minSpan, Math.Max(0, origOut - span));
+                else
+                    newOut = Math.Max(origIn + minSpan, Math.Min(media, origIn + span));
                 break;
+            }
 
             case ClipDragMode.TrimStart:
-                newStart = TimelineMath.ClampNonNegative(_dragOrigStart.Ticks + delta);
+            {
+                newStart = TimelineMath.ClampNonNegative(origStart + delta);
                 if (Snapping)
                     newStart = TimelineMath.Snap(newStart, _snapPoints, SnapTolerancePx, _pxPerSecond);
-                long deltaActual = newStart - _dragOrigStart.Ticks;
-                newIn = _dragOrigIn.Ticks + deltaActual;
-                if (newIn < 0) { newStart -= newIn; newIn = 0; }
-                if (newIn > _dragOrigOut.Ticks - _minDurTicks)
-                {
-                    long over = newIn - (_dragOrigOut.Ticks - _minDurTicks);
-                    newIn -= over;
-                    newStart -= over;
-                }
-                newStart = TimelineMath.ClampNonNegative(newStart);
+                // Extending the head is bounded by the source available beyond the moving edge (before the in-point
+                // forward; after the out-point in reverse); shortening it by the one-frame floor.
+                // (Capped: a still's media is unbounded and the ticks→timeline scale must not overflow.)
+                long extendSrc = Math.Min(MaxTrimExtendTicks, rev ? Math.Max(0, media - origOut) : origIn);
+                long minStart = origStart - TimelineSpanFor(dc, _dragOrigCurve, extendSrc, extendBackward: true);
+                long maxStart = origStart + origDur - _minDurTicks;
+                newStart = TimelineMath.ClampNonNegative(Math.Clamp(newStart, Math.Min(minStart, maxStart), maxStart));
+                long d = newStart - origStart;                          // timeline ticks removed from the head (< 0 = added)
+                long head = SourceSpanOver(dc, _dragOrigCurve, 0, d);   // source the map covers over that head
+                if (rev)
+                    newOut = Math.Clamp(origOut - head, origIn + minSpan, media);
+                else
+                    newIn = Math.Clamp(origIn + head, 0, origOut - minSpan);
+                // A ramp is clip-local: re-anchor it so its keyframes stay put on the timeline as the start moves.
+                if (_dragOrigCurve is { } curve && d != 0)
+                    newCurve = curve.Shifted(new Timecode(-d));
                 break;
+            }
         }
 
-        Execute(new SetClipPlacementCommand(
-            _dragClip!, new Timecode(newIn), new Timecode(newOut), new Timecode(newStart), "Trim clip"));
+        var placement = new SetClipPlacementCommand(
+            dc, new Timecode(newIn), new Timecode(newOut), new Timecode(newStart), "Trim clip");
+        // A ramped start trim always commits the same composite shape (placement + curve), so every move of the
+        // drag coalesces into one undo entry — a plain→composite switch mid-drag would split it.
+        if (_dragOrigCurve is not null && _dragMode == ClipDragMode.TrimStart)
+            Execute(new CompositeCommand("Trim clip", [placement, new SetClipSpeedCurveCommand(dc, newCurve)]));
+        else
+            Execute(placement);
+    }
+
+    // The most a start edge may be pulled left in source terms (24 h) — bounds the timeline conversion for an
+    // unbounded (still) source so the Int128→long scale can't overflow.
+    private const long MaxTrimExtendTicks = 24L * 3600 * Timecode.TicksPerSecond;
+
+    // Source ticks the clip's time map (a frozen ramp, else its constant speed) consumes over the clip-local
+    // timeline range [a, b) — unclamped, negative for a backward range. The 1× case is the identity.
+    private static long SourceSpanOver(Clip clip, AnimatableValue? curve, long localA, long localB) =>
+        curve is not null
+            ? (long)Math.Round(SpeedRamp.Integrate(curve, localA, localB), MidpointRounding.AwayFromZero)
+            : new Timecode(localB - localA).Scale(clip.SpeedRatio).Ticks;
+
+    // Timeline ticks the clip's map needs to consume `sourceTicks` of source — forward from local 0 (the span's
+    // duration), or, with `extendBackward`, the run ending at local 0 (how far a start edge can be pulled left).
+    private static long TimelineSpanFor(Clip clip, AnimatableValue? curve, long sourceTicks, bool extendBackward = false)
+    {
+        if (sourceTicks <= 0)
+            return 0;
+        if (curve is null)
+            return new Timecode(sourceTicks).Scale(clip.SpeedRatio.Inverse()).Ticks;
+        if (!extendBackward)
+            return SpeedRamp.SolveDuration(curve, sourceTicks);
+        // Backward: bisect for the smallest d with ∫₋d⁰ speed ≥ sourceTicks (monotonic since speed ≥ MinSpeed).
+        long lo = 0, hi = (long)Math.Ceiling(sourceTicks / SpeedRamp.MinSpeed) + 1;
+        while (lo < hi)
+        {
+            long mid = lo + (hi - lo) / 2;
+            if (SpeedRamp.Integrate(curve, -mid, 0) >= sourceTicks)
+                hi = mid;
+            else
+                lo = mid + 1;
+        }
+        return lo;
     }
 
     // Updates the move-gesture preview (PLAN.md step 16e): snapped landing time (Shift locks it to the origin),
@@ -2641,8 +2758,10 @@ public sealed class TimelineControl : Control
     private void BeginRipple(Clip clip, ClipDragMode mode)
     {
         // A held clip's duration is independent of its source span, so the source-trim ripple math doesn't apply
-        // — the gesture aborts (trim a held clip with the Select tool instead; PLAN.md step 43).
-        if (clip.IsHeld)
+        // — the gesture aborts (trim a held clip with the Select tool instead; PLAN.md step 43). The same goes for
+        // a reversed or speed-ramped clip, whose edge↔source relation the constant-speed ripple math doesn't model
+        // (the Select tool's plain trim handles both).
+        if (!HasConstantForwardMap(clip))
             return;
         _rippleTrimEnd = mode == ClipDragMode.TrimEnd;
         _rippleUnits.Clear();
@@ -2650,7 +2769,7 @@ public sealed class TimelineControl : Control
         if (Linked)
             foreach ((Track ctrack, Clip cclip) in _project!.Timeline.ClipsLinkedTo(clip))
             {
-                if (cclip.IsHeld)
+                if (!HasConstantForwardMap(cclip))
                 {
                     _rippleUnits.Clear();
                     return;
@@ -2659,6 +2778,10 @@ public sealed class TimelineControl : Control
             }
         _dragKind = DragKind.Ripple;
     }
+
+    /// <summary>Whether the clip's time map is the constant forward one the ripple/roll/slide source-edge math
+    /// assumes: not held, not reversed, not speed-ramped (PLAN.md steps 43 / 21 remainder).</summary>
+    private static bool HasConstantForwardMap(Clip clip) => !clip.IsHeld && !clip.Reverse && !clip.HasSpeedRamp;
 
     private RippleUnit BuildRippleUnit(Clip clip, Track track)
     {
@@ -2722,8 +2845,8 @@ public sealed class TimelineControl : Control
         if (left is null || right is null)
             return;
         // A held clip's duration ignores its source span, so rolling its source edge can't move the cut — abort
-        // (PLAN.md step 43).
-        if (left.IsHeld || right.IsHeld)
+        // (PLAN.md step 43); likewise a reversed / speed-ramped side, whose edge↔source relation isn't constant.
+        if (!HasConstantForwardMap(left) || !HasConstantForwardMap(right))
             return;
 
         _rollLeft = left;
@@ -2764,8 +2887,9 @@ public sealed class TimelineControl : Control
         _slidePrev = AdjacentBefore(track, clip);
         _slideNext = AdjacentAfter(track, clip);
         // Sliding trims the neighbours' source edges — meaningless on a held neighbour, whose duration ignores
-        // its source span (PLAN.md step 43). The slid clip itself moving is fine even when held.
-        if (_slidePrev?.IsHeld == true || _slideNext?.IsHeld == true)
+        // its source span (PLAN.md step 43), and not modelled for a reversed / ramped one. The slid clip itself
+        // moving is fine whatever its map.
+        if ((_slidePrev is { } sp && !HasConstantForwardMap(sp)) || (_slideNext is { } sn && !HasConstantForwardMap(sn)))
         {
             _slidePrev = null;
             _slideNext = null;

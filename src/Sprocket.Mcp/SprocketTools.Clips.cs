@@ -314,17 +314,31 @@ public sealed partial class SprocketTools
                 $"{(enabled ? "enabled" : "disabled")} {effect.EffectTypeId}");
         });
 
+    /// <summary>The ripple / roll / slide source-edge math assumes a constant forward time map: a reversed or
+    /// speed-ramped clip's edge↔source relation isn't modelled by it (the editor's plain trim is), so those tools
+    /// refuse rather than silently move the wrong source edge (PLAN.md step 21 remainder).</summary>
+    private static void RequireConstantForwardMap(Clip clip, string tool)
+    {
+        if (clip.Reverse || clip.HasSpeedRamp)
+            throw new McpException(
+                $"clip {RuntimeIds.IdOf(clip)} is {(clip.Reverse ? "reversed" : "speed-ramped")}; {tool} needs a " +
+                "constant forward speed — use trim_clip (reversed clips) or trim in the editor.");
+    }
+
     // ── Retime & gain ───────────────────────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "set_clip_speed")]
-    [Description("Retimes a clip to an exact speed ratio (source time / timeline time): 2/1 = double speed, " +
+    [Description("Retimes a clip to an exact constant speed ratio (source time / timeline time): 2/1 = double speed, " +
                  "1/2 = half-speed slow motion. The source span is unchanged; the clip's timeline duration " +
-                 "derives from the speed. By default linked partners retime together so A/V stays in sync.")]
+                 "derives from the speed. Optionally sets the playback direction (reverse = play the source " +
+                 "backwards at that speed; the duration is unchanged). A constant speed replaces any keyframed " +
+                 "speed ramp. By default linked partners retime together so A/V stays in sync.")]
     public Task<string> SetClipSpeed(
         [Description("clip_id of the clip to retime.")] int clipId,
         [Description("Speed ratio numerator (must be positive).")] int numerator,
         [Description("Speed ratio denominator (default 1).")] int denominator = 1,
-        [Description("Whether linked partner clips retime together (default true).")] bool includeLinked = true) =>
+        [Description("Whether linked partner clips retime together (default true).")] bool includeLinked = true,
+        [Description("Playback direction: true = reverse, false = forward, omitted = leave unchanged.")] bool? reverse = null) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
@@ -335,12 +349,19 @@ public sealed partial class SprocketTools
             var members = new List<Clip> { clip };
             if (includeLinked)
                 members.AddRange(api.Project.Timeline.ClipsLinkedTo(clip).Select(l => l.Clip));
-            var commands = members
-                .Select(c => (IEditCommand)new SetClipSpeedCommand(c, speed))
-                .ToList();
+            if (reverse == true && members.Any(c => !c.SupportsReverse))
+                throw new McpException("a nested-sequence clip cannot be reversed (its audio sub-mix is planned forward).");
+            var commands = new List<IEditCommand>();
+            foreach (Clip c in members)
+            {
+                commands.Add(new SetClipSpeedCommand(c, speed)); // a changed constant speed replaces any speed ramp
+                if (reverse is { } r && r != c.Reverse)
+                    commands.Add(new SetClipReverseCommand(c, r));
+            }
             api.History.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Change speed", commands));
             api.RefreshPreview();
-            return ClipResult(api, clip, $"set speed to {numerator}/{denominator}");
+            string direction = reverse is { } dir ? (dir ? ", reversed" : ", forward") : "";
+            return ClipResult(api, clip, $"set speed to {numerator}/{denominator}{direction}");
         });
 
     [McpServerTool(Name = "set_clip_gain")]
@@ -389,6 +410,7 @@ public sealed partial class SprocketTools
             var commands = new List<IEditCommand>();
             foreach ((Track utrack, Clip unit) in units)
             {
+                RequireConstantForwardMap(unit, "ripple_trim");
                 long sourceDelta = new Timecode(delta).Scale(unit.SpeedRatio).Ticks;
                 Timecode newIn = unit.SourceIn, newOut = unit.SourceOut;
                 long shift;
@@ -437,6 +459,8 @@ public sealed partial class SprocketTools
             Clip? right = atEnd ? AdjacentAfter(track, clip) : clip;
             if (left is null || right is null)
                 throw new McpException("there is no adjacent clip sharing that cut to roll with.");
+            RequireConstantForwardMap(left, "roll_edit");
+            RequireConstantForwardMap(right, "roll_edit");
 
             long oldCut = left.TimelineEnd.Ticks;
             long delta = newCutTicks - oldCut;
@@ -478,6 +502,10 @@ public sealed partial class SprocketTools
             Clip? next = AdjacentAfter(track, clip);
             if (prev is null && next is null)
                 throw new McpException("the clip has no butted neighbour to slide against.");
+            if (prev is not null)
+                RequireConstantForwardMap(prev, "slide_clip");
+            if (next is not null)
+                RequireConstantForwardMap(next, "slide_clip");
 
             var newStart = new Timecode(clip.TimelineStart.Ticks + deltaTicks);
             if (newStart < Timecode.Zero)

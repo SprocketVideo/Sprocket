@@ -306,7 +306,11 @@ public static class ProjectSerializer
             // An enabled clip writes no Enabled field (WhenWritingNull) — byte-identical to pre-53 files.
             c.Enabled ? null : false,
             // A Fit (default) clip writes no ConformMode field (WhenWritingNull) — byte-identical to earlier files.
-            c.ConformMode == ClipConformMode.Fit ? null : c.ConformMode);
+            c.ConformMode == ClipConformMode.Fit ? null : c.ConformMode,
+            // A forward, constant-speed clip writes neither retime field (WhenWritingNull) — byte-identical to
+            // pre-ramp files (PLAN.md step 21 remainder).
+            c.Reverse ? true : null,
+            c.SpeedCurve is { } speedCurve ? ToDto(speedCurve) : null);
     }
 
     private static GeneratorDto ToDto(GeneratorSpec g)
@@ -531,6 +535,9 @@ public static class ProjectSerializer
         // Speed absent ⇒ 1/1 (pre-21 files / normal-speed clips).
         if (c.SpeedNum is int speedNum && c.SpeedDen is int speedDen)
             clip.SpeedRatio = new Rational(speedNum, speedDen);
+        clip.Reverse = c.Reverse ?? false;       // Reverse absent ⇒ forward (pre-ramp files / forward clips)
+        if (c.SpeedCurve is { } speedCurve)      // SpeedCurve absent ⇒ constant speed
+            clip.SpeedCurve = FromDto(speedCurve);
         clip.GainDb = c.GainDb ?? 0; // GainDb absent ⇒ 0 dB (pre-30 files / un-gained clips)
         clip.Enabled = c.Enabled ?? true; // Enabled absent ⇒ enabled (pre-53 files / untouched clips)
         clip.ConformMode = c.ConformMode ?? ClipConformMode.Fit; // ConformMode absent ⇒ Fit (earlier files / untouched clips)

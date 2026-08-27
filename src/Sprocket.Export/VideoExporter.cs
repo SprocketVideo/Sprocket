@@ -600,7 +600,7 @@ public static class VideoExporter
                 default:
                 {
                     ExportFrameProvider? provider = ResolveProvider(project, layer.MediaRefId, providers);
-                    VideoFrame? frame = provider?.GetFrame(layer.SourceTime);
+                    VideoFrame? frame = provider?.GetFrame(layer.SourceTime, layer.Reverse);
                     if (frame is null)
                         continue;
 
@@ -650,7 +650,7 @@ public static class VideoExporter
             default:
             {
                 ExportFrameProvider? provider = ResolveProvider(project, side.MediaRefId, providers);
-                VideoFrame? frame = provider?.GetFrame(side.SourceTime);
+                VideoFrame? frame = provider?.GetFrame(side.SourceTime, side.Reverse);
                 if (frame is null)
                     return null;
                 // Alpha sides copy out as straight (unpremultiplied) RGBA so the transition blend composites them
