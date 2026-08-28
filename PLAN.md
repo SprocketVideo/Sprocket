@@ -72,7 +72,7 @@ shipped step append to its history entry directly.
 | 8 | Export pipeline (full-res encode) | ✅ | [history](plan/history/steps-01-20.md#step-8) |
 | 9 | Project save/load (JSON) | ✅ | [history](plan/history/steps-01-20.md#step-9) |
 
-### Post-slice build-out (steps 10–59)
+### Post-slice build-out (steps 10–60)
 
 | # | Step | Status | Detail |
 |---|---|---|---|
@@ -131,6 +131,7 @@ shipped step append to its history entry directly.
 | 57 | Linux support (verify + declare) | 🟡 phases 1–4 ✅; hardware-accel verify remaining | [history](plan/history/steps-41-57.md#step-57) |
 | 58 | Plugin Manager (user-facing plugin management UI) | ✅ | [history](plan/history/steps-58plus.md#step-58) |
 | 59 | Open plugin standards (frei0r / LADSPA / LV2) | ✅ | [history](plan/history/steps-58plus.md#step-59) |
+| 60 | Preview allocation churn (per-frame metadata / wrapper Gen0 — measure + remediate) | ❌ → [plan](plan/features/preview-allocation-churn.md) | — |
 
 ## Open work
 
@@ -167,6 +168,12 @@ verification-only items carry their checklist in the step's history entry.
 - [ ] **Windows 10 VM smoke verification** — step 56 remainder: create the Win10 22H2 VM, run
   the manual release-smoke checklist, redeploy docs + regenerate the PDF manual, flip the
   FEATURES.md row ([checklist](plan/history/steps-41-57.md#step-56))
+- [ ] **Preview allocation churn** — step 60: a 2026-08-28 static audit was validated line-by-line;
+  the §1 pixel rule holds (`SKImage.FromPixels` wraps native memory, no copies), but effect/generator
+  parameter dictionaries, per-effect Skia uniform/child wrappers, and the per-draw layer list + closure
+  are rebuilt on every repaint, and per-frame allocation *rate* has never been measured (the 2026-06-30
+  benchmark saw 0 collections but did not count bytes). Measure first, then remediate in payoff order →
+  [plan/features/preview-allocation-churn.md](plan/features/preview-allocation-churn.md)
 - [ ] **Linux hardware-accel verification** — step 57 Phase 5: real VAAPI + NVENC encode/decode
   on physical Intel/AMD/NVIDIA boxes, probe-order + software-fallback confirmation
   ([details](plan/history/steps-41-57.md#step-57))
@@ -179,7 +186,8 @@ are tracked in [UI.md §5](UI.md).
 - **Performance claim:** run `Sprocket.App` under a memory profiler (dotnet-counters / dotMemory);
   assert ~0 Gen0 allocations per frame in the render loop; confirm GPU upload path (no CPU
   pixel loops). Measure sustained 1080p preview fps. (Originally measured on the step 1 spike, which
-  no longer exists — the shipping app is the target now.)
+  no longer exists — the shipping app is the target now.) **Status 2026-08-28:** pixel rule verified by
+  static inspection; per-frame *metadata* allocation rate still unmeasured — step 60 adds the harness.
 - **Cross-platform:** CI matrix builds + runs the headless tests on windows-latest, ubuntu-latest,
   and macos-latest (the latter covers `osx-arm64`); manually run the app + export on a real Linux box,
   Win 11, and a Mac. The render path is byte-identical across OSes (verified Win↔Linux via the headless
@@ -197,6 +205,7 @@ are tracked in [UI.md §5](UI.md).
   bounded buffers + frame drop/duplicate. **(Preview judder addressed 2026-06-30 — see
   [plan/history/performance-log.md](plan/history/performance-log.md).)**
 - GC in the hot path — mitigated by the no-managed-pixels rule; must be enforced/profiled early.
+  **(Residual metadata/wrapper churn catalogued 2026-08-28 → step 60.)**
 - FFmpeg interop surface is raw and unforgiving — wrap narrowly in `Sprocket.Media`.
 - Hardware-accel fragmentation across vendors/OSes — abstract + always keep software fallback.
 - FFmpeg licensing (LGPL vs GPL) — decide before distribution.
