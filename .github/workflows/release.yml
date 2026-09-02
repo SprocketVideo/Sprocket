@@ -238,10 +238,24 @@ jobs:
           dotnet-version: '10.0.x'
 
       # FFmpeg 8 from Homebrew (BtbN has no macOS builds): the versioned formula when it exists,
-      # else core ffmpeg. scripts/macos-bundle-ffmpeg.sh hard-asserts libavcodec major 62 afterwards,
-      # so a formula drift to FFmpeg 9 fails this job loudly instead of shipping a broken bundle.
+      # else extract the pinned 8.1.2 formula into a temporary tap. Never fall back to core ffmpeg:
+      # scripts/macos-bundle-ffmpeg.sh hard-asserts libavcodec major 62 afterwards, so accepting
+      # FFmpeg 9 would only fail later after wasting the build.
       - name: Install FFmpeg 8
-        run: brew install ffmpeg@8 || brew install ffmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          brew tap homebrew/core
+          if brew install homebrew/core/ffmpeg@8; then
+            exit 0
+          fi
+
+          tap='sprocketvideo/ffmpeg-ci'
+          version='8.1.2'
+          brew tap-new --no-git "$tap"
+          brew extract --force --version="$version" ffmpeg "$tap"
+          brew install "$tap/ffmpeg@$version"
 
       - name: Install vpk
         run: dotnet tool install -g vpk --version ${{ env.VPK_VERSION }}

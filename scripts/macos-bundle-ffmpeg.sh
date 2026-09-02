@@ -21,20 +21,27 @@ command -v brew >/dev/null || { echo "error: Homebrew not found" >&2; exit 1; }
 
 REQUIRED_AVCODEC_MAJOR=62
 
-# Resolve the FFmpeg keg: the pinned ffmpeg@8 formula first, falling back to core ffmpeg (currently
-# also 8.x). The avcodec-major assert below is what actually protects against drift.
+# Resolve the FFmpeg keg: the pinned ffmpeg@8 formula first, then any extracted ffmpeg@8.x formula
+# name from a custom tap, finally plain ffmpeg. The avcodec-major assert below is what actually
+# protects against drift.
 FF_PREFIX="$(brew --prefix ffmpeg@8 2>/dev/null || true)"
+if [[ -z "$FF_PREFIX" || ! -d "$FF_PREFIX/lib" ]]; then
+  EXTRACTED_FF_FORMULA="$(brew list --formula --full-name 2>/dev/null | grep -E '^ffmpeg@8(\.|$)' | head -n1 || true)"
+  if [[ -n "$EXTRACTED_FF_FORMULA" ]]; then
+    FF_PREFIX="$(brew --prefix "$EXTRACTED_FF_FORMULA" 2>/dev/null || true)"
+  fi
+fi
 if [[ -z "$FF_PREFIX" || ! -d "$FF_PREFIX/lib" ]]; then
   FF_PREFIX="$(brew --prefix ffmpeg 2>/dev/null || true)"
 fi
 if [[ -z "$FF_PREFIX" || ! -d "$FF_PREFIX/lib" ]]; then
-  echo "error: no Homebrew ffmpeg keg found — brew install ffmpeg@8 (or ffmpeg)" >&2
+  echo "error: no Homebrew ffmpeg keg found — install ffmpeg@8 or an extracted ffmpeg@8.x formula" >&2
   exit 1
 fi
 if [[ ! -e "$FF_PREFIX/lib/libavcodec.${REQUIRED_AVCODEC_MAJOR}.dylib" ]]; then
   echo "error: $FF_PREFIX has no libavcodec.${REQUIRED_AVCODEC_MAJOR}.dylib — Sprocket requires FFmpeg 8" >&2
   echo "       (libavcodec major ${REQUIRED_AVCODEC_MAJOR}). Homebrew's formula may have moved to a newer" >&2
-  echo "       FFmpeg major; install the versioned formula instead: brew install ffmpeg@8" >&2
+  echo "       FFmpeg major; install ffmpeg@8 or extract a pinned 8.x formula into a temporary tap." >&2
   exit 1
 fi
 echo "using FFmpeg keg: $FF_PREFIX"
