@@ -26,7 +26,7 @@ REQUIRED_AVCODEC_MAJOR=62
 # protects against drift.
 FF_PREFIX="$(brew --prefix ffmpeg@8 2>/dev/null || true)"
 if [[ -z "$FF_PREFIX" || ! -d "$FF_PREFIX/lib" ]]; then
-  EXTRACTED_FF_FORMULA="$(brew list --formula --full-name 2>/dev/null | grep -E '^ffmpeg@8(\.|$)' | head -n1 || true)"
+  EXTRACTED_FF_FORMULA="$(brew list --formula 2>/dev/null | grep -E '^ffmpeg@8(\.|$)' | head -n1 || true)"
   if [[ -n "$EXTRACTED_FF_FORMULA" ]]; then
     FF_PREFIX="$(brew --prefix "$EXTRACTED_FF_FORMULA" 2>/dev/null || true)"
   fi
