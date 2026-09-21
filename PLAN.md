@@ -141,6 +141,16 @@ verification-only items carry their checklist in the step's history entry.
 - [x] **File ▸ Open Recent** (small feature) — shipped 2026-09-21: a persisted MRU (up to 10 projects,
   newest first, Clear Recent, stale entries self-pruned), stored in `UserSettings.RecentProjects` and
   populated on submenu-open. Recorded on every open (`MainWindow` ctor) and save (`SaveTo`).
+- [ ] **Black & White conversion** (unscheduled feature, planned 2026-09-21) — a dedicated
+  `builtin.blackwhite` registry shader effect: 8-hue channel mixer + keyframeable optical colour
+  filter, film tone response + procedural grain, toning / split-toning, vignette, dry/wet mix, and a
+  ~50-preset library (Wratten filters, film-stock looks under generic names with the stock in the
+  preset tooltip, darkroom tonings, cinematic looks) over the step-41 `EffectDescriptor.Presets`
+  surface (+ an additive `EffectPreset.Description`). Built in five independently mergeable phases
+  (conversion core → frame-context seam + grain/vignette → toning → non-film presets → film presets +
+  docs), each sized for one session; phase checklist in the plan. Needs one small seam extension (auto-bound
+  `sprocket_time` / `sprocket_bounds` uniforms for registry effects) →
+  [plan/features/black-and-white.md](plan/features/black-and-white.md)
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →
   [plan/features/looks-browser.md](plan/features/looks-browser.md)

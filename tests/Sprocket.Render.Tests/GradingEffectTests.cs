@@ -220,7 +220,97 @@ public sealed class GradingEffectTests
         Assert.InRange(c.Green, 118, 122);
     }
 
+    // ── Black & White, phase 1 (builtin.blackwhite) ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void BlackWhite_Neutral_IsMonochromeAtRec709Luma()
+    {
+        var source = new SKColor(200, 40, 40, 255);
+        SKColor c = RenderCenter(source, [BlackWhite()]);
+        Assert.InRange(Math.Abs(c.Red - c.Green), 0, 1); // monochrome: R = G = B
+        Assert.InRange(Math.Abs(c.Green - c.Blue), 0, 1);
+        Assert.InRange(c.Red - MonoLuma(source), -2, 2); // matches a linear-light Rec.709 desaturation
+    }
+
+    [Fact]
+    public void BlackWhite_MixZero_IsPassThrough()
+    {
+        var source = new SKColor(200, 40, 40, 255);
+        SKColor c = RenderCenter(source, [BlackWhite((EffectParamNames.Mix, 0.0))]);
+        Assert.InRange(c.Red, 198, 202);
+        Assert.InRange(c.Green, 38, 42);
+        Assert.InRange(c.Blue, 38, 42);
+    }
+
+    [Fact]
+    public void BlackWhite_RedFilter_DarkensBlue_BrightensRed_KeepsGreyLuma()
+    {
+        var filter = new (string, double)[] { (EffectParamNames.FilterHue, 0.0), (EffectParamNames.FilterStrength, 0.8) };
+        SKColor blue = RenderCenter(new SKColor(0, 0, 255, 255), [BlackWhite(filter)]);
+        SKColor red = RenderCenter(new SKColor(255, 0, 0, 255), [BlackWhite(filter)]);
+        Assert.True(blue.Red < 40, $"a red filter should darken blue ({blue.Red})");
+        Assert.True(red.Red > 200, $"a red filter should brighten red ({red.Red})");
+
+        // The filter is luma-normalised, so a neutral grey keeps its brightness.
+        var grey = new SKColor(128, 128, 128, 255);
+        SKColor filtered = RenderCenter(grey, [BlackWhite(filter)]);
+        Assert.InRange(filtered.Red - MonoLuma(grey), -3, 3);
+    }
+
+    [Fact]
+    public void BlackWhite_MixReds_LightensRed_LeavesGreyUntouched()
+    {
+        SKColor redNeutral = RenderCenter(new SKColor(200, 40, 40, 255), [BlackWhite()]);
+        SKColor redLifted = RenderCenter(new SKColor(200, 40, 40, 255), [BlackWhite((EffectParamNames.MixReds, 100.0))]);
+        Assert.True(redLifted.Red > redNeutral.Red + 10, $"MixReds +100 should lighten red ({redNeutral.Red}→{redLifted.Red})");
+
+        // Saturation gating: a neutral grey has no hue, so the mixer must leave it alone.
+        SKColor greyNeutral = RenderCenter(new SKColor(128, 128, 128, 255), [BlackWhite()]);
+        SKColor greyLifted = RenderCenter(new SKColor(128, 128, 128, 255), [BlackWhite((EffectParamNames.MixReds, 100.0))]);
+        Assert.InRange(greyLifted.Red - greyNeutral.Red, -1, 1);
+    }
+
+    [Theory]
+    [InlineData(EffectParamNames.Contrast, 1.6)]
+    [InlineData(EffectParamNames.Shadows, 0.4)]
+    [InlineData(EffectParamNames.Highlights, 0.4)]
+    public void BlackWhite_ToneControls_AreMonotonicOnARamp(string param, double value)
+    {
+        int[] steps = { 0, 64, 128, 191, 255 };
+        var outputs = steps
+            .Select(v => RenderCenter(new SKColor((byte)v, (byte)v, (byte)v, 255), [BlackWhite((param, value))]).Red)
+            .ToArray();
+        for (int i = 1; i < outputs.Length; i++)
+            Assert.True(outputs[i] >= outputs[i - 1], $"{param}={value} broke monotonicity at step {i}: {string.Join(",", outputs)}");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────────
+
+    // The neutral mono value the effect targets: Rec.709 luma computed in linear light, re-encoded to sRGB.
+    private static double MonoLuma(SKColor c)
+    {
+        static double ToLinear(double s) => s <= 0.04045 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+        static double ToSrgb(double l) => l <= 0.0031308 ? l * 12.92 : 1.055 * Math.Pow(l, 1.0 / 2.4) - 0.055;
+        double y = 0.2126 * ToLinear(c.Red / 255.0) + 0.7152 * ToLinear(c.Green / 255.0) + 0.0722 * ToLinear(c.Blue / 255.0);
+        return ToSrgb(y) * 255.0;
+    }
+
+    private static ResolvedEffect BlackWhite(params (string Name, double Value)[] values)
+    {
+        var parameters = new Dictionary<string, double>
+        {
+            [EffectParamNames.Mix] = 1.0,
+            [EffectParamNames.FilterHue] = 0.0,
+            [EffectParamNames.FilterStrength] = 0.0,
+            [EffectParamNames.Exposure] = 0.0,
+            [EffectParamNames.Contrast] = 1.0,
+            [EffectParamNames.Shadows] = 0.0,
+            [EffectParamNames.Highlights] = 0.0,
+        };
+        foreach ((string name, double value) in values)
+            parameters[name] = value;
+        return new ResolvedEffect(EffectTypeIds.BlackWhite, parameters);
+    }
 
     private static ResolvedEffect WhiteBalance(double temperature, double tint) =>
         new(EffectTypeIds.WhiteBalance, new Dictionary<string, double>

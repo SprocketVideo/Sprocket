@@ -76,6 +76,19 @@ public static class EffectTypeIds
     public const string HslQualifier = "builtin.hsl.qualify";
 
     /// <summary>
+    /// Black &amp; White (film-emulation monochrome, plan/features/black-and-white.md): converts to monochrome
+    /// with a per-hue channel mixer + optical colour filter, a film-style tone response (brightness / contrast /
+    /// toe / shoulder), and a dry/wet <see cref="EffectParamNames.Mix"/>. A registry SkSL effect like the rest of
+    /// the grading toolset. Grain / vignette / toning and the preset library land in later phases.
+    /// Parameters: <see cref="EffectParamNames.Mix"/>, <see cref="EffectParamNames.FilterHue"/>,
+    /// <see cref="EffectParamNames.FilterStrength"/>, <see cref="EffectParamNames.MixReds"/> …
+    /// <see cref="EffectParamNames.MixMagentas"/>, <see cref="EffectParamNames.Exposure"/>,
+    /// <see cref="EffectParamNames.Contrast"/>, <see cref="EffectParamNames.Shadows"/>,
+    /// <see cref="EffectParamNames.Highlights"/>.
+    /// </summary>
+    public const string BlackWhite = "builtin.blackwhite";
+
+    /// <summary>
     /// Input color transform (PLAN.md steps 37, 52): converts a log-encoded source to the working/display
     /// space — DJI D-Log / D-Log M via a bundled vendor 3D LUT sampled on the GPU (step 37); every other
     /// vendor (ARRI, Sony, Panasonic, Canon, Blackmagic, Fujifilm, Nikon) via a closed-form curve + gamut
@@ -388,6 +401,36 @@ public static class EffectParamNames
     public const string HueShift = "hueShift";
     /// <summary>Mask preview toggle (≥ 0.5 shows the key as greyscale) — <see cref="EffectTypeIds.HslQualifier"/>.</summary>
     public const string ShowMask = "showMask";
+
+    // ── Black & White (plan/features/black-and-white.md). Reuses Mix (dry/wet), Exposure (brightness) and
+    // Contrast; the mixer sliders are in [-100, 100] (Lightroom's per-hue luminance convention). ──
+    /// <summary>Hue of the virtual optical filter in front of the lens, in degrees [0, 360) —
+    /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string FilterHue = "filterHue";
+    /// <summary>Optical filter strength in [0, 1] (0 = no filter) — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string FilterStrength = "filterStrength";
+    /// <summary>Per-hue luminance for reds, in [-100, 100] (positive renders that hue lighter) —
+    /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string MixReds = "mixReds";
+    /// <summary>Per-hue luminance for oranges, in [-100, 100] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string MixOranges = "mixOranges";
+    /// <summary>Per-hue luminance for yellows, in [-100, 100] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string MixYellows = "mixYellows";
+    /// <summary>Per-hue luminance for greens, in [-100, 100] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string MixGreens = "mixGreens";
+    /// <summary>Per-hue luminance for aquas, in [-100, 100] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string MixAquas = "mixAquas";
+    /// <summary>Per-hue luminance for blues, in [-100, 100] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string MixBlues = "mixBlues";
+    /// <summary>Per-hue luminance for purples, in [-100, 100] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string MixPurples = "mixPurples";
+    /// <summary>Per-hue luminance for magentas, in [-100, 100] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string MixMagentas = "mixMagentas";
+    /// <summary>Filmic toe: lift (+) or crush (−) the shadows, in [-1, 1] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string Shadows = "shadows";
+    /// <summary>Filmic shoulder: lift (+) or roll off (−) the highlights, in [-1, 1] —
+    /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string Highlights = "highlights";
 
     /// <summary>Source log profile index into <see cref="ColorProfiles.All"/> —
     /// <see cref="EffectTypeIds.ColorTransform"/>.</summary>

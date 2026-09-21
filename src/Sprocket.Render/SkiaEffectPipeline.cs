@@ -250,6 +250,8 @@ half4 main(float2 coord) {
         RegisterEffect(new Effects.ColorWheelsEffect());
         RegisterEffect(new Effects.CurvesEffect());
         RegisterEffect(new Effects.HslQualifierEffect());
+        // Black & White (plan/features/black-and-white.md) — the film-emulation monochrome effect.
+        RegisterEffect(new Effects.BlackWhiteEffect());
     }
 
     /// <summary>

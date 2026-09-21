@@ -391,6 +391,59 @@ public class EffectCatalogTests
         Assert.Equal(1.0, shimmer.Presets.Single(p => p.Name == "Drone / Infinite").Values[EffectParamNames.ShimmerAmount]);
     }
 
+    // ── Black & White, phase 1 (plan/features/black-and-white.md) ───────────────────────────────────────
+
+    [Fact]
+    public void BlackWhite_Is_Registered_As_A_Color_Effect_With_A_Unique_Short_Code()
+    {
+        EffectDescriptor? bw = EffectCatalog.Find(EffectTypeIds.BlackWhite);
+        Assert.NotNull(bw);
+        Assert.Equal("Black & White", bw!.DisplayName);
+        Assert.Equal(EffectCategory.Color, bw.Category);
+        Assert.False(EffectTypeIds.IsAudio(EffectTypeIds.BlackWhite)); // a video shader stage, not the mixer
+        Assert.Equal("BW", bw.ShortCode);
+
+        // Short codes are the tag prefix (EffectTags) and must stay unique across the built-ins.
+        List<string> codes = EffectCatalog.BuiltIns.Where(d => d.ShortCode is not null).Select(d => d.ShortCode!).ToList();
+        Assert.Equal(codes.Count, codes.Distinct().Count());
+    }
+
+    [Fact]
+    public void BlackWhite_Exposes_Its_Phase1_Conversion_And_Film_Parameters()
+    {
+        string[] names = EffectCatalog.Find(EffectTypeIds.BlackWhite)!.Parameters.Select(p => p.Name).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                EffectParamNames.Mix, EffectParamNames.FilterHue, EffectParamNames.FilterStrength,
+                EffectParamNames.MixReds, EffectParamNames.MixOranges, EffectParamNames.MixYellows,
+                EffectParamNames.MixGreens, EffectParamNames.MixAquas, EffectParamNames.MixBlues,
+                EffectParamNames.MixPurples, EffectParamNames.MixMagentas,
+                EffectParamNames.Exposure, EffectParamNames.Contrast, EffectParamNames.Shadows,
+                EffectParamNames.Highlights,
+            },
+            names);
+    }
+
+    [Fact]
+    public void BlackWhite_CreateInstance_Is_Neutral_By_Default()
+    {
+        EffectInstance bw = EffectCatalog.Find(EffectTypeIds.BlackWhite)!.CreateInstance();
+        Timing.Timecode t = Timing.Timecode.Zero;
+        Assert.Equal(1.0, bw.Parameters[EffectParamNames.Mix].Evaluate(t), 5);        // full monochrome
+        Assert.Equal(0.0, bw.Parameters[EffectParamNames.FilterStrength].Evaluate(t), 5); // no filter
+        Assert.Equal(0.0, bw.Parameters[EffectParamNames.MixReds].Evaluate(t), 5);    // flat mixer
+        Assert.Equal(1.0, bw.Parameters[EffectParamNames.Contrast].Evaluate(t), 5);
+    }
+
+    [Fact]
+    public void BlackWhite_Ships_Only_A_Neutral_Preset_In_Phase1_That_Leaves_Mix_Untouched()
+    {
+        EffectDescriptor bw = EffectCatalog.Find(EffectTypeIds.BlackWhite)!;
+        Assert.Equal(new[] { "Neutral" }, bw.Presets.Select(p => p.Name).ToArray());
+        Assert.All(bw.Presets, p => Assert.DoesNotContain(EffectParamNames.Mix, p.Values.Keys));
+    }
+
     // ── Step 41: heavy-chain traits (freeze hints) ─────────────────────────────────────────────────────
 
     [Fact]

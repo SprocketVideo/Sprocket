@@ -325,6 +325,67 @@ public static class EffectCatalog
                     Kind: ParameterKind.Toggle),
             ]) { ShortCode = "HQ" },
 
+        // ── Black & White (plan/features/black-and-white.md) — a registry SkSL effect like the grading toolset.
+        // Phase 1: conversion core + film tone response. Grain/vignette/toning and the preset library follow. ──
+        new EffectDescriptor(
+            EffectTypeIds.BlackWhite,
+            "Black & White",
+            EffectCategory.Color,
+            "Film-style monochrome: per-hue channel mixer, optical colour filter, and a tone response.",
+            [
+                // Conversion
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Amount", 1.0, 0.0, 1.0, 0.05, "%",
+                    "Blend against the colour original (100% = full monochrome, 0% = unchanged).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.FilterHue, "Filter Hue", 0.0, 0.0, 360.0, 1.0, "°",
+                    "Colour of a virtual optical filter over the lens (e.g. a red filter darkens skies)."),
+                new EffectParameterDescriptor(EffectParamNames.FilterStrength, "Filter Strength", 0.0, 0.0, 1.0, 0.05, "%",
+                    "How strongly the optical filter is applied (0% = no filter).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.MixReds, "Reds", 0.0, -100.0, 100.0, 1.0,
+                    Description: "How light or dark red tones render (positive = lighter)."),
+                new EffectParameterDescriptor(EffectParamNames.MixOranges, "Oranges", 0.0, -100.0, 100.0, 1.0,
+                    Description: "How light or dark orange tones render (positive = lighter)."),
+                new EffectParameterDescriptor(EffectParamNames.MixYellows, "Yellows", 0.0, -100.0, 100.0, 1.0,
+                    Description: "How light or dark yellow tones render (positive = lighter)."),
+                new EffectParameterDescriptor(EffectParamNames.MixGreens, "Greens", 0.0, -100.0, 100.0, 1.0,
+                    Description: "How light or dark green tones render (positive = lighter)."),
+                new EffectParameterDescriptor(EffectParamNames.MixAquas, "Aquas", 0.0, -100.0, 100.0, 1.0,
+                    Description: "How light or dark aqua tones render (positive = lighter)."),
+                new EffectParameterDescriptor(EffectParamNames.MixBlues, "Blues", 0.0, -100.0, 100.0, 1.0,
+                    Description: "How light or dark blue tones render (positive = lighter)."),
+                new EffectParameterDescriptor(EffectParamNames.MixPurples, "Purples", 0.0, -100.0, 100.0, 1.0,
+                    Description: "How light or dark purple tones render (positive = lighter)."),
+                new EffectParameterDescriptor(EffectParamNames.MixMagentas, "Magentas", 0.0, -100.0, 100.0, 1.0,
+                    Description: "How light or dark magenta tones render (positive = lighter)."),
+                // Film (tone response)
+                new EffectParameterDescriptor(EffectParamNames.Exposure, "Brightness", 0.0, -3.0, 3.0, 0.1, "EV",
+                    "Brightens or darkens the monochrome image, in photographic stops."),
+                new EffectParameterDescriptor(EffectParamNames.Contrast, "Contrast", 1.0, 0.0, 2.0, 0.05,
+                    Description: "Steepens or flattens the tones around mid-grey (1.0 = unchanged)."),
+                new EffectParameterDescriptor(EffectParamNames.Shadows, "Shadows", 0.0, -1.0, 1.0, 0.05,
+                    Description: "Lifts (+) or crushes (−) the darkest tones — the film toe."),
+                new EffectParameterDescriptor(EffectParamNames.Highlights, "Highlights", 0.0, -1.0, 1.0, 0.05,
+                    Description: "Lifts (+) or rolls off (−) the brightest tones — the film shoulder."),
+            ])
+        {
+            ShortCode = "BW",
+            // Phase 1 ships a single Neutral preset (the reset) so the preset row exists from day one. It sets
+            // every conversion/film parameter back to its default but leaves Mix untouched (the Studio Reverb
+            // rule) so resetting the look keeps the user's dry/wet blend. The full library lands in phases 4–5.
+            Presets =
+            [
+                new EffectPreset("Neutral", new Dictionary<string, double>
+                {
+                    [EffectParamNames.FilterHue] = 0.0, [EffectParamNames.FilterStrength] = 0.0,
+                    [EffectParamNames.MixReds] = 0.0, [EffectParamNames.MixOranges] = 0.0,
+                    [EffectParamNames.MixYellows] = 0.0, [EffectParamNames.MixGreens] = 0.0,
+                    [EffectParamNames.MixAquas] = 0.0, [EffectParamNames.MixBlues] = 0.0,
+                    [EffectParamNames.MixPurples] = 0.0, [EffectParamNames.MixMagentas] = 0.0,
+                    [EffectParamNames.Exposure] = 0.0, [EffectParamNames.Contrast] = 1.0,
+                    [EffectParamNames.Shadows] = 0.0, [EffectParamNames.Highlights] = 0.0,
+                }),
+            ],
+        },
+
         new EffectDescriptor(
             EffectTypeIds.ColorTransform,
             "Input Color Transform",
