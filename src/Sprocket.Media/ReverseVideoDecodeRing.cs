@@ -24,9 +24,10 @@ public sealed class ReverseVideoDecodeRing : IAsyncDisposable
 {
     private readonly record struct Item(long Generation, VideoFrame? Frame);
 
-    private readonly MediaSource _source;
+    private MediaSource _source;                     // swapped in place on a one-shot hardware→software fallback (§11)
     private readonly VideoFramePool _pool;
-    private readonly GopFrameWindow _window;
+    private GopFrameWindow _window;                   // rebuilt over the software source when the fallback fires
+    private readonly int _windowCapacity;            // retained so the window can be rebuilt on fallback
     private readonly Channel<Item> _channel;
     private readonly CancellationTokenSource _stop = new();
     private readonly object _gate = new();
@@ -38,6 +39,7 @@ public sealed class ReverseVideoDecodeRing : IAsyncDisposable
     private long _writeGeneration;
     private bool _atStart;          // walked back to source time zero: park until a seek
     private Timecode? _nextTarget;  // where the next window fill ends (exclusive of frames already emitted)
+    private bool _softwareFallbackDone; // one-shot: only fall back from hardware to software once
     private Task? _worker;
     private bool _disposed;
 
@@ -56,6 +58,7 @@ public sealed class ReverseVideoDecodeRing : IAsyncDisposable
 
         _source = source;
         _pool = new VideoFramePool(source.Info.Width, source.Info.Height);
+        _windowCapacity = windowCapacity;
         _window = new GopFrameWindow(source, _pool, windowCapacity);
         _channel = Channel.CreateBounded<Item>(new BoundedChannelOptions(capacity)
         {
@@ -135,18 +138,26 @@ public sealed class ReverseVideoDecodeRing : IAsyncDisposable
                 }
 
                 // Serve the window newest-first; refill it below its earliest frame when it runs dry.
-                VideoFrame? frame = _window.Take();
-                if (frame is null)
+                VideoFrame? frame;
+                try
                 {
-                    if (_nextTarget is not { } target || target.Ticks < 0 || _window.FillUpTo(target) == 0)
+                    frame = _window.Take();
+                    if (frame is null)
                     {
-                        _atStart = true;
-                        await WriteAsync(new Item(_writeGeneration, null), writeToken).ConfigureAwait(false);
+                        if (_nextTarget is not { } target || target.Ticks < 0 || _window.FillUpTo(target) == 0)
+                        {
+                            _atStart = true;
+                            await WriteAsync(new Item(_writeGeneration, null), writeToken).ConfigureAwait(false);
+                            continue;
+                        }
+                        // The next fill must end strictly before this window's earliest frame (past the match tolerance).
+                        _nextTarget = GopFrameWindow.JustBefore(_window.FirstPts!.Value);
                         continue;
                     }
-                    // The next fill must end strictly before this window's earliest frame (past the match tolerance).
-                    _nextTarget = GopFrameWindow.JustBefore(_window.FirstPts!.Value);
-                    continue;
+                }
+                catch (Exception ex) when (!stop.IsCancellationRequested && TryFallBackToSoftware(ex))
+                {
+                    continue; // reopened this source in software; the next fill re-decodes from _nextTarget
                 }
 
                 await WriteAsync(new Item(_writeGeneration, frame), writeToken).ConfigureAwait(false);
@@ -159,6 +170,37 @@ public sealed class ReverseVideoDecodeRing : IAsyncDisposable
         }
 
         _channel.Writer.TryComplete();
+    }
+
+    /// <summary>
+    /// One-shot runtime fallback (ARCHITECTURE.md §11): when the hardware decoder throws <em>during</em> a window
+    /// refill, dispose it and the window, reopen the same media in software, and rebuild the window over it. The
+    /// worker's next iteration re-fills from the unchanged <see cref="_nextTarget"/> (its own seek), so no resume
+    /// point is needed here. Returns <see langword="false"/> — leaving the exception to surface — when already in
+    /// software, when the reopen itself fails, or after a previous fallback.
+    /// </summary>
+    private bool TryFallBackToSoftware(Exception ex)
+    {
+        _ = ex; // the caught error is diagnostic only; the reopen either succeeds or we rethrow the original
+        if (_softwareFallbackDone || !_source.DecodeInfo.IsHardwareAccelerated)
+            return false;
+
+        MediaSource software;
+        try
+        {
+            software = _source.ReopenInSoftware();
+        }
+        catch
+        {
+            return false; // software reopen failed too → let the original decode error complete the channel
+        }
+
+        _softwareFallbackDone = true;
+        _window.Dispose();
+        _source.Dispose();
+        _source = software;
+        _window = new GopFrameWindow(_source, _pool, _windowCapacity);
+        return true;
     }
 
     private CancellationToken ApplyPendingSeek()

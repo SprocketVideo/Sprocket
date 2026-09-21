@@ -29,7 +29,7 @@ public sealed class VideoDecodeRing : IAsyncDisposable
     // A channel item carries the generation it was decoded under; a null frame is the end-of-stream marker.
     private readonly record struct Item(long Generation, VideoFrame? Frame);
 
-    private readonly MediaSource _source;
+    private MediaSource _source;                     // swapped in place on a one-shot hardware→software fallback (§11)
     private readonly VideoFramePool _pool;
     private readonly Channel<Item> _channel;
     private readonly CancellationTokenSource _stop = new();
@@ -41,6 +41,7 @@ public sealed class VideoDecodeRing : IAsyncDisposable
     private long _currentGeneration;                // latest requested generation; frames older than this are stale
     private long _writeGeneration;                  // generation the worker currently tags frames with
     private bool _atEof;
+    private bool _softwareFallbackDone;              // one-shot: only fall back from hardware to software once
     private Task? _worker;
     private bool _disposed;
 
@@ -133,11 +134,19 @@ public sealed class VideoDecodeRing : IAsyncDisposable
                     continue;
                 }
 
-                if (!_source.TryDecodeNextFrame(_pool, out VideoFrame? frame))
+                VideoFrame? frame;
+                try
                 {
-                    _atEof = true;
-                    await WriteAsync(new Item(_writeGeneration, null), writeToken).ConfigureAwait(false);
-                    continue;
+                    if (!_source.TryDecodeNextFrame(_pool, out frame))
+                    {
+                        _atEof = true;
+                        await WriteAsync(new Item(_writeGeneration, null), writeToken).ConfigureAwait(false);
+                        continue;
+                    }
+                }
+                catch (Exception ex) when (!stop.IsCancellationRequested && TryFallBackToSoftware(ex))
+                {
+                    continue; // reopened this source in software; resume decoding from the failure point
                 }
 
                 await WriteAsync(new Item(_writeGeneration, frame), writeToken).ConfigureAwait(false);
@@ -150,6 +159,42 @@ public sealed class VideoDecodeRing : IAsyncDisposable
         }
 
         _channel.Writer.TryComplete();
+    }
+
+    /// <summary>
+    /// One-shot runtime fallback (ARCHITECTURE.md §11): when a hardware decoder that opened cleanly throws
+    /// <em>during</em> decode, dispose it and reopen the same media in software, then re-seek to the last frame
+    /// we emitted (or the pending seek target, else the start) so the worker resumes where it left off. Returns
+    /// <see langword="false"/> — leaving the exception to surface — when already in software, when the reopen
+    /// itself fails, or after a previous fallback.
+    /// </summary>
+    private bool TryFallBackToSoftware(Exception ex)
+    {
+        _ = ex; // the caught error is diagnostic only; the reopen either succeeds or we rethrow the original
+        if (_softwareFallbackDone || !_source.DecodeInfo.IsHardwareAccelerated)
+            return false;
+
+        MediaSource software;
+        try
+        {
+            software = _source.ReopenInSoftware();
+        }
+        catch
+        {
+            return false; // software reopen failed too → let the original decode error complete the channel
+        }
+
+        _softwareFallbackDone = true;
+
+        Timecode resume;
+        lock (_gate)
+            resume = _source.LastDecodedPts ?? _pendingSeek ?? Timecode.Zero;
+
+        _source.Dispose();
+        _source = software;
+        _source.SeekTo(resume);
+        _atEof = false;
+        return true;
     }
 
     /// <summary>Applies any pending seek and returns the (cached) token that cancels when the next seek arrives.</summary>

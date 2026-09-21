@@ -54,6 +54,7 @@ public sealed unsafe class MediaSource : IDisposable
     private readonly IHardwareContext? _hwDevice;   // null when decoding in software
     private readonly int _hwPixelFormat;            // the GPU frame format to expect when hw is active
     private readonly AvFrameHandle? _hwTransfer;    // CPU frame the GPU frame is downloaded into
+    private readonly MediaOpenRequest _request;     // how this source was opened, so it can reopen in software (§11)
 
     private bool _inputEof;     // ReadFrame returned no more packets
     private bool _flushed;      // sent the end-of-stream flush packet to the decoder
@@ -62,7 +63,7 @@ public sealed unsafe class MediaSource : IDisposable
 
     private MediaSource(
         FormatContextHandle format, CodecContextHandle decoder, int videoIndex, AvRational videoTimeBase,
-        ProbedMediaInfo info, IHardwareContext? hwDevice, int hwPixelFormat)
+        ProbedMediaInfo info, IHardwareContext? hwDevice, int hwPixelFormat, MediaOpenRequest request)
     {
         _format = format;
         _decoder = decoder;
@@ -71,6 +72,7 @@ public sealed unsafe class MediaSource : IDisposable
         _hwDevice = hwDevice;
         _hwPixelFormat = hwPixelFormat;
         _hwTransfer = hwDevice is null ? null : new AvFrameHandle();
+        _request = request;
         Info = info;
     }
 
@@ -88,6 +90,21 @@ public sealed unsafe class MediaSource : IDisposable
 
     /// <summary>How this source's video decodes — codec + hardware device — for the diagnostics overlay.</summary>
     public VideoDecodeInfo DecodeInfo => new(_decoder.CodecName, HardwareDeviceName);
+
+    /// <summary>
+    /// The presentation timestamp of the last frame this source successfully decoded, or <see langword="null"/>
+    /// before any frame is produced. Lets a caller resume near where a hardware decoder failed mid-stream when it
+    /// reopens in software (see <see cref="ReopenInSoftware"/>).
+    /// </summary>
+    public Timecode? LastDecodedPts { get; private set; }
+
+    /// <summary>
+    /// Opens a fresh <see cref="MediaSource"/> over the same media this one was opened from, forced to software
+    /// decode (<see cref="HardwareAccelMode.Disabled"/>). This is the runtime fallback for a hardware decoder that
+    /// opened cleanly but then failed <em>during</em> decode (ARCHITECTURE.md §11): the caller swaps the returned
+    /// source in, re-seeks it, and resumes — this instance is left untouched (the caller disposes it).
+    /// </summary>
+    internal MediaSource ReopenInSoftware() => Open(_request, HardwareAccelMode.Disabled);
 
     /// <summary>
     /// Opens and probes <paramref name="path"/>, opening its video decoder. Throws if the file cannot be
@@ -150,7 +167,7 @@ public sealed unsafe class MediaSource : IDisposable
             }
 
             ProbedMediaInfo info = Probe(format, videoStream, decoder);
-            return new MediaSource(format, decoder, videoIndex, videoTimeBase, info, hw, hwFmt);
+            return new MediaSource(format, decoder, videoIndex, videoTimeBase, info, hw, hwFmt, request);
         }
         catch
         {
@@ -514,6 +531,7 @@ public sealed unsafe class MediaSource : IDisposable
             // Carry the source's alpha flag onto the frame (probed once at open) so the compositor knows to take the
             // premultiplied-alpha path for this layer rather than treating the RGBA buffer as opaque (PLAN.md step 26).
             rgba.HasAlpha = Info.HasAlpha;
+            LastDecodedPts = rgba.Pts; // resume point for a software reopen if hardware decode later fails (§11)
             frame = rgba;
             return true;
         }

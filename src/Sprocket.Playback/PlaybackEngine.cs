@@ -806,12 +806,30 @@ public sealed class PlaybackEngine : IAsyncDisposable
             _wasInCache = inCache;
         }
 
+        // Isolate per-track decode faults so one broken track can't abort the tick before the clock-driven
+        // playhead is reported. A decode error (e.g. an unrecoverable hardware-decode failure the Media layer's
+        // software fallback couldn't rescue, or a genuinely corrupt clip) would otherwise escape here — before
+        // PositionChanged / HandleEnd below — and, since the transport is already flagged Playing, freeze the
+        // playhead, scrubber, time readout and audio while the button still reads Pause. Surface it via PumpError
+        // (same status line as the loop-level catch) and let the method fall through: the broken track promotes
+        // nothing, the other tracks and the clock keep advancing.
         bool promoted = false;
-        if (inCache)
-            promoted = await _cachePlayer!.PumpAsync(pos, force, ct).ConfigureAwait(false);
-        else
-            foreach (VideoTrackPlayer player in _players)
-                promoted |= await player.PumpAsync(pos, force, ct).ConfigureAwait(false);
+        try
+        {
+            if (inCache)
+                promoted = await _cachePlayer!.PumpAsync(pos, force, ct).ConfigureAwait(false);
+            else
+                foreach (VideoTrackPlayer player in _players)
+                    promoted |= await player.PumpAsync(pos, force, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw; // cancellation is teardown, not a decode fault — let PumpLoopAsync unwind
+        }
+        catch (Exception ex)
+        {
+            PumpError?.Invoke(ex);
+        }
 
         // Health counters for the diagnostics overlay (cumulative; read via GetStatistics).
         Interlocked.Increment(ref _pumpCount);

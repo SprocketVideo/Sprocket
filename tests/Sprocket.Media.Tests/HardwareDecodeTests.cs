@@ -69,6 +69,49 @@ public class HardwareDecodeTests
     }
 
     [Fact]
+    public void ReopenInSoftware_Produces_A_Working_Software_Source()
+    {
+        // The runtime hw→sw fallback (ARCHITECTURE.md §11, VideoDecodeRing): a decoder that fails mid-stream reopens
+        // the same media forced to software. The reopened source must decode with no hardware device attached.
+        using MediaSource original = MediaSource.Open(TestVideo.Path, HardwareAccelMode.Auto);
+        using MediaSource software = original.ReopenInSoftware();
+
+        Assert.Null(software.HardwareDeviceName);
+
+        var pool = new VideoFramePool(software.Info.Width, software.Info.Height);
+        bool decoded = software.TryDecodeNextFrame(pool, out VideoFrame? frame);
+        Assert.True(decoded);
+        Assert.Equal(0, frame!.Pts.Ticks);
+        frame.Dispose();
+        pool.Dispose();
+    }
+
+    [Fact]
+    public void ReopenInSoftware_Can_Resume_Near_The_Last_Decoded_Pts()
+    {
+        // The fallback re-seeks the software source to the last frame the failed decoder emitted, so playback
+        // resumes where it stalled rather than restarting. Decode a few frames, then reopen + seek to that PTS.
+        using MediaSource original = MediaSource.Open(TestVideo.Path, HardwareAccelMode.Auto);
+        var pool = new VideoFramePool(original.Info.Width, original.Info.Height);
+
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.True(original.TryDecodeNextFrame(pool, out VideoFrame? f));
+            f!.Dispose();
+        }
+        Timecode resume = original.LastDecodedPts!.Value;
+        Assert.Equal(4 * FrameTicks, resume.Ticks);
+
+        using MediaSource software = original.ReopenInSoftware();
+        software.SeekTo(resume);
+        Assert.True(software.TryDecodeNextFrame(pool, out VideoFrame? resumed));
+        // Decode-to-target lands on the frame at/just after the requested PTS.
+        Assert.True(resumed!.Pts.Ticks >= resume.Ticks);
+        resumed.Dispose();
+        pool.Dispose();
+    }
+
+    [Fact]
     public void Reports_The_Compiled_Hardware_Types()
     {
         // The bundled FFmpeg is built with hardware support; the list is non-empty on a desktop build.
