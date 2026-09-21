@@ -1,6 +1,7 @@
 using SkiaSharp;
 using Sprocket.Core.Model;
 using Sprocket.Core.Rendering;
+using Sprocket.Core.Stabilization;
 using Sprocket.Core.Timing;
 
 namespace Sprocket.Render;
@@ -83,6 +84,26 @@ half4 main(float2 coord) {
     float2 c = float2(m.x * coord.x + m.y * coord.y + t.x,
                       m.z * coord.x + m.w * coord.y + t.y);
     return src.eval(c) * opacity;
+}";
+
+    // Stabilization (plan/features/stabilization.md) — the geometric camera-shake correction. The C# side
+    // solves the clip's motion track into a per-frame output→source warp, folds it with the layer-rectangle
+    // normalisation so the shader can work directly in canvas coordinates, and passes the resulting projective
+    // 3×3 as three rows (r0, r1, r2). The shader maps each output coordinate back to a source coordinate
+    // (perspective divide by the third row, so the same program serves Similarity now and Perspective in
+    // phase 7) and samples. Like Transform, the root image shader uses Decal tiling when a stabilization is
+    // present, so where the corrected frame moves off the source (Zoom off / "Stabilize Only") the borders
+    // read transparent rather than smearing the edge.
+    private const string StabilizeSksl = @"
+uniform shader src;
+uniform float3 r0;   // output→source row 0 (canvas coords)
+uniform float3 r1;   // row 1
+uniform float3 r2;   // row 2 (0,0,1 for Similarity; a real projective row for Perspective)
+half4 main(float2 coord) {
+    float3 p = float3(coord, 1.0);
+    float w = dot(r2, p);
+    float2 s = float2(dot(r0, p), dot(r1, p)) / w;
+    return src.eval(s);
 }";
 
     // Input color transform (PLAN.md step 37) — converts a log-encoded source (DJI D-Log / D-Log M) to
@@ -344,6 +365,7 @@ half4 main(float2 coord) {
     private readonly SKRuntimeEffect _fade;
     private readonly SKRuntimeEffect _color;
     private readonly SKRuntimeEffect _transform;
+    private readonly SKRuntimeEffect _stabilize;
     private readonly SKRuntimeEffect _colorTransform;
     private readonly SKRuntimeEffect _colorTransformCurve;
     private readonly SKRuntimeEffect _crossDissolve;
@@ -354,7 +376,21 @@ half4 main(float2 coord) {
     private readonly List<SKShader> _scratch = new(); // shaders built for the current draw, disposed after it
     private readonly List<SKImage> _scratchImages = new(); // CPU-stage outputs wrapped for the current draw
     private readonly CpuEffectStage _cpuStage = new();
+    private readonly StabilizationSolveCache _stabCache = new();
     private bool _disposed;
+
+    /// <summary>
+    /// The motion-track source for the <see cref="EffectTypeIds.Stabilization"/> stage
+    /// (plan/features/stabilization.md). The App sets it to its analysis service on both the preview and export
+    /// pipelines (phase 5); a <see langword="null"/> provider — or a miss for a source not analysed yet — means
+    /// every stabilization renders as pass-through until a track is available.
+    /// </summary>
+    public IMotionTrackProvider? MotionTracks { get; set; }
+
+    /// <summary>The number of times a stabilization solve was actually computed (a cache miss). Rendering the same
+    /// frame under unchanged (track, settings, size) reuses the cached solution and does not increment it — the
+    /// "tune without re-analysing / re-solving" guarantee (§5); exposed for the zero-re-solve test.</summary>
+    public int StabilizationSolveCount => _stabCache.SolveCount;
 
     /// <summary>
     /// The timeline time of the frame being drawn, in seconds — handed to CPU effects whose plugins take a time
@@ -378,6 +414,8 @@ half4 main(float2 coord) {
             ?? throw new InvalidOperationException($"Color SkSL failed to compile: {colorErr}");
         _transform = SKRuntimeEffect.CreateShader(TransformSksl, out string transformErr)
             ?? throw new InvalidOperationException($"Transform SkSL failed to compile: {transformErr}");
+        _stabilize = SKRuntimeEffect.CreateShader(StabilizeSksl, out string stabilizeErr)
+            ?? throw new InvalidOperationException($"Stabilize SkSL failed to compile: {stabilizeErr}");
         _colorTransform = SKRuntimeEffect.CreateShader(ColorTransformSksl, out string colorTransformErr)
             ?? throw new InvalidOperationException($"Color-transform SkSL failed to compile: {colorTransformErr}");
         _colorTransformCurve = SKRuntimeEffect.CreateShader(ColorTransformCurveSksl, out string colorTransformCurveErr)
@@ -594,7 +632,7 @@ half4 main(float2 coord) {
                     continue;
                 }
 
-                SKShader? next = BuildEffectShader(effect, shader, dest);
+                SKShader? next = BuildEffectShader(effect, shader, dest, image.Width, image.Height);
                 if (next is null)
                 {
                     _cpuStage.Forget(effect.EffectTypeId); // in case it was a CPU effect that has since been unregistered
@@ -757,20 +795,27 @@ half4 main(float2 coord) {
         _paint.BlendMode = SKBlendMode.SrcOver;
     }
 
+    // A geometric stage can sample outside the frame, so the root image shader must use Decal tiling (out-of-frame
+    // reads transparent) rather than edge-clamping. Transform and Stabilization are the two such stages.
     private static bool HasTransform(IReadOnlyList<ResolvedEffect> effects)
     {
         for (int i = 0; i < effects.Count; i++)
-            if (effects[i].EffectTypeId == EffectTypeIds.Transform)
+        {
+            string id = effects[i].EffectTypeId;
+            if (id == EffectTypeIds.Transform || id == EffectTypeIds.Stabilization)
                 return true;
+        }
         return false;
     }
 
     /// <summary>
     /// Builds the shader for one effect wrapping <paramref name="src"/> (the previous stage), or
     /// <see langword="null"/> for an effect type with no Render binding (skipped). <paramref name="dest"/> is
-    /// the layer's canvas rectangle, needed to anchor the geometric <see cref="EffectTypeIds.Transform"/>.
+    /// the layer's canvas rectangle, needed to anchor the geometric <see cref="EffectTypeIds.Transform"/>;
+    /// <paramref name="srcWidth"/>/<paramref name="srcHeight"/> are the source frame's pixel dimensions, which
+    /// key the stabilization solve (its aspect drives the crop/zoom budget).
     /// </summary>
-    private SKShader? BuildEffectShader(ResolvedEffect effect, SKShader src, SKRect dest)
+    private SKShader? BuildEffectShader(ResolvedEffect effect, SKShader src, SKRect dest, int srcWidth, int srcHeight)
     {
         switch (effect.EffectTypeId)
         {
@@ -807,6 +852,9 @@ half4 main(float2 coord) {
 
             case EffectTypeIds.Transform:
                 return BuildTransformShader(effect, src, dest);
+
+            case EffectTypeIds.Stabilization:
+                return BuildStabilizationShader(effect, src, dest, srcWidth, srcHeight);
 
             case EffectTypeIds.ColorTransform:
                 return BuildColorTransformShader(effect, src);
@@ -961,6 +1009,95 @@ half4 main(float2 coord) {
         return _transform.ToShader(uniforms, children);
     }
 
+    /// <summary>
+    /// Builds the stabilization shader (plan/features/stabilization.md): looks the frame's motion track up through
+    /// <see cref="MotionTracks"/>, solves it (cached) into a per-frame output→source warp, picks this frame's
+    /// matrix by <see cref="ResolvedEffect.SourceTime"/>, and folds it with the layer-rectangle normalisation so
+    /// the shader maps output canvas coordinates straight to source canvas coordinates. Returns
+    /// <see langword="null"/> — a pass-through — when there is no provider, no source-media context, or no track
+    /// yet (source not analysed), so an unanalysed clip renders unchanged until analysis completes.
+    /// </summary>
+    private SKShader? BuildStabilizationShader(ResolvedEffect effect, SKShader src, SKRect dest, int srcWidth, int srcHeight)
+    {
+        if (MotionTracks is null || effect.MediaRefId is not { } mediaId)
+            return null; // no provider / no source-media context → pass-through
+
+        StabilizationSettings settings = StabilizationSettings.FromResolvedEffect(effect);
+        MotionTrack? track = MotionTracks.TryGetTrack(mediaId, effect.SourceTime, settings.DetailedAnalysis);
+        if (track is null || track.FrameCount == 0)
+            return null; // not analysed yet (or the range doesn't cover this time) → pass-through
+
+        StabilizationSolution solution = _stabCache.Get(track, settings, srcWidth, srcHeight);
+        if (solution.FrameCount == 0)
+            return null;
+
+        int idx = FrameIndexFor(solution.FramePts, effect.SourceTime.Ticks);
+        double[] m = solution.OutputToSource[idx]; // output→source, centred width-normalised isotropic coords
+
+        // Fold Ninv · M · N so the shader can map an output canvas coordinate to a source canvas coordinate
+        // directly. N maps a canvas point (x, y) to the solver's centred, width-normalised space
+        // (nx = (x − cx0)/W, ny = (y − cy0)/W); Ninv is its inverse. Because the layer's destination rectangle
+        // preserves the source aspect (Fit/Fill both do), width-normalising in canvas space matches the solve.
+        double cx0 = dest.MidX, cy0 = dest.MidY, w = dest.Width;
+        double[] n =
+        [
+            1.0 / w, 0.0, -cx0 / w,
+            0.0, 1.0 / w, -cy0 / w,
+            0.0, 0.0, 1.0,
+        ];
+        double[] nInv =
+        [
+            w, 0.0, cx0,
+            0.0, w, cy0,
+            0.0, 0.0, 1.0,
+        ];
+        double[] t = Mul3(nInv, Mul3(m, n));
+
+        var uniforms = new SKRuntimeEffectUniforms(_stabilize)
+        {
+            ["r0"] = new[] { (float)t[0], (float)t[1], (float)t[2] },
+            ["r1"] = new[] { (float)t[3], (float)t[4], (float)t[5] },
+            ["r2"] = new[] { (float)t[6], (float)t[7], (float)t[8] },
+        };
+        var children = new SKRuntimeEffectChildren(_stabilize) { ["src"] = src };
+        return _stabilize.ToShader(uniforms, children);
+    }
+
+    /// <summary>Row-major 3×3 product <c>A·B</c>.</summary>
+    private static double[] Mul3(double[] a, double[] b) =>
+    [
+        a[0] * b[0] + a[1] * b[3] + a[2] * b[6], a[0] * b[1] + a[1] * b[4] + a[2] * b[7], a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+        a[3] * b[0] + a[4] * b[3] + a[5] * b[6], a[3] * b[1] + a[4] * b[4] + a[5] * b[7], a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+        a[6] * b[0] + a[7] * b[3] + a[8] * b[6], a[6] * b[1] + a[7] * b[4] + a[8] * b[7], a[6] * b[2] + a[7] * b[5] + a[8] * b[8],
+    ];
+
+    /// <summary>The index of the track frame whose presentation time is the greatest not exceeding
+    /// <paramref name="t"/> (binary search; clamped to the ends). No allocation — the per-frame lookup path.</summary>
+    private static int FrameIndexFor(IReadOnlyList<long> pts, long t)
+    {
+        int hi = pts.Count - 1;
+        if (hi <= 0)
+            return 0;
+        if (t <= pts[0])
+            return 0;
+        if (t >= pts[hi])
+            return hi;
+
+        int lo = 0;
+        while (lo <= hi)
+        {
+            int mid = (int)(((uint)lo + (uint)hi) >> 1);
+            long v = pts[mid];
+            if (v == t)
+                return mid;
+            if (v < t)
+                lo = mid + 1;
+            else
+                hi = mid - 1;
+        }
+        return Math.Max(0, lo - 1);
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -983,6 +1120,7 @@ half4 main(float2 coord) {
         _fade.Dispose();
         _color.Dispose();
         _transform.Dispose();
+        _stabilize.Dispose();
         _colorTransform.Dispose();
         _colorTransformCurve.Dispose();
         _crossDissolve.Dispose();

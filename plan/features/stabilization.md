@@ -1,6 +1,6 @@
 # Video stabilization (adaptive smoothing, per-channel, focus-breathing lock)
 
-🟡 **Partial — phases 1–3 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
+🟡 **Partial — phases 1–4 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
 number yet); tracked in [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** a `Stabilization` effect (`builtin.stabilization`, short code `ST`, category
@@ -199,11 +199,21 @@ session prompt: "Implement phase N of plan/features/stabilization.md".
   near-identity, moving-crop shake ⇒ integrated translation matches the analytic 2×24 / 2×16 px swing (detrended),
   pumping-zoom ⇒ recovered scale wobble ~0.06, cancellation stops within one frame, and the analysed track survives
   a `Write`/`Read` round-trip.
-- [ ] **Phase 4 — Render shader + solve cache + provider seam**: `StabilizeSksl` + `case Stabilization`,
-  `HasTransform` extended for transparent borders; `pipeline.MotionTracks` provider (null/miss ⇒ pass-through);
-  `StabilizationSolveCache` (key = track ref + settings snapshot; binary search by `SourceTime`; zero per-frame
-  alloc). Tests (CPU backend, fake provider): identity pass-through, translate moves a marker, zoom + Scale Lock
-  keeps a marker stationary, null provider pass-through, unchanged params ⇒ 0 managed bytes.
+- [x] **Phase 4 — Render shader + solve cache + provider seam** (2026-09-21): `SkiaEffectPipeline` gained
+  `StabilizeSksl` (a projective `float3 r0/r1/r2` output→source map — Similarity now, Perspective-ready — with
+  Decal borders), a `case EffectTypeIds.Stabilization` in `BuildEffectShader`, and `HasTransform` extended so a
+  stabilized layer's root image tiles Decal (off-source borders read transparent). New
+  `public IMotionTrackProvider? MotionTracks` seam: `BuildStabilizationShader` pulls the frame's track (by
+  `MediaRefId` + `SourceTime`), solves it through the new per-pipeline `StabilizationSolveCache`
+  (`StabilizationSolveCache.cs`; key = track ref + settings snapshot + frame size, cleared past 64 entries),
+  binary-searches the cached solution's `FramePts` for this frame's matrix, and folds `Ninv·M·N` so the shader
+  maps output canvas coords straight to source canvas coords (the layer rect preserves the source aspect, so
+  width-normalising in canvas space matches the solve). A null provider, missing `MediaRefId`, or a not-yet-analysed
+  source all render pass-through. `StabilizationSolveCount` exposes the miss count for the zero-re-solve test.
+  Tests (`Sprocket.Render.Tests/StabilizationRenderTests`, CPU backend, fake provider): null-provider and
+  no-track-yet pass-through, identity track pass-through, Camera-Lock pan removal moves the centre marker to the
+  solve-predicted pixel, Scale-Lock (first-frame ref) scales about the centre (centre marker fixed, off-centre
+  marker pulled inward to the predicted pixel), and five frames of one clip solve exactly once.
 - [ ] **Phase 5 — App service, cache, wiring, minimal Inspector row (first end-to-end)**: `AnalysisCache`
   (copy `ProxyCache`), `StabilizationService : IMotionTrackProvider` (copy `ProxyService`); composition-root
   wiring on preview **and** export pipelines; `TrackChanged` → preview repaint + render-cache invalidation;
