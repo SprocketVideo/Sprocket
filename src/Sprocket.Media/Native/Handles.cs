@@ -105,7 +105,11 @@ internal sealed unsafe class FormatContextHandle : IDisposable
     }
 
     /// <summary>Reads one packet; false at end of stream (or read error — the consumer then drains).</summary>
-    public bool ReadFrame(AvPacketHandle packet) => LibAv.av_read_frame(_p, packet.Ptr) >= 0;
+    public bool ReadFrame(AvPacketHandle packet)
+    {
+        packet.Unref();
+        return LibAv.av_read_frame(_p, packet.Ptr) >= 0;
+    }
 
     public void SeekFrame(long timestamp, int streamIndex, int flags)
         => FFmpegError.Check(LibAv.av_seek_frame(_p, streamIndex, timestamp, flags), "av_seek_frame");

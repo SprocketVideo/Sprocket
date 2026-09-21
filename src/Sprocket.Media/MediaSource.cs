@@ -571,6 +571,10 @@ public sealed unsafe class MediaSource : IDisposable
 
         long targetPts = MediaTime.ToStreamTimestamp(target, _videoTimeBase);
 
+        _packet.Unref();
+        _yuv.Unref();
+        _hwTransfer?.Unref();
+
         // AVSEEK_FLAG_BACKWARD: land on the I-frame at or before the target so the GOP decodes cleanly.
         _format.SeekFrame(targetPts, _videoIndex, AvConst.SeekBackward);
         _decoder.FlushBuffers();

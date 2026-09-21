@@ -78,6 +78,15 @@ public sealed record UserSettings(
     /// and for old settings files written before the field existed (additive contract).
     /// </summary>
     public IReadOnlyList<string> DisabledPlugins { get; init; } = [];
+
+    /// <summary>
+    /// The most-recently opened/saved project files, newest first, for the File ▸ Open Recent submenu. Capped
+    /// at <see cref="UserSettingsStore.MaxRecentProjects"/> and de-duplicated (see
+    /// <see cref="UserSettingsStore.PushRecent"/>). A body property (not a positional parameter) for the same
+    /// reason as <see cref="DisabledPlugins"/> — a list has no compile-time-constant default; empty for a fresh
+    /// install and for old settings files written before the field existed (additive contract).
+    /// </summary>
+    public IReadOnlyList<string> RecentProjects { get; init; } = [];
 }
 
 /// <summary>
@@ -101,6 +110,9 @@ public static class UserSettingsStore
 
     /// <inheritdoc cref="MinStillSeconds"/>
     public const double MaxStillSeconds = 3600;
+
+    /// <summary>Maximum number of File ▸ Open Recent entries kept (matches Premiere/Resolve's default depth).</summary>
+    public const int MaxRecentProjects = 10;
 
     /// <summary>MCP port bounds (non-privileged TCP range).</summary>
     public const int MinPort = 1024;
@@ -153,7 +165,45 @@ public static class UserSettingsStore
         // this list by reference, so collapsing every empty form to one shared instance keeps two settings that
         // differ only in "no plugins disabled" comparing equal (and a round-tripped default stays a default).
         DisabledPlugins = settings.DisabledPlugins is null or { Count: 0 } ? [] : settings.DisabledPlugins,
+        // De-duplicate and cap the recent list the same way a fresh push does, so a hand-edited file can't
+        // smuggle in duplicates or an unbounded list; null / empty collapses to the shared empty array.
+        RecentProjects = settings.RecentProjects is null or { Count: 0 }
+            ? []
+            : Dedupe(settings.RecentProjects),
     };
+
+    /// <summary>
+    /// Returns <paramref name="current"/> with <paramref name="path"/> promoted to the front — the newest-first,
+    /// case-insensitively de-duplicated, <see cref="MaxRecentProjects"/>-capped list behind File ▸ Open Recent.
+    /// A blank path is a no-op (returns the list unchanged). Pure, so it is headlessly unit-tested.
+    /// </summary>
+    public static IReadOnlyList<string> PushRecent(IReadOnlyList<string>? current, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return current ?? [];
+        var ordered = new List<string> { path };
+        if (current is not null)
+            ordered.AddRange(current);
+        return Dedupe(ordered);
+    }
+
+    /// <summary>De-duplicates newest-first (first occurrence wins) and caps at <see cref="MaxRecentProjects"/>.
+    /// Paths compare case-insensitively — correct on Windows (the primary platform) and a harmless over-match on
+    /// the rare case-sensitive filesystem.</summary>
+    private static IReadOnlyList<string> Dedupe(IEnumerable<string> paths)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>(MaxRecentProjects);
+        foreach (string p in paths)
+        {
+            if (string.IsNullOrWhiteSpace(p) || !seen.Add(p))
+                continue;
+            result.Add(p);
+            if (result.Count == MaxRecentProjects)
+                break;
+        }
+        return result;
+    }
 
     /// <summary>
     /// Parses a persisted <see cref="UserSettings.TimelineAutoScroll"/> name, falling back to the
