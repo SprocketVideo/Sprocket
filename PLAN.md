@@ -141,17 +141,16 @@ verification-only items carry their checklist in the step's history entry.
 - [x] **File ▸ Open Recent** (small feature) — shipped 2026-09-21: a persisted MRU (up to 10 projects,
   newest first, Clear Recent, stale entries self-pruned), stored in `UserSettings.RecentProjects` and
   populated on submenu-open. Recorded on every open (`MainWindow` ctor) and save (`SaveTo`).
-- [ ] **Black & White conversion** (unscheduled feature, planned 2026-09-21) — a dedicated
+- [x] **Black & White conversion** (unscheduled feature, planned 2026-09-21; **all 5 phases shipped 2026-09-21**) — a dedicated
   `builtin.blackwhite` registry shader effect: 8-hue channel mixer + keyframeable optical colour
   filter, film tone response + procedural grain, toning / split-toning, vignette, dry/wet mix, and a
-  ~50-preset library (Wratten filters, film-stock looks under generic names with the stock in the
+  52-preset library (Wratten filters, film-stock looks under generic names with the stock in the
   preset tooltip, darkroom tonings, cinematic looks) over the step-41 `EffectDescriptor.Presets`
   surface (+ an additive `EffectPreset.Description`). Built in five independently mergeable phases
   (conversion core → frame-context seam + grain/vignette → toning → non-film presets → film presets +
-  docs), each sized for one session; **phases 1–4 of 5 shipped** (2026-09-21: conversion core, grain/vignette
-  with the auto-bound `sprocket_time` / `sprocket_bounds` seam, single/split toning + `EffectPreset.Description`,
-  and the ~30-preset non-film library (Neutral / Filters / Toning / Cinematic) — the effect is feature-complete;
-  only the 19 film-stock presets + docs remain). Phase checklist in the plan →
+  docs). Phase 5 (2026-09-21) added the 19 film-stock presets (generic names, stock in the "Inspired by …"
+  tooltip; brand-token guard test) and the user-docs page `effects-color/black-and-white.md`. DONE log
+  in [plan/history/steps-58plus.md](plan/history/steps-58plus.md); phase checklist in
   [plan/features/black-and-white.md](plan/features/black-and-white.md)
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →

@@ -501,9 +501,68 @@ public class EffectCatalogTests
         var described = new EffectPreset("Y", new Dictionary<string, double>(), "Inspired by a stock.");
         Assert.Equal("Inspired by a stock.", described.Description);
 
-        // The phase-4 non-film presets carry no description — the "Inspired by …" note arrives with phase 5's
-        // film stocks.
-        Assert.All(EffectCatalog.Find(EffectTypeIds.BlackWhite)!.Presets, p => Assert.Null(p.Description));
+        // The non-film presets carry no description; only phase 5's film stocks set the "Inspired by …" note.
+        foreach (EffectPreset p in EffectCatalog.Find(EffectTypeIds.BlackWhite)!.Presets)
+            if (BlackWhitePresets.Film.Contains(p))
+                Assert.NotNull(p.Description);
+            else
+                Assert.Null(p.Description);
+    }
+
+    // ── Black & White, phase 5 (film-stock presets) ────────────────────────────────────────────────────
+
+    [Fact]
+    public void BlackWhite_Ships_The_Phase5_Film_Stock_Presets()
+    {
+        // Phase 5 adds the 19 film-stock emulations to the picker, each carrying an "Inspired by …" description.
+        Assert.Equal(19, BlackWhitePresets.Film.Count);
+
+        EffectDescriptor bw = EffectCatalog.Find(EffectTypeIds.BlackWhite)!;
+        string[] names = bw.Presets.Select(p => p.Name).ToArray();
+        Assert.Equal(names.Length, names.Distinct().Count()); // still unique with the film family added
+        Assert.All(BlackWhitePresets.Film, p => Assert.Contains(p, bw.Presets)); // wired into the descriptor
+
+        // Every film preset carries a non-empty description (the only presets that do); the non-film ones stay
+        // null.
+        Assert.All(BlackWhitePresets.Film, p => Assert.False(string.IsNullOrWhiteSpace(p.Description)));
+        Assert.All(BlackWhitePresets.Film, p => Assert.StartsWith("Inspired by ", p.Description!, StringComparison.Ordinal));
+        foreach (EffectPreset p in bw.Presets.Where(p => !BlackWhitePresets.Film.Contains(p)))
+            Assert.Null(p.Description);
+    }
+
+    [Fact]
+    public void BlackWhite_Film_Preset_Names_Carry_No_Brand_Or_Stock_Token()
+    {
+        // The trademark reference lives only in Description — the generic name trades on no brand. This is the
+        // whole point of the "generic name, stock in the tooltip" decision (plan/features/black-and-white.md).
+        string[] tokens =
+        {
+            "Kodak", "Ilford", "Fujifilm", "Fuji", "Agfa", "Rollei", "Tri-X", "T-Max", "TMax", "HP5", "FP4",
+            "Delta", "Pan F", "Plus-X", "XP2", "Neopan", "Acros", "APX", "Retro", "BW400",
+        };
+        foreach (EffectPreset p in BlackWhitePresets.Film)
+            foreach (string token in tokens)
+                Assert.False(p.Name.Contains(token, StringComparison.OrdinalIgnoreCase),
+                    $"film preset name '{p.Name}' leaks the stock token '{token}' — it belongs only in Description");
+    }
+
+    [Fact]
+    public void BlackWhite_Film_Presets_Set_No_Finishing_Params_So_They_Layer_Under_A_Toning()
+    {
+        // Film stocks set conversion (mixer) + film (curve/grain) only — no toning/vignette — so a stock layers
+        // under a filter and a toning the way the other families do.
+        string[] finishing =
+        {
+            EffectParamNames.ToneHue, EffectParamNames.ToneStrength,
+            EffectParamNames.SplitShadowHue, EffectParamNames.SplitHighlightHue,
+            EffectParamNames.SplitStrength, EffectParamNames.SplitBalance,
+            EffectParamNames.VignetteAmount, EffectParamNames.VignetteSize, EffectParamNames.VignetteSoftness,
+        };
+        foreach (EffectPreset p in BlackWhitePresets.Film)
+        {
+            Assert.DoesNotContain(EffectParamNames.Mix, p.Values.Keys); // the Studio Reverb rule
+            Assert.All(p.Values.Keys, k => Assert.DoesNotContain(k, finishing));
+        }
     }
 
     // ── Step 41: heavy-chain traits (freeze hints) ─────────────────────────────────────────────────────

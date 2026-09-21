@@ -58,9 +58,10 @@ frames never touch the managed heap per frame.
 - **GPU effects & keyframing** — brightness, color, and geometric transform as SkSL shaders that
   compose identically on preview and export; animate any effect parameter with keyframe lanes and
   an editable velocity graph.
-- **Color grading** — white balance, color wheels, curves, and an HSL qualifier, plus log-footage
-  input transforms for DJI (GPU LUT) and ARRI, Sony, Panasonic, Canon, Blackmagic, Fujifilm, and
-  Nikon (GPU math curves).
+- **Color grading** — white balance, color wheels, curves, an HSL qualifier, and a film-emulation
+  Black & White (per-hue mixer, optical filters, grain, toning, and a preset library of classic
+  looks and film stocks), plus log-footage input transforms for DJI (GPU LUT) and ARRI, Sony,
+  Panasonic, Canon, Blackmagic, Fujifilm, and Nikon (GPU math curves).
 - **Generators, titles, adjustment layers & transitions** — title/text generator clips (including
   scrolling titles), adjustment layers whose effect stacks apply to everything beneath, and a
   transition library with overlapping-clip resolution.

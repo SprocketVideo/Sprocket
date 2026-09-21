@@ -1,6 +1,6 @@
 # Black & White conversion (film-emulation grade monochrome)
 
-🟡 **In progress (phases 1–4 of 5 shipped).** Unscheduled feature (no build-order step number yet); tracked in
+✅ **Complete (all 5 phases shipped 2026-09-21).** Unscheduled feature (no build-order step number yet); tracked in
 [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** a dedicated `Black & White` effect (`builtin.blackwhite`, short code `BW`)
@@ -239,7 +239,19 @@ status lives in the checklist here; flip the box and add a dated one-liner when 
   filters/tonings/looks layer; Cinematic looks span all three. Tests: Core — phase-4 family/uniqueness/count
   + `Mix`-untouched, filter/toning scope-layering, `Description` still null (film "Inspired by …" is phase 5);
   Render — every preset compiles/binds/renders, neutral-toning presets stay R≈G≈B. All green.
-- [ ] Phase 5 — Film-stock presets + docs + close-out
+- [x] Phase 5 — Film-stock presets + docs + close-out (2026-09-21): the 19 `BlackWhitePresets.Film` stock
+  emulations — generic names (Classic 400 / Modern Fine Grain 100 / Modern 400 / Pushed 3200 / Vintage 125 /
+  Chromogenic 400 (K) / Traditional 400 / Traditional 125 / Tabular 100 / Tabular 400 / Tabular 3200 /
+  Ultra Fine 50 / Chromogenic 400 (I) / Orthopanchromatic 100 / Reportage 400 / Reportage 1600 / European 100 /
+  European 400 / Near-Infrared 80) with the stock named only in `Description = "Inspired by <stock>. <character>."`
+  (shown as the picker tooltip), each pairing mixer sensitivity + curve (contrast/toe/shoulder) + ISO-scaled
+  grain, conversion + film groups only so a stock layers under a filter and a toning. `BlackWhitePresets.All`
+  now 52 presets (the `Film` helper method is `FilmStock` to avoid colliding with the `Film` property). Docs:
+  `../sprocket-docs/effects-color/black-and-white.md` (order 5, conversion/film/finishing controls, presets by
+  family, the "inspired by" disclaimer); FEATURES.md row → ✅ with the Docs path; PLAN.md todo → `[x]`; DONE log
+  appended to `plan/history/steps-58plus.md`. Tests: Core film family (count 19, wired in, described vs null,
+  brand-token guard on names, no finishing params); Render every-preset-in-`All` still compiles/binds/renders
+  and neutral-toning presets stay R≈G≈B. All green.
 
 ### Phase 1 — Conversion core
 

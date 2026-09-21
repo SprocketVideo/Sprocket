@@ -262,7 +262,7 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|
 | Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; Sprocket.Render/Effects/{WhiteBalance,ColorWheels,Curves,HslQualifier}Effect.cs; PLAN.md step 34 | effects-color/color-grading.md | ✅ |
 | Grading scopes: Waveform / RGB Parade / Vectorscope / Histogram | Sprocket.App/ScopeView.cs | effects-color/color-grading.md#judging-your-grade-with-scopes | ✅ |
-| Black & White conversion: 8-hue channel mixer, optical colour filter, film tone response + grain, toning / split-toning, vignette, preset library (filters, film stocks, tonings, cinematic looks) | EffectCatalog.cs `builtin.blackwhite`; Sprocket.Core/Model/BlackWhitePresets.cs; Sprocket.Render/Effects/BlackWhiteEffect.cs; plan/features/black-and-white.md | — (phases 1–4/5 shipped; docs land with phase 5) | 🟡 partial (phase 4/5: conversion core — 8-hue mixer, optical filter, brightness/contrast/toe/shoulder, dry-wet Mix — plus procedural grain (per-frame or static), vignette, single/split toning, and the non-film preset library (Neutral / Filters / Toning / Cinematic, ~30 looks); the 19 film-stock presets still to come) |
+| Black & White conversion: 8-hue channel mixer, optical colour filter, film tone response + grain, toning / split-toning, vignette, preset library (filters, film stocks, tonings, cinematic looks) | EffectCatalog.cs `builtin.blackwhite`; Sprocket.Core/Model/BlackWhitePresets.cs; Sprocket.Render/Effects/BlackWhiteEffect.cs; plan/features/black-and-white.md | effects-color/black-and-white.md | ✅ |
 
 ## 5. Audio
 

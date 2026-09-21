@@ -334,3 +334,46 @@ read from a throwaway 8×8 instance via `f0r_get_param_value` (what MLT/Kdenlive
 0.5 / white / centre values, with the generic values as the documented fallback; (11) `lv2_lib_descriptor`
 fallback for binaries lacking the classic `lv2_descriptor`; (12) the per-user native folders live under the
 managed plugins folder — documented as safe only because `PluginHost.EnumeratePluginFiles` is non-recursive.
+
+## Black & White conversion (unscheduled feature — all 5 phases, 2026-09-21) ✅ DONE
+
+A dedicated `builtin.blackwhite` registry SkSL effect (short code `BW`, category Color) built in five
+independently mergeable phases; the per-phase implementation logs live in the feature plan's checklist
+([plan/features/black-and-white.md](../features/black-and-white.md)). Summary:
+
+- **Phase 1 — Conversion core:** the effect with Amount (dry/wet `Mix`), a keyframeable optical colour
+  filter (hue + strength, luma-normalised), the 8-hue Lightroom-style channel mixer, and the film tone
+  response (brightness/contrast/shadow-toe/highlight-shoulder). `BlackWhiteEffect` SkSL registered in the
+  `SkiaEffectPipeline` static ctor; single `Neutral` preset.
+- **Phase 2 — Frame-context seam + grain/vignette:** `ResolvedEffect.FrameTime` (`long` ticks) populated
+  from the frame's timeline time; the pipeline auto-binds the reserved `sprocket_time` (seconds) /
+  `sprocket_bounds` (layer rect) uniforms when a compiled registry program declares them (detected once
+  per compile, cached in `CachedRegisteredEffect`) — effects declaring neither bind unchanged. Added
+  luma-weighted procedural hash grain (per-frame or Static Grain) and a radial vignette; ARCHITECTURE §13
+  documents the two reserved uniforms.
+- **Phase 3 — Toning + preset descriptions:** single-tone tint (`ToneHue`/`ToneStrength`) and split toning
+  (`SplitShadowHue`/`SplitHighlightHue`/`SplitStrength`/`SplitBalance`) as a shader stage between grain and
+  vignette; `EffectPreset` gains an additive optional `string? Description` (existing presets stay `null`)
+  shown by `InspectorPanel.BuildPresetRow` as the picker item's tooltip. All 27 parameters present.
+- **Phase 4 — Non-film preset library:** `Sprocket.Core/Model/BlackWhitePresets.cs` — 33 presets in the
+  families Neutral / Filters / Toning / Cinematic, names prefixed `"Family ▸ Name"` for combo grouping,
+  scope-layered (every preset leaves `Mix` alone; filters touch only conversion, tonings only finishing,
+  tonal looks only the film group) so filters/tonings/looks layer.
+- **Phase 5 — Film-stock presets + docs + close-out (this change):** added the 19 `BlackWhitePresets.Film`
+  emulations — generic names (**Classic 400**, **Ultra Fine 50**, **Pushed 3200**, …) with the stock named
+  only in `Description` ("Inspired by <stock>. <character>."), surfaced as the picker tooltip so the UI
+  trades on no trademark. Each pairs a spectral sensitivity (mixer bands) with a characteristic curve
+  (contrast/toe/shoulder) and grain scaled by ISO; film presets set conversion + film only (no toning/
+  vignette) so a stock layers under a filter and a toning like the other families. `BlackWhitePresets.All`
+  is now 52 presets. User docs: `../sprocket-docs/effects-color/black-and-white.md` (conversion controls,
+  presets by family, the "inspired by" disclaimer); FEATURES.md row → ✅ (Docs path filled); this PLAN.md
+  todo → `[x]`.
+
+**Persistence: none** — `EffectDto` already round-trips effect id + parameter map, so old projects load
+unchanged. Tests: Core (`EffectCatalogTests`) — catalog/parameter list, `Mix`-untouched + scope-layering,
+`EffectPreset.Description` default/round-trip, and the phase-5 film family (count 19, wired into the
+descriptor, every film preset described + non-film `null`, a **brand-token guard** that no film preset
+*name* leaks Kodak/Ilford/Fujifilm/Agfa/Rollei/Tri-X/T-Max/HP5/FP4/Delta/Pan F/XP2/Neopan/Acros/APX/Retro/
+BW400, and film presets set no finishing params). Render (`GradingEffectTests`) — neutral/`Mix=0`/filter/
+mixer-gating/tone-monotonicity/grain-determinism/toning-hue/vignette, plus every preset in `All` (now
+including the film stocks) compiles/binds/renders and neutral-toning presets stay R≈G≈B. All green.
