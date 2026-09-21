@@ -266,7 +266,12 @@ internal sealed unsafe class AvFrameHandle : IDisposable
 
     public void GetBuffer(int align) => FFmpegError.Check(LibAv.av_frame_get_buffer(_p, align), "av_frame_get_buffer");
     public void MakeWritable() => FFmpegError.Check(LibAv.av_frame_make_writable(_p), "av_frame_make_writable");
-    public void Unref() => LibAv.av_frame_unref(_p);
+    public void Unref()
+    {
+        IntPtr frame = System.Threading.Volatile.Read(ref _p);
+        if (frame != IntPtr.Zero)
+            LibAv.av_frame_unref(frame);
+    }
 
     /// <summary>Allocates a video frame with a fresh buffer of the given format/size.</summary>
     public static AvFrameHandle CreateVideo(int width, int height, int pixFmt, int align)
@@ -281,8 +286,9 @@ internal sealed unsafe class AvFrameHandle : IDisposable
 
     public void Dispose()
     {
-        if (_p == IntPtr.Zero) return;
-        LibAv.av_frame_free(ref _p);
+        IntPtr frame = System.Threading.Interlocked.Exchange(ref _p, IntPtr.Zero);
+        if (frame != IntPtr.Zero)
+            LibAv.av_frame_free(ref frame);
     }
 }
 
@@ -304,12 +310,18 @@ internal sealed unsafe class AvPacketHandle : IDisposable
     public IntPtr Data => P->data;
     public int Size => P->size;
 
-    public void Unref() => LibAv.av_packet_unref(_p);
+    public void Unref()
+    {
+        IntPtr packet = System.Threading.Volatile.Read(ref _p);
+        if (packet != IntPtr.Zero)
+            LibAv.av_packet_unref(packet);
+    }
     public void RescaleTs(AvRational src, AvRational dst) => LibAv.av_packet_rescale_ts(_p, src, dst);
 
     public void Dispose()
     {
-        if (_p == IntPtr.Zero) return;
-        LibAv.av_packet_free(ref _p);
+        IntPtr packet = System.Threading.Interlocked.Exchange(ref _p, IntPtr.Zero);
+        if (packet != IntPtr.Zero)
+            LibAv.av_packet_free(ref packet);
     }
 }
