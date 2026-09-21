@@ -13,11 +13,22 @@ namespace Sprocket.Core.Rendering;
 /// layer auto-binds it to a registry effect's reserved <c>sprocket_time</c> uniform (seconds) when the compiled
 /// SkSL declares it, so effects like grain get a deterministic per-frame seed that matches in preview and export
 /// (ARCHITECTURE.md §13). Pure data; <c>0</c> for callers that resolve an effect with no frame context.</param>
+/// <param name="SourceTime">The time <em>within the effect's source media</em> that this frame samples
+/// (<see cref="Timing.Timecode"/> ticks) — <see cref="VideoLayer.SourceTime"/> for the clip. A source-referenced
+/// pipeline stage such as Stabilization uses it (with <see cref="MediaRefId"/>) to pick the analysed motion sample
+/// for this frame, so the correction matches in preview and export. <c>default</c> (0) for callers with no clip
+/// context and for effects that don't reference the source.</param>
+/// <param name="MediaRefId">The source media this frame's layer draws from (<see cref="VideoLayer.MediaRefId"/>) —
+/// the key a source-referenced stage such as Stabilization uses to find the media's analysis (motion track).
+/// <see langword="null"/> for layers with no source media (generators, adjustment layers) and for callers with no
+/// clip context.</param>
 public sealed record ResolvedEffect(
     string EffectTypeId,
     IReadOnlyDictionary<string, double> Parameters,
     IReadOnlyDictionary<string, string>? Assets = null,
-    long FrameTime = 0)
+    long FrameTime = 0,
+    Timecode SourceTime = default,
+    MediaRefId? MediaRefId = null)
 {
     /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set.</summary>
     public double Get(string name, double fallback = 0) =>

@@ -103,6 +103,25 @@ public static class EffectTypeIds
     public const string ColorTransform = "builtin.colortransform";
 
     /// <summary>
+    /// Stabilization (plan/features/stabilization.md): removes unwanted camera shake — pan/tilt jitter,
+    /// rotation, and focus-breathing scale pumping — by warping each frame along a smoothed camera path
+    /// recovered from a per-source motion track. A hard-coded projective pipeline stage (like
+    /// <see cref="Transform"/>), not a registry SkSL effect, because it needs the frame's source time and
+    /// media id to look up that clip's track (<see cref="Sprocket.Core.Rendering.ResolvedEffect.SourceTime"/>
+    /// / <see cref="Sprocket.Core.Rendering.ResolvedEffect.MediaRefId"/>). Analysis lives in a per-user cache
+    /// (Resolve/FCP style), so this belongs to media clips only. Parameters:
+    /// <see cref="EffectParamNames.StabMode"/>, <see cref="EffectParamNames.Smoothness"/>,
+    /// <see cref="EffectParamNames.Strength"/>, <see cref="EffectParamNames.StabMethod"/>,
+    /// <see cref="EffectParamNames.PositionSmooth"/>/<see cref="EffectParamNames.RotationSmooth"/>,
+    /// <see cref="EffectParamNames.ScaleMode"/>/<see cref="EffectParamNames.ScaleSmooth"/>/
+    /// <see cref="EffectParamNames.ScaleLockRef"/>, <see cref="EffectParamNames.LockRotation"/>,
+    /// <see cref="EffectParamNames.Zoom"/>, <see cref="EffectParamNames.CroppingRatio"/>,
+    /// <see cref="EffectParamNames.DetailedAnalysis"/>, <see cref="EffectParamNames.ShowTrackPoints"/>,
+    /// <see cref="EffectParamNames.HideBanner"/>.
+    /// </summary>
+    public const string Stabilization = "builtin.stabilization";
+
+    /// <summary>
     /// Audio gain/pan (PLAN.md step 31): a static per-chain-stage gain (<see cref="EffectParamNames.GainDb"/>)
     /// and stereo balance (<see cref="EffectParamNames.Pan"/>), the simplest audio DSP stage.
     /// </summary>
@@ -466,6 +485,54 @@ public static class EffectParamNames
     /// <summary>Source log profile index into <see cref="ColorProfiles.All"/> —
     /// <see cref="EffectTypeIds.ColorTransform"/>.</summary>
     public const string SourceProfile = "sourceProfile";
+
+    // ── Stabilization (plan/features/stabilization.md). All model units; dropdowns store their choice index
+    // (see Sprocket.Core.Stabilization.StabilizationSettings), toggles store 0/1. ──
+    /// <summary>Smoothing mode dropdown index (0 = Smooth Camera / adaptive, 1 = Smooth Motion / uniform,
+    /// 2 = Camera Lock / tripod) — <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string StabMode = "stabMode";
+    /// <summary>Master smoothness in [0, 1] — the camera-path smoothing window is ≈ this × one second of
+    /// frames — <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string Smoothness = "smoothness";
+    /// <summary>Stabilization strength in [0, 1]: blends between the original camera path (0) and the fully
+    /// smoothed one (1), so some original movement can be kept — <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string Strength = "strength";
+    /// <summary>Solve method dropdown index (0 = Translation, 1 = Similarity, 2 = Perspective) —
+    /// <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string StabMethod = "stabMethod";
+    /// <summary>Position (pan/tilt) smoothing multiplier in [0, 2] × the master window —
+    /// <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string PositionSmooth = "positionSmooth";
+    /// <summary>Rotation smoothing multiplier in [0, 2] × the master window —
+    /// <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string RotationSmooth = "rotationSmooth";
+    /// <summary>Scale handling dropdown index (0 = Smooth, 1 = Preserve, 2 = Lock) — Lock removes all scale
+    /// change relative to a reference, the focus-breathing fix — <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string ScaleMode = "scaleMode";
+    /// <summary>Scale smoothing multiplier in [0, 2] × the master window (used when Scale = Smooth) —
+    /// <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string ScaleSmooth = "scaleSmooth";
+    /// <summary>Scale-lock reference dropdown index (0 = Tightest, 1 = Widest, 2 = First Frame, 3 = Median),
+    /// used when Scale = Lock — <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string ScaleLockRef = "scaleLockRef";
+    /// <summary>Lock Horizon toggle (0/1): remove all rotation relative to the first frame —
+    /// <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string LockRotation = "lockRotation";
+    /// <summary>Zoom toggle (0/1): on = auto-scale up to fill the frame (crop the stabilized borders away);
+    /// off = show transparent borders ("Stabilize Only") — <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string Zoom = "zoom";
+    /// <summary>Cropping ratio in [0.5, 1]: the fraction of the frame that must survive stabilization —
+    /// caps the auto zoom at <c>1 / croppingRatio</c> (1 = no crop allowed) — <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string CroppingRatio = "croppingRatio";
+    /// <summary>Detailed Analysis toggle (0/1): higher analysis resolution + more features; changes the
+    /// analysis cache key — <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string DetailedAnalysis = "detailedAnalysis";
+    /// <summary>Show Track Points toggle (0/1): a preview-only overlay of the tracked features —
+    /// <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string ShowTrackPoints = "showTrackPoints";
+    /// <summary>Hide Warning Banner toggle (0/1): suppress the monitor "needs analysis / analyzing / low
+    /// confidence" banner — <see cref="EffectTypeIds.Stabilization"/>.</summary>
+    public const string HideBanner = "hideBanner";
 
     /// <summary>Gain in decibels (0 = unity) — <see cref="EffectTypeIds.AudioGain"/>.</summary>
     public const string GainDb = "gainDb";

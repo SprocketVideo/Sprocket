@@ -1,5 +1,6 @@
 using System.Numerics;
 using Sprocket.Analysis.Features;
+using Sprocket.Core.Stabilization;
 
 namespace Sprocket.Analysis.Motion;
 

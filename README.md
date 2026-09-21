@@ -93,7 +93,8 @@ OpenColorIO/OFX video (the managed plugin host, built-in effects, in-app Plugin 
 frame-interpolated slow motion (constant / ramped / reverse retime and freeze frames ship today) · a bundled
 impulse-response library (the Convolution Reverb with
 user IR import, Studio Reverb, Shimmer Reverb, and audio freeze ship today) · grading presets /
-creative looks. See the [Roadmap](#roadmap).
+creative looks · video stabilization (adaptive smoothing, per-channel control, and a focus-breathing lock).
+See the [Roadmap](#roadmap).
 
 ---
 

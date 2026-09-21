@@ -26,6 +26,11 @@ public sealed class ParameterKindTests
             $"{EffectTypeIds.AudioDelayStereo}.{EffectParamNames.PingPong}",
             $"{EffectTypeIds.AudioShelvingEq}.{EffectParamNames.LowEnable}",
             $"{EffectTypeIds.AudioShelvingEq}.{EffectParamNames.HighEnable}",
+            $"{EffectTypeIds.Stabilization}.{EffectParamNames.LockRotation}",
+            $"{EffectTypeIds.Stabilization}.{EffectParamNames.Zoom}",
+            $"{EffectTypeIds.Stabilization}.{EffectParamNames.DetailedAnalysis}",
+            $"{EffectTypeIds.Stabilization}.{EffectParamNames.ShowTrackPoints}",
+            $"{EffectTypeIds.Stabilization}.{EffectParamNames.HideBanner}",
             .. EffectParamNames.TapEnable.Select(n => $"{EffectTypeIds.AudioDelayMultiTap}.{n}"),
         ];
         string[] actual = [.. AllBuiltInParams()
@@ -87,9 +92,10 @@ public sealed class ParameterKindTests
         Assert.Equal(ParameterKind.Continuous, rotation.Kind);
 
         int discrete = AllBuiltInParams().Count(x => x.Param.Kind != ParameterKind.Continuous);
-        // 13 toggles (ShowMask, B&W Static Grain, PingPong, Low/HighEnable, 8 tap enables) + 1 dropdown +
-        // 1 integer + 1 asset.
-        Assert.Equal(16, discrete);
+        // 18 toggles (ShowMask, B&W Static Grain, PingPong, Low/HighEnable, 8 tap enables, + Stabilization's
+        // LockRotation/Zoom/DetailedAnalysis/ShowTrackPoints/HideBanner) + 5 dropdowns (SourceProfile +
+        // Stabilization's StabMode/StabMethod/ScaleMode/ScaleLockRef) + 1 integer + 1 asset.
+        Assert.Equal(25, discrete);
     }
 
     [Fact]

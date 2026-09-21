@@ -1,4 +1,5 @@
 using System.Numerics;
+using Sprocket.Core.Stabilization;
 
 namespace Sprocket.Analysis.Features;
 

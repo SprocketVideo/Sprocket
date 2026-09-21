@@ -1,5 +1,6 @@
 using Sprocket.Analysis.Features;
 using Sprocket.Analysis.Motion;
+using Sprocket.Core.Stabilization;
 using Xunit;
 
 namespace Sprocket.Analysis.Tests;

@@ -56,6 +56,29 @@ public class ProjectSerializerTests
         => ProjectSerializer.Deserialize(ProjectSerializer.Serialize(project));
 
     [Fact]
+    public void Round_Trips_A_Stabilization_Effects_Parameters()
+    {
+        // Stabilization is just an id + a parameter map, so it round-trips on the generic effect path with no
+        // bespoke serializer support — this pins that (dropdown indices and toggles are ordinary numeric params).
+        Project project = BuildRichProject();
+        Clip clip = project.Timeline.VideoTracks.First().Clips[0];
+        clip.Effects.Add(new EffectInstance(EffectTypeIds.Stabilization)
+            .Set(EffectParamNames.StabMode, 2)              // Camera Lock (dropdown index)
+            .Set(EffectParamNames.Smoothness, 0.85)
+            .Set(EffectParamNames.ScaleMode, 2)             // Lock (dropdown index)
+            .Set(EffectParamNames.LockRotation, 1)          // toggle
+            .Set(EffectParamNames.CroppingRatio, 0.7));
+
+        EffectInstance loaded = RoundTrip(project).Timeline.VideoTracks.First().Clips[0]
+            .Effects.Single(e => e.EffectTypeId == EffectTypeIds.Stabilization);
+        Assert.Equal(2, loaded.Parameters[EffectParamNames.StabMode].Evaluate(Timecode.Zero), 6);
+        Assert.Equal(0.85, loaded.Parameters[EffectParamNames.Smoothness].Evaluate(Timecode.Zero), 6);
+        Assert.Equal(2, loaded.Parameters[EffectParamNames.ScaleMode].Evaluate(Timecode.Zero), 6);
+        Assert.Equal(1, loaded.Parameters[EffectParamNames.LockRotation].Evaluate(Timecode.Zero), 6);
+        Assert.Equal(0.7, loaded.Parameters[EffectParamNames.CroppingRatio].Evaluate(Timecode.Zero), 6);
+    }
+
+    [Fact]
     public void Round_Trips_A_Reordered_Effect_Stack_In_Order()
     {
         // Stack order is processing order (§5d); a MoveChainEffectCommand reorder (PLAN.md step 51) must

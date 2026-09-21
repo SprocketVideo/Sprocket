@@ -1,0 +1,232 @@
+# Video stabilization (adaptive smoothing, per-channel, focus-breathing lock)
+
+🟡 **Partial — phases 1–2 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
+number yet); tracked in [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
+
+**Scope in one line:** a `Stabilization` effect (`builtin.stabilization`, short code `ST`, category
+`Video`) that removes camera-shake — pan/tilt jitter, roll, and scale wobble — from motion recovered
+by a background analysis pass, with the best control from the leading editors: adaptive
+intent-preserving smoothing, per-channel smoothing, a Resolve-style cropping budget + auto-zoom, a
+Strength blend, Camera Lock (tripod), a horizon lock, and a **Scale Lock** that fixes focus breathing
+(FOV pumping from accidental autofocus).
+
+Analysis data lives in a **per-user regenerable cache** (not the project file), Resolve/FCP style, and
+**analysis starts automatically** when the effect is applied. The solve is a cheap, deterministic pure
+function of (motion track, settings), so preview and export produce identical frames (ARCHITECTURE §5).
+
+## Why / product context
+
+Every leading editor has a marquee stabilizer, and each does one thing best. We take the best control
+from each rather than cloning any single one (CLAUDE.md: prefer established behavior, note departures).
+
+| Tool | What it does well | What we take |
+|---|---|---|
+| **Premiere Warp Stabilizer** | Auto-analyzes in the background the moment it is applied (banner over the monitor); re-tunes instantly without re-analysis; Method ladder Position → PSR → Perspective → Subspace Warp; "Stabilize Only" shows the raw corrected frame with borders; Show Track Points; Detailed Analysis. | Auto-analyze on apply, tune-without-reanalysis, the Method ladder, Stabilize-Only borders, track-point overlay, Detailed Analysis tier. **Not** its four-control cropping cluster (Max Scale / Action-Safe / Additional Scale / Crop-Less↔Smooth-More). |
+| **DaVinci Resolve** | A single **Cropping Ratio** budget with automatic "smooth as much as the budget allows"; **Zoom** toggle (fill vs borders); **Strength** blend; **Camera Lock**; Mode Perspective / Similarity / Translation; a **camera path graph** (pan/tilt/zoom/rotation curves); stabilization data cached in the project database. | Cropping Ratio + Zoom as *the* framing controls; Strength; Camera Lock; the path graph in the Inspector (the killer diagnostic for focus breathing — the zoom curve shows the pumping). |
+| **Final Cut Pro** | Enable = analyze (one checkbox); **InertiaCam** intent-preserving smoothing; **SmoothCam** with separate Translation / Rotation / Scale sliders; Tripod Mode; batch **Analyze for stabilization** from the browser; a **Background Tasks** window. | Adaptive intent-preserving smoothing as the default; **per-channel smoothing** (the natural home for a scale-only fix); batch analyze from the media bin; a generalised Background Tasks window. |
+
+**Naming:** "Stabilization" (Resolve and FCP both use it; Warp Stabilizer is Adobe's brand). Id
+`builtin.stabilization`, short code `ST`, category `Video`, menu Effects ▸ Video.
+
+**Deliberate departures**
+- **One Smoothing mode dropdown** `Smooth Camera (adaptive) | Smooth Motion (uniform) | Camera Lock`
+  instead of FCP's Automatic/InertiaCam/SmoothCam + Tripod checkbox and Warp's Result dropdown.
+- **Per-channel scale handling** goes further than FCP: Scale has `Smooth | Preserve | Lock`; `Lock`
+  removes *all* scale change relative to a reference (`Tightest | Widest | First Frame | Median`) — the
+  focus-breathing fix. Preset **"Fix Focus Breathing Only"** = position/rotation smoothing 0, Scale Lock,
+  Zoom on. Plus a **Lock Horizon** toggle, cheap once rotation is tracked.
+- **Framing = Zoom toggle + Cropping Ratio** (Resolve). Zoom on ⇒ auto-scale up to the budget and
+  automatically relax smoothing where the budget would be exceeded (what Warp's Crop-Less↔Smooth-More
+  does by hand); Zoom off ⇒ Warp's "Stabilize Only" (transparent borders). Applied zoom shown as a readout.
+- **v1 methods:** Translation, Similarity (position + scale + rotation), Perspective. Subspace Warp,
+  Synthesize Edges, Rolling Shutter, gyro-metadata stabilization are follow-ons.
+- Analysis in a **per-user cache** (Resolve/FCP style). Missing ⇒ pass-through + banner + auto re-analyze.
+- Focus breathing also changes *blur*; we correct FOV only — docs say so.
+
+## Existing seams to build on
+
+| Piece | Where | Use |
+|---|---|---|
+| Transform shader + matrix composition | [SkiaEffectPipeline.cs](../../src/Sprocket.Render/SkiaEffectPipeline.cs) `TransformSksl`, `BuildTransformShader`, `HasTransform` Decal rule | Model for `StabilizeSksl` (projective) + `BuildStabilizationShader`; extend `HasTransform` so borders read transparent. |
+| Frame-context seam | [RenderPlan.cs](../../src/Sprocket.Core/Rendering/RenderPlan.cs) `ResolvedEffect`, populated in `RenderGraph.ResolveEffectsCore` ([RenderGraph.cs](../../src/Sprocket.Core/Rendering/RenderGraph.cs)) | **Additive** `ResolvedEffect.SourceTime` + `MediaRefId?` (phase 2) so Render can look up the clip's track. Media / nested / multicam paths in `ResolveClipLayer` know both. |
+| Sequential decode + downscale | [MediaSource.cs](../../src/Sprocket.Media/MediaSource.cs) `SeekTo` / `TryDecodeNextFrame`; `Native/SwsScaler.cs` (internal; arbitrary dst size/format) | New public `MediaSource.TryDecodeNextGray(GrayFramePool, out GrayFrame)` with a second scaler; `SwsScaler` stays internal. |
+| Background job + per-user cache + invalidation event | [ProxyService.cs](../../src/Sprocket.App/Proxy/ProxyService.cs) (worker, generation fencing, throttled progress, `ProxyPathChanged`), `Proxy/ProxyCache.cs`; [ExportQueue.cs](../../src/Sprocket.Export/ExportQueue.cs) (`IProgress<double>` + CTS) | `StabilizationService` + `AnalysisCache` copy these. Completion raises an event routed to preview repaint + render-cache invalidation — **no model mutation**, nothing to undo. |
+| Background Tasks window | [ProxyStatusWindow.cs](../../src/Sprocket.App/ProxyStatusWindow.cs) (View ▸ Proxy, "modelled on FCP's Background Tasks") | Generalise into **View ▸ Background Tasks** listing proxy builds *and* stabilization analyses (phase 6). |
+| Media bin context menu | [src/Sprocket.App/MediaBrowser/](../../src/Sprocket.App/MediaBrowser/) | "Analyze for Stabilization" on selected bin items (FCP), pre-warming the cache before the effect is applied. |
+| Bespoke Inspector rows + graphs | [InspectorPanel.cs](../../src/Sprocket.App/Inspector/InspectorPanel.cs) `BuildEffectSection`, Color Wheels bespoke branch, `BuildPresetRow`; `Inspector/KeyframeGraphMath.cs` | `BuildStabilizationRows`: status/progress/Analyze/Cancel + Applied Zoom readout, and the **camera path graph** (raw vs smoothed pan/tilt/zoom/rotation; reuse the keyframe-graph drawing math). |
+| Overlays | [MonitorOverlay.cs](../../src/Sprocket.Render/MonitorOverlay.cs) | Analyzing / needs-analysis / low-confidence banners; Show Track Points. |
+| Render-cache hashing | [RenderCacheHasher.cs](../../src/Sprocket.Persistence/RenderCacheHasher.cs) | Params hashed already; solve is a pure function of (params, track). Analysis completion must invalidate segments rendered while unanalysed. |
+| Export | [VideoExporter.cs](../../src/Sprocket.Export/VideoExporter.cs) + export dialog | Pre-check for unanalysed/stale stabilizations: "Analyze then export" / "Export as-is"; pause the worker during export. |
+| Effect relevance / add menu | [EffectRelevance.cs](../../src/Sprocket.App/EffectRelevance.cs), `BuildAddEffectBar` | Media clips only. |
+| MCP | `Sprocket.Mcp` lists `EffectCatalog.All` | Free; add `stabilization_status` / `stabilization_analyze` tools (phase 6). |
+
+## Parameter design
+
+Model units; Inspector order; `Kind` per `ParameterKind`. Dropdowns store their choice index; toggles
+store 0/1. The dropdown choice lists live on `StabilizationSettings` (`ModeChoices`, `MethodChoices`,
+`ScaleModeChoices`, `ScaleLockRefChoices`).
+
+| Name | Display | Kind | Default | Range | Notes |
+|---|---|---|---|---|---|
+| `stabMode` | Mode | Dropdown | Smooth Camera | Smooth Camera / Smooth Motion / Camera Lock | Adaptive (intent-preserving) / uniform Gaussian / tripod. |
+| `smoothness` | Smoothness | Continuous | 0.5 | 0–1 (%), keyframeable | Master. Window radius ≈ smoothness × 1 s of frames. |
+| `strength` | Strength | Continuous | 1.0 | 0–1 (%), keyframeable | Blend between original and stabilized path (Resolve). |
+| `stabMethod` | Method | Dropdown | Similarity | Translation / Similarity / Perspective | Solve-time choice; both models live in the track. |
+| `positionSmooth` | Position Smoothing | Continuous | 1.0 | 0–2 (× master) | FCP SmoothCam per-channel. |
+| `rotationSmooth` | Rotation Smoothing | Continuous | 1.0 | 0–2 (× master) | |
+| `scaleMode` | Scale | Dropdown | Smooth | Smooth / Preserve / Lock | Lock = focus-breathing fix. |
+| `scaleSmooth` | Scale Smoothing | Continuous | 1.0 | 0–2 (× master) | Used when Scale = Smooth. |
+| `scaleLockRef` | Lock Reference | Dropdown | Tightest | Tightest / Widest / First Frame / Median | Used when Scale = Lock. |
+| `lockRotation` | Lock Horizon | Toggle | 0 | | Rotation fully removed relative to the first frame. |
+| `zoom` | Auto Zoom | Toggle | 1 | | On = auto-scale to fill; off = borders (Stabilize Only). |
+| `croppingRatio` | Cropping Ratio | Continuous | 0.8 | 0.5–1 (%) | Fraction of the frame that must survive; 1 = no crop allowed. |
+| `detailedAnalysis` | Detailed Analysis | Toggle | 0 | | Higher analysis res + 2× features; changes the cache key. |
+| `showTrackPoints` | Show Track Points | Toggle | 0 | | Preview-only overlay. |
+| `hideBanner` | Hide Warning Banner | Toggle | 0 | | |
+| *(readouts)* | Applied Zoom · Analysis status | — | — | — | Bespoke status row, not params (phase 6). |
+
+Presets (`StabilizationPresets.All`): Default, Gentle, Strong, Camera Lock / Tripod, Handheld Look
+(Strength 0.6), Fix Focus Breathing Only, Horizon Lock. Presets set only *solve* parameters — never the
+analysis/workflow toggles (`detailedAnalysis` / `showTrackPoints` / `hideBanner`), which stay the user's.
+
+## Algorithm
+
+**Analysis (once per source range, background, cancellable):**
+1. Sequential decode (`MediaSource.SeekTo` + a gray decode overload), software decode forced for
+   determinism, libswscale → **GRAY8 at ~480 px wide** (960 with Detailed) into pooled native buffers —
+   no per-frame managed pixels (§1).
+2. Shi-Tomasi corners bucketed on an 8×6 grid (~300 / ~600), re-seeded when a bucket runs dry; pyramidal
+   Lucas-Kanade (4 levels, 21×21), forward-backward check ≤ 0.5 px.
+3. Per frame pair fit **both** a 4-DOF similarity (tx, ty, log s, θ) and a homography (normalised DLT) with
+   RANSAC; store inlier ratio + feature count as confidence; < 8 inliers ⇒ interpolate from neighbours and
+   flag. Optionally store the inlier feature positions (for the overlay).
+4. Write the **motion track** sidecar (binary `SPMT`, ~60 B/frame + optional points).
+
+**Solve (cheap, deterministic, cached per (track, params)):**
+1. Integrate inter-frame motion into the camera path (log-scale/angle/translation for similarity).
+2. Smooth per channel with radius = master × channel multiplier: *Smooth Motion* = Gaussian low-pass;
+   *Smooth Camera* = adaptive (wide-window median velocity estimates intent; the Gaussian window shrinks
+   where sustained velocity indicates a deliberate pan/zoom, so the path follows intent instead of lagging
+   it, InertiaCam-like); *Camera Lock* = constant path (mean). Scale `Lock` ⇒ scale replaced by the
+   reference; `Preserve` ⇒ raw scale kept; `Lock Horizon` ⇒ rotation replaced by first-frame value.
+3. Strength: `P_target = lerp(P_raw, P_smooth, strength)`; correction = target − raw per channel.
+4. Framing: with Zoom on, a uniform zoom in [1, 1/croppingRatio] chosen minimal to cover the corrected
+   frame; where the cap binds, a residual-damping λ ∈ [0,1] relaxes the correction until it covers. Zoom
+   off ⇒ zoom 1 with transparent borders. Output a `StabilizationSolution` (per-frame normalised 3×3
+   output→source matrices + applied zoom). L1-optimal cinematographic paths are a follow-on quality tier.
+
+**Render:** one hard-coded pipeline case (like `Transform`) — inverse projective map in normalised layer
+coords, Decal tiling. Per frame: binary search `SourceTime` in the track's pts ⇒ matrix ⇒ floats. Zero
+allocation per frame once the solve is cached.
+
+## New code layout
+
+- **`src/Sprocket.Analysis`** (project → Core; + Media from phase 3): `Features/` (GrayImage span wrapper,
+  ImagePyramid, CornerDetector, LucasKanadeTracker, RobustFit — pure managed, SIMD via `Vector<T>`, no IO),
+  `Motion/` (`MotionEstimator`, `MotionTrackAnalyzer`).
+- **`src/Sprocket.Core/Stabilization/`**: `FrameMotion`, `Homography` (shared motion primitives — Core owns
+  the type, Analysis owns the estimation), `MotionTrack` (+ `Write/Read(Stream)`), `StabilizationSettings`,
+  `StabilizationSolver` → `StabilizationSolution`, `AnalysisKey` (source identity + detailed flag + bucketed
+  source range), `IMotionTrackProvider`; `StabilizationPresets` beside `EffectCatalog`.
+- **`src/Sprocket.Render`**: `StabilizeSksl`, `BuildStabilizationShader`, `StabilizationSolveCache`,
+  `pipeline.MotionTracks` provider property (null ⇒ pass-through).
+- **`src/Sprocket.App/Stabilization/`**: `StabilizationService` (BelowNormal worker, queue, generation
+  fencing, events; implements `IMotionTrackProvider`), `AnalysisCache` (`%LocalAppData%/Sprocket/analysis`,
+  `SPROCKET_ANALYSIS_DIR`, Clear in Preferences), `CameraPathGraph` control, Background Tasks generalisation.
+- Analysis range = clip source range ± 2 s handles, rounded out to 5 s buckets (small trims stay cached).
+
+## Build phases
+
+Too large for one session — **seven independently mergeable phases**, each sized for one context window.
+**Start a phase in a fresh session by reading only: this section, the "Existing seams" table, the
+"Parameter design" rows the phase adds, and the phase's own files.** Each phase ends with tests green,
+`dotnet build Sprocket.slnx` clean, the phase box ticked with a dated one-liner, and one commit. Next
+session prompt: "Implement phase N of plan/features/stabilization.md".
+
+| Phase | Ships | Depends | Size |
+|---|---|---|---|
+| 1 | `Sprocket.Analysis`: tracker + RANSAC fits, headless on synthetic images | — | 1 session |
+| 2 | Core: `MotionTrack`, `StabilizationSolver` (all modes), descriptor/params/presets, `ResolvedEffect` context | — | 1 session |
+| 3 | Media: gray decode overload; `MotionTrackAnalyzer`; fixture integration tests | 1, 2 | ½–1 |
+| 4 | Render: projective shader, solve cache, provider seam; fake-provider tests | 2 | ½–1 |
+| 5 | App: service + cache + wiring + minimal Inspector row → **first end-to-end stabilized clip** | 3, 4 | 1 |
+| 6 | UX: auto-analyze, stale detection, banners, Applied Zoom, **camera path graph**, track-point overlay, **Background Tasks window**, bin "Analyze", export pre-check, render-cache invalidation, Preferences, MCP | 5 | 1–1½ |
+| 7 | Perspective method, Detailed Analysis tier, low-confidence handling, tuning, user docs, FEATURES/PLAN/README close-out | 5 | 1 |
+
+- [x] **Phase 1 — Analysis library (headless)** (2026-09-21): new `src/Sprocket.Analysis` (net10.0,
+  `TreatWarningsAsErrors`, → Core) added to `Sprocket.slnx`, with `tests/Sprocket.Analysis.Tests`. `Features/`
+  (GrayImage, ImagePyramid, CornerDetector Shi-Tomasi 8×6 buckets, pyramidal Lucas-Kanade with
+  forward-backward filter, RobustFit RANSAC similarity + normalised-DLT homography) and `Motion/MotionEstimator`
+  (two grays + workspace → `FrameMotion`, re-seeds dry buckets). Tests: procedural-warp recovery within
+  tolerance, outlier rejection, forward-backward drop, determinism, ≈0 managed alloc on the second call. Only
+  the solution file otherwise touched. (Commit `e234ff2`.)
+- [x] **Phase 2 — Core model, solver, descriptor** (2026-09-21): moved the shared `FrameMotion` / `Homography`
+  motion primitives from `Sprocket.Analysis` into `Sprocket.Core.Stabilization` (Core owns the type; Analysis
+  keeps the estimation). Added `Core/Stabilization/`: `MotionTrack` (binary `SPMT`, `FormatVersion = 2` with an
+  optional points section; v1 still read; version/magic guard) + `Write/Read(Stream)`; `StabilizationSettings`
+  (+ dropdown choice lists, clamped `FromResolvedEffect`); `StabilizationSolver` → `StabilizationSolution` (path
+  integration; Gaussian / adaptive / Camera-Lock smoothing; per-channel multipliers; Scale Smooth/Preserve/Lock
+  + references; Lock Horizon; Strength blend; crop-fit with minimal-zoom / λ-damping under the Cropping Ratio
+  cap — Perspective solves as Similarity until phase 7); `AnalysisKey` (± 2 s handles, 5 s buckets, SHA-256
+  cache file name); `IMotionTrackProvider`. `EffectTypeIds.Stabilization = "builtin.stabilization"` + 15
+  `EffectParamNames`; descriptor in `EffectCatalog.BuiltIns` (category `Video`, `ShortCode = "ST"`,
+  `Presets = StabilizationPresets.All`, dropdown/toggle kinds); `StabilizationPresets` (7 presets). Additive
+  `ResolvedEffect.SourceTime` (`Timecode`) + `MediaRefId?`, populated in `RenderGraph.ResolveEffectsCore` for
+  media / nested / multicam / adjustment layers (multicam binds the *angle's* media + synced source time; the
+  public `ResolveEffects` preview path carries the same context). Tests: `Sprocket.Core.Tests/StabilizationTests`
+  (catalog id/short-code/order/dropdowns/defaults round-trip/presets; `MotionTrack` round-trip ± points +
+  magic/version guards; solver — Smooth Motion lowers jitter variance, adaptive tracks a pan with less lag than
+  uniform, Camera Lock ⇒ constant path, Scale Lock ⇒ constant scale + untouched position at position smoothing 0,
+  Lock Horizon ⇒ constant angle, Strength 0 ⇒ identity, crop-fit covers every frame within the ratio, applied
+  zoom ≤ 1/croppingRatio, determinism; `AnalysisKey` bucketing; `ResolvedEffect` context population), updated
+  `ParameterKindTests` allowlist/count, and a `Sprocket.Persistence.Tests` round-trip of the params. The effect
+  appears in the Effects browser and renders pass-through (no provider yet). Feature-tracking docs
+  (this file, PLAN.md, FEATURES.md, README.md) were created at phase-2 close-out.
+- [ ] **Phase 3 — Media decode driver + analyzer**: `Sprocket.Media` `GrayFramePool` / `GrayFrame` +
+  `MediaSource.TryDecodeNextGray` (second `SwsScaler`); `Motion/MotionTrackAnalyzer.Analyze(...) → MotionTrack`
+  (software decode 480/960 px, per-frame cancellation, low-confidence interpolation). Tests gated on the ffmpeg
+  CLI + natives (reuse `TestVideo`): static ⇒ near-identity; shaking fixture ⇒ translation within 0.5 px of the
+  analytic path; pumping-zoom fixture ⇒ scale within 0.2 %; cancellation within one frame; write/read equality.
+- [ ] **Phase 4 — Render shader + solve cache + provider seam**: `StabilizeSksl` + `case Stabilization`,
+  `HasTransform` extended for transparent borders; `pipeline.MotionTracks` provider (null/miss ⇒ pass-through);
+  `StabilizationSolveCache` (key = track ref + settings snapshot; binary search by `SourceTime`; zero per-frame
+  alloc). Tests (CPU backend, fake provider): identity pass-through, translate moves a marker, zoom + Scale Lock
+  keeps a marker stationary, null provider pass-through, unchanged params ⇒ 0 managed bytes.
+- [ ] **Phase 5 — App service, cache, wiring, minimal Inspector row (first end-to-end)**: `AnalysisCache`
+  (copy `ProxyCache`), `StabilizationService : IMotionTrackProvider` (copy `ProxyService`); composition-root
+  wiring on preview **and** export pipelines; `TrackChanged` → preview repaint + render-cache invalidation;
+  Inspector status/progress/Analyze/Cancel row. Tests: queue/cancel/fencing with a fake analyzer, key bucketing,
+  cache path stability.
+- [ ] **Phase 6 — UX**: auto-analyze on apply (`EditHistory.Changed`), stale detection + banners, camera path
+  graph, Applied Zoom readout, `showTrackPoints` overlay (format v2), placement rule + Transform hint,
+  `EffectRelevance` media-only, **View ▸ Background Tasks**, bin "Analyze for Stabilization", export pre-check +
+  worker pause, Preferences "Clear analysis cache", MCP tools. Tests: auto-enqueue, stale re-enqueue, export
+  pre-check enumeration, graph math, MCP round-trip.
+- [ ] **Phase 7 — Perspective, quality tier, docs, close-out**: real homography path; Detailed Analysis
+  end-to-end; low-confidence surfaced; tune defaults on the sample + fixtures; verify Fix Focus Breathing Only on
+  the pumping-zoom fixture. Docs `../sprocket-docs/effects-video/stabilization.md`; FEATURES ✅ + Docs path
+  (promote from the Planned section); PLAN todo `[x]`; README bullet; DONE log in `plan/history/steps-58plus.md`.
+
+## Tests
+
+- **Analysis (`Sprocket.Analysis.Tests`):** synthetic warp recovery, outlier rejection, determinism, allocation.
+- **Core (`Sprocket.Core.Tests`):** catalog id/short-code/order/defaults/presets; `MotionTrack` round-trip +
+  guards; every solver mode; `AnalysisKey` bucketing; `ResolvedEffect` context population. **Persistence
+  (`Sprocket.Persistence.Tests`):** params round-trip (free — id + parameter map).
+- **Media/Analysis (phase 3):** static, shaking, and pumping-zoom ffmpeg fixtures.
+- **Render (phase 4):** pass-through, translate, scale-lock, null provider, zero-alloc.
+- **App (phases 5–6):** service, keys, auto-enqueue, export pre-check, graph math, MCP.
+
+## Follow-ons (out of scope for v1)
+
+Subspace Warp (mesh), Synthesize Edges (temporal inpaint), Rolling Shutter (FCP-style separate effect),
+L1-optimal cinematographic paths, gyro-metadata stabilization (GoPro GPMF / DJI / BMD, Resolve-style),
+stabilize-on-subject via the mask tracker, import-time "excessive shake" flagging (FCP), GPU LK.
+
+## On completion
+
+Per phase: tick the phase box above with the date, keep the FEATURES.md tracking honest (it stays in the
+Planned section until phase 5 makes the effect user-visible, then moves to the §4 matrix), and commit.
+After phase 7: flip this feature's PLAN.md todo, append the DONE log to `plan/history/steps-58plus.md`,
+set the FEATURES.md row ✅ with the Docs path, add the README bullet — then delete or archive the
+no-longer-open parts of this file.

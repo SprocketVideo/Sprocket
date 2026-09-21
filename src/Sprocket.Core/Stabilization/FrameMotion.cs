@@ -1,6 +1,4 @@
-using Sprocket.Analysis.Features;
-
-namespace Sprocket.Analysis.Motion;
+namespace Sprocket.Core.Stabilization;
 
 /// <summary>
 /// The estimated global camera motion between one analysed frame and the next, in <b>normalised image
@@ -9,6 +7,12 @@ namespace Sprocket.Analysis.Motion;
 /// decomposition (translation / log-scale / rotation — what most solve modes use) and the full
 /// homography (for the Perspective method), plus a confidence for weighting and gap-filling.
 /// </summary>
+/// <remarks>
+/// A pure-data motion primitive in Core (the keystone, ARCHITECTURE.md §2): the stabilization motion track
+/// (<see cref="MotionTrack"/>) stores one per analysed frame pair, the <see cref="StabilizationSolver"/>
+/// integrates them into a camera path, and <c>Sprocket.Analysis</c>'s <c>MotionEstimator</c> — which
+/// references Core — produces them. Core owns the shared type; Analysis owns its estimation.
+/// </remarks>
 /// <param name="Tx">Horizontal translation, fraction of analysis width.</param>
 /// <param name="Ty">Vertical translation, fraction of analysis width.</param>
 /// <param name="LogScale">Natural log of the uniform scale factor (0 = no scale change).</param>

@@ -1,3 +1,5 @@
+using Sprocket.Core.Stabilization;
+
 namespace Sprocket.Core.Model;
 
 /// <summary>The broad grouping an effect falls under, used to organise the Effects/Audio browsers (PLAN.md step 15).</summary>
@@ -184,6 +186,65 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.Opacity, "Opacity", 1.0, 0.0, 1.0, 0.05, "%",
                     "Layer transparency (100% = fully opaque, 0% = invisible).") { DisplayScale = 100 },
             ]) { ShortCode = "TR" },
+
+        // ── Stabilization (plan/features/stabilization.md) — a hard-coded pipeline stage (like Transform),
+        // driven by the headless motion analysis. Dropdowns store their choice index; toggles store 0/1.
+        // Inspector order follows the leading editors (FCP/Resolve): mode + master smoothness/strength first,
+        // then the per-channel controls, the framing controls, and the analysis/workflow toggles last. ──
+        new EffectDescriptor(
+            EffectTypeIds.Stabilization,
+            "Stabilization",
+            EffectCategory.Video,
+            "Removes unwanted camera shake — pan/tilt jitter, roll, and scale wobble — from analysed motion.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.StabMode, "Mode", 0.0, 0.0,
+                    StabilizationSettings.ModeChoices.Count - 1, 1.0,
+                    Description: "How the camera path is smoothed: Smooth Camera keeps deliberate moves, Smooth Motion low-passes the whole path, Camera Lock holds it still (tripod).",
+                    Kind: ParameterKind.Dropdown, Choices: StabilizationSettings.ModeChoices),
+                new EffectParameterDescriptor(EffectParamNames.Smoothness, "Smoothness", 0.5, 0.0, 1.0, 0.05, "%",
+                    "How much of the camera path is smoothed — larger values average over a longer window.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Strength, "Strength", 1.0, 0.0, 1.0, 0.05, "%",
+                    "Blends between the original path (0%) and the fully smoothed one (100%), so some original movement can be kept.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.StabMethod, "Method", 1.0, 0.0,
+                    StabilizationSettings.MethodChoices.Count - 1, 1.0,
+                    Description: "The motion model the solve uses: Translation (pan/tilt only), Similarity (adds rotation + scale), or Perspective.",
+                    Kind: ParameterKind.Dropdown, Choices: StabilizationSettings.MethodChoices),
+                new EffectParameterDescriptor(EffectParamNames.PositionSmooth, "Position Smoothing", 1.0, 0.0, 2.0, 0.05,
+                    Description: "Multiplies the smoothing window for pan/tilt (1.0 = master smoothness, 0 = leave position untouched)."),
+                new EffectParameterDescriptor(EffectParamNames.RotationSmooth, "Rotation Smoothing", 1.0, 0.0, 2.0, 0.05,
+                    Description: "Multiplies the smoothing window for roll (1.0 = master smoothness, 0 = leave rotation untouched)."),
+                new EffectParameterDescriptor(EffectParamNames.ScaleMode, "Scale", 0.0, 0.0,
+                    StabilizationSettings.ScaleModeChoices.Count - 1, 1.0,
+                    Description: "How scale is handled: Smooth it like the other channels, Preserve the original zoom, or Lock it to a reference (the focus-breathing fix).",
+                    Kind: ParameterKind.Dropdown, Choices: StabilizationSettings.ScaleModeChoices),
+                new EffectParameterDescriptor(EffectParamNames.ScaleSmooth, "Scale Smoothing", 1.0, 0.0, 2.0, 0.05,
+                    Description: "Multiplies the smoothing window for scale when Scale = Smooth (1.0 = master smoothness)."),
+                new EffectParameterDescriptor(EffectParamNames.ScaleLockRef, "Lock Reference", 0.0, 0.0,
+                    StabilizationSettings.ScaleLockRefChoices.Count - 1, 1.0,
+                    Description: "Which scale Scale = Lock holds every frame to (Tightest never scales down, so it introduces no borders).",
+                    Kind: ParameterKind.Dropdown, Choices: StabilizationSettings.ScaleLockRefChoices),
+                new EffectParameterDescriptor(EffectParamNames.LockRotation, "Lock Horizon", 0.0, 0.0, 1.0, 1.0,
+                    Description: "Removes all rotation relative to the first frame, holding the horizon level.",
+                    Kind: ParameterKind.Toggle),
+                new EffectParameterDescriptor(EffectParamNames.Zoom, "Auto Zoom", 1.0, 0.0, 1.0, 1.0,
+                    Description: "Scales up to crop the stabilized borders away; off shows transparent borders (\"Stabilize Only\").",
+                    Kind: ParameterKind.Toggle),
+                new EffectParameterDescriptor(EffectParamNames.CroppingRatio, "Cropping Ratio", 0.8, 0.5, 1.0, 0.05, "%",
+                    "The fraction of the frame that must survive stabilization — caps the auto zoom at 1 / this value.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.DetailedAnalysis, "Detailed Analysis", 0.0, 0.0, 1.0, 1.0,
+                    Description: "Higher analysis resolution and more tracked features (slower); changes the analysis cache key.",
+                    Kind: ParameterKind.Toggle),
+                new EffectParameterDescriptor(EffectParamNames.ShowTrackPoints, "Show Track Points", 0.0, 0.0, 1.0, 1.0,
+                    Description: "A preview-only overlay of the tracked features (does not affect the render).",
+                    Kind: ParameterKind.Toggle),
+                new EffectParameterDescriptor(EffectParamNames.HideBanner, "Hide Warning Banner", 0.0, 0.0, 1.0, 1.0,
+                    Description: "Suppresses the monitor's \"needs analysis / analyzing / low confidence\" banner.",
+                    Kind: ParameterKind.Toggle),
+            ])
+        {
+            ShortCode = "ST",
+            Presets = StabilizationPresets.All,
+        },
 
         new EffectDescriptor(
             EffectTypeIds.Color,
