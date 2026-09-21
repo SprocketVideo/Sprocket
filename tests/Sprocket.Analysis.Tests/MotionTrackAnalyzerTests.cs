@@ -1,4 +1,6 @@
+using System.Linq;
 using Sprocket.Analysis.Motion;
+using Sprocket.Core.Model;
 using Sprocket.Core.Stabilization;
 using Sprocket.Core.Timing;
 using Sprocket.Media;
@@ -66,6 +68,43 @@ public class MotionTrackAnalyzerTests
         double scalePeak = PeakToPeak(Detrend(CumulativeScale(track)));
         // The zoom oscillates by ±3 % ⇒ ~0.06 peak-to-peak in the recovered scale path.
         Assert.InRange(scalePeak, 0.03, 0.11);
+    }
+
+    [Fact]
+    public void Detailed_Analysis_Flags_The_Track_And_Tracks_More_Features()
+    {
+        // The Detailed tier changes the cache key (via the track's DetailedAnalysis flag) and doubles the
+        // per-bucket feature cap, so it must recover at least as many features as the standard pass. (The fixture
+        // is 320 px wide — below both analysis widths — so only the feature-density difference shows here.)
+        MotionTrack standard = Analyze(StabFixtures.ZoomPath, StabilizationSettings.Default);
+        MotionTrack detailed = Analyze(StabFixtures.ZoomPath, StabilizationSettings.Default with { DetailedAnalysis = true });
+
+        Assert.False(standard.DetailedAnalysis);
+        Assert.True(detailed.DetailedAnalysis);
+
+        double StdFeatures(MotionTrack t) => t.Motions.Skip(1).Average(m => (double)m.FeatureCount);
+        Assert.True(StdFeatures(detailed) >= StdFeatures(standard),
+            $"detailed features {StdFeatures(detailed):F1} < standard {StdFeatures(standard):F1}");
+    }
+
+    [Fact]
+    public void Fix_Focus_Breathing_Only_Removes_The_Pump_On_The_Zoom_Fixture()
+    {
+        // End-to-end focus-breathing verification: decode the ±3 % pumping-zoom clip, then solve it with the
+        // shipped "Fix Focus Breathing Only" preset. The corrected scale path must be flat (the pump is gone).
+        MotionTrack track = Analyze(StabFixtures.ZoomPath);
+
+        EffectPreset preset = StabilizationPresets.All.Single(p => p.Name == "Fix Focus Breathing Only");
+        StabilizationSettings settings = StabilizationSettings.FromParameters(
+            (name, fallback) => preset.Values.TryGetValue(name, out double v) ? v : fallback);
+
+        StabilizationSolution sol = StabilizationSolver.Solve(track, settings, 320, 240);
+
+        double rawPump = PeakToPeak(Detrend(sol.RawPath.Select(p => p.LogScale).ToArray()));
+        double correctedPump = PeakToPeak(sol.SmoothedPath.Select(p => p.LogScale).ToArray());
+
+        Assert.True(rawPump > 0.03, $"expected the raw scale path to pump (>0.03), was {rawPump:F4}");
+        Assert.True(correctedPump < 1e-9, $"scale pump not removed: corrected peak-to-peak {correctedPump:E2}");
     }
 
     [Fact]

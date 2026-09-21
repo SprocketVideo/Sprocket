@@ -361,6 +361,94 @@ public class StabilizationTests
     }
 
     [Fact]
+    public void Perspective_With_No_Projective_Motion_Is_Identical_To_Similarity()
+    {
+        // When every homography is the identity (no perspective wobble), the Perspective method must collapse
+        // exactly onto the well-tested Similarity solve — the projective row contributes nothing.
+        MotionTrack track = Track(60, i =>
+            new FrameMotion(0.006 * Math.Sin(i * 0.3), 0.004 * Math.Cos(i * 0.4), 0.002 * Math.Sin(i * 0.2),
+                0.003 * Math.Sin(i * 0.5), Homography.Identity, 1, 50));
+        var baseSettings = StabilizationSettings.Default with { Smoothness = 0.6, Strength = 1.0, Zoom = true };
+
+        StabilizationSolution sim = StabilizationSolver.Solve(track, baseSettings with { Method = StabilizationMethod.Similarity }, 1920, 1080);
+        StabilizationSolution per = StabilizationSolver.Solve(track, baseSettings with { Method = StabilizationMethod.Perspective }, 1920, 1080);
+
+        Assert.Equal(sim.AppliedZoom, per.AppliedZoom); // bit-identical
+        for (int i = 0; i < sim.FrameCount; i++)
+            Assert.Equal(sim.OutputToSource[i], per.OutputToSource[i]);
+    }
+
+    [Fact]
+    public void Perspective_Engages_The_Projective_Row_And_Still_Covers_Every_Frame()
+    {
+        // A track that wobbles in the two projective degrees of freedom (perspective jitter a Similarity cannot
+        // model). The Perspective solve must produce a genuinely projective correction (non-zero third row) and
+        // still crop-fit every frame within the budget.
+        MotionTrack track = Track(90, i => new FrameMotion(
+            0.003 * Math.Sin(i * 0.3), 0.002 * Math.Cos(i * 0.25), 0, 0,
+            new Homography(1, 0, 0, 0, 1, 0, 0.0025 * Math.Sin(i * 0.5), 0.0018 * Math.Cos(i * 0.4)), 1, 60));
+        double croppingRatio = 0.7;
+        var settings = StabilizationSettings.Default with
+        {
+            Method = StabilizationMethod.Perspective, Mode = StabilizationMode.SmoothMotion,
+            Smoothness = 0.7, Strength = 1.0, Zoom = true, CroppingRatio = croppingRatio,
+        };
+
+        StabilizationSolution sol = StabilizationSolver.Solve(track, settings, 1920, 1080);
+
+        // A real projective correction was applied on at least some frames (a Similarity solve would leave the
+        // third row exactly [0 0 1] on every frame).
+        bool projectiveEngaged = sol.OutputToSource.Any(m => Math.Abs(m[6]) > 1e-7 || Math.Abs(m[7]) > 1e-7);
+        Assert.True(projectiveEngaged, "Perspective produced no projective correction");
+
+        // The crop budget still holds — every output corner maps (through the full perspective divide) back
+        // inside the source rectangle.
+        Assert.InRange(sol.AppliedZoom, 1.0, 1.0 / croppingRatio + 1e-9);
+        const double eps = 1e-6;
+        double hx = 0.5, hy = 0.5 * sol.FrameAspectYOverX;
+        (double X, double Y)[] corners = [(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)];
+        foreach (double[] m in sol.OutputToSource)
+            foreach ((double cx, double cy) in corners)
+            {
+                double w = m[6] * cx + m[7] * cy + m[8];
+                double sx = (m[0] * cx + m[1] * cy + m[2]) / w;
+                double sy = (m[3] * cx + m[4] * cy + m[5]) / w;
+                Assert.True(Math.Abs(sx) <= hx + eps && Math.Abs(sy) <= hy + eps,
+                    $"corner ({cx},{cy}) maps to ({sx},{sy}) outside the source rectangle");
+            }
+
+        // Deterministic (same golden-frame guarantee as the similarity path).
+        StabilizationSolution again = StabilizationSolver.Solve(track, settings, 1920, 1080);
+        for (int i = 0; i < sol.FrameCount; i++)
+            Assert.Equal(sol.OutputToSource[i], again.OutputToSource[i]);
+    }
+
+    [Fact]
+    public void Fix_Focus_Breathing_Only_Preset_Flattens_A_Scale_Pump()
+    {
+        // The marquee case: a static camera whose scale pumps ±2 % (focus breathing). The shipped preset must
+        // hold the scale constant (Scale Lock) while leaving pan/tilt/rotation untouched.
+        MotionTrack track = Track(60, i => new FrameMotion(0, 0, 0.02 * Math.Sin(i * 0.4), 0, Homography.Identity, 1, 50));
+
+        EffectPreset preset = StabilizationPresets.All.Single(p => p.Name == "Fix Focus Breathing Only");
+        StabilizationSettings settings = StabilizationSettings.FromParameters(
+            (name, fallback) => preset.Values.TryGetValue(name, out double v) ? v : fallback);
+        Assert.Equal(ScaleMode.Lock, settings.ScaleMode);
+
+        StabilizationSolution sol = StabilizationSolver.Solve(track, settings, 1920, 1080);
+
+        // Scale is flattened to a constant (the pump is gone) …
+        Assert.All(sol.SmoothedPath, p => Assert.Equal(sol.SmoothedPath[0].LogScale, p.LogScale, 9));
+        Assert.True(Variance(sol.SmoothedPath.Select(p => p.LogScale)) < 1e-12);
+        // … while position stays exactly on the raw path (position/rotation smoothing are 0 in the preset).
+        for (int i = 0; i < sol.FrameCount; i++)
+        {
+            Assert.Equal(sol.RawPath[i].Tx, sol.SmoothedPath[i].Tx, 9);
+            Assert.Equal(sol.RawPath[i].Ty, sol.SmoothedPath[i].Ty, 9);
+        }
+    }
+
+    [Fact]
     public void Empty_Track_Solves_To_An_Empty_Identity_Solution()
     {
         MotionTrack track = Track(0, _ => FrameMotion.Identity);

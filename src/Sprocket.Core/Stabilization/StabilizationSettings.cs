@@ -26,8 +26,9 @@ public enum StabilizationMethod
     /// <summary>Similarity: translation + rotation + uniform scale (4-DOF). The default.</summary>
     Similarity = 1,
 
-    /// <summary>Perspective (homography, 8-DOF). Phase 7 realises the true homography path; until then it
-    /// solves as <see cref="Similarity"/>.</summary>
+    /// <summary>Perspective: the similarity channels plus the tracked homography's perspective row, so the solve
+    /// can undo perspective wobble (parallax / lens tilt) that a similarity cannot. Full mesh (Subspace) warping
+    /// is a follow-on.</summary>
     Perspective = 2,
 }
 

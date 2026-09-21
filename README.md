@@ -58,6 +58,9 @@ frames never touch the managed heap per frame.
 - **GPU effects & keyframing** — brightness, color, and geometric transform as SkSL shaders that
   compose identically on preview and export; animate any effect parameter with keyframe lanes and
   an editable velocity graph.
+- **Stabilization** — background motion analysis (cached per source) feeding a deterministic solve:
+  adaptive intent-preserving smoothing, per-channel control, a cropping-budget auto-zoom, and a
+  Scale Lock that fixes focus breathing — with a camera-path graph to see what was tracked.
 - **Color grading** — white balance, color wheels, curves, an HSL qualifier, and a film-emulation
   Black & White (per-hue mixer, optical filters, grain, toning, and a preset library of classic
   looks and film stocks), plus log-footage input transforms for DJI (GPU LUT) and ARRI, Sony,
@@ -93,7 +96,7 @@ OpenColorIO/OFX video (the managed plugin host, built-in effects, in-app Plugin 
 frame-interpolated slow motion (constant / ramped / reverse retime and freeze frames ship today) · a bundled
 impulse-response library (the Convolution Reverb with
 user IR import, Studio Reverb, Shimmer Reverb, and audio freeze ship today) · grading presets /
-creative looks · video stabilization (adaptive smoothing, per-channel control, and a focus-breathing lock).
+creative looks.
 See the [Roadmap](#roadmap).
 
 ---

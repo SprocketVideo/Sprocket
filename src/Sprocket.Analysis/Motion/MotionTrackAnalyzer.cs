@@ -183,23 +183,30 @@ public static class MotionTrackAnalyzer
                 continue; // nothing reliable to interpolate from — leave the raw estimate
             }
 
-            // Keep the flag: confidence 0, the original (low) feature count, similarity-only.
+            // Keep the flag (confidence 0, the original low feature count) but keep the interpolated homography so
+            // the Perspective solve sees a smooth projective path across the gap rather than a spurious identity.
             motions[i] = filled with
             {
-                Homography = Homography.Identity,
                 Confidence = 0,
                 FeatureCount = motions[i].FeatureCount,
             };
         }
     }
 
-    /// <summary>Linearly interpolates the similarity channels of two motions (translation / log-scale / angle).</summary>
+    /// <summary>Linearly interpolates the similarity channels of two motions (translation / log-scale / angle) and
+    /// their homographies element-wise, so an interpolated frame's Perspective solve stays continuous.</summary>
     private static FrameMotion Lerp(FrameMotion a, FrameMotion b, double t) => new(
         Tx: a.Tx + (b.Tx - a.Tx) * t,
         Ty: a.Ty + (b.Ty - a.Ty) * t,
         LogScale: a.LogScale + (b.LogScale - a.LogScale) * t,
         Angle: a.Angle + (b.Angle - a.Angle) * t,
-        Homography: Homography.Identity,
+        Homography: LerpHomography(a.Homography, b.Homography, t),
         Confidence: 0,
         FeatureCount: 0);
+
+    /// <summary>Element-wise linear blend of two homographies (the 8 free coefficients).</summary>
+    private static Homography LerpHomography(Homography a, Homography b, double t) => new(
+        a.M00 + (b.M00 - a.M00) * t, a.M01 + (b.M01 - a.M01) * t, a.M02 + (b.M02 - a.M02) * t,
+        a.M10 + (b.M10 - a.M10) * t, a.M11 + (b.M11 - a.M11) * t, a.M12 + (b.M12 - a.M12) * t,
+        a.M20 + (b.M20 - a.M20) * t, a.M21 + (b.M21 - a.M21) * t);
 }

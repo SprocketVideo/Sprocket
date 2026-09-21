@@ -152,18 +152,21 @@ verification-only items carry their checklist in the step's history entry.
   tooltip; brand-token guard test) and the user-docs page `effects-color/black-and-white.md`. DONE log
   in [plan/history/steps-58plus.md](plan/history/steps-58plus.md); phase checklist in
   [plan/features/black-and-white.md](plan/features/black-and-white.md)
-- [ ] **Video stabilization** (unscheduled feature, planned 2026-09-21; **phases 1–3 of 7 shipped
+- [x] **Video stabilization** (unscheduled feature, planned 2026-09-21; **all 7 phases shipped
   2026-09-21**) — a `builtin.stabilization` (short code `ST`, category Video) effect that removes
   camera shake from a background motion-analysis pass, taking the best control from Warp Stabilizer /
-  Resolve / FCP: adaptive intent-preserving smoothing, per-channel smoothing, a cropping-budget +
-  auto-zoom, a Strength blend, Camera Lock, horizon lock, and a **Scale Lock** that fixes focus
-  breathing. Analysis lives in a per-user regenerable cache and starts automatically on apply; the
-  solve is a deterministic pure function of (track, params) so preview and export match. Built in seven
-  phases: 1 (headless `Sprocket.Analysis` tracker + RANSAC fits), 2 (Core `MotionTrack` +
-  `StabilizationSolver` + descriptor/params/presets + additive `ResolvedEffect.SourceTime`/`MediaRefId?`)
-  and 3 (Media `GrayFrame`/`TryDecodeNextGray` gray-decode driver + `MotionTrackAnalyzer` producing a
-  motion track from real media) shipped 2026-09-21 — the effect appears in the browser and renders
-  pass-through until the render seam (phase 4) and app service (phase 5) land. Phase checklist + design in
+  Resolve / FCP: Translation / Similarity / Perspective methods, adaptive intent-preserving smoothing,
+  per-channel smoothing, a cropping-budget + auto-zoom, a Strength blend, Camera Lock, horizon lock, and
+  a **Scale Lock** that fixes focus breathing. Analysis lives in a per-user regenerable cache and starts
+  automatically on apply; the solve is a deterministic pure function of (track, params) so preview and
+  export match. Built in seven phases: 1 (headless `Sprocket.Analysis` tracker + RANSAC fits), 2 (Core
+  `MotionTrack` + `StabilizationSolver` + descriptor/params/presets + additive
+  `ResolvedEffect.SourceTime`/`MediaRefId?`), 3 (Media gray-decode driver + `MotionTrackAnalyzer`), 4
+  (Render projective shader + solve cache + provider seam), 5 (App service + cache + wiring + Inspector
+  row — first end-to-end), 6 (UX: auto-analyze, banners, camera-path graph, Background Tasks, media-bin
+  Analyze, export pre-check, MCP), and 7 (real Perspective/homography path, Detailed Analysis tier,
+  low-confidence surfacing, user docs) — all shipped 2026-09-21. DONE log in
+  [plan/history/steps-58plus.md](plan/history/steps-58plus.md); phase checklist + design in
   [plan/features/stabilization.md](plan/features/stabilization.md)
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →

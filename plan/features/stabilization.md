@@ -1,7 +1,9 @@
 # Video stabilization (adaptive smoothing, per-channel, focus-breathing lock)
 
-🟡 **Partial — phases 1–6 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
-number yet); tracked in [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
+✅ **Done — all 7 phases shipped 2026-09-21.** Unscheduled feature (no build-order step number);
+tracked in [PLAN.md](../../PLAN.md) Open work (now `[x]`), DONE log in
+[plan/history/steps-58plus.md](../history/steps-58plus.md), user docs at
+`../sprocket-docs/effects-color/stabilization.md`. Relative links resolve from the repo root.
 
 **Scope in one line:** a `Stabilization` effect (`builtin.stabilization`, short code `ST`, category
 `Video`) that removes camera-shake — pan/tilt jitter, roll, and scale wobble — from motion recovered
@@ -261,10 +263,22 @@ session prompt: "Implement phase N of plan/features/stabilization.md".
   `CameraPathGraphMathTests` (range/polyline), `StabilizationScanTests` (enumeration, export pre-check dedupe,
   auto-enqueue + stale re-analyze, pause/resume), `StabilizationToolsTests` (MCP round-trip), updated tool-surface
   count. `LowConfidenceFrames` counts flagged frames off the ready track.
-- [ ] **Phase 7 — Perspective, quality tier, docs, close-out**: real homography path; Detailed Analysis
-  end-to-end; low-confidence surfaced; tune defaults on the sample + fixtures; verify Fix Focus Breathing Only on
-  the pumping-zoom fixture. Docs `../sprocket-docs/effects-video/stabilization.md`; FEATURES ✅ + Docs path
-  (promote from the Planned section); PLAN todo `[x]`; README bullet; DONE log in `plan/history/steps-58plus.md`.
+- [x] **Phase 7 — Perspective, quality tier, docs, close-out** (2026-09-21): the real
+  Perspective/homography path in `StabilizationSolver` — it integrates the tracked homography's perspective row
+  (re-expressed in the solve's centred coords by `CentredProjectiveRow`, `H_c = T⁻¹·H·T`) on top of the similarity
+  channels, smooths + Strength-blends it, and folds its residual into `BuildMatrix`'s third row (`Covered` /
+  `MinimalZoom` / `MaxLambda` now map corners through the perspective divide, so the crop budget is exact for the
+  projective warp). Translation / Similarity keep the projective channels at zero ⇒ bit-for-bit the phase-2 solve.
+  Low-confidence frames now interpolate their homography element-wise (`MotionTrackAnalyzer.LerpHomography`) instead
+  of snapping to identity, so a Perspective solve stays continuous across a gap while the frames stay flagged.
+  Detailed Analysis verified end-to-end (settings → 960 px + doubled feature cap → `MotionTrack.DetailedAnalysis` →
+  distinct `AnalysisKey` / render lookup); low-confidence already surfaced (phase 6 banner + `LowConfidenceFrames`).
+  User docs `../sprocket-docs/effects-color/stabilization.md` (note: the docs site groups video + colour effects in
+  one `effects-color` folder — there is no `effects-video`). FEATURES ✅ + Docs path; PLAN todo `[x]`; README Features
+  bullet added + Planned fragment removed; DONE log in [plan/history/steps-58plus.md](../history/steps-58plus.md).
+  Tests: Core Perspective↔Similarity equivalence / projective-engaged + crop-fit + determinism / focus-breathing
+  preset flattens a scale pump; Analysis ffmpeg fixtures — Detailed flag + feature count, and the focus-breathing
+  preset removes the pump on the pumping-zoom clip end-to-end. Full `dotnet test` green.
 
 ## Tests
 

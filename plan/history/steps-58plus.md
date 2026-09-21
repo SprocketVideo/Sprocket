@@ -377,3 +377,71 @@ descriptor, every film preset described + non-film `null`, a **brand-token guard
 BW400, and film presets set no finishing params). Render (`GradingEffectTests`) — neutral/`Mix=0`/filter/
 mixer-gating/tone-monotonicity/grain-determinism/toning-hue/vignette, plus every preset in `All` (now
 including the film stocks) compiles/binds/renders and neutral-toning presets stay R≈G≈B. All green.
+
+## Video stabilization (unscheduled feature — all 7 phases, 2026-09-21) ✅ DONE
+
+A `builtin.stabilization` effect (short code `ST`, category Video) that removes camera shake — pan/tilt
+jitter, roll, and scale wobble — from motion recovered by a background analysis pass, taking the best
+control from Warp Stabilizer / Resolve / FCP. Built in seven independently mergeable phases; the per-phase
+implementation logs live in the feature plan's checklist
+([plan/features/stabilization.md](../features/stabilization.md)). Summary:
+
+- **Phase 1 — Analysis library (headless):** new `src/Sprocket.Analysis` (net10.0, `TreatWarningsAsErrors`,
+  → Core): `Features/` (GrayImage, ImagePyramid, Shi-Tomasi `CornerDetector` on an 8×6 bucket grid,
+  pyramidal `LucasKanadeTracker` with a forward-backward filter, `RobustFit` RANSAC similarity + normalised-DLT
+  homography) and `Motion/MotionEstimator` (two grays + workspace → `FrameMotion`, re-seeds dry buckets).
+- **Phase 2 — Core model, solver, descriptor:** shared `FrameMotion` / `Homography` primitives in Core;
+  `MotionTrack` (binary `SPMT`, v2 with an optional points section); `StabilizationSettings` (+ dropdown
+  choice lists, clamped `FromResolvedEffect` / `FromParameters`); `StabilizationSolver` → `StabilizationSolution`
+  (path integration; Gaussian / adaptive / Camera-Lock smoothing; per-channel multipliers; Scale
+  Smooth/Preserve/Lock + references; Lock Horizon; Strength blend; crop-fit minimal-zoom / λ-damping under the
+  Cropping Ratio cap); `AnalysisKey` (± 2 s handles, 5 s buckets, SHA-256 file name); `IMotionTrackProvider`;
+  15 params + descriptor in `EffectCatalog.BuiltIns`; 7 `StabilizationPresets`; additive `ResolvedEffect.SourceTime`
+  + `MediaRefId?` populated by `RenderGraph.ResolveEffectsCore`.
+- **Phase 3 — Media decode driver + analyzer:** `Sprocket.Media` `GrayFrame` / `GrayFramePool` +
+  `MediaSource.TryDecodeNextGray` (second `SwsScaler`, GRAY8); `Motion/MotionTrackAnalyzer` (forced-software
+  sequential decode at 480 px / 960 px Detailed, per-frame cancellation, low-confidence interpolation, pts from
+  frames) — no per-frame managed pixels (§1). ffmpeg-fixture integration tests over static / shaking / pumping-zoom clips.
+- **Phase 4 — Render shader + solve cache + provider seam:** `StabilizeSksl` (a projective `float3 r0/r1/r2`
+  output→source map with Decal borders), `case EffectTypeIds.Stabilization`, `HasTransform` extended;
+  `IMotionTrackProvider? MotionTracks` + per-pipeline `StabilizationSolveCache`; null/miss ⇒ pass-through.
+- **Phase 5 — App service + cache + wiring + minimal Inspector row (first end-to-end):**
+  `App/Stabilization/AnalysisCache` + `StabilizationService : IMotionTrackProvider` (BelowNormal worker, FIFO
+  queue, generation fencing, events) behind an injected `IMotionAnalyzer`; composition root wires `MotionTracks`
+  onto the preview **and** export pipelines; `TrackChanged` → repaint + render-cache invalidation; Inspector
+  status/progress/Analyze/Cancel row.
+- **Phase 6 — UX:** auto-analyze on apply + stale-on-trim; camera-path graph (`CameraPathGraph` +
+  `CameraPathGraphMath`) with Applied Zoom + low-confidence readout; monitor banners + Show Track Points;
+  placement-after-Color-Transform rule + media-only relevance; **View ▸ Background Tasks**; media-bin **Analyze
+  for Stabilization**; export pre-check + worker pause; Preferences clear-cache; `stabilization_status` /
+  `stabilization_analyze` MCP tools.
+
+**Phase 7 — Perspective, quality tier, docs, close-out (this change):**
+- **Real Perspective / homography path (`StabilizationSolver`).** The solver now integrates the two extra
+  projective degrees of freedom (the tracked homography's perspective row) for the Perspective method, on top of
+  the similarity channels that already carry translation/scale/rotation — a non-overlapping decomposition, since
+  both models are fit to the same correspondences. `CentredProjectiveRow` re-expresses each inter-frame homography
+  in the solver's centred, width-normalised coordinates (`H_c = T⁻¹·H·T`, renormalised) and reads its perspective
+  row; the row is integrated, smoothed (like the rotation channel), Strength-blended, and its residual folded into
+  `BuildMatrix`'s previously-fixed `[0 0 1]` third row (scaled by the zoom's `invZoom`, matching the linear terms).
+  `Covered` / `MinimalZoom` / `MaxLambda` now map corners through the full perspective divide, so the crop budget
+  is correct for the projective warp. For Translation / Similarity the projective channels stay zero, so those
+  solves are **bit-for-bit** the phase-2 path (regression-guarded by a test). The render shader was already
+  projective-capable (phase 4), so no shader change was needed — only a genuine third row from the solve.
+- **Interpolated low-confidence homographies** are now interpolated element-wise between reliable neighbours
+  (`MotionTrackAnalyzer.LerpHomography`) rather than forced to identity, so a Perspective solve stays continuous
+  across a low-confidence gap; the frames stay flagged (`Confidence = 0`), so `LowConfidenceFrames` and the banner
+  are unchanged.
+- **Detailed Analysis tier** verified end-to-end: the toggle flows settings → analyzer (960 px + doubled feature
+  cap) → `MotionTrack.DetailedAnalysis` → `AnalysisKey` / render lookup as a distinct cache entry.
+- **Docs:** `../sprocket-docs/effects-color/stabilization.md` (workflow + background analysis, every control,
+  presets, the camera-path graph, and the FOV-not-blur focus-breathing note). FEATURES.md row → ✅ (Docs path
+  filled); this PLAN.md todo → `[x]`; README Features bullet added and the Planned fragment removed.
+- **Tests:** Core `StabilizationTests` — Perspective collapses to Similarity when there is no projective motion,
+  Perspective engages a non-trivial projective correction and still crop-fits every frame (with determinism), and
+  the "Fix Focus Breathing Only" preset flattens a synthetic scale pump. Analysis `MotionTrackAnalyzerTests` (ffmpeg
+  fixtures) — Detailed flags the track + tracks ≥ as many features, and the focus-breathing preset removes the pump
+  on the ±3 % pumping-zoom clip end-to-end (decode → track → solve). Full solution `dotnet test` green.
+
+**Persistence: none** — `EffectDto` round-trips the id + parameter map; the motion track lives only in the
+per-user analysis cache, regenerable and never in the project file.
