@@ -135,6 +135,19 @@ public class ColorTransformTests
         Assert.Same(stripped, RenderGraph.StripEffects(stripped, EffectTypeIds.ColorTransform));
     }
 
+    [Fact]
+    public void Resolved_Effect_Carries_The_Frame_Time_In_Ticks()
+    {
+        Project project = OneClipProject(out _);
+        Timecode t = Timecode.FromSeconds(0.5);
+
+        VideoFramePlan plan = RenderGraph.PlanVideoFrame(project, t);
+        ResolvedEffect effect = Assert.Single(Assert.Single(plan.Layers).Effects);
+        // FrameTime is the frame's timeline ticks — the Render layer auto-binds it to sprocket_time so grain
+        // re-seeds per frame and matches in export.
+        Assert.Equal(t.Ticks, effect.FrameTime);
+    }
+
     private static Project OneClipProject(out Clip clip)
     {
         var timeline = new Timeline(new Rational(30, 1), new Resolution(64, 64), 48000);

@@ -1,6 +1,7 @@
 using SkiaSharp;
 using Sprocket.Core.Model;
 using Sprocket.Core.Rendering;
+using Sprocket.Core.Timing;
 
 namespace Sprocket.Render;
 
@@ -326,7 +327,14 @@ half4 main(float2 coord) {
         public void Set(string name, float[] values) => uniforms[name] = values;
     }
 
-    private sealed record CachedRegisteredEffect(IVideoEffect Source, SKRuntimeEffect Compiled);
+    // Reserved uniforms auto-bound for any registry effect that declares them (ARCHITECTURE.md §13). Detected
+    // once per compile so no per-frame string scan is needed. `sprocket_time` is the frame's timeline time in
+    // seconds (grain/animated-noise seed); `sprocket_bounds` is the layer rect (left, top, width, height) for
+    // radial effects like vignette. A program that declares neither binds exactly as before (plugin regression).
+    private const string TimeUniformName = "sprocket_time";
+    private const string BoundsUniformName = "sprocket_bounds";
+
+    private sealed record CachedRegisteredEffect(IVideoEffect Source, SKRuntimeEffect Compiled, bool HasTime, bool HasBounds);
 
     // Per-instance compiled cache for registered effects, keyed by effect type id. Entries are invalidated
     // by reference-comparing the registered IVideoEffect, so a re-registered (reloaded) plugin recompiles.
@@ -804,7 +812,7 @@ half4 main(float2 coord) {
                 return BuildColorTransformShader(effect, src);
 
             default:
-                return BuildRegisteredEffectShader(effect, src);
+                return BuildRegisteredEffectShader(effect, src, dest);
         }
     }
 
@@ -813,7 +821,7 @@ half4 main(float2 coord) {
     /// <see langword="null"/> to pass through when the id has no registration (e.g. a project referencing an
     /// uninstalled plugin) or the effect faults while binding — degrade, don't crash (§15).
     /// </summary>
-    private SKShader? BuildRegisteredEffectShader(ResolvedEffect effect, SKShader src)
+    private SKShader? BuildRegisteredEffectShader(ResolvedEffect effect, SKShader src, SKRect dest)
     {
         IVideoEffect? registered = FindRegistered(effect.EffectTypeId);
         if (registered is null)
@@ -829,12 +837,27 @@ half4 main(float2 coord) {
                 || !ReferenceEquals(cached.Source, registered))
             {
                 cached?.Compiled.Dispose();
-                cached = new CachedRegisteredEffect(registered, CompileRegistered(registered));
+                SKRuntimeEffect compiled = CompileRegistered(registered);
+                // Scan the declared uniform names once per compile — the reserved auto-bound uniforms cost
+                // nothing for effects that don't declare them.
+                bool hasTime = false, hasBounds = false;
+                foreach (string name in compiled.Uniforms)
+                {
+                    if (name == TimeUniformName) hasTime = true;
+                    else if (name == BoundsUniformName) hasBounds = true;
+                }
+                cached = new CachedRegisteredEffect(registered, compiled, hasTime, hasBounds);
                 _registeredCache[effect.EffectTypeId] = cached;
             }
 
             var uniforms = new SKRuntimeEffectUniforms(cached.Compiled);
             registered.BindUniforms(effect, new SkUniformWriter(uniforms));
+            // Auto-bind the reserved per-frame context uniforms the program declared (§13). Time is seconds so
+            // the shader's seed math is resolution/rate-independent; bounds is the layer's canvas rect.
+            if (cached.HasTime)
+                uniforms[TimeUniformName] = (float)((double)effect.FrameTime / Timecode.TicksPerSecond);
+            if (cached.HasBounds)
+                uniforms[BoundsUniformName] = new[] { dest.Left, dest.Top, dest.Width, dest.Height };
             var children = new SKRuntimeEffectChildren(cached.Compiled) { ["src"] = src };
             return cached.Compiled.ToShader(uniforms, children);
         }

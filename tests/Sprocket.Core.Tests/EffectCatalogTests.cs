@@ -409,18 +409,23 @@ public class EffectCatalogTests
     }
 
     [Fact]
-    public void BlackWhite_Exposes_Its_Phase1_Conversion_And_Film_Parameters()
+    public void BlackWhite_Exposes_Its_Conversion_Film_And_Finishing_Parameters()
     {
         string[] names = EffectCatalog.Find(EffectTypeIds.BlackWhite)!.Parameters.Select(p => p.Name).ToArray();
         Assert.Equal(
             new[]
             {
+                // Conversion
                 EffectParamNames.Mix, EffectParamNames.FilterHue, EffectParamNames.FilterStrength,
                 EffectParamNames.MixReds, EffectParamNames.MixOranges, EffectParamNames.MixYellows,
                 EffectParamNames.MixGreens, EffectParamNames.MixAquas, EffectParamNames.MixBlues,
                 EffectParamNames.MixPurples, EffectParamNames.MixMagentas,
+                // Film (tone response) — phase 2 adds grain
                 EffectParamNames.Exposure, EffectParamNames.Contrast, EffectParamNames.Shadows,
-                EffectParamNames.Highlights,
+                EffectParamNames.Highlights, EffectParamNames.GrainAmount, EffectParamNames.GrainSize,
+                EffectParamNames.GrainSeedLock,
+                // Finishing (phase 2 adds vignette)
+                EffectParamNames.VignetteAmount, EffectParamNames.VignetteSize, EffectParamNames.VignetteSoftness,
             },
             names);
     }

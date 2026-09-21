@@ -9,10 +9,15 @@ namespace Sprocket.Core.Rendering;
 /// </summary>
 /// <param name="EffectTypeId">The effect type, e.g. <see cref="EffectTypeIds.Brightness"/>.</param>
 /// <param name="Parameters">Parameter values, evaluated at the frame's time.</param>
+/// <param name="FrameTime">The frame's time in ticks (<see cref="Timing.Timecode.TicksPerSecond"/>). The Render
+/// layer auto-binds it to a registry effect's reserved <c>sprocket_time</c> uniform (seconds) when the compiled
+/// SkSL declares it, so effects like grain get a deterministic per-frame seed that matches in preview and export
+/// (ARCHITECTURE.md §13). Pure data; <c>0</c> for callers that resolve an effect with no frame context.</param>
 public sealed record ResolvedEffect(
     string EffectTypeId,
     IReadOnlyDictionary<string, double> Parameters,
-    IReadOnlyDictionary<string, string>? Assets = null)
+    IReadOnlyDictionary<string, string>? Assets = null,
+    long FrameTime = 0)
 {
     /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set.</summary>
     public double Get(string name, double fallback = 0) =>

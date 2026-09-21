@@ -13,8 +13,16 @@ namespace Sprocket.Render.Effects;
 ///
 /// <para>Shader order (single pass): unpremultiply → sRGB→linear → optical filter (luma-normalised so exposure
 /// doesn't shift) → per-hue mixer (blended band weight scales luma, gated by saturation so greys are untouched)
-/// → Rec.709 luma → brightness/contrast/toe/shoulder → linear→sRGB → <c>Mix</c> lerp against the original →
-/// clamp <c>rgb ≤ a</c>, repremultiply.</para>
+/// → Rec.709 luma → brightness/contrast/toe/shoulder → linear→sRGB → procedural grain (hash noise per cell,
+/// re-seeded each frame from <c>sprocket_time</c> unless Static Grain is on, luma-weighted to the mids) →
+/// vignette (radial from the layer rect <c>sprocket_bounds</c>) → <c>Mix</c> lerp against the original → clamp
+/// <c>rgb ≤ a</c>, repremultiply.</para>
+///
+/// <para>Phase 2 adds the grain and vignette finishing stages and, with them, the first consumer of the
+/// registry per-frame context seam: the pipeline auto-binds the reserved <c>sprocket_time</c> (seconds) and
+/// <c>sprocket_bounds</c> (layer left/top/width/height) uniforms because this program declares them (§13).
+/// Grain is deterministic — the same frame time yields identical pixels, so preview and export match (§5).
+/// Toning and the preset library land in later phases.</para>
 /// </summary>
 public sealed class BlackWhiteEffect : IVideoEffect
 {
@@ -31,6 +39,14 @@ uniform float exposure;       // stops
 uniform float contrast;       // around mid-grey, 1 = unchanged
 uniform float shadows;        // [-1, 1] toe
 uniform float highlights;     // [-1, 1] shoulder
+uniform float grainAmount;    // [0, 1]
+uniform float grainSize;      // source pixels per noise cell, [0.5, 4]
+uniform float grainSeedLock;  // 0 = re-seed per frame, 1 = static field
+uniform float vignetteAmount; // [-1, 1] (negative darkens edges)
+uniform float vignetteSize;   // radius relative to half-diagonal, [0, 1.5]
+uniform float vignetteSoftness; // [0, 1]
+uniform float sprocket_time;    // reserved: frame time in seconds (grain seed) — auto-bound by the pipeline
+uniform float4 sprocket_bounds; // reserved: layer rect (left, top, width, height) — auto-bound by the pipeline
 
 float3 srgbToLinear(float3 c) {
     float3 lo = c / 12.92;
@@ -74,6 +90,15 @@ float bandWeight(float hue, float center) {
     float d = abs(hue - center);
     d = min(d, 360.0 - d);
     return max(0.0, 1.0 - d / 90.0);
+}
+
+// Value hash in [0, 1] for a noise cell — cheap, deterministic, no texture. The frame seed shifts the cell
+// coordinate so a given cell decorrelates frame to frame (animated grain) while staying identical for a fixed
+// (cell, seed) pair — the property that makes preview and export match frame-for-frame.
+float grainHash(float2 p) {
+    float3 q = fract(float3(p.xyx) * float3(443.897, 441.423, 437.195));
+    q += dot(q, q.yzx + 19.19);
+    return fract((q.x + q.y) * q.z);
 }
 
 const float3 LUMA = float3(0.2126, 0.7152, 0.0722);
@@ -122,7 +147,33 @@ half4 main(float2 coord) {
     float hw = clamp(s * 2.0 - 1.0, 0.0, 1.0); // 0 at mid → 1 at white
     s = clamp(s + shadows * sw * 0.5 + highlights * hw * 0.5, 0.0, 1.0);
 
-    float3 outRgb = mix(orig, float3(s), mixAmount);
+    // Procedural grain: one hash sample per noise cell (resolution-aware via grainSize), centred to [-1, 1],
+    // luma-weighted so it peaks in the mids like real emulsion and fades toward pure black/white. The seed is
+    // the frame time (seconds) unless Static Grain is on, in which case it is fixed so the field is frozen.
+    if (grainAmount > 0.0) {
+        float seed = grainSeedLock > 0.5 ? 0.0 : sprocket_time;
+        float2 cell = floor(coord / max(grainSize, 0.5)) + float2(seed * 71.0, seed * 113.0);
+        float g = grainHash(cell) - 0.5;              // [-0.5, 0.5]
+        float lumaWeight = 1.0 - abs(s * 2.0 - 1.0);  // 0 at black/white, 1 at mid
+        s = clamp(s + g * grainAmount * lumaWeight * 0.5, 0.0, 1.0);
+    }
+
+    float3 mono = float3(s);
+
+    // Vignette: radial falloff from the layer-rect centre, distance normalised to the half-diagonal so it is
+    // shape-independent. vignetteSize is where it begins (relative to the half-diagonal); softness widens the
+    // inner falloff start. Negative amount darkens the edges (classic), positive lightens.
+    if (abs(vignetteAmount) > 0.0 && sprocket_bounds.z > 0.0 && sprocket_bounds.w > 0.0) {
+        float2 center = sprocket_bounds.xy + sprocket_bounds.zw * 0.5;
+        float halfDiag = 0.5 * length(sprocket_bounds.zw);
+        float r = length(coord - center) / max(halfDiag, 1.0);
+        float inner = vignetteSize * (1.0 - vignetteSoftness);
+        float vt = clamp((r - inner) / max(vignetteSize - inner, 1e-3), 0.0, 1.0);
+        vt = vt * vt * (3.0 - 2.0 * vt); // smoothstep
+        mono = clamp(mono * (1.0 + vignetteAmount * vt), 0.0, 1.0);
+    }
+
+    float3 outRgb = mix(orig, mono, mixAmount);
     return half4(half3(outRgb * a), p.a);
 }";
 
@@ -153,6 +204,13 @@ half4 main(float2 coord) {
         uniforms.Set("contrast", (float)Math.Max(0.0, effect.Get(EffectParamNames.Contrast, 1.0)));
         uniforms.Set("shadows", (float)Math.Clamp(effect.Get(EffectParamNames.Shadows, 0.0), -1.0, 1.0));
         uniforms.Set("highlights", (float)Math.Clamp(effect.Get(EffectParamNames.Highlights, 0.0), -1.0, 1.0));
+        uniforms.Set("grainAmount", (float)Math.Clamp(effect.Get(EffectParamNames.GrainAmount, 0.0), 0.0, 1.0));
+        uniforms.Set("grainSize", (float)Math.Clamp(effect.Get(EffectParamNames.GrainSize, 1.0), 0.5, 4.0));
+        uniforms.Set("grainSeedLock", effect.Get(EffectParamNames.GrainSeedLock, 0.0) > 0.5 ? 1f : 0f);
+        uniforms.Set("vignetteAmount", (float)Math.Clamp(effect.Get(EffectParamNames.VignetteAmount, 0.0), -1.0, 1.0));
+        uniforms.Set("vignetteSize", (float)Math.Clamp(effect.Get(EffectParamNames.VignetteSize, 0.7), 0.0, 1.5));
+        uniforms.Set("vignetteSoftness", (float)Math.Clamp(effect.Get(EffectParamNames.VignetteSoftness, 0.5), 0.0, 1.0));
+        // sprocket_time / sprocket_bounds are reserved uniforms auto-bound by SkiaEffectPipeline (§13) — not set here.
     }
 
     private static float Weight(ResolvedEffect effect, string name) =>

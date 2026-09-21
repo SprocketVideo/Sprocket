@@ -22,6 +22,7 @@ public sealed class ParameterKindTests
         string[] expected =
         [
             $"{EffectTypeIds.HslQualifier}.{EffectParamNames.ShowMask}",
+            $"{EffectTypeIds.BlackWhite}.{EffectParamNames.GrainSeedLock}",
             $"{EffectTypeIds.AudioDelayStereo}.{EffectParamNames.PingPong}",
             $"{EffectTypeIds.AudioShelvingEq}.{EffectParamNames.LowEnable}",
             $"{EffectTypeIds.AudioShelvingEq}.{EffectParamNames.HighEnable}",
@@ -86,8 +87,9 @@ public sealed class ParameterKindTests
         Assert.Equal(ParameterKind.Continuous, rotation.Kind);
 
         int discrete = AllBuiltInParams().Count(x => x.Param.Kind != ParameterKind.Continuous);
-        // 12 toggles (ShowMask, PingPong, Low/HighEnable, 8 tap enables) + 1 dropdown + 1 integer + 1 asset.
-        Assert.Equal(15, discrete);
+        // 13 toggles (ShowMask, B&W Static Grain, PingPong, Low/HighEnable, 8 tap enables) + 1 dropdown +
+        // 1 integer + 1 asset.
+        Assert.Equal(16, discrete);
     }
 
     [Fact]

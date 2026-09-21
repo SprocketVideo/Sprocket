@@ -284,6 +284,63 @@ public sealed class GradingEffectTests
             Assert.True(outputs[i] >= outputs[i - 1], $"{param}={value} broke monotonicity at step {i}: {string.Join(",", outputs)}");
     }
 
+    // ── Black & White, phase 2 (grain + vignette) ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void BlackWhite_Grain_SameFrameTimeIsIdentical_DiffersAcrossTime()
+    {
+        var grey = new SKColor(128, 128, 128, 255);
+        var grain = new (string, double)[] { (EffectParamNames.GrainAmount, 1.0) };
+        byte[] t1 = RenderFrameRed(grey, [BlackWhiteAt(1000, grain)]);
+        byte[] t1Again = RenderFrameRed(grey, [BlackWhiteAt(1000, grain)]);
+        byte[] t2 = RenderFrameRed(grey, [BlackWhiteAt(240000, grain)]);
+        Assert.Equal(t1, t1Again);          // same frame time ⇒ identical pixels (preview == export, §5)
+        Assert.NotEqual(t1, t2);            // re-seeded per frame ⇒ the field animates
+    }
+
+    [Fact]
+    public void BlackWhite_StaticGrain_IsIdenticalAcrossTime()
+    {
+        var grey = new SKColor(128, 128, 128, 255);
+        var locked = new (string, double)[] { (EffectParamNames.GrainAmount, 1.0), (EffectParamNames.GrainSeedLock, 1.0) };
+        byte[] t1 = RenderFrameRed(grey, [BlackWhiteAt(1000, locked)]);
+        byte[] t2 = RenderFrameRed(grey, [BlackWhiteAt(240000, locked)]);
+        Assert.Equal(t1, t2);               // Static Grain freezes the field regardless of frame time
+    }
+
+    [Fact]
+    public void BlackWhite_GrainZero_IsDeterministicAndFlat()
+    {
+        var grey = new SKColor(128, 128, 128, 255);
+        byte[] t1 = RenderFrameRed(grey, [BlackWhiteAt(1000)]);
+        byte[] t2 = RenderFrameRed(grey, [BlackWhiteAt(240000)]);
+        Assert.Equal(t1, t2);               // no grain ⇒ frame time is irrelevant
+        Assert.All(t1, v => Assert.Equal(t1[0], v)); // a flat grey stays flat
+    }
+
+    [Fact]
+    public void BlackWhite_Vignette_DarkensCornerMoreThanCentre()
+    {
+        var grey = new SKColor(170, 170, 170, 255);
+        var vig = new (string, double)[]
+        {
+            (EffectParamNames.VignetteAmount, -0.9), (EffectParamNames.VignetteSize, 0.5),
+            (EffectParamNames.VignetteSoftness, 0.6),
+        };
+        byte centre = RenderPixel(grey, [BlackWhite(vig)], Size / 2, Size / 2);
+        byte corner = RenderPixel(grey, [BlackWhite(vig)], 0, 0);
+        Assert.True(corner < centre - 15, $"a negative vignette should darken the corner ({corner}) below the centre ({centre})");
+    }
+
+    [Fact]
+    public void BlackWhite_VignetteZero_IsPassThrough()
+    {
+        var grey = new SKColor(170, 170, 170, 255);
+        byte plain = RenderPixel(grey, [BlackWhite()], 0, 0);
+        byte zeroed = RenderPixel(grey, [BlackWhite((EffectParamNames.VignetteAmount, 0.0))], 0, 0);
+        Assert.InRange(zeroed - plain, -1, 1);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────────
 
     // The neutral mono value the effect targets: Rec.709 luma computed in linear light, re-encoded to sRGB.
@@ -311,6 +368,10 @@ public sealed class GradingEffectTests
             parameters[name] = value;
         return new ResolvedEffect(EffectTypeIds.BlackWhite, parameters);
     }
+
+    // Black & White resolved at a specific frame time (ticks) — the seed the pipeline auto-binds to sprocket_time.
+    private static ResolvedEffect BlackWhiteAt(long frameTime, params (string Name, double Value)[] values) =>
+        BlackWhite(values) with { FrameTime = frameTime };
 
     private static ResolvedEffect WhiteBalance(double temperature, double tint) =>
         new(EffectTypeIds.WhiteBalance, new Dictionary<string, double>
@@ -368,5 +429,36 @@ public sealed class GradingEffectTests
         using SKImage image = surface.Snapshot();
         using SKBitmap readback = SKBitmap.FromImage(image);
         return readback.GetPixel(Size / 2, Size / 2);
+    }
+
+    private static byte RenderPixel(SKColor source, IReadOnlyList<ResolvedEffect> effects, int x, int y)
+    {
+        using SKBitmap readback = RenderReadback(source, effects);
+        return readback.GetPixel(x, y).Red;
+    }
+
+    // The red channel of every pixel — grain varies per cell, so a whole-frame snapshot is what determinism
+    // and per-frame variation must be judged on (a single pixel could coincidentally match across seeds).
+    private static byte[] RenderFrameRed(SKColor source, IReadOnlyList<ResolvedEffect> effects)
+    {
+        using SKBitmap readback = RenderReadback(source, effects);
+        var reds = new byte[Size * Size];
+        for (int y = 0; y < Size; y++)
+            for (int x = 0; x < Size; x++)
+                reds[y * Size + x] = readback.GetPixel(x, y).Red;
+        return reds;
+    }
+
+    private static SKBitmap RenderReadback(SKColor source, IReadOnlyList<ResolvedEffect> effects)
+    {
+        using var pipeline = new SkiaEffectPipeline();
+        using var src = new SKBitmap(new SKImageInfo(Size, Size, SKColorType.Rgba8888, SKAlphaType.Opaque));
+        src.Erase(source);
+        using SKSurface surface = SKSurface.Create(new SKImageInfo(Size, Size, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Transparent);
+        pipeline.DrawLayer(surface.Canvas, SKRect.Create(Size, Size), src.GetPixels(), src.RowBytes, Size, Size, effects, hasAlpha: false);
+        surface.Canvas.Flush();
+        using SKImage image = surface.Snapshot();
+        return SKBitmap.FromImage(image);
     }
 }

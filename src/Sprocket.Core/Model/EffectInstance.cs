@@ -431,6 +431,23 @@ public static class EffectParamNames
     /// <summary>Filmic shoulder: lift (+) or roll off (−) the highlights, in [-1, 1] —
     /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
     public const string Highlights = "highlights";
+    /// <summary>Procedural grain amount in [0, 1] (luma-weighted, strongest in mids) —
+    /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string GrainAmount = "grainAmount";
+    /// <summary>Grain noise cell size in source pixels, in [0.5, 4] (resolution-aware) —
+    /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string GrainSize = "grainSize";
+    /// <summary>Static-grain toggle (0/1): 1 = one noise field for the whole clip, 0 = re-seeded per frame —
+    /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string GrainSeedLock = "grainSeedLock";
+    /// <summary>Vignette amount in [-1, 1] (negative darkens edges, positive lightens) —
+    /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string VignetteAmount = "vignetteAmount";
+    /// <summary>Vignette radius relative to the half-diagonal, in [0, 1.5] —
+    /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string VignetteSize = "vignetteSize";
+    /// <summary>Vignette edge softness in [0, 1] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string VignetteSoftness = "vignetteSoftness";
 
     /// <summary>Source log profile index into <see cref="ColorProfiles.All"/> —
     /// <see cref="EffectTypeIds.ColorTransform"/>.</summary>

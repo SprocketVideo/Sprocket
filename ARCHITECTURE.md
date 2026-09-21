@@ -569,6 +569,15 @@ directory and preferred when present; missing media loads offline rather than fa
   (`SkiaEffectPipeline.RegisterEffect` — a process-wide registry the effect-chain `switch` falls back
   to), so plugins never reference SkiaSharp and run identically in preview and export (§5, §7). The
   built-in **ACES Filmic** effect ships through this exact path, keeping the seam permanently exercised.
+- **Reserved per-frame-context uniforms.** A registry effect (built-in or plugin) may declare either or
+  both of two reserved uniforms, which the pipeline **auto-binds when the compiled program declares them**
+  (detected once per compile from `SKRuntimeEffect.Uniforms`, so effects that don't declare them are
+  unaffected): `uniform float sprocket_time;` — the frame's timeline time in **seconds** (from
+  `ResolvedEffect.FrameTime`, populated by `RenderGraph`), for deterministic animated noise/flicker seeds
+  that match preview and export (§5); and `uniform float4 sprocket_bounds;` — the layer's canvas rect
+  (left, top, width, height), for radial effects (vignette) that must follow a transformed layer. The
+  effect's own `BindUniforms` must **not** set these two names. The built-in **Black & White** effect's
+  grain (time) and vignette (bounds) are the first consumers.
 - **Audio effect plugins** implement `IAudioEffectProvider` (Core): descriptor (category **Audio**, so
   the render graph routes it to the mixer via `EffectTypeIds.IsAudio`'s catalog lookup) + a factory for
   stateful `IAudioEffect` DSP instances. The mixer's `effectFactory` seam (already a ctor parameter)

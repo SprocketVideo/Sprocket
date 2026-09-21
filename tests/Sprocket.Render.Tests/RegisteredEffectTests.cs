@@ -111,7 +111,72 @@ public sealed class RegisteredEffectTests
         }
     }
 
+    // ── Reserved per-frame-context uniforms (sprocket_time / sprocket_bounds, §13) ──────────────────────
+
+    [Fact]
+    public void ReservedTimeUniform_IsAutoBound_WhenDeclared()
+    {
+        var timed = new TestTimeEffect("plugin.rendertest.timed");
+        SkiaEffectPipeline.RegisterEffect(timed);
+        try
+        {
+            // The shader writes sprocket_time (seconds) into red, so two frame times must differ and the same
+            // frame time must be identical — the determinism grain relies on.
+            byte t0 = RenderCenter(new SKColor(0, 0, 0, 255), [Timed(timed.Descriptor.Id, 0)]).Red;
+            byte t1 = RenderCenter(new SKColor(0, 0, 0, 255), [Timed(timed.Descriptor.Id, 120000)]).Red; // 0.5 s
+            byte t1Again = RenderCenter(new SKColor(0, 0, 0, 255), [Timed(timed.Descriptor.Id, 120000)]).Red;
+            Assert.Equal(t1, t1Again);
+            Assert.True(t1 > t0 + 40, $"sprocket_time should drive the output ({t0} → {t1})");
+        }
+        finally
+        {
+            SkiaEffectPipeline.UnregisterEffect(timed.Descriptor.Id);
+        }
+    }
+
+    [Fact]
+    public void EffectDeclaringNeitherReservedUniform_IsUnaffectedByFrameTime()
+    {
+        // Regression for plugins: an effect that declares neither reserved uniform binds exactly as before, so
+        // its output does not depend on ResolvedEffect.FrameTime.
+        var invert = new TestInvertEffect("plugin.rendertest.notime");
+        SkiaEffectPipeline.RegisterEffect(invert);
+        try
+        {
+            byte a = RenderCenter(new SKColor(100, 100, 100, 255),
+                [new ResolvedEffect(invert.Descriptor.Id, new Dictionary<string, double> { ["amount"] = 1.0 }, FrameTime: 0)]).Red;
+            byte b = RenderCenter(new SKColor(100, 100, 100, 255),
+                [new ResolvedEffect(invert.Descriptor.Id, new Dictionary<string, double> { ["amount"] = 1.0 }, FrameTime: 999999)]).Red;
+            Assert.Equal(a, b);
+        }
+        finally
+        {
+            SkiaEffectPipeline.UnregisterEffect(invert.Descriptor.Id);
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────────
+
+    // Declares the reserved sprocket_time uniform and writes it (clamped to a 0–1 second window) into red.
+    private sealed class TestTimeEffect(string id) : IVideoEffect
+    {
+        public EffectDescriptor Descriptor { get; } = new(
+            id, "Time (render test)", EffectCategory.Color, "test", []);
+
+        public string SkslSource => @"
+uniform shader src;
+uniform float sprocket_time;
+half4 main(float2 coord) {
+    half4 c = src.eval(coord);
+    float v = clamp(sprocket_time, 0.0, 1.0);
+    return half4(half(v), c.g, c.b, c.a);
+}";
+
+        public void BindUniforms(ResolvedEffect effect, IUniformWriter uniforms) { }
+    }
+
+    private static ResolvedEffect Timed(string id, long frameTime) =>
+        new(id, new Dictionary<string, double>(), FrameTime: frameTime);
 
     private sealed class TestInvertEffect(string id) : IVideoEffect
     {

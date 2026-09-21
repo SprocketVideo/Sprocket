@@ -1,6 +1,6 @@
 # Black & White conversion (film-emulation grade monochrome)
 
-❌ **Not started.** Unscheduled feature (no build-order step number yet); tracked in
+🟡 **In progress (phases 1–2 of 5 shipped).** Unscheduled feature (no build-order step number yet); tracked in
 [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** a dedicated `Black & White` effect (`builtin.blackwhite`, short code `BW`)
@@ -205,7 +205,17 @@ status lives in the checklist here; flip the box and add a dated one-liner when 
   highlight-shoulder; `BlackWhiteEffect` SkSL registered in the pipeline; single `Neutral` preset. Core
   catalog tests + Render centre-pixel tests (neutral = Rec.709 mono, `Mix=0` pass-through, red filter,
   `MixReds` saturation gating, tone-control monotonicity) green.
-- [ ] Phase 2 — Frame-context seam, grain, vignette
+- [x] Phase 2 — Frame-context seam, grain, vignette (2026-09-21): `ResolvedEffect.FrameTime` (`long` ticks,
+  default 0) populated by `RenderGraph.ResolveEffectsCore` from the frame's timeline time. Pipeline auto-binds
+  the reserved `sprocket_time` (seconds) / `sprocket_bounds` (layer rect) uniforms when a compiled registry
+  program declares them (detected once per compile, cached in `CachedRegisteredEffect`; `dest` threaded into
+  `BuildRegisteredEffectShader`) — effects declaring neither bind unchanged. New params `GrainAmount` /
+  `GrainSize` / `GrainSeedLock` (toggle) / `VignetteAmount` / `VignetteSize` / `VignetteSoftness` + descriptor
+  rows + Neutral-preset defaults. `BlackWhiteEffect` SkSL extended: luma-weighted hash grain (re-seeded per
+  frame from `sprocket_time` unless Static Grain) and radial vignette from `sprocket_bounds`. ARCHITECTURE §13
+  documents the two reserved uniforms. Tests: Core `FrameTime` population + updated catalog/parameter-kind
+  lists; Render grain determinism/per-frame variation/static-lock, vignette corner-vs-centre + pass-through,
+  and pipeline auto-bind positive + plugin regression — all green.
 - [ ] Phase 3 — Toning + preset descriptions
 - [ ] Phase 4 — Preset library (non-film)
 - [ ] Phase 5 — Film-stock presets + docs + close-out

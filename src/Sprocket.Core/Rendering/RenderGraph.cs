@@ -543,8 +543,11 @@ public static class RenderGraph
             foreach ((string name, AnimatableValue value) in effect.Parameters)
                 values[name] = value.Evaluate(t);
             // Video effects carry no asset references today (only the audio Convolution Reverb does, PLAN.md
-            // step 49); forward effect.Assets here when the first video Asset descriptor arrives.
-            (resolved ??= []).Add(new ResolvedEffect(effect.EffectTypeId, values));
+            // step 49); forward effect.Assets here when the first video Asset descriptor arrives. FrameTime is the
+            // frame's timeline ticks — the Render layer auto-binds it to a registry effect's reserved
+            // `sprocket_time` uniform (grain seed, animated noise); nested sequences resolve at the child's local
+            // time, so grain re-seeds per rendered frame there too.
+            (resolved ??= []).Add(new ResolvedEffect(effect.EffectTypeId, values, FrameTime: t.Ticks));
         }
         return resolved?.ToArray() ?? [];
     }
