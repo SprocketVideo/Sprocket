@@ -196,6 +196,75 @@ public class UserSettingsStoreTests
         Assert.Empty(UserSettingsStore.Clamp(new UserSettings { DisabledPlugins = null! }).DisabledPlugins);
 
     [Fact]
+    public void Recent_Projects_Round_Trips()
+    {
+        var settings = new UserSettings { RecentProjects = ["C:/p/a.sprocket.json", "C:/p/b.sprocket.json"] };
+        UserSettings restored = UserSettingsStore.Deserialize(UserSettingsStore.Serialize(settings));
+        Assert.Equal(new[] { "C:/p/a.sprocket.json", "C:/p/b.sprocket.json" }, restored.RecentProjects);
+    }
+
+    [Fact]
+    public void Recent_Projects_Defaults_To_Empty()
+    {
+        // Fresh install and an old settings file written before the field existed both mean "no recent".
+        Assert.Empty(new UserSettings().RecentProjects);
+        Assert.Empty(UserSettingsStore.Deserialize("""{"McpEnabled": true}""").RecentProjects);
+    }
+
+    [Fact]
+    public void Clamp_Normalizes_A_Null_Recent_Projects_To_Empty() =>
+        Assert.Empty(UserSettingsStore.Clamp(new UserSettings { RecentProjects = null! }).RecentProjects);
+
+    [Fact]
+    public void PushRecent_Puts_The_Newest_Path_First()
+    {
+        IReadOnlyList<string> after = UserSettingsStore.PushRecent(["a", "b"], "c");
+        Assert.Equal(new[] { "c", "a", "b" }, after);
+    }
+
+    [Fact]
+    public void PushRecent_Promotes_An_Existing_Path_Without_Duplicating()
+    {
+        IReadOnlyList<string> after = UserSettingsStore.PushRecent(["a", "b", "c"], "c");
+        Assert.Equal(new[] { "c", "a", "b" }, after);
+    }
+
+    [Fact]
+    public void PushRecent_Dedupes_Case_Insensitively()
+    {
+        IReadOnlyList<string> after = UserSettingsStore.PushRecent(["C:/P/A.json"], "c:/p/a.json");
+        Assert.Equal(new[] { "c:/p/a.json" }, after);
+    }
+
+    [Fact]
+    public void PushRecent_Caps_At_The_Maximum_Dropping_The_Oldest()
+    {
+        IReadOnlyList<string> full = Enumerable.Range(0, UserSettingsStore.MaxRecentProjects)
+            .Select(i => $"p{i}").ToList();
+        IReadOnlyList<string> after = UserSettingsStore.PushRecent(full, "newest");
+        Assert.Equal(UserSettingsStore.MaxRecentProjects, after.Count);
+        Assert.Equal("newest", after[0]);
+        Assert.DoesNotContain($"p{UserSettingsStore.MaxRecentProjects - 1}", after); // oldest dropped
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void PushRecent_Ignores_A_Blank_Path(string? blank) =>
+        Assert.Equal(new[] { "a" }, UserSettingsStore.PushRecent(["a"], blank));
+
+    [Fact]
+    public void Clamp_Dedupes_And_Caps_A_Hand_Edited_Recent_List()
+    {
+        var oversized = Enumerable.Range(0, UserSettingsStore.MaxRecentProjects + 5)
+            .Select(i => $"p{i}").Append("p0").ToList(); // trailing dup of the first
+        UserSettings s = UserSettingsStore.Clamp(new UserSettings { RecentProjects = oversized });
+        Assert.Equal(UserSettingsStore.MaxRecentProjects, s.RecentProjects.Count);
+        Assert.Equal(s.RecentProjects.Distinct(System.StringComparer.OrdinalIgnoreCase).Count(), s.RecentProjects.Count);
+    }
+
+    [Fact]
     public void NewToken_Is_Long_Unique_And_Header_Safe()
     {
         string a = UserSettingsStore.NewToken();

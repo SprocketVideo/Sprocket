@@ -122,6 +122,7 @@ in terms an app-side committer can check against their diff.
 | New Project (`Ctrl+N`) | MainWindow.axaml.cs `NewProject` | get-started/getting-started.md#open-something-to-work-with | ✅ |
 | Open Project (`Ctrl+O`) | MainWindow.axaml.cs `OpenProjectAsync` | get-started/getting-started.md#open-something-to-work-with | ✅ |
 | Open Sample Project | MainWindow.axaml.cs `OpenSampleProject` | get-started/getting-started.md#open-something-to-work-with | ✅ |
+| Open Recent (File ▸ Open Recent — up to 10 recent projects, newest first; Clear Recent; stale entries self-prune) | MainWindow.axaml.cs `RefreshRecentMenu`/`OpenRecentAsync`; UserSettingsStore.cs `PushRecent` | — | ❌ |
 | Save / Save As (`Ctrl+S` / `Ctrl+Shift+S`) | MainWindow.axaml.cs `Save`/`SaveAsAsync` | get-started/getting-started.md#11-save-your-project | ✅ |
 | Unsaved-changes prompt when dirty (Save · Don't Save · Cancel) — guards New / Open / Open Sample **and** closing the window / Exit / Quit; Save that fails or is cancelled aborts the action | MainWindow.axaml.cs `ConfirmSaveIfDirtyAsync`, `ConfirmCloseAsync`, `OnClosing`; App.axaml.cs `OnShutdownRequested` | get-started/projects-and-saving.md#the-unsaved-changes-safety-check | ❌ (page documents the old two-button discard prompt, and predates the close/quit guard) |
 | Autosave + crash recovery (recover-newer-autosave prompt) | Sprocket.App/AutosaveService.cs; `ShouldRecoverAsync` | get-started/projects-and-saving.md#autosave-and-crash-recovery | ✅ |

@@ -88,6 +88,7 @@ public partial class MainWindow : Window
     private bool _rendering;           // a preview render is in flight (same quiesce discipline as export, PLAN.md step 32)
     private RenderCache.RenderCacheService? _renderCache; // the session's preview render cache (PLAN.md step 32)
     private DispatcherTimer? _renderCacheRefresh;          // debounces the post-edit re-hash (drags fire Changed per mutation)
+    private MenuItem? _openRecentMenuItem;                 // File ▸ Open Recent (populated on submenu-open)
     private MenuItem? _renderSelectionMenuItem, _deleteRenderFilesMenuItem; // Sequence ▸ render commands (step 32)
     private MenuItem? _freezeClipAudioMenuItem, _unfreezeClipAudioMenuItem; // Sequence ▸ audio freeze (step 41)
     private Export.ExportQueue? _exportQueue;         // lazily built on first Export Queue use (PLAN.md step 29)
@@ -230,6 +231,9 @@ public partial class MainWindow : Window
         _proxy = proxy;
         _audioClock = audioClock;
         _currentProjectPath = projectPath;
+        // A project that opened with a real file path (dialog, Open Recent, or CLI/startup) becomes the newest
+        // File ▸ Open Recent entry; Save/Save-As add theirs from SaveTo.
+        RecordRecentProject(projectPath);
 
         _root = this.FindControl<Control>("Root");
         _fullscreenPreviewHost = this.FindControl<Panel>("FullscreenPreviewHost");
@@ -578,6 +582,8 @@ public partial class MainWindow : Window
         // File
         this.FindControl<MenuItem>("NewMenuItem")!.Click += (_, _) => NewProject();
         this.FindControl<MenuItem>("OpenMenuItem")!.Click += (_, _) => _ = OpenProjectAsync();
+        _openRecentMenuItem = this.FindControl<MenuItem>("OpenRecentMenuItem")!;
+        _openRecentMenuItem.SubmenuOpened += (_, _) => RefreshRecentMenu();
         this.FindControl<MenuItem>("OpenSampleMenuItem")!.Click += (_, _) => OpenSampleProject();
         this.FindControl<MenuItem>("SaveMenuItem")!.Click += (_, _) => Save();
         this.FindControl<MenuItem>("SaveAsMenuItem")!.Click += (_, _) => _ = SaveAsAsync();
@@ -3743,6 +3749,38 @@ public partial class MainWindow : Window
         if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
             return;
 
+        await TryOpenFromPathAsync(path);
+    }
+
+    /// <summary>
+    /// File ▸ Open Recent ▸ &lt;file&gt;: opens a remembered project by path with no picker, but the same
+    /// export/dirty/autosave-recovery gates as <see cref="OpenProjectAsync"/>. A stale entry (the file is gone,
+    /// or the load fails) is dropped from the recent list so the menu self-heals.
+    /// </summary>
+    private async Task OpenRecentAsync(string path)
+    {
+        if (BlockedByExport())
+            return;
+        if (!File.Exists(path))
+        {
+            SetStatus($"Not found: {path}");
+            RemoveRecentProject(path);
+            return;
+        }
+        if (!await ConfirmSaveIfDirtyAsync())
+            return;
+        if (!await TryOpenFromPathAsync(path))
+            RemoveRecentProject(path);
+    }
+
+    /// <summary>
+    /// The dialog-free, already-gated core shared by <see cref="OpenProjectAsync"/> and
+    /// <see cref="OpenRecentAsync"/>: offers autosave recovery, loads, and fires <see cref="SessionRequested"/>.
+    /// Returns whether the project reached a session (<c>false</c> on a load failure, which the caller uses to
+    /// prune a stale recent entry).
+    /// </summary>
+    private async Task<bool> TryOpenFromPathAsync(string path)
+    {
         try
         {
             bool recover = await ShouldRecoverAsync(path);
@@ -3763,11 +3801,79 @@ public partial class MainWindow : Window
                 status = $"Opened {Path.GetFileName(path)}";
             }
             SessionRequested?.Invoke(new SessionRequest(project, status, path));
+            return true;
         }
         catch (Exception ex)
         {
             SetStatus($"Open failed: {ex.Message}");
+            return false;
         }
+    }
+
+    // ── File ▸ Open Recent (MRU) ───────────────────────────────────────────────────────────────────
+
+    /// <summary>Promotes <paramref name="path"/> to the top of the persisted recent-projects list (no-op when
+    /// blank). Called wherever the document acquires a real file path — on open (ctor) and on save.</summary>
+    private void RecordRecentProject(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        PersistRecent(UserSettingsStore.PushRecent(_userSettings.RecentProjects, path));
+    }
+
+    /// <summary>Drops a single stale entry (missing file / failed load) from the recent list.</summary>
+    private void RemoveRecentProject(string path)
+    {
+        var pruned = _userSettings.RecentProjects
+            .Where(p => !string.Equals(p, path, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (pruned.Count != _userSettings.RecentProjects.Count)
+            PersistRecent(pruned);
+    }
+
+    /// <summary>Writes a new recent list into the in-memory settings and to disk (mirrors the other
+    /// <see cref="UserSettingsFile.Save"/> call sites).</summary>
+    private void PersistRecent(IReadOnlyList<string> recent)
+    {
+        _userSettings = _userSettings with { RecentProjects = recent };
+        UserSettingsFile.Save(_userSettings);
+    }
+
+    /// <summary>
+    /// Rebuilds the File ▸ Open Recent submenu on open (modeled on <see cref="RefreshSequenceMenu"/>): one item
+    /// per existing file (newest first), a separator, and Clear Recent. Missing files are pruned as they are
+    /// discovered, and an empty list shows a single disabled placeholder.
+    /// </summary>
+    private void RefreshRecentMenu()
+    {
+        if (_openRecentMenuItem is null)
+            return;
+
+        IReadOnlyList<string> recent = _userSettings.RecentProjects;
+        var existing = recent.Where(File.Exists).ToList();
+        if (existing.Count != recent.Count)
+            PersistRecent(existing); // self-heal: forget files that are gone
+
+        var items = new List<Control>(existing.Count + 2);
+        if (existing.Count == 0)
+        {
+            items.Add(new MenuItem { Header = "No Recent Projects", IsEnabled = false });
+        }
+        else
+        {
+            foreach (string path in existing)
+            {
+                string captured = path; // capture per iteration
+                var item = new MenuItem { Header = Path.GetFileName(captured) };
+                ToolTip.SetTip(item, captured);
+                item.Click += (_, _) => _ = OpenRecentAsync(captured);
+                items.Add(item);
+            }
+            items.Add(new Separator());
+            var clear = new MenuItem { Header = "_Clear Recent" };
+            clear.Click += (_, _) => PersistRecent([]);
+            items.Add(clear);
+        }
+        _openRecentMenuItem.ItemsSource = items;
     }
 
     /// <summary>
@@ -3841,6 +3947,7 @@ public partial class MainWindow : Window
         try
         {
             ProjectSerializer.Save(_project!, path);
+            RecordRecentProject(path);
             _savedUndoCount = _history.UndoCount;
             // A clean save makes the autosave stale: clear the dirty flag and drop the sidecar so launch won't
             // offer to recover an older copy (PLAN.md step 20).
