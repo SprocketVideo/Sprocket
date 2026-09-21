@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sprocket.Analysis — headless motion analysis (ARCHITECTURE.md §17, stabilization feature plan
+    plan/features/stabilization.md phase 1). Pure-managed computer-vision primitives used to build a
+    camera-motion track for stabilization:
+      * Features/  — GrayImage span wrapper, ImagePyramid, Shi-Tomasi CornerDetector,
+                     pyramidal Lucas-Kanade tracker, RANSAC RobustFit (similarity + homography).
+      * Motion/    — FrameMotion (per-pair global motion) + MotionEstimator (image pair -> FrameMotion).
+    No IO, no native, no UI. SIMD via System.Numerics where it pays. Phase 3 adds the Media reference
+    (the decode driver); phase 1 references only Core and stays fully testable on synthetic images.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
+  </ItemGroup>
+
+</Project>
