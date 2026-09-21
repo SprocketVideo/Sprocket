@@ -168,6 +168,10 @@ verification-only items carry their checklist in the step's history entry.
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →
   [plan/features/looks-browser.md](plan/features/looks-browser.md)
+- [ ] **Special effects roadmap** (unscheduled feature) — practical action VFX and day-for-night on
+  the existing effect/compositing seams: fire and explosion composites via overlays, generators,
+  distortion/light primitives, plus a guided day-for-night toolkit rather than full simulation →
+  [plan/features/special-effects.md](plan/features/special-effects.md)
 - [x] **Convolution reverb (Acoustic Space)** — step 49, shipped 2026-08-26 (user WAV IR import; bundled
   IR library deliberately deferred on licensing) → [history](plan/history/steps-41-57.md#step-49)
 - [x] **Variable / ramped speed & reverse retime** — step 21 remainder, shipped 2026-08-27 (reverse
