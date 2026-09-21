@@ -33,6 +33,10 @@ public sealed class PreviewSurface : Control
     private int _frameWidth;
     private int _frameHeight;
 
+    private string? _stabBanner;
+    private bool _stabBannerWarn;
+    private System.Collections.Generic.IReadOnlyList<FeaturePoint>? _stabPoints;
+
     /// <summary>The preview zoom level (the <c>Fit ▾</c> control). Redraws on change.</summary>
     public MonitorZoom Zoom
     {
@@ -87,6 +91,23 @@ public sealed class PreviewSurface : Control
         InvalidateVisual();
     }
 
+    /// <summary>
+    /// Sets the stabilization monitor overlay (plan/features/stabilization.md phase 6): a status banner
+    /// (<paramref name="banner"/>, amber when <paramref name="warn"/>) and/or the current frame's tracked feature
+    /// points (<paramref name="points"/>, Warp's Show Track Points). Any argument may be null to omit that part.
+    /// Redraws only when something changed.
+    /// </summary>
+    public void SetStabilizationOverlay(
+        string? banner, bool warn, System.Collections.Generic.IReadOnlyList<FeaturePoint>? points)
+    {
+        if (_stabBanner == banner && _stabBannerWarn == warn && ReferenceEquals(_stabPoints, points))
+            return;
+        _stabBanner = banner;
+        _stabBannerWarn = warn;
+        _stabPoints = points;
+        InvalidateVisual();
+    }
+
     /// <summary>Attaches the engine whose current frame this surface presents; detaches any previous one. The
     /// effect pipeline is compiled once on first attach and reused.</summary>
     public void Attach(PlaybackEngine engine)
@@ -127,7 +148,9 @@ public sealed class PreviewSurface : Control
     }
 
     public override void Render(DrawingContext context) =>
-        context.Custom(new DrawOp(new Rect(Bounds.Size), _engine, _pipeline, _zoom, _showGuides, _frameWidth, _frameHeight, Scopes));
+        context.Custom(new DrawOp(
+            new Rect(Bounds.Size), _engine, _pipeline, _zoom, _showGuides, _frameWidth, _frameHeight, Scopes,
+            _stabBanner, _stabBannerWarn, _stabPoints));
 
     private sealed class DrawOp : ICustomDrawOperation
     {
@@ -138,9 +161,14 @@ public sealed class PreviewSurface : Control
         private readonly int _frameWidth;
         private readonly int _frameHeight;
         private readonly ScopeState? _scopes;
+        private readonly string? _stabBanner;
+        private readonly bool _stabBannerWarn;
+        private readonly System.Collections.Generic.IReadOnlyList<FeaturePoint>? _stabPoints;
 
         public DrawOp(Rect bounds, PlaybackEngine? engine, SkiaEffectPipeline? pipeline,
-            MonitorZoom zoom, bool showGuides, int frameWidth, int frameHeight, ScopeState? scopes)
+            MonitorZoom zoom, bool showGuides, int frameWidth, int frameHeight, ScopeState? scopes,
+            string? stabBanner, bool stabBannerWarn,
+            System.Collections.Generic.IReadOnlyList<FeaturePoint>? stabPoints)
         {
             Bounds = bounds;
             _engine = engine;
@@ -150,6 +178,9 @@ public sealed class PreviewSurface : Control
             _frameWidth = frameWidth;
             _frameHeight = frameHeight;
             _scopes = scopes;
+            _stabBanner = stabBanner;
+            _stabBannerWarn = stabBannerWarn;
+            _stabPoints = stabPoints;
         }
 
         public Rect Bounds { get; }
@@ -215,6 +246,8 @@ public sealed class PreviewSurface : Control
                         // Even with nothing to composite (empty timeline / gap), the frame + guides still show.
                         if (_showGuides && haveFrame)
                             MonitorOverlay.Draw(canvas, frameRect, thirds: true, safeAreas: true);
+                        if (haveFrame)
+                            DrawStabOverlay(canvas, frameRect);
                         return;
                     }
 
@@ -273,12 +306,23 @@ public sealed class PreviewSurface : Control
 
                     if (_showGuides && haveFrame)
                         MonitorOverlay.Draw(canvas, frameRect, thirds: true, safeAreas: true);
+                    if (haveFrame)
+                        DrawStabOverlay(canvas, frameRect);
                 });
             }
             finally
             {
                 canvas.RestoreToCount(checkpoint);
             }
+        }
+
+        // Stabilization monitor overlay (phase 6): track points under the banner so the banner text stays readable.
+        private void DrawStabOverlay(SKCanvas canvas, SKRect frameRect)
+        {
+            if (_stabPoints is { Count: > 0 })
+                MonitorOverlay.DrawTrackPoints(canvas, frameRect, _stabPoints);
+            if (!string.IsNullOrEmpty(_stabBanner))
+                MonitorOverlay.DrawBanner(canvas, frameRect, _stabBanner, _stabBannerWarn);
         }
 
         // Nested-sequence preview placeholder (teal, matching the timeline's nested-clip fill): a flat fill plus a

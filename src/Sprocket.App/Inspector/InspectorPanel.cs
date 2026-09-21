@@ -18,6 +18,7 @@ using Sprocket.App.Mixer;
 using Sprocket.App.Stabilization;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
+using Sprocket.Core.Stabilization;
 using Sprocket.Core.Timing;
 using ShapesPath = Avalonia.Controls.Shapes.Path; // aliased so it doesn't clash with System.IO.Path
 
@@ -1078,6 +1079,17 @@ public sealed class InspectorPanel : UserControl
         panel.Children.Add(progress);
         panel.Children.Add(buttons);
 
+        // Hint when a Transform precedes Stabilization: the reframe then reads an already-warped source, which is
+        // rarely what the user wants — the stabilizer belongs at the base of the stack (mirrors leading editors).
+        if (PrecededByTransform(clip, effect))
+            panel.Children.Add(new TextBlock
+            {
+                Text = "A Transform runs before this — stabilization reads the reframed image. Move it below Transform for best results.",
+                FontSize = Typography.Caption,
+                Foreground = Palette.WarnBrush,
+                TextWrapping = TextWrapping.Wrap,
+            });
+
         if (_stab is null || media is null)
         {
             statusText.Text = media is null
@@ -1085,6 +1097,51 @@ public sealed class InspectorPanel : UserControl
                 : "Analysis is unavailable in this session.";
             analyzeButton.IsVisible = false;
             return panel;
+        }
+
+        // Applied-zoom readout + camera-path graph (phase 6): shown once a track is available. The solve is a cheap,
+        // deterministic pure function of (track, settings), so we run it here for the diagnostic exactly as the
+        // renderer does — no shared cache needed.
+        var zoomReadout = new TextBlock { FontSize = Typography.Caption, Foreground = MutedText, IsVisible = false };
+        var graph = new CameraPathGraph { IsVisible = false, Margin = new Avalonia.Thickness(0, 4, 0, 0) };
+        panel.Children.Add(zoomReadout);
+        panel.Children.Add(graph);
+
+        int fw = _project?.Timeline.Resolution.Width ?? 1920;
+        int fh = _project?.Timeline.Resolution.Height ?? 1080;
+        StabilizationSettings SettingsFor() => StabilizationSettings.FromParameters((name, fallback) =>
+            effect.Parameters.TryGetValue(name, out AnimatableValue? v) && v is not null ? v.Evaluate(Timecode.Zero) : fallback);
+
+        StabilizationSolution? lastSol = null;
+        MotionTrack? lastTrack = null;
+
+        void RefreshGraph()
+        {
+            MotionTrack? track = _stab.TryGetTrack(clip.MediaRefId, Timecode.Zero, detailed);
+            if (track is null || track.FrameCount == 0)
+            {
+                lastSol = null;
+                lastTrack = null;
+                zoomReadout.IsVisible = false;
+                graph.IsVisible = false;
+                graph.Update(null, -1);
+                return;
+            }
+
+            StabilizationSolution sol = StabilizationSolver.Solve(track, SettingsFor(), fw, fh);
+            lastSol = sol;
+            lastTrack = track;
+            zoomReadout.IsVisible = true;
+            zoomReadout.Text = sol.AppliedZoom > 1.0005
+                ? string.Create(CultureInfo.InvariantCulture, $"Applied zoom: {sol.AppliedZoom * 100:0.#}% (crop to hide borders)")
+                : "Applied zoom: none — borders shown where the frame moves off-source.";
+
+            int lowConf = _stab.LowConfidenceFrames(clip.MediaRefId, detailed);
+            if (lowConf > 0)
+                zoomReadout.Text += string.Create(CultureInfo.InvariantCulture, $"  ·  low confidence on {lowConf} frame(s)");
+
+            graph.IsVisible = true;
+            graph.Update(sol, PlayheadFraction(clip, track));
         }
 
         void Refresh()
@@ -1129,6 +1186,7 @@ public sealed class InspectorPanel : UserControl
                     cancelButton.IsVisible = false;
                     break;
             }
+            RefreshGraph();
         }
 
         analyzeButton.Click += (_, _) =>
@@ -1143,8 +1201,40 @@ public sealed class InspectorPanel : UserControl
         };
 
         _stabRefreshers.Add(Refresh);
+        // Move only the playhead marker on scrub/playback — reuse the last solve rather than re-solving per frame.
+        _valueRefreshers.Add(() =>
+        {
+            if (graph.IsVisible && lastSol is not null && lastTrack is not null)
+                graph.Update(lastSol, PlayheadFraction(clip, lastTrack));
+        });
         Refresh();
         return panel;
+    }
+
+    /// <summary>Whether any <see cref="EffectTypeIds.Transform"/> sits before <paramref name="effect"/> in the
+    /// clip's stack (drives the "move it below Transform" hint).</summary>
+    private static bool PrecededByTransform(Clip clip, EffectInstance effect)
+    {
+        for (int i = 0; i < clip.Effects.Count; i++)
+        {
+            if (clip.Effects[i] == effect)
+                return false;
+            if (clip.Effects[i].EffectTypeId == EffectTypeIds.Transform)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>The playhead's position as a fraction 0..1 of the analysed source range, for the graph's marker, or
+    /// a negative value when the playhead is outside the clip / analysed range.</summary>
+    private double PlayheadFraction(Clip clip, MotionTrack track)
+    {
+        long start = track.RangeStart.Ticks, end = track.RangeEnd.Ticks;
+        if (end <= start)
+            return -1;
+        long srcTicks = clip.SourceIn.Ticks + (_playhead().Ticks - clip.TimelineStart.Ticks);
+        double f = (srcTicks - start) / (double)(end - start);
+        return f is >= 0 and <= 1 ? f : -1;
     }
 
     /// <summary>Reads a toggle parameter's current constant value off an effect instance as a bool.</summary>
@@ -2189,16 +2279,44 @@ public sealed class InspectorPanel : UserControl
         {
             // One point below the menu default, matching the panel's dense 12–13px type scale.
             var item = new MenuItem { Header = descriptor.DisplayName };
-            // The input color transform must run before the creative grade (PLAN.md step 37), so the
-            // manual-tag path inserts it at the front of the stack; everything else appends as usual.
-            bool prepend = descriptor.Id == EffectTypeIds.ColorTransform;
-            item.Click += (_, _) => _history!.Execute(prepend
-                ? new InsertEffectAtCommand(clip, descriptor.CreateInstance(), 0)
-                : new AddEffectCommand(clip, descriptor.CreateInstance()));
+            EffectDescriptor captured = descriptor;
+            item.Click += (_, _) => _history!.Execute(PlacementCommand(clip, captured));
             items.Add(item);
         }
         add.Flyout = new MenuFlyout { ItemsSource = items };
         return add;
+    }
+
+    /// <summary>
+    /// The command that adds a freshly-created effect at the position its type wants in the stack.
+    /// <list type="bullet">
+    /// <item>The input <b>Color Transform</b> must run before the creative grade (PLAN.md step 37), so it inserts at
+    /// the front.</item>
+    /// <item><b>Stabilization</b> should reframe the source before any creative grade/transform reads it, so it
+    /// inserts right after a Color Transform if one is present, else at the front (mirrors leading editors, where
+    /// the stabilizer sits at the base of the stack).</item>
+    /// <item>Everything else appends.</item>
+    /// </list>
+    /// </summary>
+    private static IEditCommand PlacementCommand(Clip clip, EffectDescriptor descriptor)
+    {
+        EffectInstance instance = descriptor.CreateInstance();
+        if (descriptor.Id == EffectTypeIds.ColorTransform)
+            return new InsertEffectAtCommand(clip, instance, 0);
+        if (descriptor.Id == EffectTypeIds.Stabilization)
+            return new InsertEffectAtCommand(clip, instance, StabilizationInsertIndex(clip));
+        return new AddEffectCommand(clip, instance);
+    }
+
+    /// <summary>The index Stabilization should land at: just after a Color Transform if the stack has one, else 0.</summary>
+    private static int StabilizationInsertIndex(Clip clip)
+    {
+        for (int i = 0; i < clip.Effects.Count; i++)
+        {
+            if (clip.Effects[i].EffectTypeId == EffectTypeIds.ColorTransform)
+                return i + 1;
+        }
+        return 0;
     }
 
     /// <summary>The insert-chain "+ Effect" bar (PLAN.md step 31): the catalog's audio effects, appended to

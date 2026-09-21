@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -18,11 +20,13 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Sprocket.App.Inspector;
 using Sprocket.App.MediaBrowser;
+using Sprocket.App.Stabilization;
 using Sprocket.Audio;
 using Sprocket.Core.Audio;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
 using Sprocket.Core.Rendering;
+using Sprocket.Core.Stabilization;
 using Sprocket.Core.Timing;
 using Sprocket.Export;
 using Sprocket.Persistence;
@@ -50,6 +54,9 @@ public partial class MainWindow : Window
     private readonly Project? _project;
     private readonly Proxy.ProxyService? _proxy; // session proxy service (PLAN.md step 18); owned by App
     private readonly Stabilization.StabilizationService? _stab; // session stabilization analysis service; owned by App
+    // Bucketed ranges we've already auto-triggered analysis for (source id, detail, range start/end ticks): fires
+    // once on apply / when a trim moves the range to a new bucket, and never re-fights an explicit Cancel.
+    private readonly HashSet<(MediaRefId Media, bool Detailed, long Start, long End)> _autoAnalyzed = new();
     private readonly Proxy.ProxyAdvisor _proxyAdvisor = new(); // playback drop monitor → proxy recommendations
     private readonly Sprocket.Audio.AudioEngine? _audioClock; // live loudness source for the mixer meters (PLAN.md step 30); owned by the engine
     private readonly EditHistory _history = new();
@@ -1010,6 +1017,14 @@ public partial class MainWindow : Window
             clearProxyCache: () => _proxy is { } proxy ? proxy.DeleteAllProxies() : Proxy.ProxyCache.DeleteAll(),
             renderCacheSize: () => _renderCache?.SizeBytes() ?? 0,
             clearRenderCache: () => _renderCache?.DeleteAll(),
+            analysisCacheSize: Stabilization.AnalysisCache.SizeBytes,
+            // Cancel any in-flight/queued analyses first so the service can't re-write a file we're about to delete,
+            // then sweep the per-user cache; stabilized clips re-analyze on demand (auto-analyze re-enqueues them).
+            clearAnalysisCache: () =>
+            {
+                _autoAnalyzed.Clear();
+                Stabilization.AnalysisCache.DeleteAll();
+            },
             audioDevices: Sprocket.Audio.OpenAlAudioOutput.EnumerateOutputDevices());
         if (updated is null)
             return;
@@ -1838,6 +1853,9 @@ public partial class MainWindow : Window
         // Double-clicking a transition in the browser applies it to the selected clip's cut (PLAN.md step 25).
         browser.TransitionActivated += id => _timeline?.ApplyTransitionToSelectedCut(id);
         browser.InterpretFootageRequested += media => _ = InterpretFootageAsync(media); // PLAN.md step 42
+        // Pre-warm the stabilization analysis cache for the whole source from the bin (FCP), so it's ready before
+        // the effect is applied. Standard (non-detailed) analysis over the full source duration.
+        browser.AnalyzeForStabilizationRequested += media => _stab?.Analyze(media, Timecode.Zero, media.Info.Duration, detailed: false);
         browser.MediaActivated += ShowInSourceMonitor; // double-click a bin item → Source monitor
         browser.Attach(_project, _history, _thumbnails);
 
@@ -2041,18 +2059,182 @@ public partial class MainWindow : Window
         // correct invalidation — track changes are rare; phase 6 refines it). No model mutation, so nothing to undo.
         if (_stab is not null)
         {
-            _stab.ProgressChanged += () => Dispatcher.UIThread.Post(() => _inspector?.RefreshStabilizationStatus());
+            _stab.ProgressChanged += () => Dispatcher.UIThread.Post(() =>
+            {
+                _inspector?.RefreshStabilizationStatus();
+                UpdateStabilizationBanner();
+            });
             _stab.TrackChanged += _ => Dispatcher.UIThread.Post(() =>
             {
                 _renderCache?.DeleteAll();
                 _preview?.InvalidateVisual();
                 _inspector?.RefreshStabilizationStatus();
+                UpdateStabilizationBanner();
             });
+
+            // Auto-analyze on apply + stale-on-trim (phase 6): every model edit, sweep the project for stabilized
+            // media clips and ensure each has an analysis for its current source range. Analyze() is idempotent for
+            // a range already covered, so this only ever kicks off genuinely-new or newly-stale work.
+            _history.Changed += AutoAnalyzeStabilizations;
+            AutoAnalyzeStabilizations(); // catch the project as loaded
         }
 
         // Optional timed auto-exit for unattended profiling runs: SPROCKET_APP_SECONDS=12
         if (int.TryParse(Environment.GetEnvironmentVariable("SPROCKET_APP_SECONDS"), out int seconds) && seconds > 0)
             DispatcherTimer.RunOnce(Close, TimeSpan.FromSeconds(seconds));
+    }
+
+    /// <summary>
+    /// Ensures every stabilized media clip in the project has an analysis for its current source range (phase 6):
+    /// auto-analyze on apply, and re-analyze when a trim moves the used range to a new cache bucket. Fires once per
+    /// (source, detail, bucketed range) so it never re-fights an explicit Cancel or spams unrelated edits.
+    /// </summary>
+    private void AutoAnalyzeStabilizations()
+    {
+        if (_stab is null || _project is null)
+            return;
+        foreach (Stabilization.StabilizationScan.Item item in Stabilization.StabilizationScan.StabilizedClips(_project))
+        {
+            (Timecode start, Timecode end) =
+                Sprocket.Core.Stabilization.AnalysisKey.BucketRange(item.Clip.SourceIn, item.Clip.SourceOut);
+            if (!_autoAnalyzed.Add((item.Media.Id, item.Detailed, start.Ticks, end.Ticks)))
+                continue; // already kicked this exact range off
+            _stab.Analyze(item.Media, item.Clip.SourceIn, item.Clip.SourceOut, item.Detailed);
+        }
+        UpdateStabilizationBanner();
+    }
+
+    /// <summary>
+    /// Refreshes the monitor's stabilization overlay for the selected clip (phase 6): a status banner
+    /// (needs-analysis / analysing progress / low-confidence, suppressible per-clip via <c>hideBanner</c>) and,
+    /// when <c>showTrackPoints</c> is on and a track is ready, the playhead frame's tracked features. Clears the
+    /// overlay when the selection is not a stabilized media clip.
+    /// </summary>
+    private void UpdateStabilizationBanner()
+    {
+        if (_preview is null)
+            return;
+        if (_stab is null || _project is null || _selectedClip is not { Kind: ClipKind.Media } clip
+            || FindEnabledStabilization(clip) is not { } effect
+            || _project.MediaPool.Get(clip.MediaRefId) is null)
+        {
+            _preview.SetStabilizationOverlay(null, false, null);
+            return;
+        }
+
+        bool detailed = ReadEffectToggle(effect, EffectParamNames.DetailedAnalysis);
+        bool hideBanner = ReadEffectToggle(effect, EffectParamNames.HideBanner);
+        bool showPoints = ReadEffectToggle(effect, EffectParamNames.ShowTrackPoints);
+
+        string? banner = null;
+        bool warn = false;
+        if (!hideBanner)
+        {
+            AnalysisStatus s = _stab.StatusOf(clip.MediaRefId, detailed);
+            switch (s.State)
+            {
+                case AnalysisState.Analyzing:
+                    banner = string.Create(CultureInfo.InvariantCulture, $"Stabilizing — analyzing {s.Progress * 100:0}%…");
+                    break;
+                case AnalysisState.Queued:
+                    banner = "Stabilizing — queued for analysis…";
+                    break;
+                case AnalysisState.NotAnalyzed:
+                    banner = "Stabilization needs analysis";
+                    warn = true;
+                    break;
+                case AnalysisState.Failed:
+                    banner = "Stabilization analysis failed";
+                    warn = true;
+                    break;
+                case AnalysisState.Ready:
+                    int low = _stab.LowConfidenceFrames(clip.MediaRefId, detailed);
+                    if (low > 0)
+                    {
+                        banner = string.Create(CultureInfo.InvariantCulture, $"Stabilization: low confidence on {low} frame(s)");
+                        warn = true;
+                    }
+                    break;
+            }
+        }
+
+        IReadOnlyList<FeaturePoint>? points = null;
+        if (showPoints && _stab.TryGetTrack(clip.MediaRefId, Timecode.Zero, detailed) is { Points: { } tp } track && tp.Count > 0)
+        {
+            int idx = TrackFrameIndexAtPlayhead(clip, track);
+            if (idx >= 0 && idx < tp.Count)
+                points = tp[idx];
+        }
+
+        _preview.SetStabilizationOverlay(banner, warn, points);
+    }
+
+    /// <summary>Awaits until every listed analysis has settled (Ready or Failed), driven by the service's
+    /// <see cref="StabilizationService.ProgressChanged"/> event — used by the export pre-check's "Analyze first".</summary>
+    private Task WaitForStabilizationAnalyses(IReadOnlyList<Stabilization.StabilizationScan.Item> items)
+    {
+        if (_stab is null || items.Count == 0)
+            return Task.CompletedTask;
+
+        var tcs = new TaskCompletionSource();
+        Action? handler = null;
+        bool AllSettled()
+        {
+            foreach (Stabilization.StabilizationScan.Item item in items)
+            {
+                AnalysisState st = _stab.StatusOf(item.Media.Id, item.Detailed).State;
+                if (st is not (AnalysisState.Ready or AnalysisState.Failed))
+                    return false;
+            }
+            return true;
+        }
+        void Check()
+        {
+            if (!AllSettled())
+                return;
+            if (handler is not null)
+                _stab.ProgressChanged -= handler;
+            tcs.TrySetResult();
+        }
+        handler = () => Dispatcher.UIThread.Post(Check);
+
+        _stab.ProgressChanged += handler;
+        Check(); // maybe already all settled (adopted from cache)
+        return tcs.Task;
+    }
+
+    private static EffectInstance? FindEnabledStabilization(Clip clip)
+    {
+        foreach (EffectInstance e in clip.Effects)
+            if (e.Enabled && e.EffectTypeId == EffectTypeIds.Stabilization)
+                return e;
+        return null;
+    }
+
+    private static bool ReadEffectToggle(EffectInstance effect, string name) =>
+        effect.Parameters.TryGetValue(name, out AnimatableValue? v) && v is not null && v.Evaluate(Timecode.Zero) >= 0.5;
+
+    /// <summary>The index into the track's per-frame arrays nearest the playhead's source time on <paramref name="clip"/>,
+    /// or -1 when the playhead is outside the analysed range.</summary>
+    private int TrackFrameIndexAtPlayhead(Clip clip, MotionTrack track)
+    {
+        long srcTicks = clip.SourceIn.Ticks + ((_engine?.Position ?? Timecode.Zero).Ticks - clip.TimelineStart.Ticks);
+        IReadOnlyList<long> pts = track.FramePts;
+        if (pts.Count == 0 || srcTicks < pts[0] || srcTicks > pts[^1] + (track.RangeEnd.Ticks - track.RangeStart.Ticks))
+            return -1;
+        int lo = 0, hi = pts.Count - 1;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (pts[mid] < srcTicks)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        // lo is the first pts >= srcTicks; pick the nearer of lo and lo-1.
+        if (lo > 0 && srcTicks - pts[lo - 1] < pts[lo] - srcTicks)
+            return lo - 1;
+        return lo;
     }
 
     /// <summary>Routes a monitor's position/state events to the transport readouts, but only while it is the
@@ -2062,7 +2244,10 @@ public partial class MainWindow : Window
         monitor.PositionChanged += pos => Dispatcher.UIThread.Post(() =>
         {
             if (isProgram)
+            {
                 _inspector?.OnPlayheadMoved(); // animated parameter values track the Program playhead
+                UpdateStabilizationBanner();   // move the track-point overlay / progress banner with the playhead
+            }
             if (!ReferenceEquals(_active, monitor))
                 return;
             _lastScrubberSeekFrame = -1; // position moved (playback/echo) — don't skip a drag back to the old frame
@@ -2354,6 +2539,7 @@ public partial class MainWindow : Window
             _mediaBrowser?.SetSelectedClip(clip); // the Effects browser applies to this clip
             _inspector?.SetSelectedClip(clip);    // the Inspector edits this clip's properties
             RefreshKeyframeNav();
+            UpdateStabilizationBanner(); // reflect the new selection's stabilization status in the monitor
 
             // The Source monitor previews the selected clip's source (rebuilds lazily only while its tab is open).
             MediaRef? media = clip is null ? null : _project!.MediaPool.Get(clip.MediaRefId);
@@ -3006,7 +3192,8 @@ public partial class MainWindow : Window
                 {
                     if (ProxySettingsOps.BuildTierCommand(settings, _proxy.SetTier, tier) is { } command)
                         _history.Execute(command);
-                });
+                },
+                _stab);
             window.Closed += (_, _) =>
             {
                 _proxyWindow = null;
@@ -3422,6 +3609,7 @@ public partial class MainWindow : Window
         bool sourceWasActive = ReferenceEquals(_active, _source);
         _source?.Deactivate();
         await _engine.SuspendAsync();
+        _stab?.SetPaused(true); // the analysis worker runs its own FFmpeg decode — quiesce it for the same reason
 
         using var cts = new CancellationTokenSource();
         string jobName = scope == RenderCacheScope.Audio
@@ -3459,6 +3647,7 @@ public partial class MainWindow : Window
         {
             dialog.CompleteAndClose();
             _engine?.Resume();
+            _stab?.SetPaused(false); // resume background analysis now the render's FFmpeg pipeline is gone
             if (sourceWasActive)
                 _source?.Activate();
             _rendering = false;
@@ -4075,6 +4264,41 @@ public partial class MainWindow : Window
     /// <summary>Requests cancellation of the MCP export (no-op when none is running).</summary>
     internal void McpCancelExport() => _mcpExportCts?.Cancel();
 
+    /// <summary>The MCP <c>stabilization_status</c> reading for a clip (plan/features/stabilization.md phase 6).</summary>
+    internal Sprocket.Mcp.McpStabilizationInfo McpStabilizationInfoForClip(Clip clip)
+    {
+        if (_stab is null || FindEnabledStabilization(clip) is not { } effect)
+            return new Sprocket.Mcp.McpStabilizationInfo(false, false, "not_analyzed", 0, 0);
+        bool detailed = ReadEffectToggle(effect, EffectParamNames.DetailedAnalysis);
+        AnalysisStatus s = _stab.StatusOf(clip.MediaRefId, detailed);
+        int low = s.State == AnalysisState.Ready ? _stab.LowConfidenceFrames(clip.MediaRefId, detailed) : 0;
+        return new Sprocket.Mcp.McpStabilizationInfo(true, detailed, StabilizationStateString(s.State), s.Progress, low);
+    }
+
+    /// <summary>Starts / adopts a stabilization analysis for a clip on behalf of the MCP <c>stabilization_analyze</c>
+    /// tool; returns an error message, or <see langword="null"/> on success.</summary>
+    internal string? McpAnalyzeStabilizationForClip(Clip clip)
+    {
+        if (_stab is null)
+            return "stabilization analysis is unavailable in this session.";
+        if (clip.Kind != ClipKind.Media || _project?.MediaPool.Get(clip.MediaRefId) is not { } media)
+            return "the clip is not backed by source media.";
+        if (FindEnabledStabilization(clip) is not { } effect)
+            return "the clip has no enabled Stabilization effect — add_effect builtin.stabilization first.";
+        bool detailed = ReadEffectToggle(effect, EffectParamNames.DetailedAnalysis);
+        _stab.Analyze(media, clip.SourceIn, clip.SourceOut, detailed);
+        return null;
+    }
+
+    private static string StabilizationStateString(AnalysisState state) => state switch
+    {
+        AnalysisState.Queued => "queued",
+        AnalysisState.Analyzing => "analyzing",
+        AnalysisState.Ready => "ready",
+        AnalysisState.Failed => "failed",
+        _ => "not_analyzed",
+    };
+
     /// <summary>
     /// Starts a background export for the MCP <c>export_video</c> in the default delivery format (MP4 / H.264 +
     /// AAC), with the tool's rate-control choice mapped onto <see cref="ExportOptions"/>: quality mode carries an
@@ -4177,6 +4401,7 @@ public partial class MainWindow : Window
         _source?.Deactivate();
         if (_engine is not null)
             await _engine.SuspendAsync();
+        _stab?.SetPaused(true); // the analysis worker runs its own FFmpeg decode — quiesce it for the same reason
 
         var progress = new Progress<double>(p => _mcpExportProgress = p);
         SetStatus($"Exporting (MCP) → {outputPath}");
@@ -4204,6 +4429,7 @@ public partial class MainWindow : Window
             EndExport(); // clears _exportCts before the dispose below, so the gate never cancels a dead source
             cts.Dispose();
             _engine?.Resume();
+            _stab?.SetPaused(false); // resume background analysis now the export's FFmpeg pipeline is gone
             if (sourceWasActive)
                 _source?.Activate();
             SetEnabled(true);
@@ -4364,6 +4590,28 @@ public partial class MainWindow : Window
         if (target?.TryGetLocalPath() is not { } outputPath)
             return; // user cancelled the picker — nothing exported, nothing to clean up
 
+        // Pre-check: any stabilized clip not yet analyzed would export unstabilized. Offer to analyze first (FCP /
+        // Premiere prompt on export). "Analyze first" enqueues + awaits the analyses before the export quiesces the
+        // decode pipelines; "Export as-is" proceeds immediately.
+        if (_stab is not null)
+        {
+            IReadOnlyList<Stabilization.StabilizationScan.Item> pending =
+                Stabilization.StabilizationExportPrecheck.Unanalyzed(_project, (m, d) => _stab.StatusOf(m, d).State);
+            if (pending.Count > 0)
+            {
+                bool analyzeFirst = await ConfirmDialog.Show(this, "Unanalyzed Stabilization",
+                    $"{pending.Count} stabilized clip(s) aren't analyzed yet and would export unstabilized.\n\n" +
+                    "Analyze them now before exporting?", "Analyze first", "Export as-is");
+                if (analyzeFirst)
+                {
+                    SetStatus("Analyzing stabilization before export…");
+                    foreach (Stabilization.StabilizationScan.Item item in pending)
+                        _stab.Analyze(item.Media, item.Clip.SourceIn, item.Clip.SourceOut, item.Detailed);
+                    await WaitForStabilizationAnalyses(pending);
+                }
+            }
+        }
+
         BeginExport();
         SetEnabled(false); // gate transport + tab-switching: no new in-process decode pipeline may start mid-export
 
@@ -4375,6 +4623,7 @@ public partial class MainWindow : Window
         _source?.Deactivate();
         if (_engine is not null)
             await _engine.SuspendAsync();
+        _stab?.SetPaused(true); // the analysis worker runs its own FFmpeg decode — quiesce it for the same reason
 
         using var cts = new CancellationTokenSource();
         _exportCts = cts; // the close/quit gate stops the export the same way the dialog's Cancel button does
@@ -4403,6 +4652,7 @@ public partial class MainWindow : Window
         {
             dialog.CompleteAndClose();
             _engine?.Resume();      // restart the Program pump (feeds rebuild + re-present the current frame)
+            _stab?.SetPaused(false); // resume background analysis now the export's FFmpeg pipeline is gone
             if (sourceWasActive)
                 _source?.Activate(); // reopen the Source monitor's decoder if it was showing
             EndExport();            // after CompleteAndClose, so a waiting close/quit gate resumes with no modal left up
@@ -4559,6 +4809,7 @@ public partial class MainWindow : Window
         _source?.Deactivate();
         if (_engine is not null)
             await _engine.SuspendAsync();
+        _stab?.SetPaused(true); // the analysis worker runs its own FFmpeg decode — quiesce it for the same reason
 
         try
         {
@@ -4567,6 +4818,7 @@ public partial class MainWindow : Window
         finally
         {
             _engine?.Resume();
+            _stab?.SetPaused(false); // resume background analysis now the batch export's FFmpeg pipeline is gone
             if (sourceWasActive)
                 _source?.Activate();
             EndExport();

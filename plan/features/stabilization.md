@@ -1,6 +1,6 @@
 # Video stabilization (adaptive smoothing, per-channel, focus-breathing lock)
 
-🟡 **Partial — phases 1–5 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
+🟡 **Partial — phases 1–6 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
 number yet); tracked in [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** a `Stabilization` effect (`builtin.stabilization`, short code `ST`, category
@@ -237,11 +237,30 @@ session prompt: "Implement phase N of plan/features/stabilization.md".
   and `AnalysisCacheTests` (round-trip, miss→null, deterministic path, bucket re-use, detailed forks the file,
   DeleteAll). First end-to-end: a clip stabilizes in preview after Analyze, and export/preview-cache pull the same
   cached solve, so they match by construction.
-- [ ] **Phase 6 — UX**: auto-analyze on apply (`EditHistory.Changed`), stale detection + banners, camera path
-  graph, Applied Zoom readout, `showTrackPoints` overlay (format v2), placement rule + Transform hint,
-  `EffectRelevance` media-only, **View ▸ Background Tasks**, bin "Analyze for Stabilization", export pre-check +
-  worker pause, Preferences "Clear analysis cache", MCP tools. Tests: auto-enqueue, stale re-enqueue, export
-  pre-check enumeration, graph math, MCP round-trip.
+- [x] **Phase 6 — UX** (2026-09-21): **auto-analyze on apply + stale-on-trim** — `MainWindow` subscribes to
+  `EditHistory.Changed` and sweeps every stabilized media clip (`Stabilization/StabilizationScan`), calling the
+  idempotent `StabilizationService.Analyze` for each; a per-`(source, detail, bucketed-range)` dedup set fires once
+  on apply / when a trim moves the used range to a new `AnalysisKey` bucket, and never re-fights an explicit Cancel.
+  **Camera-path graph** (`Inspector/CameraPathGraph` + pure `CameraPathGraphMath`): four lanes (Pan/Tilt/Zoom/
+  Rotation) plotting the solved raw (dim) vs smoothed (accent) path with a playhead marker, plus an **Applied Zoom**
+  readout + low-confidence note; the Inspector solves via `StabilizationSolver.Solve` off the ready track (new shared
+  `StabilizationSettings.FromParameters`). **Monitor banners + Show Track Points** (`MonitorOverlay.DrawBanner` /
+  `DrawTrackPoints`, threaded through `PreviewSurface.DrawOp` and driven by `MainWindow.UpdateStabilizationBanner`
+  off the selected clip + playhead; `hideBanner` / `showTrackPoints` toggles honored). **Placement rule** — the
+  Inspector `+ Effect` bar inserts Stabilization after a Color Transform else at index 0 (`PlacementCommand`), with a
+  "Transform precedes this" Inspector hint; **`EffectRelevance` media-only** (offered only for `ClipKind.Media`).
+  **View ▸ Background Tasks** — `ProxyStatusWindow` generalised (renamed, menu relabeled) with a second section
+  listing stabilization analyses (queued/running/ready/failed) each cancellable, fed by new
+  `StabilizationService.Snapshot()`. **Media bin ▸ Analyze for Stabilization** (`MediaBrowserPanel`
+  `AnalyzeForStabilizationRequested` → whole-source pre-warm). **Export pre-check** (`StabilizationExportPrecheck`)
+  prompts "Analyze first / Export as-is" for unanalyzed stabilized clips and awaits them; the analysis worker is
+  **paused for the duration of every export/render** (new `StabilizationService.SetPaused`, mirroring `ProxyService`,
+  requeuing the in-flight item) so a second FFmpeg pipeline never races the export. **Preferences ▸ Clear analysis
+  cache** (`AnalysisCache.SizeBytes`/`DeleteAll`). **MCP**: `stabilization_status` / `stabilization_analyze` tools
+  (source-level, via new `IEditorApi.StabilizationInfoForClip` / `AnalyzeStabilizationForClip`). Tests:
+  `CameraPathGraphMathTests` (range/polyline), `StabilizationScanTests` (enumeration, export pre-check dedupe,
+  auto-enqueue + stale re-analyze, pause/resume), `StabilizationToolsTests` (MCP round-trip), updated tool-surface
+  count. `LowConfidenceFrames` counts flagged frames off the ready track.
 - [ ] **Phase 7 — Perspective, quality tier, docs, close-out**: real homography path; Detailed Analysis
   end-to-end; low-confidence surfaced; tune defaults on the sample + fixtures; verify Fix Focus Breathing Only on
   the pumping-zoom fixture. Docs `../sprocket-docs/effects-video/stabilization.md`; FEATURES ✅ + Docs path

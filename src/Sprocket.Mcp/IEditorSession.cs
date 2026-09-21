@@ -142,7 +142,28 @@ public interface IEditorApi
 
     /// <summary>Requests cancellation of the running export (a no-op when none is running).</summary>
     void CancelExport();
+
+    /// <summary>
+    /// The stabilization analysis status for <paramref name="clip"/> — whether it carries a Stabilization effect,
+    /// and if so the recovered track's lifecycle state / progress / low-confidence frame count
+    /// (plan/features/stabilization.md phase 6). Analysis is a background, per-user-cached artifact, not part of
+    /// the model, so it is reported here rather than in the project state.
+    /// </summary>
+    McpStabilizationInfo StabilizationInfoForClip(Clip clip);
+
+    /// <summary>
+    /// Starts (or adopts a cached) background stabilization analysis for <paramref name="clip"/>'s used source
+    /// range, returning immediately — poll <see cref="StabilizationInfoForClip"/> for progress. Fails when the
+    /// clip has no Stabilization effect, is not backed by source media, or analysis is unavailable this session.
+    /// </summary>
+    McpResult<bool> AnalyzeStabilizationForClip(Clip clip);
 }
+
+/// <summary>The stabilization analysis status of one clip for MCP: whether it is stabilized, and the analysis
+/// lifecycle (<paramref name="State"/> is one of <c>not_analyzed</c> / <c>queued</c> / <c>analyzing</c> /
+/// <c>ready</c> / <c>failed</c>), progress in [0,1], and how many frames tracked at low confidence.</summary>
+public readonly record struct McpStabilizationInfo(
+    bool HasStabilization, bool Detailed, string State, double Progress, int LowConfidenceFrames);
 
 /// <summary>
 /// The observable state of an MCP-initiated export: <see cref="Running"/> with <see cref="Progress"/> in

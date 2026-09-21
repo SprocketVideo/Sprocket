@@ -120,32 +120,43 @@ public sealed record StabilizationSettings(
     public static StabilizationSettings FromResolvedEffect(ResolvedEffect effect)
     {
         ArgumentNullException.ThrowIfNull(effect);
+        return FromParameters(effect.Get);
+    }
+
+    /// <summary>
+    /// Builds the settings from a parameter reader <paramref name="get"/> (name, fallback) → value — the shared core
+    /// of <see cref="FromResolvedEffect"/>, also used by the Inspector to solve the camera-path graph / applied-zoom
+    /// readout directly off an <c>EffectInstance</c> (evaluated at the current source time). Same clamps apply.
+    /// </summary>
+    public static StabilizationSettings FromParameters(Func<string, double, double> get)
+    {
+        ArgumentNullException.ThrowIfNull(get);
         return new StabilizationSettings(
-            Mode: (StabilizationMode)ChoiceIndex(effect, EffectParamNames.StabMode, ModeChoices.Count, (int)Default.Mode),
-            Smoothness: Clamp01(effect.Get(EffectParamNames.Smoothness, Default.Smoothness)),
-            Strength: Clamp01(effect.Get(EffectParamNames.Strength, Default.Strength)),
-            Method: (StabilizationMethod)ChoiceIndex(effect, EffectParamNames.StabMethod, MethodChoices.Count, (int)Default.Method),
-            PositionSmooth: ClampMultiplier(effect.Get(EffectParamNames.PositionSmooth, Default.PositionSmooth)),
-            RotationSmooth: ClampMultiplier(effect.Get(EffectParamNames.RotationSmooth, Default.RotationSmooth)),
-            ScaleMode: (ScaleMode)ChoiceIndex(effect, EffectParamNames.ScaleMode, ScaleModeChoices.Count, (int)Default.ScaleMode),
-            ScaleSmooth: ClampMultiplier(effect.Get(EffectParamNames.ScaleSmooth, Default.ScaleSmooth)),
-            ScaleLockRef: (ScaleLockReference)ChoiceIndex(effect, EffectParamNames.ScaleLockRef, ScaleLockRefChoices.Count, (int)Default.ScaleLockRef),
-            LockRotation: Toggle(effect, EffectParamNames.LockRotation, Default.LockRotation),
-            Zoom: Toggle(effect, EffectParamNames.Zoom, Default.Zoom),
-            CroppingRatio: Math.Clamp(effect.Get(EffectParamNames.CroppingRatio, Default.CroppingRatio), 0.5, 1.0),
-            DetailedAnalysis: Toggle(effect, EffectParamNames.DetailedAnalysis, Default.DetailedAnalysis));
+            Mode: (StabilizationMode)ChoiceIndex(get, EffectParamNames.StabMode, ModeChoices.Count, (int)Default.Mode),
+            Smoothness: Clamp01(get(EffectParamNames.Smoothness, Default.Smoothness)),
+            Strength: Clamp01(get(EffectParamNames.Strength, Default.Strength)),
+            Method: (StabilizationMethod)ChoiceIndex(get, EffectParamNames.StabMethod, MethodChoices.Count, (int)Default.Method),
+            PositionSmooth: ClampMultiplier(get(EffectParamNames.PositionSmooth, Default.PositionSmooth)),
+            RotationSmooth: ClampMultiplier(get(EffectParamNames.RotationSmooth, Default.RotationSmooth)),
+            ScaleMode: (ScaleMode)ChoiceIndex(get, EffectParamNames.ScaleMode, ScaleModeChoices.Count, (int)Default.ScaleMode),
+            ScaleSmooth: ClampMultiplier(get(EffectParamNames.ScaleSmooth, Default.ScaleSmooth)),
+            ScaleLockRef: (ScaleLockReference)ChoiceIndex(get, EffectParamNames.ScaleLockRef, ScaleLockRefChoices.Count, (int)Default.ScaleLockRef),
+            LockRotation: Toggle(get, EffectParamNames.LockRotation, Default.LockRotation),
+            Zoom: Toggle(get, EffectParamNames.Zoom, Default.Zoom),
+            CroppingRatio: Math.Clamp(get(EffectParamNames.CroppingRatio, Default.CroppingRatio), 0.5, 1.0),
+            DetailedAnalysis: Toggle(get, EffectParamNames.DetailedAnalysis, Default.DetailedAnalysis));
     }
 
     private static double Clamp01(double v) => Math.Clamp(v, 0.0, 1.0);
 
     private static double ClampMultiplier(double v) => Math.Clamp(v, 0.0, 2.0);
 
-    private static bool Toggle(ResolvedEffect effect, string name, bool fallback) =>
-        effect.Get(name, fallback ? 1.0 : 0.0) >= 0.5;
+    private static bool Toggle(Func<string, double, double> get, string name, bool fallback) =>
+        get(name, fallback ? 1.0 : 0.0) >= 0.5;
 
-    private static int ChoiceIndex(ResolvedEffect effect, string name, int count, int fallback)
+    private static int ChoiceIndex(Func<string, double, double> get, string name, int count, int fallback)
     {
-        int index = (int)Math.Round(effect.Get(name, fallback), MidpointRounding.AwayFromZero);
+        int index = (int)Math.Round(get(name, fallback), MidpointRounding.AwayFromZero);
         return Math.Clamp(index, 0, count - 1);
     }
 }

@@ -31,6 +31,7 @@ internal static class PreferencesDialog
     public static Task<UserSettings?> Show(Window owner, UserSettings current,
         Func<long> proxyCacheSize, Func<int> clearProxyCache,
         Func<long> renderCacheSize, Action clearRenderCache,
+        Func<long> analysisCacheSize, Action clearAnalysisCache,
         IReadOnlyList<string> audioDevices)
     {
         // ── Audio output device ─────────────────────────────────────────────────────────────────
@@ -61,8 +62,10 @@ internal static class PreferencesDialog
         // ── Caches ──────────────────────────────────────────────────────────────────────────────
         var proxySizeText = Muted(PreferencesFormat.Bytes(proxyCacheSize()));
         var renderSizeText = Muted(PreferencesFormat.Bytes(renderCacheSize()));
+        var analysisSizeText = Muted(PreferencesFormat.Bytes(analysisCacheSize()));
         Button clearProxy = SmallButton("Clear");
         Button clearRender = SmallButton("Clear");
+        Button clearAnalysis = SmallButton("Clear");
 
         // ── Export metadata defaults ────────────────────────────────────────────────────────────
         TextBox title = MakeText(current.ExportTitle);
@@ -204,6 +207,7 @@ internal static class PreferencesDialog
                                 Section("Caches"),
                                 CacheRow("Proxy cache", proxySizeText, clearProxy),
                                 CacheRow("Render cache (this project)", renderSizeText, clearRender),
+                                CacheRow("Stabilization analysis cache", analysisSizeText, clearAnalysis),
 
                                 Section("Export metadata defaults"),
                                 Labeled("Title", title),
@@ -254,6 +258,18 @@ internal static class PreferencesDialog
                 return;
             clearProxyCache();
             proxySizeText.Text = PreferencesFormat.Bytes(proxyCacheSize());
+        };
+
+        clearAnalysis.Click += async (_, _) =>
+        {
+            long size = analysisCacheSize();
+            bool confirmed = await ConfirmDialog.Show(dialog, "Clear Analysis Cache",
+                $"Delete all cached stabilization motion tracks?\n\nCurrently using {PreferencesFormat.Bytes(size)}. " +
+                "Stabilized clips re-analyze on demand; open projects may re-queue analyses.", "Clear", "Cancel");
+            if (!confirmed)
+                return;
+            clearAnalysisCache();
+            analysisSizeText.Text = PreferencesFormat.Bytes(analysisCacheSize());
         };
 
         clearRender.Click += async (_, _) =>

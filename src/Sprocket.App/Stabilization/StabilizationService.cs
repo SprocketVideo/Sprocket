@@ -36,6 +36,13 @@ public enum AnalysisState
 /// <param name="Progress">Completion 0..1 — meaningful while <see cref="AnalysisState.Analyzing"/>.</param>
 public readonly record struct AnalysisStatus(AnalysisState State, double Progress);
 
+/// <summary>One in-flight or completed analysis, as listed by the Background Tasks window.</summary>
+/// <param name="Media">The source being analysed.</param>
+/// <param name="Detailed">Whether this is the Detailed-Analysis variant.</param>
+/// <param name="State">Where the analysis sits.</param>
+/// <param name="Progress">Completion 0..1 — meaningful while <see cref="AnalysisState.Analyzing"/>.</param>
+public readonly record struct AnalysisSnapshot(MediaRefId Media, bool Detailed, AnalysisState State, double Progress);
+
 /// <summary>
 /// Runs and tracks background motion analyses for stabilized clips, and serves the recovered tracks to the render
 /// pipeline as its <see cref="IMotionTrackProvider"/> (plan/features/stabilization.md phase 5). Modelled on
@@ -94,6 +101,7 @@ public sealed class StabilizationService : IMotionTrackProvider, IDisposable
 
     private long _lastProgressPost;
     private volatile bool _disposed;
+    private volatile bool _paused;
 
     /// <summary>Creates the service and starts its worker. <paramref name="analyzer"/> defaults to the production
     /// <see cref="MediaMotionAnalyzer"/> (FFmpeg gray decode); tests inject a fake.</summary>
@@ -131,12 +139,53 @@ public sealed class StabilizationService : IMotionTrackProvider, IDisposable
         return _tracks.GetValueOrDefault(new Key(mediaRefId, detailed));
     }
 
+    /// <summary>Whether background analysis is suspended (see <see cref="SetPaused"/>).</summary>
+    public bool Paused => _paused;
+
     /// <summary>The analysis lifecycle of one (<paramref name="media"/>, <paramref name="detailed"/>) pair, for the
     /// Inspector's status row (<see cref="AnalysisState.NotAnalyzed"/> when it was never tracked).</summary>
     public AnalysisStatus StatusOf(MediaRefId media, bool detailed) =>
         _entries.TryGetValue(new Key(media, detailed), out Entry? e)
             ? new AnalysisStatus(e.State, e.Progress)
             : new AnalysisStatus(AnalysisState.NotAnalyzed, 0);
+
+    /// <summary>All tracked analyses (queued, running, ready, failed), for the Background Tasks window. Ordered
+    /// running-first, then queued, then the rest, so the window's active work sorts to the top.</summary>
+    public IReadOnlyList<AnalysisSnapshot> Snapshot()
+    {
+        var list = new List<AnalysisSnapshot>(_entries.Count);
+        foreach (KeyValuePair<Key, Entry> kv in _entries)
+            list.Add(new AnalysisSnapshot(kv.Key.Media, kv.Key.Detailed, kv.Value.State, kv.Value.Progress));
+        list.Sort(static (a, b) => Rank(a.State).CompareTo(Rank(b.State)));
+        return list;
+
+        static int Rank(AnalysisState s) => s switch
+        {
+            AnalysisState.Analyzing => 0,
+            AnalysisState.Queued => 1,
+            AnalysisState.Ready => 2,
+            AnalysisState.Failed => 3,
+            _ => 4,
+        };
+    }
+
+    /// <summary>The number of frames the analysis could not track reliably (flagged low-confidence and
+    /// interpolated) in the ready track for (<paramref name="media"/>, <paramref name="detailed"/>), or 0 when there
+    /// is no ready track. Drives the "Low confidence on N frames" banner.</summary>
+    public int LowConfidenceFrames(MediaRefId media, bool detailed)
+    {
+        MotionTrack? track = _tracks.GetValueOrDefault(new Key(media, detailed));
+        if (track is null)
+            return 0;
+        int count = 0;
+        IReadOnlyList<FrameMotion> motions = track.Motions;
+        for (int i = 1; i < motions.Count; i++) // index 0 is the identity seed, never a tracked pair
+        {
+            if (motions[i].Confidence <= 0)
+                count++;
+        }
+        return count;
+    }
 
     /// <summary>
     /// Ensures an analysis exists for the clip's used source range [<paramref name="sourceIn"/>,
@@ -227,6 +276,38 @@ public sealed class StabilizationService : IMotionTrackProvider, IDisposable
             RaiseProgress();
     }
 
+    /// <summary>
+    /// Suspends or resumes background analysis, effective immediately. Pausing <b>cancels the analysis in flight</b>
+    /// and requeues it (the partial decode is discarded — a resumed analysis restarts from zero), so the machine goes
+    /// quiet at once. The app pauses the worker for the duration of an export, because a second in-process FFmpeg
+    /// decode pipeline races the export's decode (see the export quiesce). Already-analysed tracks keep stabilizing
+    /// the preview while paused.
+    /// </summary>
+    public void SetPaused(bool paused)
+    {
+        if (_disposed || _paused == paused)
+            return;
+
+        int release = 0;
+        lock (_gate)
+        {
+            _paused = paused;
+            if (paused)
+            {
+                CancelActiveLocked(_activeKey ?? default);
+            }
+            else
+            {
+                // Resume: one permit per waiting item. While paused the worker swallowed permits without consuming
+                // queue items, and a pause-cancelled build is requeued without its own permit — this restores exactly
+                // one wakeup per queued item.
+                release = _queue.Count;
+            }
+        }
+        ReleaseWorker(release);
+        RaiseProgress();
+    }
+
     // ── Worker ─────────────────────────────────────────────────────────────────────────────────────
 
     private void WorkerLoop()
@@ -236,6 +317,11 @@ public sealed class StabilizationService : IMotionTrackProvider, IDisposable
         {
             try { _signal.Wait(ct); }
             catch (OperationCanceledException) { break; }
+
+            // Paused: park without consuming a queue item. The swallowed permit is replaced wholesale when
+            // SetPaused(false) releases one per queued item, so nothing is stranded.
+            if (_paused)
+                continue;
 
             if (!TryStartNext(out WorkItem item, out CancellationTokenSource buildCts))
                 continue;
@@ -315,7 +401,7 @@ public sealed class StabilizationService : IMotionTrackProvider, IDisposable
     /// </summary>
     private void Finish(WorkItem item, MotionTrack? track, bool cancelled, bool failed)
     {
-        bool trackChanged = false;
+        bool trackChanged = false, release = false;
         lock (_gate)
         {
             if (!_entries.TryGetValue(item.Key, out Entry? e) || e.Generation != item.Generation)
@@ -324,8 +410,13 @@ public sealed class StabilizationService : IMotionTrackProvider, IDisposable
             }
             else if (cancelled)
             {
-                // A still-current cancel already reset the entry (Cancel bumps the generation), so this is unusual;
-                // leave the entry as it stands.
+                // A user Cancel bumps the generation (handled by the stale branch above), so a cancel that reaches
+                // here with a matching generation is a pause: put the work back on the queue to resume later.
+                _entries[item.Key] = e with { State = AnalysisState.Queued, Progress = 0 };
+                _queue.Add(item);
+                // Normally the pending resume's Release(_queue.Count) covers this; if the resume raced the cancelled
+                // build's unwind, give the item its own wakeup instead.
+                release = !_paused;
             }
             else if (failed || track is null || track.FrameCount == 0)
             {
@@ -339,6 +430,8 @@ public sealed class StabilizationService : IMotionTrackProvider, IDisposable
             }
         }
 
+        if (release)
+            ReleaseWorker(1);
         if (trackChanged)
         {
             AnalysisCache.Write(item.AnalysisKey, track!); // disk IO outside the lock

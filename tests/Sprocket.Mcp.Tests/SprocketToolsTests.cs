@@ -50,6 +50,8 @@ public class SprocketToolsTests
             "open_project", "close_project", "new_project", "save_project_as",
             "export_video", "export_audio", "get_export_status", "cancel_export",
             "stop", "go_to_start", "go_to_end", "step_frames",
+            // Stabilization tools (stabilization phase 6)
+            "stabilization_status", "stabilization_analyze",
         ];
         Assert.Equal(expected.Length, names.Count);
         foreach (string name in expected)

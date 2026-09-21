@@ -189,4 +189,30 @@ internal sealed class FakeEditorSession : IEditorSession, IEditorApi
     public McpExportStatus ExportStatus { get; private set; }
 
     public void CancelExport() => ExportCancelRequested = true;
+
+    // Stabilization stub: analysis completes instantly (like the export stub). Sources that have been analyzed are
+    // remembered so stabilization_status reports "ready" after stabilization_analyze.
+    private readonly HashSet<MediaRefId> _analyzedSources = new();
+
+    public int StabilizationAnalyzeCount { get; private set; }
+
+    public McpStabilizationInfo StabilizationInfoForClip(Clip clip)
+    {
+        bool has = clip.Effects.Any(e => e.Enabled && e.EffectTypeId == EffectTypeIds.Stabilization);
+        if (!has)
+            return new McpStabilizationInfo(false, false, "not_analyzed", 0, 0);
+        bool ready = _analyzedSources.Contains(clip.MediaRefId);
+        return new McpStabilizationInfo(true, false, ready ? "ready" : "not_analyzed", ready ? 1 : 0, 0);
+    }
+
+    public McpResult<bool> AnalyzeStabilizationForClip(Clip clip)
+    {
+        if (clip.Kind != ClipKind.Media || Project.MediaPool.Get(clip.MediaRefId) is null)
+            return McpResult<bool>.Fail("the clip is not backed by source media.");
+        if (!clip.Effects.Any(e => e.Enabled && e.EffectTypeId == EffectTypeIds.Stabilization))
+            return McpResult<bool>.Fail("the clip has no enabled Stabilization effect.");
+        StabilizationAnalyzeCount++;
+        _analyzedSources.Add(clip.MediaRefId);
+        return McpResult<bool>.Success(true);
+    }
 }

@@ -146,4 +146,11 @@ internal sealed class McpEditorSession(
     public McpExportStatus ExportStatus => window.McpExportStatus;
 
     public void CancelExport() => window.McpCancelExport();
+
+    public McpStabilizationInfo StabilizationInfoForClip(Clip clip) => window.McpStabilizationInfoForClip(clip);
+
+    public McpResult<bool> AnalyzeStabilizationForClip(Clip clip) =>
+        window.McpAnalyzeStabilizationForClip(clip) is { } error
+            ? McpResult<bool>.Fail(error)
+            : McpResult<bool>.Success(true);
 }

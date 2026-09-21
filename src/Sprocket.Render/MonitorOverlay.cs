@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using SkiaSharp;
+using Sprocket.Core.Stabilization;
 
 namespace Sprocket.Render;
 
@@ -83,6 +85,61 @@ public static class MonitorOverlay
             canvas.DrawRect(action, line);
             line.Color = new SKColor(0xFF, 0xFF, 0xFF, 0x66);
             canvas.DrawRect(title, line);
+        }
+    }
+
+    /// <summary>
+    /// Draws a stabilization status banner across the top of <paramref name="frame"/> (plan/features/stabilization.md
+    /// phase 6, modelled on Premiere's Warp Stabilizer monitor banner): a translucent bar with <paramref name="text"/>
+    /// — amber when <paramref name="warn"/> (needs analysis / low confidence), neutral otherwise (analysing progress).
+    /// No-op for a degenerate frame or empty text.
+    /// </summary>
+    public static void DrawBanner(SKCanvas canvas, SKRect frame, string text, bool warn)
+    {
+        ArgumentNullException.ThrowIfNull(canvas);
+        if (frame.Width <= 0 || frame.Height <= 0 || string.IsNullOrEmpty(text))
+            return;
+
+        float textSize = System.Math.Clamp(frame.Height * 0.035f, 11f, 20f);
+        using var font = new SKFont(SKTypeface.Default, textSize);
+        using var textPaint = new SKPaint { Color = SKColors.White, IsAntialias = true };
+        float pad = textSize * 0.6f;
+        float textWidth = font.MeasureText(text);
+        float barH = textSize + pad * 1.2f;
+        var bar = new SKRect(frame.Left, frame.Top, frame.Left + System.Math.Min(frame.Width, textWidth + pad * 2), frame.Top + barH);
+
+        using var barPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Color = warn ? new SKColor(0xD2, 0x99, 0x22, 0xE0) : new SKColor(0x0E, 0x0E, 0x12, 0xC8),
+        };
+        canvas.DrawRect(bar, barPaint);
+
+        float baseline = frame.Top + pad * 0.6f + textSize;
+        canvas.DrawText(text, frame.Left + pad, baseline, SKTextAlign.Left, font, textPaint);
+    }
+
+    /// <summary>
+    /// Draws the analysis's tracked feature points for one frame (plan/features/stabilization.md phase 6, Warp's
+    /// "Show Track Points") as small dots over <paramref name="frame"/>. Positions are fractions of the analysis
+    /// width (<see cref="FeaturePoint"/>); since the analysis preserves the source aspect and the frame rect does
+    /// too, both axes scale by the frame width. No-op for a degenerate frame or empty set.
+    /// </summary>
+    public static void DrawTrackPoints(SKCanvas canvas, SKRect frame, IReadOnlyList<FeaturePoint> points)
+    {
+        ArgumentNullException.ThrowIfNull(canvas);
+        ArgumentNullException.ThrowIfNull(points);
+        if (frame.Width <= 0 || frame.Height <= 0 || points.Count == 0)
+            return;
+
+        using var dot = new SKPaint { Color = new SKColor(0x3F, 0xB9, 0x50, 0xE0), IsAntialias = true };
+        float r = System.Math.Clamp(frame.Width * 0.004f, 1.5f, 4f);
+        foreach (FeaturePoint p in points)
+        {
+            float x = frame.Left + p.X * frame.Width;
+            float y = frame.Top + p.Y * frame.Width;
+            if (x >= frame.Left && x <= frame.Right && y >= frame.Top && y <= frame.Bottom)
+                canvas.DrawCircle(x, y, r, dot);
         }
     }
 }

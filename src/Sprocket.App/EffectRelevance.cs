@@ -23,7 +23,13 @@ public static class EffectRelevance
     public static IEnumerable<EffectDescriptor> For(Timeline timeline, Clip clip)
     {
         bool audio = IsOnAudioTrack(timeline, clip);
-        return EffectCatalog.All.Where(d => (d.Category == EffectCategory.Audio) == audio);
+        // Stabilization analyses a source media file, so it is offered only for media clips — generators,
+        // adjustment layers, and nested sequences have no single source to track (a media-backed multicam angle
+        // resolves to source frames, but the analysis service keys off a MediaRef from the pool, so keep it to Media).
+        bool mediaClip = clip.Kind == ClipKind.Media;
+        return EffectCatalog.All.Where(d =>
+            (d.Category == EffectCategory.Audio) == audio
+            && (mediaClip || d.Id != EffectTypeIds.Stabilization));
     }
 
     /// <summary>The catalog effects a mixer insert chain offers (track / bus / master, PLAN.md step 31) —

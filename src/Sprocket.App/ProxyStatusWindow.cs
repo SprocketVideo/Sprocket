@@ -9,15 +9,16 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Sprocket.App.Proxy;
+using Sprocket.App.Stabilization;
 using Sprocket.Core.Model;
 
 namespace Sprocket.App;
 
 /// <summary>
-/// The Proxy window (View ▸ Proxy, PLAN.md step 18): a live view of the whole proxy pipeline — which source is
-/// building, how far along it is and its ETA, what each source's proxy state and on-disk size are — plus the
-/// controls that used to have no UI at all: the on/off toggle, the resolution tier, pause/resume, and per-file or
-/// wholesale deletion.
+/// The Background Tasks window (View ▸ Background Tasks, PLAN.md step 18 + plan/features/stabilization.md phase 6):
+/// a live view of the project's background media work — the whole proxy pipeline (which source is building, its
+/// progress + ETA, each source's state and on-disk size, plus the on/off toggle, resolution tier, pause/resume and
+/// deletion) <b>and</b> the stabilization motion analyses (queued / running / ready / failed), each cancellable.
 /// </summary>
 /// <remarks>
 /// <para>Modelled on Final Cut Pro's <b>Background Tasks</b> window (per-task progress while you keep editing) and
@@ -54,6 +55,12 @@ internal sealed class ProxyStatusWindow : Window
     private readonly List<MediaRefId> _renderedOrder = new();
     private readonly Dictionary<MediaRefId, AssetRow> _rows = new();
 
+    // Stabilization analysis section (optional — null in sessions without the service). Rebuilt in place on each
+    // refresh; the number of stabilized sources is small, so no per-row diffing is needed.
+    private readonly StabilizationService? _stab;
+    private readonly TextBlock _stabHeader;
+    private readonly StackPanel _stabList;
+
     // Suppresses the control-changed handlers while Refresh writes the controls' state back from the service.
     private bool _syncing;
 
@@ -63,14 +70,16 @@ internal sealed class ProxyStatusWindow : Window
     private long _etaSeedMs;
     private double _etaSeedProgress;
 
-    public ProxyStatusWindow(ProxyService proxy, Project project, Action<bool> setEnabled, Action<ProxyTier> setTier)
+    public ProxyStatusWindow(ProxyService proxy, Project project, Action<bool> setEnabled, Action<ProxyTier> setTier,
+        StabilizationService? stab = null)
     {
         _proxy = proxy;
         _project = project;
         _setEnabled = setEnabled;
         _setTier = setTier;
+        _stab = stab;
 
-        Title = "Proxy";
+        Title = "Background Tasks";
         Icon = AppIcon.Window;
         Width = 600;
         Height = 480;
@@ -160,11 +169,22 @@ internal sealed class ProxyStatusWindow : Window
             Margin = new Thickness(16, 4, 16, 0),
         };
 
+        _stabHeader = new TextBlock
+        {
+            Text = "Stabilization analysis",
+            FontSize = Typography.Emphasis,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = Palette.TextBrush,
+            Margin = new Thickness(16, 6, 16, 4),
+            IsVisible = false,
+        };
+        _stabList = new StackPanel { Spacing = 8, Margin = new Thickness(16, 0, 16, 12) };
+
         var scroller = new ScrollViewer
         {
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-            Content = new StackPanel { Children = { _emptyHint, _list } },
+            Content = new StackPanel { Children = { _emptyHint, _list, _stabHeader, _stabList } },
         };
 
         Content = new DockPanel
@@ -173,14 +193,34 @@ internal sealed class ProxyStatusWindow : Window
         };
 
         _proxy.ProgressChanged += OnProxyChanged;
+        if (_stab is not null)
+        {
+            _stab.ProgressChanged += OnStabChanged;
+            _stab.TrackChanged += OnStabTrackChanged;
+        }
         Rebuild();
     }
 
     protected override void OnClosed(EventArgs e)
     {
         _proxy.ProgressChanged -= OnProxyChanged;
+        if (_stab is not null)
+        {
+            _stab.ProgressChanged -= OnStabChanged;
+            _stab.TrackChanged -= OnStabTrackChanged;
+        }
         base.OnClosed(e);
     }
+
+    private void OnStabChanged()
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            RefreshStab();
+        else
+            Dispatcher.UIThread.Post(RefreshStab);
+    }
+
+    private void OnStabTrackChanged(MediaRefId _) => OnStabChanged();
 
     private void OnProxyChanged()
     {
@@ -249,6 +289,70 @@ internal sealed class ProxyStatusWindow : Window
                 view.Update(row, _proxy.Enabled);
 
         UpdateHeader(rows);
+        RefreshStab();
+    }
+
+    /// <summary>Rebuilds the stabilization-analysis list in place (small N). Rows: source name, state text, a
+    /// progress bar while analysing, and a Cancel for queued / running work.</summary>
+    private void RefreshStab()
+    {
+        if (_stab is null)
+            return;
+
+        IReadOnlyList<AnalysisSnapshot> snaps = _stab.Snapshot();
+        _stabHeader.IsVisible = snaps.Count > 0;
+        _stabList.Children.Clear();
+        foreach (AnalysisSnapshot s in snaps)
+        {
+            string name = DisplayName(s.Media) + (s.Detailed ? " · Detailed" : "");
+            (string text, IBrush colour) = s.State switch
+            {
+                AnalysisState.Ready => ("Analyzed", Palette.GoodBrush),
+                AnalysisState.Analyzing => (string.Create(CultureInfo.InvariantCulture, $"Analyzing… {s.Progress * 100:0}%"), Palette.AccentBrush),
+                AnalysisState.Queued => ("Queued", Palette.MutedTextBrush),
+                AnalysisState.Failed => ("Failed — clip renders unstabilized", Palette.BadBrush),
+                _ => ("Not analyzed", Palette.MutedTextBrush),
+            };
+
+            var title = new TextBlock { Text = name, Foreground = Palette.TextBrush, FontSize = Typography.Emphasis, TextTrimming = TextTrimming.CharacterEllipsis };
+            var status = new TextBlock { Text = text, Foreground = colour, FontSize = Typography.Body };
+            var bar = new ProgressBar
+            {
+                Minimum = 0, Maximum = 1, Height = 4, Margin = new Thickness(0, 6, 0, 0),
+                Value = s.Progress, IsVisible = s.State == AnalysisState.Analyzing,
+            };
+
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(12, 10) };
+            grid.Children.Add(new StackPanel { Children = { title, status, bar } });
+
+            if (s.State is AnalysisState.Queued or AnalysisState.Analyzing)
+            {
+                (MediaRefId media, bool detailed) = (s.Media, s.Detailed);
+                var cancel = new Button
+                {
+                    Content = "Cancel",
+                    Padding = new Thickness(10, 4),
+                    FontSize = Typography.Body,
+                    Foreground = Palette.MutedTextBrush,
+                    Background = Palette.PanelBgBrush,
+                    CornerRadius = new CornerRadius(4),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(12, 0, 0, 0),
+                };
+                cancel.Click += (_, _) => _stab.Cancel(media, detailed);
+                Grid.SetColumn(cancel, 1);
+                grid.Children.Add(cancel);
+            }
+
+            _stabList.Children.Add(new Border
+            {
+                Background = Palette.RaisedBgBrush,
+                CornerRadius = new CornerRadius(6),
+                BorderBrush = Palette.EdgeBrush,
+                BorderThickness = new Thickness(1),
+                Child = grid,
+            });
+        }
     }
 
     private void Rebuild()
@@ -274,6 +378,7 @@ internal sealed class ProxyStatusWindow : Window
         }
 
         UpdateHeader(rows);
+        RefreshStab();
     }
 
     private void UpdateHeader(IReadOnlyList<ProxySnapshot> rows)

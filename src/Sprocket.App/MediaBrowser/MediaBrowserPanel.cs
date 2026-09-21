@@ -78,6 +78,10 @@ public sealed class MediaBrowserPanel : UserControl
     /// the frame-rate dialog and runs the reinterpret command for the source.</summary>
     public event Action<MediaRef>? InterpretFootageRequested;
 
+    /// <summary>Raised when the media-bin tile's "Analyze for Stabilization" is chosen (plan/features/stabilization.md
+    /// phase 6, FCP's browser analyse); the shell pre-warms the analysis cache for the whole source.</summary>
+    public event Action<MediaRef>? AnalyzeForStabilizationRequested;
+
     /// <summary>Raised when a bin item is double-clicked (Premiere/Resolve gesture); the shell loads it into the
     /// Source monitor. Fires for tiles in both the Media and Audio tabs.</summary>
     public event Action<MediaRef>? MediaActivated;
@@ -354,7 +358,11 @@ public sealed class MediaBrowserPanel : UserControl
         {
             var interpret = new MenuItem { Header = "Interpret Footage…" };
             interpret.Click += (_, _) => InterpretFootageRequested?.Invoke(media);
-            tile.ContextMenu = new ContextMenu { ItemsSource = new[] { interpret } };
+            // Analyze for Stabilization (FCP's browser "Analyze for stabilization"): pre-warm the per-user analysis
+            // cache from the bin, before the effect is applied, so it's ready the moment the user adds Stabilization.
+            var analyze = new MenuItem { Header = "Analyze for Stabilization" };
+            analyze.Click += (_, _) => AnalyzeForStabilizationRequested?.Invoke(media);
+            tile.ContextMenu = new ContextMenu { ItemsSource = new MenuItem[] { interpret, analyze } };
         }
         return tile;
     }
