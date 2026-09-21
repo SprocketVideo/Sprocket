@@ -341,7 +341,56 @@ public sealed class GradingEffectTests
         Assert.InRange(zeroed - plain, -1, 1);
     }
 
+    [Fact]
+    public void BlackWhite_SingleTone_TintsTowardHueAtMidGrey()
+    {
+        var grey = new SKColor(128, 128, 128, 255);
+        SKColor toned = RenderCenter(grey, [BlackWhite(
+            (EffectParamNames.ToneHue, 35.0), (EffectParamNames.ToneStrength, 1.0))]);
+        // Sepia at 35°: the tinted mid-grey carries the tone hue (hue is scale-invariant so luma doesn't matter).
+        Assert.InRange(Hue(toned), 30.0, 40.0);
+        Assert.True(toned.Red > toned.Blue, "a warm (35°) tone should push red above blue");
+    }
+
+    [Fact]
+    public void BlackWhite_ToneStrengthZero_IsNeutral()
+    {
+        SKColor c = RenderCenter(new SKColor(200, 40, 40, 255), [BlackWhite((EffectParamNames.ToneStrength, 0.0))]);
+        Assert.InRange(c.Red - c.Green, -1, 1);
+        Assert.InRange(c.Green - c.Blue, -1, 1); // strength 0 leaves the image neutral grey
+    }
+
+    [Fact]
+    public void BlackWhite_SplitTone_ShadowsAndHighlightsCarryTheirHues()
+    {
+        var split = new (string, double)[]
+        {
+            (EffectParamNames.SplitStrength, 1.0),
+            (EffectParamNames.SplitShadowHue, 35.0),     // warm shadows
+            (EffectParamNames.SplitHighlightHue, 210.0), // cool highlights
+        };
+        double darkHue = Hue(RenderCenter(new SKColor(40, 40, 40, 255), [BlackWhite(split)]));
+        double brightHue = Hue(RenderCenter(new SKColor(215, 215, 215, 255), [BlackWhite(split)]));
+        Assert.True(Math.Abs(darkHue - 35.0) < Math.Abs(darkHue - 210.0),
+            $"shadow pixel hue ({darkHue}) should sit near the shadow hue (35°)");
+        Assert.True(Math.Abs(brightHue - 210.0) < Math.Abs(brightHue - 35.0),
+            $"highlight pixel hue ({brightHue}) should sit near the highlight hue (210°)");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────────
+
+    // HSV hue in degrees [0, 360) of a colour — used to check that toning tints toward the requested hue.
+    private static double Hue(SKColor c)
+    {
+        double r = c.Red / 255.0, g = c.Green / 255.0, b = c.Blue / 255.0;
+        double mx = Math.Max(r, Math.Max(g, b)), mn = Math.Min(r, Math.Min(g, b));
+        double d = mx - mn;
+        if (d < 1e-6)
+            return 0.0;
+        double h = mx == r ? ((g - b) / d) % 6.0 : mx == g ? (b - r) / d + 2.0 : (r - g) / d + 4.0;
+        h *= 60.0;
+        return h < 0 ? h + 360.0 : h;
+    }
 
     // The neutral mono value the effect targets: Rec.709 luma computed in linear light, re-encoded to sRGB.
     private static double MonoLuma(SKColor c)

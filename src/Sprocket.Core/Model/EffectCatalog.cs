@@ -102,7 +102,9 @@ public sealed record EffectParameterDescriptor(
 /// </summary>
 /// <param name="Name">Human-readable preset name shown in the picker.</param>
 /// <param name="Values">Parameter values by name (keys match <see cref="EffectParamNames"/>).</param>
-public sealed record EffectPreset(string Name, IReadOnlyDictionary<string, double> Values);
+/// <param name="Description">Optional one-line note shown as the picker item's tooltip (e.g. the B&amp;W
+/// film presets' "Inspired by &lt;stock&gt;. &lt;character&gt;."). <see langword="null"/> for presets without one.</param>
+public sealed record EffectPreset(string Name, IReadOnlyDictionary<string, double> Values, string? Description = null);
 
 /// <summary>
 /// A browsable description of one effect type: its stable id (<see cref="EffectTypeIds"/>), a display name,
@@ -373,6 +375,18 @@ public static class EffectCatalog
                     Description: "One fixed grain field for the whole clip (for stills / stop-motion) instead of re-seeding per frame.",
                     Kind: ParameterKind.Toggle),
                 // Finishing
+                new EffectParameterDescriptor(EffectParamNames.ToneHue, "Tone Hue", 35.0, 0.0, 360.0, 1.0, "°",
+                    "Colour of the overall tint (35° ≈ sepia)."),
+                new EffectParameterDescriptor(EffectParamNames.ToneStrength, "Tone Strength", 0.0, 0.0, 1.0, 0.05, "%",
+                    "How strongly the single-tone tint is applied (0% = neutral).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.SplitShadowHue, "Shadow Hue", 35.0, 0.0, 360.0, 1.0, "°",
+                    "Split-toning colour for the shadows."),
+                new EffectParameterDescriptor(EffectParamNames.SplitHighlightHue, "Highlight Hue", 210.0, 0.0, 360.0, 1.0, "°",
+                    "Split-toning colour for the highlights."),
+                new EffectParameterDescriptor(EffectParamNames.SplitStrength, "Split Strength", 0.0, 0.0, 1.0, 0.05, "%",
+                    "How strongly split toning is applied (0% = neutral).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.SplitBalance, "Split Balance", 0.0, -1.0, 1.0, 0.05,
+                    Description: "Shifts the shadow/highlight crossover toward shadows (−) or highlights (+)."),
                 new EffectParameterDescriptor(EffectParamNames.VignetteAmount, "Vignette", 0.0, -1.0, 1.0, 0.05,
                     Description: "Darkens (−) or lightens (+) the frame edges."),
                 new EffectParameterDescriptor(EffectParamNames.VignetteSize, "Vignette Size", 0.7, 0.0, 1.5, 0.05,
@@ -397,7 +411,11 @@ public static class EffectCatalog
                     [EffectParamNames.Exposure] = 0.0, [EffectParamNames.Contrast] = 1.0,
                     [EffectParamNames.Shadows] = 0.0, [EffectParamNames.Highlights] = 0.0,
                     [EffectParamNames.GrainAmount] = 0.0, [EffectParamNames.GrainSize] = 1.0,
-                    [EffectParamNames.GrainSeedLock] = 0.0, [EffectParamNames.VignetteAmount] = 0.0,
+                    [EffectParamNames.GrainSeedLock] = 0.0,
+                    [EffectParamNames.ToneHue] = 35.0, [EffectParamNames.ToneStrength] = 0.0,
+                    [EffectParamNames.SplitShadowHue] = 35.0, [EffectParamNames.SplitHighlightHue] = 210.0,
+                    [EffectParamNames.SplitStrength] = 0.0, [EffectParamNames.SplitBalance] = 0.0,
+                    [EffectParamNames.VignetteAmount] = 0.0,
                     [EffectParamNames.VignetteSize] = 0.7, [EffectParamNames.VignetteSoftness] = 0.5,
                 }),
             ],

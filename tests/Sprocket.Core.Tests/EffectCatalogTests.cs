@@ -424,7 +424,10 @@ public class EffectCatalogTests
                 EffectParamNames.Exposure, EffectParamNames.Contrast, EffectParamNames.Shadows,
                 EffectParamNames.Highlights, EffectParamNames.GrainAmount, EffectParamNames.GrainSize,
                 EffectParamNames.GrainSeedLock,
-                // Finishing (phase 2 adds vignette)
+                // Finishing — phase 3 adds toning + split toning before the vignette
+                EffectParamNames.ToneHue, EffectParamNames.ToneStrength,
+                EffectParamNames.SplitShadowHue, EffectParamNames.SplitHighlightHue,
+                EffectParamNames.SplitStrength, EffectParamNames.SplitBalance,
                 EffectParamNames.VignetteAmount, EffectParamNames.VignetteSize, EffectParamNames.VignetteSoftness,
             },
             names);
@@ -447,6 +450,20 @@ public class EffectCatalogTests
         EffectDescriptor bw = EffectCatalog.Find(EffectTypeIds.BlackWhite)!;
         Assert.Equal(new[] { "Neutral" }, bw.Presets.Select(p => p.Name).ToArray());
         Assert.All(bw.Presets, p => Assert.DoesNotContain(EffectParamNames.Mix, p.Values.Keys));
+    }
+
+    [Fact]
+    public void EffectPreset_Description_Defaults_Null_And_Round_Trips()
+    {
+        // Phase 3: EffectPreset gains an optional Description (the film presets' "Inspired by …" note that the
+        // Inspector shows as the picker item's tooltip). It is additive — existing presets keep null.
+        var plain = new EffectPreset("X", new Dictionary<string, double>());
+        Assert.Null(plain.Description);
+        var described = new EffectPreset("Y", new Dictionary<string, double>(), "Inspired by a stock.");
+        Assert.Equal("Inspired by a stock.", described.Description);
+
+        // Every currently-shipping preset (the single Neutral) carries no description yet.
+        Assert.All(EffectCatalog.Find(EffectTypeIds.BlackWhite)!.Presets, p => Assert.Null(p.Description));
     }
 
     // ── Step 41: heavy-chain traits (freeze hints) ─────────────────────────────────────────────────────

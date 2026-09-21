@@ -1,6 +1,6 @@
 # Black & White conversion (film-emulation grade monochrome)
 
-🟡 **In progress (phases 1–2 of 5 shipped).** Unscheduled feature (no build-order step number yet); tracked in
+🟡 **In progress (phases 1–3 of 5 shipped).** Unscheduled feature (no build-order step number yet); tracked in
 [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** a dedicated `Black & White` effect (`builtin.blackwhite`, short code `BW`)
@@ -216,7 +216,17 @@ status lives in the checklist here; flip the box and add a dated one-liner when 
   documents the two reserved uniforms. Tests: Core `FrameTime` population + updated catalog/parameter-kind
   lists; Render grain determinism/per-frame variation/static-lock, vignette corner-vs-centre + pass-through,
   and pipeline auto-bind positive + plugin regression — all green.
-- [ ] Phase 3 — Toning + preset descriptions
+- [x] Phase 3 — Toning + preset descriptions (2026-09-21): six new `EffectParamNames` — `ToneHue` / `ToneStrength`
+  (single-tone tint) and `SplitShadowHue` / `SplitHighlightHue` / `SplitStrength` / `SplitBalance` (split toning) —
+  with descriptor rows in the Finishing group (before the vignette) and Neutral-preset defaults (tone/split hues
+  35 / 35 / 210, strengths 0). `EffectPreset` gains an optional `string? Description` (additive; every existing
+  preset stays `null`), which `InspectorPanel.BuildPresetRow` now shows as the combo item's tooltip via a
+  `FuncDataTemplate<EffectPreset>`. `BlackWhiteEffect` SkSL gains a toning stage between grain and vignette:
+  single tone lerps each pixel toward its hue carried at the pixel's own luma; split toning picks the hue per
+  pixel between the shadow/highlight hues by luma, with balance shifting the crossover. All 27 parameters now
+  present; the effect is feature-complete (presets still just `Neutral`). Tests: Core catalog parameter list +
+  `EffectPreset.Description` default/round-trip; Render single-tone hue-at-mid-grey, strength-0 neutral, and
+  split shadows/highlights carrying their hues — all green.
 - [ ] Phase 4 — Preset library (non-film)
 - [ ] Phase 5 — Film-stock presets + docs + close-out
 

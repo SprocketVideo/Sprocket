@@ -78,8 +78,9 @@ public static class EffectTypeIds
     /// <summary>
     /// Black &amp; White (film-emulation monochrome, plan/features/black-and-white.md): converts to monochrome
     /// with a per-hue channel mixer + optical colour filter, a film-style tone response (brightness / contrast /
-    /// toe / shoulder), and a dry/wet <see cref="EffectParamNames.Mix"/>. A registry SkSL effect like the rest of
-    /// the grading toolset. Grain / vignette / toning and the preset library land in later phases.
+    /// toe / shoulder), procedural grain, vignette, and single/split toning, all against a dry/wet
+    /// <see cref="EffectParamNames.Mix"/>. A registry SkSL effect like the rest of the grading toolset. The
+    /// preset library lands in later phases.
     /// Parameters: <see cref="EffectParamNames.Mix"/>, <see cref="EffectParamNames.FilterHue"/>,
     /// <see cref="EffectParamNames.FilterStrength"/>, <see cref="EffectParamNames.MixReds"/> …
     /// <see cref="EffectParamNames.MixMagentas"/>, <see cref="EffectParamNames.Exposure"/>,
@@ -448,6 +449,19 @@ public static class EffectParamNames
     public const string VignetteSize = "vignetteSize";
     /// <summary>Vignette edge softness in [0, 1] — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
     public const string VignetteSoftness = "vignetteSoftness";
+    /// <summary>Toning tint hue in degrees [0, 360) (35° ≈ sepia) — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string ToneHue = "toneHue";
+    /// <summary>Toning tint strength in [0, 1] (0 = neutral) — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string ToneStrength = "toneStrength";
+    /// <summary>Split-toning shadow hue in degrees [0, 360) — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string SplitShadowHue = "splitShadowHue";
+    /// <summary>Split-toning highlight hue in degrees [0, 360) — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string SplitHighlightHue = "splitHighlightHue";
+    /// <summary>Split-toning strength in [0, 1] (0 = neutral) — <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string SplitStrength = "splitStrength";
+    /// <summary>Split-toning shadow/highlight crossover balance in [-1, 1] (0 = mid-grey) —
+    /// <see cref="EffectTypeIds.BlackWhite"/>.</summary>
+    public const string SplitBalance = "splitBalance";
 
     /// <summary>Source log profile index into <see cref="ColorProfiles.All"/> —
     /// <see cref="EffectTypeIds.ColorTransform"/>.</summary>

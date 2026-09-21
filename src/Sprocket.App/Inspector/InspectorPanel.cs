@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -1330,7 +1331,17 @@ public sealed class InspectorPanel : UserControl
     {
         var combo = new ComboBox
         {
-            ItemsSource = descriptor.Presets.Select(p => p.Name).ToList(),
+            ItemsSource = descriptor.Presets,
+            // A template rather than plain strings so each item can carry its EffectPreset.Description as a
+            // tooltip (the B&W film presets name the stock they're inspired by there); presets without one
+            // render as just the name.
+            ItemTemplate = new FuncDataTemplate<EffectPreset>((preset, _) =>
+            {
+                var text = new TextBlock { Text = preset?.Name };
+                if (!string.IsNullOrEmpty(preset?.Description))
+                    ToolTip.SetTip(text, preset.Description);
+                return text;
+            }),
             PlaceholderText = "Choose…",
             FontSize = Typography.Caption,
             MinHeight = 24,

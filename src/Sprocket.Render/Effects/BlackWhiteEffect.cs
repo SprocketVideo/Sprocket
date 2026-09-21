@@ -5,24 +5,26 @@ namespace Sprocket.Render.Effects;
 
 /// <summary>
 /// Black &amp; White (film-emulation monochrome, plan/features/black-and-white.md), phase 1 — the conversion
-/// core: an optical colour filter and Lightroom-style eight-hue channel mixer control <em>how</em> colour maps
-/// to tone, then a film tone response (brightness / contrast / shadow toe / highlight shoulder) shapes the grey,
-/// and a dry/wet <see cref="EffectParamNames.Mix"/> blends against the colour original. A registry SkSL stage
-/// like the rest of the grading toolset, so it runs identically in preview / export / thumbnails and no pixels
-/// cross to managed code (§1, §5). Grain, vignette, toning and the preset library land in later phases.
+/// core plus finishing: an optical colour filter and Lightroom-style eight-hue channel mixer control
+/// <em>how</em> colour maps to tone, a film tone response (brightness / contrast / shadow toe / highlight
+/// shoulder) shapes the grey, procedural grain, single/split toning and a vignette finish the look, and a
+/// dry/wet <see cref="EffectParamNames.Mix"/> blends against the colour original. A registry SkSL stage like the
+/// rest of the grading toolset, so it runs identically in preview / export / thumbnails and no pixels cross to
+/// managed code (§1, §5). The preset library lands in later phases.
 ///
 /// <para>Shader order (single pass): unpremultiply → sRGB→linear → optical filter (luma-normalised so exposure
 /// doesn't shift) → per-hue mixer (blended band weight scales luma, gated by saturation so greys are untouched)
 /// → Rec.709 luma → brightness/contrast/toe/shoulder → linear→sRGB → procedural grain (hash noise per cell,
 /// re-seeded each frame from <c>sprocket_time</c> unless Static Grain is on, luma-weighted to the mids) →
-/// vignette (radial from the layer rect <c>sprocket_bounds</c>) → <c>Mix</c> lerp against the original → clamp
-/// <c>rgb ≤ a</c>, repremultiply.</para>
+/// toning (single tint toward a hue at the pixel's luma; split lerps shadow/highlight hues by luma with a
+/// balance) → vignette (radial from the layer rect <c>sprocket_bounds</c>) → <c>Mix</c> lerp against the
+/// original → clamp <c>rgb ≤ a</c>, repremultiply.</para>
 ///
-/// <para>Phase 2 adds the grain and vignette finishing stages and, with them, the first consumer of the
-/// registry per-frame context seam: the pipeline auto-binds the reserved <c>sprocket_time</c> (seconds) and
-/// <c>sprocket_bounds</c> (layer left/top/width/height) uniforms because this program declares them (§13).
-/// Grain is deterministic — the same frame time yields identical pixels, so preview and export match (§5).
-/// Toning and the preset library land in later phases.</para>
+/// <para>The grain and vignette stages are the first consumer of the registry per-frame context seam: the
+/// pipeline auto-binds the reserved <c>sprocket_time</c> (seconds) and <c>sprocket_bounds</c> (layer
+/// left/top/width/height) uniforms because this program declares them (§13). Grain is deterministic — the same
+/// frame time yields identical pixels, so preview and export match (§5). The preset library lands in later
+/// phases.</para>
 /// </summary>
 public sealed class BlackWhiteEffect : IVideoEffect
 {
@@ -45,6 +47,12 @@ uniform float grainSeedLock;  // 0 = re-seed per frame, 1 = static field
 uniform float vignetteAmount; // [-1, 1] (negative darkens edges)
 uniform float vignetteSize;   // radius relative to half-diagonal, [0, 1.5]
 uniform float vignetteSoftness; // [0, 1]
+uniform float toneHue;        // single-tone tint hue, degrees [0, 360)
+uniform float toneStrength;   // [0, 1] (0 = neutral)
+uniform float splitShadowHue; // split-toning shadow hue, degrees
+uniform float splitHighlightHue; // split-toning highlight hue, degrees
+uniform float splitStrength;  // [0, 1] (0 = neutral)
+uniform float splitBalance;   // [-1, 1] shadow/highlight crossover
 uniform float sprocket_time;    // reserved: frame time in seconds (grain seed) — auto-bound by the pipeline
 uniform float4 sprocket_bounds; // reserved: layer rect (left, top, width, height) — auto-bound by the pipeline
 
@@ -160,6 +168,19 @@ half4 main(float2 coord) {
 
     float3 mono = float3(s);
 
+    // Toning: tint the grey. Single tone lerps each pixel toward its hue carried at the pixel's own luma, so
+    // blacks stay black and whites stay white (a monochromatic tint). Split toning then chooses the hue per
+    // pixel between the shadow and highlight hues by luma, with balance shifting where the crossover sits.
+    if (toneStrength > 0.0) {
+        float3 tint = hsvToRgb(toneHue, 1.0, 1.0) * s;
+        mono = mix(mono, tint, toneStrength);
+    }
+    if (splitStrength > 0.0) {
+        float t = clamp(s + splitBalance * 0.5, 0.0, 1.0);
+        float3 tint = hsvToRgb(mix(splitShadowHue, splitHighlightHue, t), 1.0, 1.0) * s;
+        mono = mix(mono, tint, splitStrength);
+    }
+
     // Vignette: radial falloff from the layer-rect centre, distance normalised to the half-diagonal so it is
     // shape-independent. vignetteSize is where it begins (relative to the half-diagonal); softness widens the
     // inner falloff start. Negative amount darkens the edges (classic), positive lightens.
@@ -210,6 +231,12 @@ half4 main(float2 coord) {
         uniforms.Set("vignetteAmount", (float)Math.Clamp(effect.Get(EffectParamNames.VignetteAmount, 0.0), -1.0, 1.0));
         uniforms.Set("vignetteSize", (float)Math.Clamp(effect.Get(EffectParamNames.VignetteSize, 0.7), 0.0, 1.5));
         uniforms.Set("vignetteSoftness", (float)Math.Clamp(effect.Get(EffectParamNames.VignetteSoftness, 0.5), 0.0, 1.0));
+        uniforms.Set("toneHue", (float)Math.Clamp(effect.Get(EffectParamNames.ToneHue, 35.0), 0.0, 360.0));
+        uniforms.Set("toneStrength", (float)Math.Clamp(effect.Get(EffectParamNames.ToneStrength, 0.0), 0.0, 1.0));
+        uniforms.Set("splitShadowHue", (float)Math.Clamp(effect.Get(EffectParamNames.SplitShadowHue, 35.0), 0.0, 360.0));
+        uniforms.Set("splitHighlightHue", (float)Math.Clamp(effect.Get(EffectParamNames.SplitHighlightHue, 210.0), 0.0, 360.0));
+        uniforms.Set("splitStrength", (float)Math.Clamp(effect.Get(EffectParamNames.SplitStrength, 0.0), 0.0, 1.0));
+        uniforms.Set("splitBalance", (float)Math.Clamp(effect.Get(EffectParamNames.SplitBalance, 0.0), -1.0, 1.0));
         // sprocket_time / sprocket_bounds are reserved uniforms auto-bound by SkiaEffectPipeline (§13) — not set here.
     }
 
