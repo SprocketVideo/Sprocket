@@ -202,6 +202,7 @@ internal static class AvConst
 
     public const int PixFmtNone = -1;
     public const int PixFmtYuv420p = 0;
+    public const int PixFmtGray8 = 8;                  // AV_PIX_FMT_GRAY8 — single-plane 8-bit luma (motion analysis)
     public const int PixFmtRgba = 26;
 
     public const ulong PixFmtFlagAlpha = 1UL << 7;     // AV_PIX_FMT_FLAG_ALPHA

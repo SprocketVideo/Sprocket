@@ -23,6 +23,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sprocket.Core\Sprocket.Core.csproj" />
+    <!-- Phase 3: the decode driver. MotionTrackAnalyzer pulls GRAY8 frames from Sprocket.Media
+         (MediaSource.TryDecodeNextGray) to build a MotionTrack. The Features/ CV primitives stay
+         Media-free and testable on synthetic images. -->
+    <ProjectReference Include="..\Sprocket.Media\Sprocket.Media.csproj" />
   </ItemGroup>
 
 </Project>

@@ -381,7 +381,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 
 | Feature | Status source |
 |---|---|
-| Video stabilization (`builtin.stabilization`: adaptive smoothing, per-channel, focus-breathing Scale Lock, cropping budget + auto-zoom) | plan/features/stabilization.md (phases 1–2 of 7 shipped 2026-09-21 — Core model/solver + descriptor land, but the effect renders pass-through until the render seam and background analysis service ship; promote to §4 at phase 5) |
+| Video stabilization (`builtin.stabilization`: adaptive smoothing, per-channel, focus-breathing Scale Lock, cropping budget + auto-zoom) | plan/features/stabilization.md (phases 1–3 of 7 shipped 2026-09-21 — Core model/solver + descriptor and the Media decode driver + motion-track analyzer land, but the effect renders pass-through until the render seam and background analysis service ship; promote to §4 at phase 5) |
 | Pitch-preserving time-stretch / frame-interpolated slow motion | PLAN.md step 21 (reverse + speed ramps shipped 2026-08-27; these two remain later quality tiers) |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial); [COLOR_GRADING_ROADMAP.md](COLOR_GRADING_ROADMAP.md) has the detailed parity sequence and follow-on grading roadmap |

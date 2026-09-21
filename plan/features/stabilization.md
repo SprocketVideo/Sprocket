@@ -1,6 +1,6 @@
 # Video stabilization (adaptive smoothing, per-channel, focus-breathing lock)
 
-🟡 **Partial — phases 1–2 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
+🟡 **Partial — phases 1–3 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
 number yet); tracked in [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** a `Stabilization` effect (`builtin.stabilization`, short code `ST`, category
@@ -182,11 +182,23 @@ session prompt: "Implement phase N of plan/features/stabilization.md".
   `ParameterKindTests` allowlist/count, and a `Sprocket.Persistence.Tests` round-trip of the params. The effect
   appears in the Effects browser and renders pass-through (no provider yet). Feature-tracking docs
   (this file, PLAN.md, FEATURES.md, README.md) were created at phase-2 close-out.
-- [ ] **Phase 3 — Media decode driver + analyzer**: `Sprocket.Media` `GrayFramePool` / `GrayFrame` +
-  `MediaSource.TryDecodeNextGray` (second `SwsScaler`); `Motion/MotionTrackAnalyzer.Analyze(...) → MotionTrack`
-  (software decode 480/960 px, per-frame cancellation, low-confidence interpolation). Tests gated on the ffmpeg
-  CLI + natives (reuse `TestVideo`): static ⇒ near-identity; shaking fixture ⇒ translation within 0.5 px of the
-  analytic path; pumping-zoom fixture ⇒ scale within 0.2 %; cancellation within one frame; write/read equality.
+- [x] **Phase 3 — Media decode driver + analyzer** (2026-09-21): `Sprocket.Media` gained `GrayFrame` /
+  `GrayFramePool` (native GRAY8, caller-chosen size, `VideoFrame`/`VideoFramePool` RAII shape) and
+  `MediaSource.TryDecodeNextGray(GrayFramePool, out GrayFrame)` (lazily-created second `SwsScaler`, mirrors
+  `TryDecodeNextFrame` incl. seek decode-to-target discard + GPU-download fallback); `AvConst.PixFmtGray8 = 8`.
+  `Sprocket.Analysis` gained the `Sprocket.Media` reference and `Motion/MotionTrackAnalyzer.Analyze(request,
+  sourceIdentity, from, to, settings, IProgress<double>?, CancellationToken) → MotionTrack`: forced-software
+  sequential decode, analysis width 480 px (960 with Detailed, capped at the source width so it never upscales;
+  height follows the source aspect, both even), `MotionEstimator` at ~300 / ~600 features, per-frame cancellation,
+  progress = fraction of the range decoded, and a post-pass that linearly interpolates the similarity channels of
+  sub-8-inlier frames from their nearest reliable neighbours (left flagged, confidence 0). Frames stay in pooled
+  native buffers — a `GrayImage` span wraps each without touching the managed heap (§1). Tests: `Sprocket.Media.Tests`
+  `TryDecodeNextGray` (downscaled GRAY8 frame size / non-decreasing pts / seek honoured) and
+  `Sprocket.Analysis.Tests` `MotionTrackAnalyzerTests` (gated on the ffmpeg CLI + FFmpeg 8 natives — new
+  `UsesFFmpegNatives` + win-x64 RID — over `StabFixtures` clips that loop a static `testsrc2` still): static ⇒
+  near-identity, moving-crop shake ⇒ integrated translation matches the analytic 2×24 / 2×16 px swing (detrended),
+  pumping-zoom ⇒ recovered scale wobble ~0.06, cancellation stops within one frame, and the analysed track survives
+  a `Write`/`Read` round-trip.
 - [ ] **Phase 4 — Render shader + solve cache + provider seam**: `StabilizeSksl` + `case Stabilization`,
   `HasTransform` extended for transparent borders; `pipeline.MotionTracks` provider (null/miss ⇒ pass-through);
   `StabilizationSolveCache` (key = track ref + settings snapshot; binary search by `SourceTime`; zero per-frame

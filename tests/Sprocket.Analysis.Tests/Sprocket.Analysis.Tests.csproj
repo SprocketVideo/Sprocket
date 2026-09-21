@@ -6,6 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Phase 3's MotionTrackAnalyzer tests decode real fixtures, so they need the FFmpeg 8 natives —
+         same wiring as Sprocket.Media.Tests (copied from ./.ffmpeg-cache by UsesFFmpegNatives, or
+         resolved from %SPROCKET_FFMPEG8_DIR% in CI). The phase-1 headless CV tests need none of this. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">win-x64</RuntimeIdentifier>
+    <UsesFFmpegNatives>true</UsesFFmpegNatives>
   </PropertyGroup>
 
   <ItemGroup>

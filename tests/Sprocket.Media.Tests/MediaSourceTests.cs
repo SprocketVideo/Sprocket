@@ -70,6 +70,46 @@ public class MediaSourceTests
     }
 
     [Fact]
+    public void TryDecodeNextGray_Produces_Downscaled_Gray_Frames()
+    {
+        // The stabilization analysis driver (plan/features/stabilization.md phase 3): decode to a fixed-size
+        // single-plane GRAY8 buffer. Force software decode as the analyzer does (determinism).
+        using MediaSource source = MediaSource.Open(TestVideo.Path, HardwareAccelMode.Disabled);
+        using var pool = new GrayFramePool(160, 120);
+
+        int count = 0;
+        long lastTicks = -1;
+        while (source.TryDecodeNextGray(pool, out GrayFrame? frame))
+        {
+            using (frame)
+            {
+                Assert.Equal(160, frame.Width);
+                Assert.Equal(120, frame.Height);
+                Assert.NotEqual(IntPtr.Zero, frame.Pixels);
+                Assert.True(frame.RowBytes >= frame.Width);
+                Assert.True(frame.Pts.Ticks >= lastTicks); // presentation order, non-decreasing
+                lastTicks = frame.Pts.Ticks;
+                count++;
+            }
+        }
+
+        Assert.Equal(TestVideo.FrameCount, count);
+    }
+
+    [Fact]
+    public void TryDecodeNextGray_Honours_SeekTo()
+    {
+        using MediaSource source = MediaSource.Open(TestVideo.Path, HardwareAccelMode.Disabled);
+        using var pool = new GrayFramePool(160, 120);
+
+        Timecode target = new(TestVideo.Fps > 0 ? Timecode.TicksPerSecond : 0); // 1 s in
+        source.SeekTo(target);
+        Assert.True(source.TryDecodeNextGray(pool, out GrayFrame? frame));
+        using (frame)
+            Assert.True(frame.Pts.Ticks >= target.Ticks, "first frame after seek must be at/after the target");
+    }
+
+    [Fact]
     public void ProbeInfo_AudioOnlySource_Probes_Without_Video()
     {
         // .m4a import path (PLAN.md step 16b): ProbeInfo must succeed where MediaSource.Open (video-led) throws.

@@ -46,6 +46,7 @@ public sealed unsafe class MediaSource : IDisposable
     private readonly FormatContextHandle _format;
     private readonly CodecContextHandle _decoder;
     private readonly SwsScaler _converter = new();
+    private SwsScaler? _grayConverter;              // lazily created for TryDecodeNextGray (analysis path)
     private readonly AvPacketHandle _packet = new();
     private readonly AvFrameHandle _yuv = new();    // reusable decoder output (source/hw pixel format)
     private readonly AvRational _videoTimeBase;
@@ -540,6 +541,44 @@ public sealed unsafe class MediaSource : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Decodes the next video frame in presentation order into a single-plane GRAY8 frame leased from
+    /// <paramref name="pool"/>, downscaled to the pool's size — the input the stabilization motion analyzer
+    /// tracks features on (plan/features/stabilization.md phase 3). Returns false at end of stream. Honours
+    /// <see cref="SeekTo"/> decode-to-target discard exactly like <see cref="TryDecodeNextFrame"/>. Analysis
+    /// forces software decode (<see cref="HardwareAccelMode.Disabled"/>) for run-to-run determinism, but this
+    /// method also handles a GPU frame by downloading it first, so it is correct either way.
+    /// </summary>
+    public bool TryDecodeNextGray(GrayFramePool pool, [NotNullWhen(true)] out GrayFrame? frame)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(pool);
+
+        _grayConverter ??= new SwsScaler();
+
+        while (TryReceiveYuv())
+        {
+            long pts = FramePts(_yuv);
+
+            if (_discardBeforePts != MediaTime.NoPts && pts != MediaTime.NoPts && pts < _discardBeforePts)
+                continue;
+            _discardBeforePts = MediaTime.NoPts;
+
+            if (!TryGetCpuFrame(out AvFrameHandle? source))
+                continue; // a failed GPU download — skip this frame rather than crash (§15)
+
+            GrayFrame gray = pool.Rent();
+            _grayConverter.Convert(source, gray.Native);
+            gray.Pts = pts == MediaTime.NoPts ? Timecode.Zero : MediaTime.ToTimecode(pts, _videoTimeBase);
+            LastDecodedPts = gray.Pts;
+            frame = gray;
+            return true;
+        }
+
+        frame = null;
+        return false;
+    }
+
     /// <summary>Returns the CPU-side frame to convert: the decoded frame directly in software, or the GPU
     /// frame downloaded via <c>av_hwframe_transfer_data</c> when hardware decode produced a GPU frame.</summary>
     private bool TryGetCpuFrame([NotNullWhen(true)] out AvFrameHandle? source)
@@ -663,6 +702,7 @@ public sealed unsafe class MediaSource : IDisposable
         _yuv.Dispose();
         _hwTransfer?.Dispose();
         _converter.Dispose();
+        _grayConverter?.Dispose();
         _decoder.Dispose();      // unrefs the decoder's hw_device_ctx ref
         _hwDevice?.Dispose();    // unrefs our device-context ref
         _format.Dispose();
