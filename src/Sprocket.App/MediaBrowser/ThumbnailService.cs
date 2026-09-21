@@ -66,6 +66,60 @@ public sealed class ThumbnailService : IDisposable
         return _cache.GetOrAdd(key, _ => Task.Run(() => RenderWaveform(media, width, height)));
     }
 
+    /// <summary>
+    /// Returns a wide filmstrip bitmap for a video source — <paramref name="frames"/> evenly spaced frames laid
+    /// side by side, each <paramref name="frameWidth"/>×<paramref name="frameHeight"/> (letterboxed) — for
+    /// hover-scrubbing the bin thumbnail. Decoded once, lazily, and cached like posters. Returns
+    /// <see langword="null"/> for a no-video source, a still (one frame, nothing to scrub), or on failure.
+    /// </summary>
+    public Task<Bitmap?> GetFilmstripAsync(MediaRef media, int frameWidth, int frameHeight, int frames = FilmstripMath.DefaultFrames)
+    {
+        ArgumentNullException.ThrowIfNull(media);
+        if (_disposed || !media.Info.HasVideo || media.HasUnboundedDuration || frames <= 0)
+            return Task.FromResult<Bitmap?>(null);
+
+        string key = $"strip:{media.Id}:{frameWidth}x{frameHeight}x{frames}";
+        return _cache.GetOrAdd(key, _ => Task.Run(() => RenderFilmstrip(media, frameWidth, frameHeight, frames)));
+    }
+
+    private static Bitmap? RenderFilmstrip(MediaRef media, int frameWidth, int frameHeight, int frames)
+    {
+        if (frameWidth <= 0 || frameHeight <= 0 || frames <= 0)
+            return null;
+        try
+        {
+            using MediaSource source = MediaSource.Open(MediaOpenRequest.FromMediaRef(media), HardwareAccelMode.Disabled);
+            using var pool = new VideoFramePool(source.Info.Width, source.Info.Height);
+
+            var dstInfo = new SKImageInfo(frames * frameWidth, frameHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
+            using SKSurface surface = SKSurface.Create(dstInfo);
+            SKCanvas canvas = surface.Canvas;
+            canvas.Clear(PosterBg);
+
+            for (int slot = 0; slot < frames; slot++)
+            {
+                source.SeekTo(FilmstripMath.SampleTime(media.Info.Duration, frames, slot));
+                if (!source.TryDecodeNextFrame(pool, out VideoFrame? frame))
+                    continue; // a slot whose decode fails stays background-coloured rather than failing the strip
+
+                using (frame)
+                {
+                    var srcInfo = new SKImageInfo(frame.Width, frame.Height, SKColorType.Rgba8888, SKAlphaType.Opaque);
+                    using SKImage src = SKImage.FromPixels(srcInfo, frame.Pixels, frame.RowBytes);
+                    SKRect cell = SKRect.Create(slot * frameWidth, 0, frameWidth, frameHeight);
+                    SKRect dest = FramePresenter.ComputeFitRect(cell, frame.Width, frame.Height);
+                    canvas.DrawImage(src, dest, new SKSamplingOptions(SKFilterMode.Linear));
+                }
+            }
+
+            return Encode(surface);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static Bitmap? RenderPoster(MediaRef media, int width, int height)
     {
         if (width <= 0 || height <= 0)

@@ -1165,6 +1165,27 @@ requires a redesign. Tags reference the [UI.md §4 checklist](UI.md).
         Render 18, Audio 16, Playback 40, Export 6, Persistence 12, App 68).
       - **Note:** the Source monitor previews video only — source-audio scrub and an independent in/out-marker
         overlay (to mark a source span before placing it) are small follow-ons behind the same `IMonitor` seam.
+      - **✅ Follow-on 2026-09-21 — bin activation gestures (closes the "reachable only from a placed clip" gap).**
+        The Source monitor could previously only be reached by selecting a clip already on the timeline
+        (`SelectedClipChanged` → `SourceMonitor.SetSource`), so freshly imported media never previewed. Added the
+        two standard bin gestures from Premiere/Resolve, on existing seams — no `Monitors.cs` change:
+        - **Double-click a bin item → Source monitor.** `MediaBrowserPanel` raises a new `MediaActivated` event on
+          the tile's `DoubleTapped` (same pattern as the Effects/Transitions rows; fires in both the Media and
+          Audio tabs); `MainWindow.ShowInSourceMonitor` calls `SetSource`, brings the **Source** tab forward
+          (re-pointing the transport itself when the tab was already active, since `IsCheckedChanged` won't fire),
+          and writes `Source: <name>` to the status bar. Audio-only sources get a status hint instead of an empty
+          black monitor (the Source monitor is still video-only). The timeline-selection path is unchanged.
+        - **Hover-scrub a video thumbnail (filmstrip).** `ThumbnailService.GetFilmstripAsync` decodes N (default
+          16) evenly spaced frames **once, lazily on first hover** into a single wide strip bitmap, cached like
+          posters (so `Dispose` covers it) and produced off-thread by the same software-decode path as posters
+          (not the render hot path, §1). Pointer X over the poster picks a slot via the pure `FilmstripMath`
+          (`SampleTime` samples slice centres to skip the leader/EOF frames; `SlotAt` maps X→slot); the tile swaps
+          in a per-slot `CroppedBitmap` view and slides a 1-px accent line. Left-button moves are ignored so the
+          drag-to-timeline gesture is untouched; stills (unbounded duration) and audio tiles are skipped.
+        - **Tests (13, green):** `FilmstripMathTests` covers `SampleTime` (strictly increasing, within `(0,dur)`,
+          `count=1`→midpoint, uniform spacing, argument guards) and `SlotAt` (edges, clamps, uniform slices,
+          `-1` for non-positive width). Decode + gesture wiring rest on manual verification (the established
+          steps 15/17 split).
 ## Step 18
 
 18. **Proxy media (render performance) — default-on, background, transparent.** Generate

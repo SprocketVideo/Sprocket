@@ -1830,6 +1830,7 @@ public partial class MainWindow : Window
         // Double-clicking a transition in the browser applies it to the selected clip's cut (PLAN.md step 25).
         browser.TransitionActivated += id => _timeline?.ApplyTransitionToSelectedCut(id);
         browser.InterpretFootageRequested += media => _ = InterpretFootageAsync(media); // PLAN.md step 42
+        browser.MediaActivated += ShowInSourceMonitor; // double-click a bin item → Source monitor
         browser.Attach(_project, _history, _thumbnails);
 
         WireMixer(browser);
@@ -2158,6 +2159,25 @@ public partial class MainWindow : Window
             if (WindowState == WindowState.FullScreen)
                 ToggleWindowFullScreen();
         }
+    }
+
+    /// <summary>Loads a bin source into the Source monitor and brings its tab forward (UI.md §3.3/§3.4) —
+    /// the Premiere/Resolve "double-click a bin clip" gesture, for media not yet on the timeline.</summary>
+    private void ShowInSourceMonitor(MediaRef media)
+    {
+        string name = Path.GetFileName(media.AbsolutePath);
+        if (!media.Info.HasVideo)
+        {
+            SetStatus($"{name}: audio-only sources can't be previewed in the Source monitor yet — drag it onto an audio track.");
+            return;
+        }
+        _source!.SetSource(media);                    // rebuilds in place if the Source tab is already active
+        var sourceTab = this.FindControl<RadioButton>("SourceTab")!;
+        if (sourceTab.IsChecked == true)
+            RefreshTransportForActive();              // IsCheckedChanged won't fire; re-point the transport ourselves
+        else
+            sourceTab.IsChecked = true;               // fires WireMonitorTabs → Activate() → bind surface + transport
+        SetStatus($"Source: {name}");
     }
 
     /// <summary>Switches between the Program and Source monitors (UI.md §3.4): pauses the outgoing monitor,

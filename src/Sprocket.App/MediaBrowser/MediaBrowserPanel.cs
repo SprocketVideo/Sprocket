@@ -78,6 +78,10 @@ public sealed class MediaBrowserPanel : UserControl
     /// the frame-rate dialog and runs the reinterpret command for the source.</summary>
     public event Action<MediaRef>? InterpretFootageRequested;
 
+    /// <summary>Raised when a bin item is double-clicked (Premiere/Resolve gesture); the shell loads it into the
+    /// Source monitor. Fires for tiles in both the Media and Audio tabs.</summary>
+    public event Action<MediaRef>? MediaActivated;
+
     private enum Tab { Media, Effects, Transitions, Audio }
 
     public MediaBrowserPanel()
@@ -288,12 +292,26 @@ public sealed class MediaBrowserPanel : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        poster.Child = fallback;
+        // The thumbnail Image sits over the fallback glyph; a 1-px accent line overlays it during hover-scrub.
+        var image = new Image { Stretch = Stretch.UniformToFill, IsVisible = false };
+        var scrubLine = new Border
+        {
+            Width = 1,
+            Background = Accent,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            IsVisible = false,
+        };
+        poster.Child = new Panel { Children = { fallback, image, scrubLine } };
 
         Task<Bitmap?> task = useWaveform
             ? _thumbs!.GetWaveformAsync(media, PosterW, PosterH)
             : _thumbs!.GetPosterAsync(media, PosterW, PosterH);
-        LoadThumb(poster, task);
+        LoadThumb(image, task);
+
+        // Hover-scrub: video tiles with a bounded duration in the Media tab show a filmstrip when hovered
+        // (Premiere hover-scrub / Resolve live preview). Stills, audio, and the Audio-tab waveform are skipped.
+        if (!useWaveform && media.Info.HasVideo && !media.HasUnboundedDuration)
+            WireHoverScrub(poster, image, scrubLine, media);
 
         var nameText = new TextBlock
         {
@@ -323,7 +341,10 @@ public sealed class MediaBrowserPanel : UserControl
             CornerRadius = new Avalonia.CornerRadius(5),
             Child = stack,
         };
-        ToolTip.SetTip(tile, "Drag onto a timeline track to place a clip.");
+        ToolTip.SetTip(tile, "Double-click to preview in the Source monitor · Drag onto a timeline track to place a clip.");
+        // Double-click loads the source into the Source monitor (Premiere/Resolve gesture) — see the Effects/
+        // Transitions rows for the same pattern.
+        tile.DoubleTapped += (_, _) => MediaActivated?.Invoke(media);
         // Drag the source onto the timeline to place a clip (PLAN.md step 16b).
         EnableDrag(tile, DragFormats.MediaRefId, () => media.Id.Value.ToString());
 
@@ -338,18 +359,67 @@ public sealed class MediaBrowserPanel : UserControl
         return tile;
     }
 
-    private async void LoadThumb(Border holder, Task<Bitmap?> task)
+    private async void LoadThumb(Image image, Task<Bitmap?> task)
     {
         try
         {
             Bitmap? bitmap = await task; // resumes on the UI thread (Avalonia sync context)
             if (bitmap is not null)
-                holder.Child = new Image { Source = bitmap, Stretch = Stretch.UniformToFill };
+            {
+                image.Source = bitmap;
+                image.IsVisible = true;
+            }
         }
         catch
         {
             // Leave the fallback glyph in place on failure (§15).
         }
+    }
+
+    /// <summary>Wires filmstrip hover-scrub on a video tile's poster: the strip is decoded once on first hover
+    /// (cached thereafter), and moving the pointer over the poster swaps the shown frame and slides an accent
+    /// line. Left-drag is left to <see cref="EnableDrag"/> so the drag-to-timeline gesture is untouched.</summary>
+    private void WireHoverScrub(Border poster, Image image, Border scrubLine, MediaRef media)
+    {
+        const int frames = FilmstripMath.DefaultFrames;
+        Bitmap? strip = null;
+        var slots = new CroppedBitmap?[frames]; // per-slot views into the strip, built lazily and reused
+        IImage? poster0 = null;                 // the original poster frame, restored on exit
+
+        poster.PointerEntered += async (_, _) =>
+        {
+            poster0 = image.Source;
+            if (strip is null)
+            {
+                try { strip = await _thumbs!.GetFilmstripAsync(media, PosterW, PosterH, frames); }
+                catch { strip = null; } // decode failure just leaves the poster showing
+            }
+        };
+
+        poster.PointerMoved += (_, e) =>
+        {
+            // Ignore while the left button is down so the tile's drag gesture (EnableDrag) owns the move.
+            if (strip is null || e.GetCurrentPoint(poster).Properties.IsLeftButtonPressed)
+                return;
+
+            double x = e.GetPosition(poster).X;
+            int slot = FilmstripMath.SlotAt(x, poster.Bounds.Width, frames);
+            if (slot < 0)
+                return;
+
+            poster0 ??= image.Source;
+            image.Source = slots[slot] ??= new CroppedBitmap(strip, new PixelRect(slot * PosterW, 0, PosterW, PosterH));
+            image.IsVisible = true;
+            scrubLine.Margin = new Avalonia.Thickness(x, 0, 0, 0);
+            scrubLine.IsVisible = true;
+        };
+
+        poster.PointerExited += (_, _) =>
+        {
+            if (poster0 is not null)
+                image.Source = poster0;
+            scrubLine.IsVisible = false;
+        };
     }
 
     private static Border Badge(string text) => new()

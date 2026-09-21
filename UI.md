@@ -141,6 +141,9 @@ north-star layout; the vertical slice implements a subset of it without changing
   - Implies: thumbnail/poster generation, **waveform rendering**, and a probe step surfacing
     duration/resolution/format/alpha. Probe already exists ([ARCHITECTURE §11](ARCHITECTURE.md));
     thumbnails + waveforms are **[new]** UI-side rendering.
+  - **Double-click** a bin item → loads it into the **Source monitor** (§3.4) without placing it on
+    the timeline (Premiere/Resolve gesture); **hover-scrub** a video thumbnail to skim a 16-frame
+    filmstrip of the footage (Premiere hover-scrub / Resolve live preview). **[new]**.
 
 ### 3.4 Center — Monitor
 - **Dual monitor model**: `Program` (active) / `Source` tabs. Program = the composited
