@@ -396,29 +396,11 @@ public static class EffectCatalog
             ])
         {
             ShortCode = "BW",
-            // Phase 1 ships a single Neutral preset (the reset) so the preset row exists from day one. It sets
-            // every conversion/film parameter back to its default but leaves Mix untouched (the Studio Reverb
-            // rule) so resetting the look keeps the user's dry/wet blend. The full library lands in phases 4–5.
-            Presets =
-            [
-                new EffectPreset("Neutral", new Dictionary<string, double>
-                {
-                    [EffectParamNames.FilterHue] = 0.0, [EffectParamNames.FilterStrength] = 0.0,
-                    [EffectParamNames.MixReds] = 0.0, [EffectParamNames.MixOranges] = 0.0,
-                    [EffectParamNames.MixYellows] = 0.0, [EffectParamNames.MixGreens] = 0.0,
-                    [EffectParamNames.MixAquas] = 0.0, [EffectParamNames.MixBlues] = 0.0,
-                    [EffectParamNames.MixPurples] = 0.0, [EffectParamNames.MixMagentas] = 0.0,
-                    [EffectParamNames.Exposure] = 0.0, [EffectParamNames.Contrast] = 1.0,
-                    [EffectParamNames.Shadows] = 0.0, [EffectParamNames.Highlights] = 0.0,
-                    [EffectParamNames.GrainAmount] = 0.0, [EffectParamNames.GrainSize] = 1.0,
-                    [EffectParamNames.GrainSeedLock] = 0.0,
-                    [EffectParamNames.ToneHue] = 35.0, [EffectParamNames.ToneStrength] = 0.0,
-                    [EffectParamNames.SplitShadowHue] = 35.0, [EffectParamNames.SplitHighlightHue] = 210.0,
-                    [EffectParamNames.SplitStrength] = 0.0, [EffectParamNames.SplitBalance] = 0.0,
-                    [EffectParamNames.VignetteAmount] = 0.0,
-                    [EffectParamNames.VignetteSize] = 0.7, [EffectParamNames.VignetteSoftness] = 0.5,
-                }),
-            ],
+            // The non-film preset library (Neutral / Filters / Toning / Cinematic, ~30 presets) lives in
+            // BlackWhitePresets to keep this file readable; the 19 film-stock presets land in phase 5. Every
+            // preset leaves Mix untouched (the Studio Reverb rule) and touches only its family's parameters so
+            // filters/tonings/tonal looks layer — see the BlackWhitePresets doc comment.
+            Presets = BlackWhitePresets.All,
         },
 
         new EffectDescriptor(

@@ -148,9 +148,10 @@ verification-only items carry their checklist in the step's history entry.
   preset tooltip, darkroom tonings, cinematic looks) over the step-41 `EffectDescriptor.Presets`
   surface (+ an additive `EffectPreset.Description`). Built in five independently mergeable phases
   (conversion core → frame-context seam + grain/vignette → toning → non-film presets → film presets +
-  docs), each sized for one session; **phases 1–3 of 5 shipped** (2026-09-21: conversion core, grain/vignette
-  with the auto-bound `sprocket_time` / `sprocket_bounds` seam, and single/split toning + `EffectPreset.Description`
-  — the effect is now feature-complete; the preset library is all that remains). Phase checklist in the plan →
+  docs), each sized for one session; **phases 1–4 of 5 shipped** (2026-09-21: conversion core, grain/vignette
+  with the auto-bound `sprocket_time` / `sprocket_bounds` seam, single/split toning + `EffectPreset.Description`,
+  and the ~30-preset non-film library (Neutral / Filters / Toning / Cinematic) — the effect is feature-complete;
+  only the 19 film-stock presets + docs remain). Phase checklist in the plan →
   [plan/features/black-and-white.md](plan/features/black-and-white.md)
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →

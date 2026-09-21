@@ -377,6 +377,29 @@ public sealed class GradingEffectTests
             $"highlight pixel hue ({brightHue}) should sit near the highlight hue (210°)");
     }
 
+    // ── Phase 4: the non-film preset library ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void BlackWhite_EveryPreset_BindsAndRenders_And_NeutralToningStaysGrey()
+    {
+        var source = new SKColor(200, 60, 60, 255); // a saturated colour so mixer/filter presets do work
+        foreach (EffectPreset preset in BlackWhitePresets.All)
+        {
+            var overrides = preset.Values.Select(kv => (kv.Key, kv.Value)).ToArray();
+            SKColor c = RenderCenter(source, [BlackWhite(overrides)]); // no throw ⇒ compiles + binds + renders
+
+            // A preset that applies no toning leaves the image neutral grey (R≈G≈B), whatever its filter,
+            // mixer, tone or vignette does — those only shape the luma, not the chroma.
+            double tone = preset.Values.GetValueOrDefault(EffectParamNames.ToneStrength, 0.0);
+            double split = preset.Values.GetValueOrDefault(EffectParamNames.SplitStrength, 0.0);
+            if (tone == 0.0 && split == 0.0)
+            {
+                Assert.InRange(c.Green - c.Red, -3, 3);
+                Assert.InRange(c.Blue - c.Red, -3, 3);
+            }
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────────
 
     // HSV hue in degrees [0, 360) of a colour — used to check that toning tints toward the requested hue.

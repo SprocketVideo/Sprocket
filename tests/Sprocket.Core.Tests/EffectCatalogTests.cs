@@ -445,11 +445,50 @@ public class EffectCatalogTests
     }
 
     [Fact]
-    public void BlackWhite_Ships_Only_A_Neutral_Preset_In_Phase1_That_Leaves_Mix_Untouched()
+    public void BlackWhite_Ships_The_Phase4_NonFilm_Preset_Families()
     {
+        // Phase 4: the non-film library (Neutral / Filters / Toning / Cinematic). Film stocks follow in phase 5.
         EffectDescriptor bw = EffectCatalog.Find(EffectTypeIds.BlackWhite)!;
-        Assert.Equal(new[] { "Neutral" }, bw.Presets.Select(p => p.Name).ToArray());
+        string[] names = bw.Presets.Select(p => p.Name).ToArray();
+
+        Assert.Equal(BlackWhitePresets.All.Count, names.Length);
+        Assert.Equal(names.Length, names.Distinct().Count()); // names must be unique
+        Assert.True(names.Length >= 30, $"expected ~30 non-film presets, got {names.Length}");
+
+        // Every family is represented and prefixes its members with "Family ▸ ".
+        Assert.Contains("Neutral ▸ Neutral", names);
+        Assert.Contains(names, n => n.StartsWith("Filters ▸ ", StringComparison.Ordinal));
+        Assert.Contains(names, n => n.StartsWith("Toning ▸ ", StringComparison.Ordinal));
+        Assert.Contains(names, n => n.StartsWith("Cinematic ▸ ", StringComparison.Ordinal));
+
+        // The Studio Reverb rule: no preset touches Mix, so switching looks keeps the user's dry/wet.
         Assert.All(bw.Presets, p => Assert.DoesNotContain(EffectParamNames.Mix, p.Values.Keys));
+    }
+
+    [Fact]
+    public void BlackWhite_Presets_Layer_By_Scope()
+    {
+        // Filters touch only conversion (filter + mixer); tonings touch only the finishing tint — so a filter
+        // and a toning layer without one clobbering the other's group.
+        string[] conversionOnly =
+        {
+            EffectParamNames.FilterHue, EffectParamNames.FilterStrength,
+            EffectParamNames.MixReds, EffectParamNames.MixOranges, EffectParamNames.MixYellows,
+            EffectParamNames.MixGreens, EffectParamNames.MixAquas, EffectParamNames.MixBlues,
+            EffectParamNames.MixPurples, EffectParamNames.MixMagentas,
+            EffectParamNames.Highlights, // Infrared's glow is the one film-group exception
+        };
+        foreach (EffectPreset p in BlackWhitePresets.Filters)
+            Assert.All(p.Values.Keys, k => Assert.Contains(k, conversionOnly));
+
+        string[] finishingOnly =
+        {
+            EffectParamNames.ToneHue, EffectParamNames.ToneStrength,
+            EffectParamNames.SplitShadowHue, EffectParamNames.SplitHighlightHue,
+            EffectParamNames.SplitStrength, EffectParamNames.SplitBalance,
+        };
+        foreach (EffectPreset p in BlackWhitePresets.Toning)
+            Assert.All(p.Values.Keys, k => Assert.Contains(k, finishingOnly));
     }
 
     [Fact]
@@ -462,7 +501,8 @@ public class EffectCatalogTests
         var described = new EffectPreset("Y", new Dictionary<string, double>(), "Inspired by a stock.");
         Assert.Equal("Inspired by a stock.", described.Description);
 
-        // Every currently-shipping preset (the single Neutral) carries no description yet.
+        // The phase-4 non-film presets carry no description — the "Inspired by …" note arrives with phase 5's
+        // film stocks.
         Assert.All(EffectCatalog.Find(EffectTypeIds.BlackWhite)!.Presets, p => Assert.Null(p.Description));
     }
 

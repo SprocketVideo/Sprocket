@@ -1,6 +1,6 @@
 # Black & White conversion (film-emulation grade monochrome)
 
-🟡 **In progress (phases 1–3 of 5 shipped).** Unscheduled feature (no build-order step number yet); tracked in
+🟡 **In progress (phases 1–4 of 5 shipped).** Unscheduled feature (no build-order step number yet); tracked in
 [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** a dedicated `Black & White` effect (`builtin.blackwhite`, short code `BW`)
@@ -227,7 +227,18 @@ status lives in the checklist here; flip the box and add a dated one-liner when 
   present; the effect is feature-complete (presets still just `Neutral`). Tests: Core catalog parameter list +
   `EffectPreset.Description` default/round-trip; Render single-tone hue-at-mid-grey, strength-0 neutral, and
   split shadows/highlights carrying their hues — all green.
-- [ ] Phase 4 — Preset library (non-film)
+- [x] Phase 4 — Preset library (non-film) (2026-09-21): `src/Sprocket.Core/Model/BlackWhitePresets.cs` (static
+  class, `All` = 33 presets in Inspector order) wired into the descriptor as `Presets = BlackWhitePresets.All`.
+  Families **Neutral** (7: the `Neutral ▸ Neutral` full reset + Flat / High Contrast / High Key / Low Key /
+  Maximum White / Maximum Black tonal looks), **Filters** (7: Yellow 8 / Orange 16 / Red 25 / Deep Red 29 /
+  Green 11 / Blue 47 / Infrared), **Toning** (10: Sepia / Warm / Cool, Selenium, Cyanotype, Platinum, Coffee,
+  Gold, two Splits), **Cinematic** (9: Film Noir, Silent Era, Newsreel, Modern Cinema, Documentary, Street /
+  Pushed, Fashion High Key, Dramatic Landscape, Portrait). Names prefixed `"Family ▸ Name"` (U+25B8) for combo
+  grouping. Scope-layered per the plan: every preset leaves `Mix` untouched; Filters touch only conversion
+  (+ Infrared's one Highlights glow), Tonings only finishing, Neutral tonal looks only the film group, so
+  filters/tonings/looks layer; Cinematic looks span all three. Tests: Core — phase-4 family/uniqueness/count
+  + `Mix`-untouched, filter/toning scope-layering, `Description` still null (film "Inspired by …" is phase 5);
+  Render — every preset compiles/binds/renders, neutral-toning presets stay R≈G≈B. All green.
 - [ ] Phase 5 — Film-stock presets + docs + close-out
 
 ### Phase 1 — Conversion core
