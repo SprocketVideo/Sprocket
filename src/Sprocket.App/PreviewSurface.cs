@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using SkiaSharp;
 using Sprocket.Core.Model;
 using Sprocket.Core.Rendering;
+using Sprocket.Core.Stabilization;
 using Sprocket.Playback;
 using Sprocket.Render;
 
@@ -53,6 +54,25 @@ public sealed class PreviewSurface : Control
     /// </summary>
     public ScopeState? Scopes { get; set; }
 
+    private IMotionTrackProvider? _motionTracks;
+
+    /// <summary>
+    /// The stabilization motion-track provider the effect pipeline pulls a stabilized layer's track through
+    /// (plan/features/stabilization.md phase 5). Set once by the composition root; applied to the pipeline both
+    /// now and whenever the pipeline is (re)created on <see cref="Attach"/>. A <see langword="null"/> provider or
+    /// an unanalysed source renders the stabilization effect pass-through.
+    /// </summary>
+    public IMotionTrackProvider? MotionTracks
+    {
+        get => _motionTracks;
+        set
+        {
+            _motionTracks = value;
+            if (_pipeline is not null)
+                _pipeline.MotionTracks = value;
+        }
+    }
+
     /// <summary>
     /// The monitor's logical frame size (the sequence resolution for the Program monitor, the source's resolution
     /// for the Source monitor). When set (both &gt; 0) every layer composites into one zoom rect derived from it
@@ -79,6 +99,7 @@ public sealed class PreviewSurface : Control
         _engine = engine;
         // Compiles the effect SkSL once; reused on every draw to apply each layer's effect chain (§7).
         _pipeline ??= new SkiaEffectPipeline();
+        _pipeline.MotionTracks = _motionTracks; // re-apply after a (re)create so stabilization keeps its provider
         // The engine raises FramePresented on its pump thread; marshal the invalidation to the UI thread.
         engine.FramePresented += OnFramePresented;
         InvalidateVisual();

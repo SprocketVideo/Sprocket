@@ -1,6 +1,7 @@
 using Sprocket.Audio;
 using Sprocket.Core.Audio;
 using Sprocket.Core.Model;
+using Sprocket.Core.Stabilization;
 using Sprocket.Core.Timing;
 
 namespace Sprocket.Export;
@@ -52,8 +53,9 @@ public static class PreviewRenderer
     /// </summary>
     public static void RenderVideo(
         Project project, SequenceId? sequenceId, ExportRange range, string outputPath,
-        IProgress<double>? progress = null, CancellationToken cancellationToken = default)
-        => VideoExporter.Export(project, outputPath, VideoOptions, sequenceId, range, progress, cancellationToken);
+        IProgress<double>? progress = null, CancellationToken cancellationToken = default,
+        IMotionTrackProvider? motionTracks = null)
+        => VideoExporter.Export(project, outputPath, VideoOptions, sequenceId, range, progress, cancellationToken, motionTracks);
 
     /// <summary>
     /// Renders the master audio mix of <paramref name="range"/> in sequence <paramref name="sequenceId"/>

@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     private readonly PlaybackEngine? _engine;
     private readonly Project? _project;
     private readonly Proxy.ProxyService? _proxy; // session proxy service (PLAN.md step 18); owned by App
+    private readonly Stabilization.StabilizationService? _stab; // session stabilization analysis service; owned by App
     private readonly Proxy.ProxyAdvisor _proxyAdvisor = new(); // playback drop monitor → proxy recommendations
     private readonly Sprocket.Audio.AudioEngine? _audioClock; // live loudness source for the mixer meters (PLAN.md step 30); owned by the engine
     private readonly EditHistory _history = new();
@@ -223,12 +224,13 @@ public partial class MainWindow : Window
     // Internal (not public) only because WindowPlacement is: the composition root is the sole caller.
     internal MainWindow(PlaybackEngine? engine, Project? project, string status, string? projectPath = null,
         Proxy.ProxyService? proxy = null, Sprocket.Audio.AudioEngine? audioClock = null,
-        WindowPlacement? placement = null)
+        Stabilization.StabilizationService? stab = null, WindowPlacement? placement = null)
     {
         AvaloniaXamlLoader.Load(this);
         _engine = engine;
         _project = project;
         _proxy = proxy;
+        _stab = stab;
         _audioClock = audioClock;
         _currentProjectPath = projectPath;
         // A project that opened with a real file path (dialog, Open Recent, or CLI/startup) becomes the newest
@@ -1915,6 +1917,7 @@ public partial class MainWindow : Window
         _inspector = inspector;
         inspector.Attach(_project, _history, () => _engine?.Position ?? Timecode.Zero);
         inspector.SetLiveAudioMixer(() => _audioClock?.Mixer);
+        inspector.SetStabilizationService(_stab);
     }
 
     // ── Transport ───────────────────────────────────────────────────────────────────────────────────
@@ -1931,6 +1934,7 @@ public partial class MainWindow : Window
         // single selected clip's source (built lazily when its tab is opened). Both present through the one shared
         // surface; the active tab decides which engine is attached to it.
         _preview = this.FindControl<PreviewSurface>("Preview")!;
+        _preview.MotionTracks = _stab; // stabilized layers pull their motion track through the analysis service
         (int seqW, int seqH) = (_project!.Timeline.Resolution.Width, _project.Timeline.Resolution.Height);
         _program = new ProgramMonitor(_engine!, seqW, seqH);
         _source = new SourceMonitor();
@@ -2028,6 +2032,22 @@ public partial class MainWindow : Window
             // ProgressChanged is raised with nobody listening — read the tally once to catch up.
             if (_proxy.StatusSummary() is { } initial)
                 SetStatus(initial);
+        }
+
+        // Stabilization analysis (plan/features/stabilization.md phase 5): reflect progress in the status bar, and
+        // when a source's track lands, repaint the preview and drop the render cache. The render hash does not yet
+        // reflect motion tracks, so segments cached while the source was unanalysed would otherwise replay as
+        // pass-through; clearing the cache forces them to re-render through the now-available track (a coarse but
+        // correct invalidation — track changes are rare; phase 6 refines it). No model mutation, so nothing to undo.
+        if (_stab is not null)
+        {
+            _stab.ProgressChanged += () => Dispatcher.UIThread.Post(() => _inspector?.RefreshStabilizationStatus());
+            _stab.TrackChanged += _ => Dispatcher.UIThread.Post(() =>
+            {
+                _renderCache?.DeleteAll();
+                _preview?.InvalidateVisual();
+                _inspector?.RefreshStabilizationStatus();
+            });
         }
 
         // Optional timed auto-exit for unattended profiling runs: SPROCKET_APP_SECONDS=12
@@ -3423,7 +3443,7 @@ public partial class MainWindow : Window
                     PreviewRenderer.RenderAudio(
                         _project, sequence.Id, range, outputPath, PluginService.AudioEffectFactory, progress, cts.Token);
                 else
-                    PreviewRenderer.RenderVideo(_project, sequence.Id, range, outputPath, progress, cts.Token);
+                    PreviewRenderer.RenderVideo(_project, sequence.Id, range, outputPath, progress, cts.Token, _stab);
             });
             ok = true;
         }
@@ -4163,7 +4183,7 @@ public partial class MainWindow : Window
         try
         {
             await Task.Run(() => VideoExporter.Export(
-                _project!, outputPath, options, sequenceId: null, range, progress, cts.Token));
+                _project!, outputPath, options, sequenceId: null, range, progress, cts.Token, _stab));
             _mcpExportProgress = 1;
             _mcpExportCompleted = true;
             SetStatus($"Exported → {outputPath}");
@@ -4368,7 +4388,7 @@ public partial class MainWindow : Window
         try
         {
             await Task.Run(() => VideoExporter.Export(
-                _project, outputPath, options, sequenceId: null, range, progress, cts.Token));
+                _project, outputPath, options, sequenceId: null, range, progress, cts.Token, _stab));
             ok = true;
         }
         catch (OperationCanceledException)
@@ -4475,7 +4495,7 @@ public partial class MainWindow : Window
     private void EnsureExportQueue()
     {
         _exportQueue ??= new Export.ExportQueue((job, progress, ct) =>
-            VideoExporter.Export(_project!, job.OutputPath, job.Options, job.SequenceId, job.Range, progress, ct));
+            VideoExporter.Export(_project!, job.OutputPath, job.Options, job.SequenceId, job.Range, progress, ct, _stab));
     }
 
     /// <summary>The queue window's "Add…" action: pick a delivery format then an output file, and enqueue a job for

@@ -228,6 +228,7 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|
 | Applying effects (Effects menu, browser drag, + Effect button) | MainWindow.axaml.cs `RefreshEffectsMenu`; `ApplyEffectToSelected` | effects-color/effects.md#change-how-a-clip-looks | 🟡 (guide covers the 4 everyday effects and acknowledges the rest of the menu; browser-drag apply still unshown) |
 | Transform effect (scale/position/rotation/anchor/opacity) | Sprocket.Core/Model/EffectCatalog.cs | effects-color/effects.md#change-how-a-clip-looks | ✅ |
+| Video stabilization (`builtin.stabilization`: adaptive / uniform / lock smoothing, per-channel, focus-breathing Scale Lock, cropping budget + auto-zoom) — background motion analysis in a per-user cache, Inspector Analyze / Cancel + status; preview and export pull the same cached solve | EffectCatalog.cs `builtin.stabilization`; Sprocket.App/Stabilization/{StabilizationService,AnalysisCache,MotionAnalyzer}.cs; Sprocket.Analysis/*; Sprocket.Core/Stabilization/*; plan/features/stabilization.md | — | 🟡 partial (phase 5/7 — analysis + solver + render + preview/export wiring + minimal Inspector row shipped; Perspective method, Detailed Analysis tier, camera-path graph, auto-analyze, banners, docs still to come) |
 | Color effect (exposure/contrast/saturation/vibrance) | EffectCatalog.cs | effects-color/effects.md#change-how-a-clip-looks | ✅ |
 | Brightness effect | EffectCatalog.cs | effects-color/effects.md#change-how-a-clip-looks | ✅ |
 | Fade effect (video opacity + audio gain) | EffectCatalog.cs | audio/audio-mixing.md#adjust-the-audio | ✅ |
@@ -381,7 +382,6 @@ features users can't use; recheck each audit and promote to the matrix when buil
 
 | Feature | Status source |
 |---|---|
-| Video stabilization (`builtin.stabilization`: adaptive smoothing, per-channel, focus-breathing Scale Lock, cropping budget + auto-zoom) | plan/features/stabilization.md (phases 1–4 of 7 shipped 2026-09-21 — Core model/solver + descriptor, the Media decode driver + motion-track analyzer, and the render shader + solve cache + provider seam land; the effect still renders pass-through until the background analysis service supplies tracks; promote to §4 at phase 5) |
 | Pitch-preserving time-stretch / frame-interpolated slow motion | PLAN.md step 21 (reverse + speed ramps shipped 2026-08-27; these two remain later quality tiers) |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial); [COLOR_GRADING_ROADMAP.md](COLOR_GRADING_ROADMAP.md) has the detailed parity sequence and follow-on grading roadmap |

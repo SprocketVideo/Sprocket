@@ -1,6 +1,6 @@
 # Video stabilization (adaptive smoothing, per-channel, focus-breathing lock)
 
-🟡 **Partial — phases 1–4 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
+🟡 **Partial — phases 1–5 of 7 shipped 2026-09-21.** Unscheduled feature (no build-order step
 number yet); tracked in [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** a `Stabilization` effect (`builtin.stabilization`, short code `ST`, category
@@ -214,11 +214,29 @@ session prompt: "Implement phase N of plan/features/stabilization.md".
   no-track-yet pass-through, identity track pass-through, Camera-Lock pan removal moves the centre marker to the
   solve-predicted pixel, Scale-Lock (first-frame ref) scales about the centre (centre marker fixed, off-centre
   marker pulled inward to the predicted pixel), and five frames of one clip solve exactly once.
-- [ ] **Phase 5 — App service, cache, wiring, minimal Inspector row (first end-to-end)**: `AnalysisCache`
-  (copy `ProxyCache`), `StabilizationService : IMotionTrackProvider` (copy `ProxyService`); composition-root
-  wiring on preview **and** export pipelines; `TrackChanged` → preview repaint + render-cache invalidation;
-  Inspector status/progress/Analyze/Cancel row. Tests: queue/cancel/fencing with a fake analyzer, key bucketing,
-  cache path stability.
+- [x] **Phase 5 — App service, cache, wiring, minimal Inspector row (first end-to-end)** (2026-09-21):
+  `App/Stabilization/AnalysisCache` (per-user `%LocalAppData%/Sprocket/analysis`, `SPROCKET_ANALYSIS_DIR` override,
+  atomic temp+move write, content-hash `.spmt` name from `AnalysisKey`, `TryRead`/`Write`/`SizeBytes`/`DeleteAll` —
+  mirrors `ProxyCache`) and `StabilizationService : IMotionTrackProvider` (a below-normal-priority worker thread over a
+  FIFO queue with per-entry generation fencing, keyed by `(MediaRefId, Detailed)`; `Analyze(media, in, out, detailed)`
+  adopts a cached track or enqueues, `Cancel`, `StatusOf`, lock-free `TryGetTrack`, `TrackChanged`/`ProgressChanged`
+  events, `SourceIdentity` path+size+mtime helper — mirrors `ProxyService`). Analysis runs through an injected
+  `IMotionAnalyzer` seam (`MediaMotionAnalyzer` wraps `MotionTrackAnalyzer.Analyze`; a fake drives the tests without
+  ffmpeg). Composition root: `MediaBootstrap.Result.Stab` constructed in both factory paths, owned + disposed by `App`
+  (startup + session-swap + teardown), threaded into `MainWindow`; `MotionTracks` set on the preview pipeline (new
+  `PreviewSurface.MotionTracks` seam, re-applied on pipeline recreate) **and** the export/preview-cache pipelines
+  (new optional `IMotionTrackProvider?` arg on `VideoExporter.Export` both overloads + `PreviewRenderer.RenderVideo`,
+  passed from all four App call sites). `TrackChanged` → preview repaint + `RenderCacheService.DeleteAll` (the render
+  hash doesn't yet reflect tracks, so a coarse invalidation keeps stale pass-through segments from replaying; phase 6
+  refines it) — no model mutation, nothing to undo. Inspector: bespoke `BuildStabilizationStatusRow` (status text +
+  progress bar + Analyze/Cancel, updated in place via `RefreshStabilizationStatus`/`_stabRefreshers` off the service
+  events, no rebuild); `InspectorPanel.SetStabilizationService` injected like `SetLiveAudioMixer`. Tests
+  (`Sprocket.App.Tests`, `[Collection("Stabilization analysis cache")]` to serialise the shared env var):
+  `StabilizationServiceTests` (queue→ready + TrackChanged, cache adoption without re-analysis, same-range idempotency,
+  cancel reverts, stale-completion generation fencing, detailed/standard tracked independently, progress throttle)
+  and `AnalysisCacheTests` (round-trip, miss→null, deterministic path, bucket re-use, detailed forks the file,
+  DeleteAll). First end-to-end: a clip stabilizes in preview after Analyze, and export/preview-cache pull the same
+  cached solve, so they match by construction.
 - [ ] **Phase 6 — UX**: auto-analyze on apply (`EditHistory.Changed`), stale detection + banners, camera path
   graph, Applied Zoom readout, `showTrackPoints` overlay (format v2), placement rule + Transform hint,
   `EffectRelevance` media-only, **View ▸ Background Tasks**, bin "Analyze for Stabilization", export pre-check +

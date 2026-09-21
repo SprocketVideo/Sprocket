@@ -3,6 +3,7 @@ using Sprocket.Audio;
 using Sprocket.Core.Audio;
 using Sprocket.Core.Model;
 using Sprocket.Core.Rendering;
+using Sprocket.Core.Stabilization;
 using Sprocket.Core.Timing;
 using Sprocket.Media;
 using Sprocket.Render;
@@ -123,8 +124,9 @@ public static class VideoExporter
         string outputPath,
         ExportOptions options = default,
         IProgress<double>? progress = null,
-        CancellationToken cancellationToken = default)
-        => Export(project, outputPath, options, sequenceId: null, range: null, progress, cancellationToken);
+        CancellationToken cancellationToken = default,
+        IMotionTrackProvider? motionTracks = null)
+        => Export(project, outputPath, options, sequenceId: null, range: null, progress, cancellationToken, motionTracks);
 
     /// <summary>
     /// Exports one sequence — or a sub-range of it — to <paramref name="outputPath"/> (PLAN.md step 29 export queue).
@@ -140,7 +142,8 @@ public static class VideoExporter
         SequenceId? sequenceId,
         ExportRange? range,
         IProgress<double>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IMotionTrackProvider? motionTracks = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentException.ThrowIfNullOrEmpty(outputPath);
@@ -266,7 +269,7 @@ public static class VideoExporter
             var info = new SKImageInfo(outWidth, outHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
             surface = SKSurface.Create(info)
                 ?? throw new InvalidOperationException("Failed to create the offscreen export surface.");
-            pipeline = new SkiaEffectPipeline();
+            pipeline = new SkiaEffectPipeline { MotionTracks = motionTracks };
             var fullRect = SKRect.Create(0, 0, outWidth, outHeight);
 
             if (encoder.HasAudio)

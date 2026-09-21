@@ -15,6 +15,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Sprocket.App.Controls;
 using Sprocket.App.Mixer;
+using Sprocket.App.Stabilization;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
@@ -53,6 +54,7 @@ public sealed class InspectorPanel : UserControl
     private EditHistory? _history;
     private Func<Timecode> _playhead = () => Timecode.Zero;
     private Func<Sprocket.Audio.AudioMixer?>? _liveMixer;
+    private StabilizationService? _stab;
 
     private Clip? _clip;
     // A mixer insert chain being edited instead of a clip (PLAN.md step 31: track / bus / master scope).
@@ -60,6 +62,10 @@ public sealed class InspectorPanel : UserControl
     private AudioChainTarget? _chain;
     private readonly StackPanel _body;
     private readonly List<Action> _valueRefreshers = new();
+    // Updaters for the stabilization status rows currently on screen (status text / progress / button state).
+    // Driven by the analysis service's ProgressChanged/TrackChanged (via RefreshStabilizationStatus) without a
+    // full Rebuild, so an analysis progressing doesn't churn the whole Inspector. Cleared on every Rebuild.
+    private readonly List<Action> _stabRefreshers = new();
 
     // Effect-section collapse state, keyed by instance identity (reference equality) so it survives the
     // Rebuild() that follows every add/remove/undo/redo — otherwise every effect section would reset to
@@ -136,6 +142,19 @@ public sealed class InspectorPanel : UserControl
     /// </summary>
     public void SetLiveAudioMixer(Func<Sprocket.Audio.AudioMixer?> getMixer) => _liveMixer = getMixer;
 
+    /// <summary>Optional accessor for the session's stabilization analysis service (plan/features/stabilization.md
+    /// phase 5), so a Stabilization effect's section can show analysis status and offer Analyze / Cancel. Absent
+    /// (null) just omits the status row's controls — the effect still renders pass-through until analysed.</summary>
+    public void SetStabilizationService(StabilizationService? stab) => _stab = stab;
+
+    /// <summary>Refreshes the on-screen stabilization status rows in place (called from the analysis service's
+    /// progress / track-changed events on the UI thread) without rebuilding the Inspector.</summary>
+    public void RefreshStabilizationStatus()
+    {
+        foreach (Action refresh in _stabRefreshers)
+            refresh();
+    }
+
     /// <summary>Shows the given clip's properties (or the empty state when <see langword="null"/>). A mere
     /// timeline deselect (<see langword="null"/>) keeps an active insert-chain view (PLAN.md step 31) in
     /// place — only an actual clip selection replaces it.</summary>
@@ -194,6 +213,7 @@ public sealed class InspectorPanel : UserControl
             EffectTags.EnsureAssigned(_project);
 
         _valueRefreshers.Clear();
+        _stabRefreshers.Clear();
         _body.Children.Clear();
 
         // A stale chain target (its track removed by undo / Remove Track, or the open sequence switched)
@@ -1021,6 +1041,116 @@ public sealed class InspectorPanel : UserControl
         return row;
     }
 
+    /// <summary>
+    /// The Stabilization effect's bespoke status row (plan/features/stabilization.md phase 5): analysis state /
+    /// progress with Analyze / Cancel. The recovered motion track is a background, per-user-cached artifact — not a
+    /// parameter — so it gets its own row above the smoothing/framing sliders. The row updates in place via
+    /// <see cref="RefreshStabilizationStatus"/> (registered in <see cref="_stabRefreshers"/>) rather than a rebuild.
+    /// </summary>
+    private Control BuildStabilizationStatusRow(Clip clip, EffectInstance effect)
+    {
+        var panel = new StackPanel { Spacing = 4, Margin = new Avalonia.Thickness(0, 0, 0, 2) };
+
+        bool detailed = ReadToggle(effect, EffectParamNames.DetailedAnalysis);
+        MediaRef? media = _project?.MediaPool.Get(clip.MediaRefId);
+
+        var statusText = new TextBlock
+        {
+            FontSize = Typography.Caption,
+            Foreground = MutedText,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        var progress = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 1,
+            Height = 4,
+            Margin = new Avalonia.Thickness(0, 2, 0, 0),
+            IsVisible = false,
+        };
+        var analyzeButton = new Button { Content = "Analyze", FontSize = Typography.Caption, Padding = new Avalonia.Thickness(10, 3) };
+        var cancelButton = new Button { Content = "Cancel", FontSize = Typography.Caption, Padding = new Avalonia.Thickness(10, 3), IsVisible = false };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Avalonia.Thickness(0, 2, 0, 0) };
+        buttons.Children.Add(analyzeButton);
+        buttons.Children.Add(cancelButton);
+
+        panel.Children.Add(statusText);
+        panel.Children.Add(progress);
+        panel.Children.Add(buttons);
+
+        if (_stab is null || media is null)
+        {
+            statusText.Text = media is null
+                ? "Stabilization applies to clips backed by source media."
+                : "Analysis is unavailable in this session.";
+            analyzeButton.IsVisible = false;
+            return panel;
+        }
+
+        void Refresh()
+        {
+            AnalysisStatus s = _stab.StatusOf(clip.MediaRefId, detailed);
+            switch (s.State)
+            {
+                case AnalysisState.Ready:
+                    statusText.Text = "Analyzed — stabilizing this clip.";
+                    progress.IsVisible = false;
+                    analyzeButton.Content = "Re-analyze";
+                    analyzeButton.IsVisible = true;
+                    cancelButton.IsVisible = false;
+                    break;
+                case AnalysisState.Queued:
+                    statusText.Text = "Queued for analysis…";
+                    progress.IsVisible = true;
+                    progress.IsIndeterminate = true;
+                    analyzeButton.IsVisible = false;
+                    cancelButton.IsVisible = true;
+                    break;
+                case AnalysisState.Analyzing:
+                    statusText.Text = string.Create(CultureInfo.InvariantCulture, $"Analyzing… {s.Progress * 100:0}%");
+                    progress.IsVisible = true;
+                    progress.IsIndeterminate = false;
+                    progress.Value = s.Progress;
+                    analyzeButton.IsVisible = false;
+                    cancelButton.IsVisible = true;
+                    break;
+                case AnalysisState.Failed:
+                    statusText.Text = "Analysis failed — the clip renders unstabilized.";
+                    progress.IsVisible = false;
+                    analyzeButton.Content = "Retry";
+                    analyzeButton.IsVisible = true;
+                    cancelButton.IsVisible = false;
+                    break;
+                default:
+                    statusText.Text = "Not analyzed — renders unstabilized until analysis completes.";
+                    progress.IsVisible = false;
+                    analyzeButton.Content = "Analyze";
+                    analyzeButton.IsVisible = true;
+                    cancelButton.IsVisible = false;
+                    break;
+            }
+        }
+
+        analyzeButton.Click += (_, _) =>
+        {
+            _stab.Analyze(media, clip.SourceIn, clip.SourceOut, detailed);
+            Refresh();
+        };
+        cancelButton.Click += (_, _) =>
+        {
+            _stab.Cancel(clip.MediaRefId, detailed);
+            Refresh();
+        };
+
+        _stabRefreshers.Add(Refresh);
+        Refresh();
+        return panel;
+    }
+
+    /// <summary>Reads a toggle parameter's current constant value off an effect instance as a bool.</summary>
+    private static bool ReadToggle(EffectInstance effect, string name) =>
+        effect.Parameters.TryGetValue(name, out AnimatableValue? v) && v is not null && v.Evaluate(Timecode.Zero) >= 0.5;
+
     private Control BuildEffectSection(ChainContext context, EffectInstance effect)
     {
         EffectDescriptor? descriptor = EffectCatalog.Find(effect.EffectTypeId);
@@ -1051,6 +1181,13 @@ public sealed class InspectorPanel : UserControl
                 Foreground = FaintText,
                 TextWrapping = TextWrapping.Wrap,
             });
+
+        // Stabilization (plan/features/stabilization.md phase 5): a bespoke status row above the parameters —
+        // analysis state / progress and Analyze / Cancel — since the recovered motion track is a background,
+        // per-user-cached artifact, not a parameter. Clip-scope + media clips only (an effect on a generator /
+        // adjustment has no source to analyse).
+        if (effect.EffectTypeId == EffectTypeIds.Stabilization && context.ClipScope && _clip is { } stabClip)
+            rows.Children.Add(BuildStabilizationStatusRow(stabClip, effect));
 
         // CPU (readback) video effects (PLAN.md step 59 — frei0r): every frame costs a GPU→CPU→GPU round-trip,
         // so point at the preview render cache rather than silently stuttering playback.

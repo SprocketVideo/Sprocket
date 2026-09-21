@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Sprocket.App.Proxy;
+using Sprocket.App.Stabilization;
 using Sprocket.Audio;
 using Sprocket.Core.Audio;
 using Sprocket.Core.Model;
@@ -25,7 +26,8 @@ internal static class MediaBootstrap
     /// clock). The caller owns and disposes <see cref="Proxy"/> alongside the engine; <see cref="AudioClock"/> is a
     /// non-owning reference — the <see cref="PlaybackEngine"/> owns and disposes it.</summary>
     public readonly record struct Result(
-        PlaybackEngine? Engine, Project? Project, string Status, ProxyService? Proxy = null, AudioEngine? AudioClock = null);
+        PlaybackEngine? Engine, Project? Project, string Status, ProxyService? Proxy = null, AudioEngine? AudioClock = null,
+        StabilizationService? Stab = null);
 
     /// <summary>
     /// Builds the launch session. With a playable media file given on the command line (the first non-flag
@@ -150,7 +152,7 @@ internal static class MediaBootstrap
         string status = attemptedPath is not null
             ? $"Could not open {Path.GetFileName(attemptedPath)}: {error}  ·  opened an empty project — use File ▸ Import to add media"
             : "New project — use File ▸ Import to add media, or File ▸ Open Sample Project for a demo clip";
-        return new Result(engine, project, status, proxy);
+        return new Result(engine, project, status, proxy, Stab: new StabilizationService());
     }
 
     /// <summary>
@@ -181,7 +183,7 @@ internal static class MediaBootstrap
         proxy.ProxyPathChanged += engine.InvalidateSource;
         engine.Start();
         proxy.Enqueue(project);
-        return new Result(engine, project, status, proxy, clock);
+        return new Result(engine, project, status, proxy, clock, new StabilizationService());
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Sprocket.App.Proxy;
+using Sprocket.App.Stabilization;
 using Sprocket.Core.Model;
 using Sprocket.Playback;
 
@@ -13,6 +14,7 @@ public partial class App : Application
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private PlaybackEngine? _engine; // the live session's engine; swapped on File ▸ New / Open (PLAN.md step 16c)
     private ProxyService? _proxy;    // the live session's proxy service (PLAN.md step 18); swapped alongside the engine
+    private StabilizationService? _stab; // the live session's stabilization analysis service; swapped alongside the engine
     private McpServerService? _mcp;  // app-scoped MCP server controller (PLAN.md step 38); survives session swaps
     private UpdateService? _updates;  // app-scoped Velopack updater (PLAN.md steps 36 + 45); survives session swaps
     private bool _tornDown;          // the session teardown has run; it must not run twice
@@ -43,7 +45,7 @@ public partial class App : Application
                 Console.Error.WriteLine($"mcp: {cli.Error}");
             UserSettings baseSettings = UserSettingsFile.Load();
             MediaBootstrap.Result result = MediaBootstrap.Create(cli.MediaPath, baseSettings.AudioOutputDevice);
-            desktop.MainWindow = BuildWindow(result.Engine, result.Project, result.Status, projectPath: null, result.Proxy, result.AudioClock);
+            desktop.MainWindow = BuildWindow(result.Engine, result.Project, result.Status, projectPath: null, result.Proxy, result.AudioClock, result.Stab);
 
             // Start the MCP server only on an explicit user switch (PLAN.md step 38): the persisted Preferences
             // toggle, or the --mcp / --mcp-port scripting flags. The CLI override is session-only — it is never
@@ -64,11 +66,12 @@ public partial class App : Application
     /// <summary>Builds a shell window over a session and tracks the session engine + proxy service for teardown / reload.</summary>
     private MainWindow BuildWindow(
         PlaybackEngine? engine, Project? project, string status, string? projectPath, ProxyService? proxy,
-        Sprocket.Audio.AudioEngine? audioClock, WindowPlacement? placement = null)
+        Sprocket.Audio.AudioEngine? audioClock, StabilizationService? stab, WindowPlacement? placement = null)
     {
         _engine = engine;
         _proxy = proxy;
-        var window = new MainWindow(engine, project, status, projectPath, proxy, audioClock, placement);
+        _stab = stab;
+        var window = new MainWindow(engine, project, status, projectPath, proxy, audioClock, stab, placement);
         window.SessionRequested += OnSessionRequested;
         _mcp?.AttachSession(window.CreateMcpSession()); // re-point the MCP server at the new session
         return window;
@@ -87,6 +90,7 @@ public partial class App : Application
         Window? oldWindow = _desktop.MainWindow;
         PlaybackEngine? oldEngine = _engine;
         ProxyService? oldProxy = _proxy;
+        StabilizationService? oldStab = _stab;
 
         try
         {
@@ -98,7 +102,7 @@ public partial class App : Application
             // The new session opens on the current window's chosen output device (the persisted Preferences pick).
             string audioDevice = (oldWindow as MainWindow)?.AudioDeviceSetting ?? "";
             MediaBootstrap.Result result = MediaBootstrap.CreateForProject(request.Project, request.Status, audioDevice);
-            MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath, result.Proxy, result.AudioClock, placement);
+            MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath, result.Proxy, result.AudioClock, result.Stab, placement);
             _desktop.MainWindow = window;
             window.Show();
 
@@ -108,6 +112,7 @@ public partial class App : Application
                 replaced.ApproveClose();
             oldWindow?.Close();
             oldProxy?.Dispose(); // stop the previous session's proxy worker before its engine tears down
+            oldStab?.Dispose();  // and its stabilization analysis worker
             if (oldEngine is not null)
                 await oldEngine.DisposeAsync();
         }
@@ -204,6 +209,7 @@ public partial class App : Application
         if (_mcp is { } mcp)
             await mcp.DisposeAsync();
         _proxy?.Dispose();
+        _stab?.Dispose();
         if (_engine is { } engine)
             await engine.DisposeAsync();
     }
