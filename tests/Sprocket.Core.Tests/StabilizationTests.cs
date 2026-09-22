@@ -449,6 +449,68 @@ public class StabilizationTests
     }
 
     [Fact]
+    public void A_Zoom_About_The_Centre_Reported_About_The_TopLeft_Origin_Is_Not_A_Pan()
+    {
+        // The estimator fits dst = S·R·src + t about the frame's top-left corner, so a pure zoom about the centre
+        // arrives as logScale s with t = (1 − e^s)·c — not t = 0. The solver must re-express that translation
+        // about the centre: the integrated pan/tilt stays flat and Camera Lock adds no position correction. (Before
+        // the fix the phantom pan was locked/smoothed like a real one, shifting the frame in step with every
+        // scale change — focus breathing turned into a wobble.)
+        const double aspY = 1080.0 / 1920.0;
+        MotionTrack track = Track(60, i =>
+        {
+            double log = 0.01 * Math.Sin(i * 0.3);
+            double s = Math.Exp(log);
+            return new FrameMotion((1 - s) * 0.5, (1 - s) * 0.5 * aspY, log, 0, Homography.Identity, 1, 50);
+        });
+        var settings = With(StabilizationSettings.Default, mode: StabilizationMode.CameraLock, strength: 1.0, zoom: false);
+
+        StabilizationSolution sol = StabilizationSolver.Solve(track, settings, 1920, 1080);
+
+        Assert.All(sol.RawPath, p => { Assert.Equal(0.0, p.Tx, 9); Assert.Equal(0.0, p.Ty, 9); });
+        for (int i = 0; i < sol.FrameCount; i++)
+        {
+            Assert.Equal(0.0, sol.OutputToSource[i][2], 9); // no translation correction …
+            Assert.Equal(0.0, sol.OutputToSource[i][5], 9);
+        }
+        Assert.True(Variance(sol.RawPath.Select(p => p.LogScale)) > 1e-6); // … while the scale channel still carries the pump
+    }
+
+    [Fact]
+    public void A_Roll_About_The_Centre_Reported_About_The_TopLeft_Origin_Is_Not_A_Pan_Either()
+    {
+        // Same for rotation: about the top-left origin a roll about the centre carries t = (I − R)·c.
+        const double aspY = 1080.0 / 1920.0;
+        const double cx = 0.5, cy = 0.5 * aspY;
+        MotionTrack track = Track(40, i =>
+        {
+            double a = 0.02 * Math.Sin(i * 0.5);
+            double cos = Math.Cos(a), sin = Math.Sin(a);
+            double tx = cx - (cos * cx - sin * cy);
+            double ty = cy - (sin * cx + cos * cy);
+            return new FrameMotion(tx, ty, 0, a, Homography.Identity, 1, 50);
+        });
+        var settings = With(StabilizationSettings.Default, mode: StabilizationMode.CameraLock, strength: 1.0, zoom: false);
+
+        StabilizationSolution sol = StabilizationSolver.Solve(track, settings, 1920, 1080);
+
+        Assert.All(sol.RawPath, p => { Assert.Equal(0.0, p.Tx, 9); Assert.Equal(0.0, p.Ty, 9); });
+    }
+
+    [Fact]
+    public void A_True_Pan_Survives_Re_Centring_Unchanged()
+    {
+        // With no scale/rotation change the origin doesn't matter: a plain translation integrates as itself.
+        MotionTrack track = Track(20, _ => new FrameMotion(0.004, -0.002, 0, 0, Homography.Identity, 1, 50));
+        StabilizationSolution sol = StabilizationSolver.Solve(track, StabilizationSettings.Default, 1920, 1080);
+        for (int i = 0; i < sol.FrameCount; i++)
+        {
+            Assert.Equal(0.004 * i, sol.RawPath[i].Tx, 9);
+            Assert.Equal(-0.002 * i, sol.RawPath[i].Ty, 9);
+        }
+    }
+
+    [Fact]
     public void Empty_Track_Solves_To_An_Empty_Identity_Solution()
     {
         MotionTrack track = Track(0, _ => FrameMotion.Identity);

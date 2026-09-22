@@ -290,6 +290,20 @@ session prompt: "Implement phase N of plan/features/stabilization.md".
 - **Render (phase 4):** pass-through, translate, scale-lock, null provider, zero-alloc.
 - **App (phases 5–6):** service, keys, auto-enqueue, export pre-check, graph math, MCP.
 
+## Fixes after completion
+
+- **2026-09-22 — phantom pan from uncentred similarity translation.** The estimator fits each inter-frame
+  similarity about the frame's top-left origin (`dst = S·R·src + t`), but the solver integrated `Tx/Ty` as if
+  they were centre-referenced pan/tilt (only the homography's perspective row was being re-centred). A zoom or
+  roll about the centre therefore leaked `(S·R − I)·c` into the position channel — on a real focus-breathing
+  clip about half the measured "pan" energy — and every mode with Position Smoothing > 0 (Smooth Camera,
+  Tripod) then *corrected* that phantom pan, shifting the frame in step with the scale change. Symptom: a
+  stabilized breathing shot still looked like it was breathing; Tripod added jitter (measured 0.0158 → 0.0262
+  Σ|tx| on the user's clip; after the fix 0.0049). Fixed in `StabilizationSolver` (`CentredTranslation`,
+  `t_c = t + (S·R − I)·c`) — no change to the on-disk track format, so caches stay valid. Tests: Core
+  (centred zoom / roll ⇒ zero pan; true pan unchanged), Render (`CentredZoom` helper encodes the estimator's
+  convention), Analysis (Camera Lock on the zoompan fixture adds no pan).
+
 ## Follow-ons (out of scope for v1)
 
 Subspace Warp (mesh), Synthesize Edges (temporal inpaint), Rolling Shutter (FCP-style separate effect),

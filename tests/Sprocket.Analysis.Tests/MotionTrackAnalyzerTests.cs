@@ -108,6 +108,35 @@ public class MotionTrackAnalyzerTests
     }
 
     [Fact]
+    public void Camera_Lock_On_The_Centred_Zoom_Fixture_Adds_No_Pan()
+    {
+        // zoompan zooms about the frame centre, so the only true camera motion in this clip is scale. The estimator
+        // reports each similarity about the top-left origin (a centred zoom arrives as t = (1 − s)·c, ±4.8 px here),
+        // and the solver must re-centre it: the integrated pan/tilt stays flat, so Camera Lock corrects the scale
+        // without shifting the frame in step with the zoom — the phantom pan that made a stabilized focus-breathing
+        // shot look like it was still breathing.
+        MotionTrack track = Analyze(StabFixtures.ZoomPath);
+        var settings = StabilizationSettings.Default with { Mode = StabilizationMode.CameraLock, Zoom = false };
+        StabilizationSolution sol = StabilizationSolver.Solve(track, settings, StabFixtures.Width, StabFixtures.Height);
+
+        double rawPump = PeakToPeak(Detrend(sol.RawPath.Select(p => p.LogScale).ToArray()));
+        double panPx = PeakToPeak(Detrend(sol.RawPath.Select(p => p.Tx * AnalysisWidth).ToArray()));
+        double tiltPx = PeakToPeak(Detrend(sol.RawPath.Select(p => p.Ty * AnalysisWidth).ToArray()));
+
+        // What the uncentred convention would have integrated as "pan": (1 − s)·c for the recovered scale path.
+        double[] scale = CumulativeScale(track);
+        double phantomPanPx = PeakToPeak(scale.Select(s => (1 - s) * 0.5 * AnalysisWidth).ToArray());
+        double phantomTiltPx = phantomPanPx * StabFixtures.Height / StabFixtures.Width;
+
+        Assert.True(rawPump > 0.03, $"expected the raw scale path to pump (>0.03), was {rawPump:F4}");
+        Assert.True(phantomPanPx > 6, $"fixture zoom too small to be diagnostic ({phantomPanPx:F1}px phantom)");
+        // zoompan rounds its window origin to whole pixels, so ~1–2 px of apparent pan is fixture quantisation, not
+        // the origin leak; the leak itself would be the full phantom amplitude.
+        Assert.True(panPx < phantomPanPx / 3, $"pan of {panPx:F2}px leaked from the centred zoom (uncentred it would be ~{phantomPanPx:F1}px)");
+        Assert.True(tiltPx < phantomTiltPx / 3, $"tilt of {tiltPx:F2}px leaked from the centred zoom (uncentred it would be ~{phantomTiltPx:F1}px)");
+    }
+
+    [Fact]
     public void Cancellation_Stops_Within_One_Frame()
     {
         using var cts = new CancellationTokenSource();

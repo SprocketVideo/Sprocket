@@ -47,8 +47,14 @@ public static class StabilizationSolver
         for (int i = 1; i < n; i++)
         {
             FrameMotion m = track.Motions[i];
-            rawTx[i] = rawTx[i - 1] + m.Tx;
-            rawTy[i] = rawTy[i - 1] + m.Ty;
+            // The estimator's similarity, like its homography, is expressed about the top-left origin, while every
+            // solve channel (and the output→source matrix) is about the frame centre. Re-express the translation
+            // about the centre before integrating: otherwise a zoom or roll about the centre reads as a phantom
+            // pan/tilt of (S·R − I)·c that the position channel would then "correct", shifting the frame in step
+            // with every scale/rotation change (focus breathing turned into a wobble).
+            (double tcx, double tcy) = CentredTranslation(m, aspY);
+            rawTx[i] = rawTx[i - 1] + tcx;
+            rawTy[i] = rawTy[i - 1] + tcy;
             rawLog[i] = rawLog[i - 1] + m.LogScale;
             rawAngle[i] = rawAngle[i - 1] + m.Angle;
 
@@ -251,6 +257,25 @@ public static class StabilizationSolver
                 hi = mid;
         }
         return lo;
+    }
+
+    /// <summary>
+    /// An inter-frame similarity's translation re-expressed about the frame centre. The estimator fits
+    /// <c>dst = S·R·src + t</c> in width-normalised coordinates with the origin at the top-left corner, so about
+    /// the centre <c>c = (0.5, 0.5·aspY)</c> the same motion is <c>dst − c = S·R·(src − c) + t_c</c> with
+    /// <c>t_c = t + (S·R − I)·c</c>. Only <c>t_c</c> is a true pan/tilt of the frame; for a zoom or roll about the
+    /// centre the raw <c>t</c> is entirely the origin offset. Uses the estimator's rotation convention
+    /// (<c>S·R = s·[cos −sin; sin cos]</c>), the same one <see cref="BuildMatrix"/> applies.
+    /// </summary>
+    private static (double X, double Y) CentredTranslation(FrameMotion m, double aspY)
+    {
+        double cx = 0.5, cy = 0.5 * aspY;
+        double s = Math.Exp(m.LogScale);
+        double cos = Math.Cos(m.Angle);
+        double sin = Math.Sin(m.Angle);
+        double a = s * cos, b = -s * sin;
+        double d = s * sin, e = s * cos;
+        return (m.Tx + (a - 1.0) * cx + b * cy, m.Ty + d * cx + (e - 1.0) * cy);
     }
 
     /// <summary>

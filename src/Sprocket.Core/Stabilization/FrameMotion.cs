@@ -13,8 +13,11 @@ namespace Sprocket.Core.Stabilization;
 /// integrates them into a camera path, and <c>Sprocket.Analysis</c>'s <c>MotionEstimator</c> — which
 /// references Core — produces them. Core owns the shared type; Analysis owns its estimation.
 /// </remarks>
-/// <param name="Tx">Horizontal translation, fraction of analysis width.</param>
-/// <param name="Ty">Vertical translation, fraction of analysis width.</param>
+/// <param name="Tx">Horizontal translation, fraction of analysis width. Like <paramref name="Homography"/>, the
+/// similarity is fit about the frame's <b>top-left origin</b> (<c>dst = S·R·src + t</c>), so a zoom or roll about
+/// the centre carries a non-zero <c>t = (I − S·R)·c</c>; the solver re-expresses it about the centre before
+/// treating it as pan/tilt.</param>
+/// <param name="Ty">Vertical translation, fraction of analysis width (same origin convention as <paramref name="Tx"/>).</param>
 /// <param name="LogScale">Natural log of the uniform scale factor (0 = no scale change).</param>
 /// <param name="Angle">Rotation in radians.</param>
 /// <param name="Homography">Full projective motion in normalised coordinates.</param>

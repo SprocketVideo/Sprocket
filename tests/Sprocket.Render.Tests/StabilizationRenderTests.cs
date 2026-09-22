@@ -81,9 +81,11 @@ public sealed class StabilizationRenderTests
     [Fact]
     public void ZoomingTrack_ScaleLock_ScalesAboutCentre()
     {
-        // A source that pumps larger over time; Scale Lock (ref = first frame) removes the scale change. The
-        // correction is a pure zoom about the centre: the centre marker stays put, an off-centre marker moves.
-        MotionTrack track = BuildTrack(3, i => Motion(logScale: i == 0 ? 0 : 0.12));
+        // A source that pumps larger over time about its centre; Scale Lock (ref = first frame) removes the scale
+        // change. The correction is a pure zoom about the centre: the centre marker stays put, an off-centre marker
+        // moves. The track carries the motion the way the estimator reports it — about the top-left origin, so a
+        // centred zoom has t = (1 − s)·c, not t = 0 (see CentredZoom).
+        MotionTrack track = BuildTrack(3, i => i == 0 ? Motion() : CentredZoom(0.12));
         StabilizationSettings settings = Default() with
         {
             ScaleMode = ScaleMode.Lock,
@@ -124,6 +126,14 @@ public sealed class StabilizationRenderTests
 
     private static FrameMotion Motion(double tx = 0, double ty = 0, double logScale = 0, double angle = 0) =>
         new(tx, ty, logScale, angle, Homography.Identity, 1.0, 100);
+
+    /// <summary>A zoom about the frame centre as the estimator emits it: the similarity is fit about the top-left
+    /// origin, so the centred zoom carries t = (1 − s)·c (c = (0.5, 0.5·aspY); aspY = 1 for the square test frame).</summary>
+    private static FrameMotion CentredZoom(double logScale)
+    {
+        double s = Math.Exp(logScale);
+        return Motion(tx: (1 - s) * 0.5, ty: (1 - s) * 0.5, logScale: logScale);
+    }
 
     private static MotionTrack BuildTrack(int frames, Func<int, FrameMotion> motion)
     {
