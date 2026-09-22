@@ -402,16 +402,26 @@ public sealed partial class SprocketTools(IEditorSession session)
 
     [McpServerTool(Name = "add_effect")]
     [Description("Adds an effect to a clip (see list_effect_types). The input color transform is inserted " +
-                 "first in the stack (it converts the source before other effects); everything else appends.")]
+                 "first in the stack (it converts the source before other effects); everything else appends. " +
+                 "Pass preset to start from one of the type's factory presets (list_effect_types reports them), " +
+                 "e.g. builtin.dayfornight with \"Street Scene\" — one undo step.")]
     public Task<string> AddEffect(
         [Description("clip_id of the target clip.")] int clipId,
-        [Description("Effect type id, e.g. \"builtin.brightness\".")] string effectTypeId) =>
+        [Description("Effect type id, e.g. \"builtin.brightness\".")] string effectTypeId,
+        [Description("Optional factory preset name for this type (case-insensitive).")] string? preset = null) =>
         _session.OnModelThreadAsync(api =>
         {
             (Clip clip, Track _) = ResolveClip(api, clipId);
             EffectDescriptor descriptor = EffectCatalog.Find(effectTypeId)
                 ?? throw new McpException($"unknown effect type '{effectTypeId}' — call list_effect_types.");
-            EffectInstance effect = descriptor.CreateInstance();
+            EffectInstance effect;
+            if (string.IsNullOrWhiteSpace(preset))
+                effect = descriptor.CreateInstance();
+            else
+                effect = descriptor.CreateInstance(descriptor.FindPreset(preset)
+                    ?? throw new McpException(descriptor.Presets.Count == 0
+                        ? $"{effectTypeId} has no presets."
+                        : $"unknown preset '{preset}' for {effectTypeId} — one of: {string.Join(", ", descriptor.Presets.Select(p => p.Name))}."));
             IEditCommand command = effectTypeId == EffectTypeIds.ColorTransform
                 ? new InsertEffectAtCommand(clip, effect, 0)
                 : new AddEffectCommand(clip, effect);

@@ -274,6 +274,8 @@ half4 main(float2 coord) {
         RegisterEffect(new Effects.HslQualifierEffect());
         // Black & White (plan/features/black-and-white.md) — the film-emulation monochrome effect.
         RegisterEffect(new Effects.BlackWhiteEffect());
+        // Day for Night (plan/features/special-effects.md, phase 4) — the guided night-exterior grade.
+        RegisterEffect(new Effects.DayForNightEffect());
         // Action-VFX primitives (plan/features/special-effects.md, phase 1) — the reusable optical and
         // geometric building blocks the later action / atmospheric / day-for-night presets combine.
         RegisterEffect(new Effects.GlowEffect());

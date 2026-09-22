@@ -280,6 +280,7 @@ in terms an app-side committer can check against their diff.
 |---|---|---|---|
 | Color grading: White Balance, Color Wheels, Curves, HSL Qualifier | EffectCatalog.cs; Sprocket.Render/Effects/{WhiteBalance,ColorWheels,Curves,HslQualifier}Effect.cs; PLAN.md step 34 | effects-color/color-grading.md | ✅ |
 | Grading scopes: Waveform / RGB Parade / Vectorscope / Histogram | Sprocket.App/ScopeView.cs | effects-color/color-grading.md#judging-your-grade-with-scopes | ✅ |
+| Day for Night grade (`builtin.dayfornight`): turns a daylight exterior into moonlit night in one ordered stage — night strength, exposure, sky darkening (top-weighted blue/pale key), highlight rolloff, shadow floor, saturation, moonlight tint + hue, practical-light keep (bright warm sources), protect skin, vignette; looks Standard / Exterior Wide / Street Scene / Blue Moon via the Inspector preset picker, the Effects browser's DAY FOR NIGHT group (double-click grades the selected clip or adjustment layer) or MCP `add_effect` `preset` | EffectCatalog.cs `builtin.dayfornight`; Sprocket.Core/Model/DayForNightPresets.cs; Sprocket.Render/Effects/DayForNightEffect.cs; MediaBrowserPanel.cs `EffectPresetRow`; plan/features/special-effects.md | — | ❌ |
 | Black & White conversion: 8-hue channel mixer, optical colour filter, film tone response + grain, toning / split-toning, vignette, preset library (filters, film stocks, tonings, cinematic looks) | EffectCatalog.cs `builtin.blackwhite`; Sprocket.Core/Model/BlackWhitePresets.cs; Sprocket.Render/Effects/BlackWhiteEffect.cs; plan/features/black-and-white.md | effects-color/black-and-white.md | ✅ |
 
 ## 5. Audio
@@ -401,7 +402,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 |---|---|
 | Pitch-preserving time-stretch / frame-interpolated slow motion | PLAN.md step 21 (reverse + speed ramps shipped 2026-08-27; these two remain later quality tiers) |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
-| The day-for-night toolkit and tracked/masked placement of VFX | plan/features/special-effects.md phases 4–6 (phase 1's primitive effects ship today — see §4; phase 2's atmospheric generators and phase 3's action VFX presets — see §3) |
+| Tracked/masked placement of VFX and matte-based sky/subject isolation | plan/features/special-effects.md phases 5–6 (phase 1's primitive effects and phase 4's Day for Night grade ship today — see §4; phase 2's atmospheric generators and phase 3's action VFX presets — see §3) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial); [COLOR_GRADING_ROADMAP.md](COLOR_GRADING_ROADMAP.md) has the detailed parity sequence and follow-on grading roadmap |
 | Bundled impulse-response library for the Convolution Reverb (CC0 / Sprocket-recorded captures) | PLAN.md step 49 follow-on (the convolution engine + user IR import shipped in step 49; licensing-clear IRs deferred) |
 | Code-signing & macOS notarization (installers themselves shipped: Windows Setup.exe, Linux AppImage, macOS .app via scripts/release.ps1 + Velopack; alpha is unsigned) | PLAN.md step 36 (✅ done except signing/notarization, deliberately deferred) |

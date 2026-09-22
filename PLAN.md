@@ -171,7 +171,7 @@ verification-only items carry their checklist in the step's history entry.
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →
   [plan/features/looks-browser.md](plan/features/looks-browser.md)
-- [ ] **Special effects roadmap** (unscheduled feature) — 🟡 **phases 1–3 shipped 2026-09-22**:
+- [ ] **Special effects roadmap** (unscheduled feature) — 🟡 **phases 1–4 shipped 2026-09-22**:
   phase 1 is the eight primitive image effects — Glow, Directional Blur, Zoom Blur, Heat Distortion,
   Shockwave, Chromatic Aberration, Impact Shake, Flicker — as registry SkSL effects on the existing
   `IVideoEffect` seam; phase 2 is the six atmospheric generators — Smoke, Fog, Dust, Embers, Sparks,
@@ -181,7 +181,10 @@ verification-only items carry their checklist in the step's history entry.
   Flash, Small Fire Burst, Ground Explosion, Explosion Aftermath, Burning Edge, Dust Hit, Aftershock) —
   `ActionVfxCatalog` stacks of those generators plus a keyframed adjustment layer, inserted at the
   playhead as one undoable composite of ordinary tracks/clips/effects (no new seam, no format change).
-  Phases 4–6 open: the day-for-night toolkit, tracking + masking integration, docs & samples; Light
+  Phase 4 is the Day for Night colour effect — one guided SkSL grade (exposure, sky, highlights, shadow
+  floor, saturation, moonlight tint/hue, practical lights, protect skin, vignette under a Night Strength
+  blend) with four looks, a DAY FOR NIGHT browser group and MCP `add_effect` presets.
+  Phases 5–6 open: tracking + masking integration, docs & samples; Light
   Wrap and Lens Dirt are deferred pending a compositing-context seam and an image-asset pipeline →
   [plan/features/special-effects.md](plan/features/special-effects.md)
 - [x] **Convolution reverb (Acoustic Space)** — step 49, shipped 2026-08-26 (user WAV IR import; bundled

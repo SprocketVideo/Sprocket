@@ -480,6 +480,61 @@ public sealed class MediaBrowserPanel : UserControl
         });
         foreach (ActionVfxDescriptor preset in ActionVfxCatalog.BuiltIns)
             _effectsList.Children.Add(ActionVfxRow(preset));
+
+        // Day for Night looks (plan/features/special-effects.md, phase 4) — one-click entry points for the
+        // Day for Night effect's presets. Unlike the action VFX they grade the selection, like any effect; a
+        // whole scene is graded by selecting an adjustment layer over it.
+        if (EffectCatalog.Find(EffectTypeIds.DayForNight) is { } dayForNight)
+        {
+            _effectsList.Children.Add(new TextBlock
+            {
+                Text = "DAY FOR NIGHT",
+                FontSize = Typography.Micro,
+                Foreground = MutedText,
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Avalonia.Thickness(0, 10, 0, 0),
+            });
+            _effectsList.Children.Add(new TextBlock
+            {
+                Text = "Double-click to grade the selected clip (or an adjustment layer, for a whole scene). Fine-tune in the Inspector.",
+                FontSize = Typography.Caption,
+                Foreground = FaintText,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Avalonia.Thickness(0, 0, 0, 4),
+            });
+            foreach (EffectPreset look in dayForNight.Presets)
+                _effectsList.Children.Add(EffectPresetRow(dayForNight, look));
+        }
+    }
+
+    private Control EffectPresetRow(EffectDescriptor effect, EffectPreset preset)
+    {
+        var title = new TextBlock { Text = preset.Name, FontSize = Typography.Body, Foreground = TextBrush, FontWeight = FontWeight.SemiBold };
+        var kind = new TextBlock { Text = effect.DisplayName, FontSize = Typography.Micro, Foreground = Accent };
+        var header = new DockPanel();
+        DockPanel.SetDock(kind, Dock.Right);
+        header.Children.Add(kind);
+        header.Children.Add(title);
+
+        var desc = new TextBlock
+        {
+            Text = preset.Description ?? effect.Description,
+            FontSize = Typography.Caption,
+            Foreground = MutedText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Avalonia.Thickness(0, 2, 0, 0),
+        };
+
+        var row = new Border
+        {
+            Background = RaisedBg,
+            CornerRadius = new Avalonia.CornerRadius(5),
+            Padding = new Avalonia.Thickness(8, 6),
+            Child = new StackPanel { Children = { header, desc } },
+        };
+        row.DoubleTapped += (_, _) => ApplyEffect(effect, preset);
+        ToolTip.SetTip(row, $"Double-click to add {effect.DisplayName} ({preset.Name}) to the selected clip.");
+        return row;
     }
 
     private Control ActionVfxRow(ActionVfxDescriptor preset)
@@ -624,7 +679,7 @@ public sealed class MediaBrowserPanel : UserControl
         source.PointerReleased += (_, _) => _pressedArgs = null;
     }
 
-    private void ApplyEffect(EffectDescriptor effect)
+    private void ApplyEffect(EffectDescriptor effect, EffectPreset? preset = null)
     {
         if (_selectedClip is null || _history is null || _project is null)
         {
@@ -632,9 +687,11 @@ public sealed class MediaBrowserPanel : UserControl
             return;
         }
 
-        _history.Execute(new AddEffectCommand(_selectedClip, effect.CreateInstance()));
+        EffectInstance instance = preset is null ? effect.CreateInstance() : effect.CreateInstance(preset);
+        _history.Execute(new AddEffectCommand(_selectedClip, instance));
         string clip = Path.GetFileName(_project.MediaPool.Get(_selectedClip.MediaRefId)?.AbsolutePath ?? "clip");
-        Status?.Invoke($"Added {effect.DisplayName} to {clip}.");
+        string name = preset is null ? effect.DisplayName : $"{effect.DisplayName} ({preset.Name})";
+        Status?.Invoke($"Added {name} to {clip}.");
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────────────────────

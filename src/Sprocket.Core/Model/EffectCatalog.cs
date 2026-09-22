@@ -152,6 +152,30 @@ public sealed record EffectDescriptor(
         }
         return instance;
     }
+
+    /// <summary>
+    /// Builds a fresh instance (as <see cref="CreateInstance()"/>) with <paramref name="preset"/>'s values
+    /// applied over the defaults — what a one-click look entry point (the Effects browser's DAY FOR NIGHT
+    /// group, MCP <c>add_effect</c> with a preset) adds, so the result is identical to adding the effect and
+    /// then picking the preset in the Inspector, in one undo step instead of two.
+    /// </summary>
+    /// <exception cref="ArgumentException">The preset sets a parameter this descriptor does not declare as numeric.</exception>
+    public EffectInstance CreateInstance(EffectPreset preset)
+    {
+        ArgumentNullException.ThrowIfNull(preset);
+        EffectInstance instance = CreateInstance();
+        foreach ((string name, double value) in preset.Values)
+        {
+            if (!Parameters.Any(p => p.Name == name && p.Kind != ParameterKind.Asset))
+                throw new ArgumentException($"Preset '{preset.Name}' sets '{name}', which {Id} does not declare.", nameof(preset));
+            instance.Set(name, value);
+        }
+        return instance;
+    }
+
+    /// <summary>The factory preset named <paramref name="name"/> (case-insensitive), or <see langword="null"/>.</summary>
+    public EffectPreset? FindPreset(string name) =>
+        Presets.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>
@@ -583,6 +607,45 @@ public static class EffectCatalog
             // preset leaves Mix untouched (the Studio Reverb rule) and touches only its family's parameters so
             // filters/tonings/tonal looks layer — see the BlackWhitePresets doc comment.
             Presets = BlackWhitePresets.All,
+        },
+
+        // ── Day for Night (plan/features/special-effects.md, phase 4) — one purpose-built grade, the Final Cut
+        // Pro "Day into Night" / Magic Bullet shape, rather than a hand-assembled stack: the stage applies its
+        // corrections in the fixed order a colourist would (exposure → sky → shoulder → saturation → tint →
+        // floor → vignette), so no control can be stacked in the wrong place. The defaults are a usable
+        // general-purpose night at full strength; the presets are the three looks in the roadmap. ──
+        new EffectDescriptor(
+            EffectTypeIds.DayForNight,
+            "Day for Night",
+            EffectCategory.Color,
+            "Turns a daylight exterior into moonlit night: darker sky, rolled-off highlights, cool tint, lamps kept lit.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.NightStrength, "Night Strength", 1.0, 0.0, 1.0, 0.05, "%",
+                    "Blend from the original daylight plate (0%) to the full night grade (100%).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Exposure, "Exposure", -2.0, -4.0, 0.0, 0.1, "EV",
+                    "How far the whole shot is underexposed, in photographic stops."),
+                new EffectParameterDescriptor(EffectParamNames.SkyDarken, "Sky", 0.6, 0.0, 1.0, 0.05, "%",
+                    "Pulls a bright or blue sky in the upper frame down so it reads as night, not overcast.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.HighlightRolloff, "Highlights", 0.6, 0.0, 1.0, 0.05, "%",
+                    "Rolls off bright daylight highlights under a soft shoulder — moonlight has no hot whites.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.ShadowFloor, "Shadow Floor", 0.02, 0.0, 0.25, 0.005, "%",
+                    "Lifts the blacks to a faint moonlit floor so shadows keep a little detail instead of crushing.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Saturation, "Saturation", 0.4, 0.0, 1.0, 0.05, "%",
+                    "How much colour survives (night vision is nearly colourless; 100% = unchanged).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.MoonlightTint, "Moonlight Tint", 0.6, 0.0, 1.0, 0.05, "%",
+                    "Strength of the cool moonlight cast, which keeps brightness while shifting colour.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.MoonlightHue, "Moonlight Hue", 215.0, 0.0, 360.0, 1.0, "°",
+                    "Colour of the moonlight cast (215° ≈ classic blue night; lower = teal, higher = violet)."),
+                new EffectParameterDescriptor(EffectParamNames.PracticalLights, "Practical Lights", 0.5, 0.0, 1.0, 0.05, "%",
+                    "Keeps bright, warm sources — street lamps, lit windows, fire — glowing through the grade.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.ProtectSkin, "Protect Skin", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Keeps some natural colour in skin tones so faces do not go grey-blue (brightness still darkens).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.VignetteAmount, "Vignette", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Darkens the frame edges, drawing the eye to a moonlit centre.") { DisplayScale = 100 },
+            ])
+        {
+            ShortCode = "DN",
+            Presets = DayForNightPresets.All,
         },
 
         new EffectDescriptor(

@@ -120,14 +120,17 @@ public static class StateFormatter
             var parameters = new JsonArray();
             foreach (EffectParameterDescriptor p in descriptor.Parameters)
                 parameters.Add(ParameterDescriptorObject(p));
-            effects.Add(new JsonObject
+            var entry = new JsonObject
             {
                 ["type_id"] = descriptor.Id,
                 ["display_name"] = descriptor.DisplayName,
                 ["category"] = descriptor.Category.ToString(),
                 ["description"] = descriptor.Description,
                 ["parameters"] = parameters,
-            });
+            };
+            if (descriptor.Presets.Count > 0)
+                entry["presets"] = new JsonArray([.. descriptor.Presets.Select(p => (JsonNode?)p.Name)]);
+            effects.Add(entry);
         }
         return new JsonObject { ["effect_types"] = effects }.ToJsonString(Indented);
     }

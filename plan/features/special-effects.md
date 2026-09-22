@@ -1,6 +1,6 @@
 # Action VFX and day-for-night
 
-🟡 **Phases 1–3 shipped 2026-09-22; phases 4–6 open.** Unscheduled feature; tracked in
+🟡 **Phases 1–4 shipped 2026-09-22; phases 5–6 open.** Unscheduled feature; tracked in
 [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** add a practical special-effects roadmap centered on three editorially useful
@@ -91,7 +91,7 @@ finished, and day-for-night becomes more credible once the grading-preset surfac
 | 1 | Primitive image effects ✅ (2026-09-22) | existing effect seam | Glow/bloom, heat haze, shockwave, directional blur, zoom blur, flicker, chromatic aberration, impact shake |
 | 2 | Atmospheric generators ✅ (2026-09-22) | 1 | Smoke, Fog, Dust, Embers, Sparks, Light Leak; usable as standalone mood layers |
 | 3 | Action VFX presets ✅ (2026-09-22) | 1–2 | Fire / explosion / muzzle-flash preset stacks over overlays and generators |
-| 4 | Day-for-night toolkit | grading + looks work | Guided preset stack over the existing grading system; likely the highest practical user value |
+| 4 | Day-for-night toolkit ✅ (2026-09-22) | grading + looks work | One guided Day for Night grade stage + four looks (departs from the preset-stack sketch — see Phase 4) |
 | 5 | Tracking / masking integration | stabilization + future masks | Motion attachment, better placement, sky/subject isolation, occlusion |
 | 6 | Polish / docs / samples | 1–5 | Tutorials, sample assets policy, FEATURES/README close-out if shipped |
 
@@ -284,6 +284,56 @@ entry, undo/redo; keyframes anchored at the insert point; track reuse for non-ov
 for overlapping ones; the render graph resolving the stack bottom-up with the flash at its peak) plus an MCP
 round-trip in `tests/Sprocket.Mcp.Tests/SprocketToolsExtendedTests.cs`. No new render tests — phase 3 adds
 no shader; its parts are covered by the phase-1/2 suites.
+
+## Phase 4 — ✅ DONE (2026-09-22)
+
+One purpose-built **Day for Night** colour effect (`builtin.dayfornight`, short code `DN`) on the existing
+registry seam (`Sprocket.Render/Effects/DayForNightEffect.cs`, descriptor in `EffectCatalog.BuiltIns` under
+`EffectCategory.Color`, looks in `Sprocket.Core/Model/DayForNightPresets.cs`). Controls — the sketch's list plus
+the three it implied: **Night Strength** (master blend), **Exposure**, **Sky**, **Highlights**, **Shadow Floor**,
+**Saturation**, **Moonlight Tint**, **Moonlight Hue**, **Practical Lights**, **Protect Skin**, **Vignette**. Looks:
+**Standard** (= the defaults), **Exterior Wide**, **Street Scene**, **Blue Moon**. Entry points: the Effects
+browser's **DAY FOR NIGHT** group (double-click grades the selected clip — or an adjustment layer, for a whole
+scene — with that look, one undo step), the effect itself in the Color list / Effects menu with the Inspector
+preset picker, and MCP `add_effect` with the new optional `preset` argument (`list_effect_types` now reports
+each type's preset names).
+
+**Decisions worth keeping:**
+
+- **One stage, not a preset spread over the grading effects — a deliberate departure from the sketch's
+  "curated grading stack".** Day for night only works in one order (underexpose → sky → highlight shoulder →
+  saturation → tint → floor → vignette, then restore practicals and skin), and the keys must read the *source*
+  pixel (a lamp has to be found before exposure pulls it out of range). A stack of separate effects would make
+  that order and those keys the user's problem and could not share one source read. One stage with a small
+  guided control surface is also what editors already know: Final Cut Pro's *Day into Night* and Magic Bullet's
+  day-for-night looks. The Inspector's descriptor-driven rows are the bespoke row group; no per-effect UI code.
+- **The looks reuse `EffectDescriptor.Presets`** (the sketch's first preference) — no multi-effect bundle model
+  was needed. Each look is *complete* (sets every grade control, so switching looks leaves nothing stale) and
+  leaves Night Strength alone (the Studio Reverb Mix rule). `EffectDescriptor.CreateInstance(EffectPreset)` is
+  the one factory the browser and MCP share, so a one-click look equals "add, then pick the preset".
+- **Exposure is capped at 0 EV** — day for night never brightens the plate; the highlight shoulder is placed
+  relative to the *exposed* white so it keeps biting whatever the exposure.
+- **The moonlight tint is unit-luma** (the White Balance rule): it changes colour, not brightness, so Exposure
+  stays the only brightness control. The shadow floor takes the same cast (moonlit blacks, not grey ones).
+- **Honest keys.** Sky = bright × (blue or pale) × an upper-frame weight read from `sprocket_bounds`
+  (resolution-independent), with pale/overcast sky only counted near sky brightness; practicals = near-clipped ×
+  warm × saturated × not skin; skin = the orange skin-tone line at moderate saturation. Plain qualifiers, not
+  segmentation — a blue shirt, or a near-white wall, at the top of frame darkens with the sky. True sky/subject
+  isolation is phase 5, per the scope guard.
+- **Neutral means pass-through.** Night Strength 0 is exact (early return); every control off at full strength
+  is the sRGB round trip (≤ 2 codes). Deterministic, no time input: a pure function of pixel and position.
+
+**Tests:** `tests/Sprocket.Render.Tests/DayForNightEffectTests.cs` (25 offscreen render tests — pass-through at
+0 strength and with every control off, the blend, the default look and every preset darkening and cooling a
+sky-over-ground plate, then each control isolated from neutral: exposure in stops, sky top-weighted and
+resolution-independent, highlight shoulder sparing mids, saturation about luma, luma-preserving tint and its
+hue, tinted floor, vignette, practicals kept lit and warm but a sky or a sunlit face not relit, skin warmth
+restored at night brightness and non-skin untouched, transparency and partial alpha preserved); `tests/Sprocket.Core.Tests/DayForNightCatalogTests.cs`
+(registration, control order, darken-only defaults, complete looks that keep Night Strength, Standard = defaults,
+`CreateInstance(preset)` / `FindPreset`); MCP round-trips in `SprocketToolsExtendedTests.cs`.
+
+**Not in phase 4:** the stock-free demo stack (phase 6), and anything needing a matte — sky replacement,
+windows keyed by shape, relighting (phase 5).
 
 ## UI notes
 

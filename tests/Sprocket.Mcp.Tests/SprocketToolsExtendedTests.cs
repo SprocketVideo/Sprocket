@@ -880,4 +880,37 @@ public class SprocketToolsExtendedTests
 
         await Assert.ThrowsAsync<McpException>(() => tools.ListEffectTypes("Chartreuse"));
     }
+
+    [Fact]
+    public async Task ListEffectTypes_Reports_Preset_Names_Only_For_Types_That_Have_Them()
+    {
+        var tools = new SprocketTools(new FakeEditorSession());
+
+        JsonNode night = JsonNode.Parse(await tools.ListEffectTypes(nameQuery: "day for night"))!;
+        JsonArray presets = night["effect_types"]!.AsArray().Single()!["presets"]!.AsArray();
+        Assert.Equal(DayForNightPresets.All.Select(p => p.Name), presets.Select(p => (string)p!));
+
+        JsonNode brightness = JsonNode.Parse(await tools.ListEffectTypes(nameQuery: "brightness"))!;
+        Assert.Null(brightness["effect_types"]!.AsArray().Single()!["presets"]);
+    }
+
+    [Fact]
+    public async Task AddEffect_With_A_Preset_Starts_From_That_Look_In_One_Undo_Step()
+    {
+        (FakeEditorSession session, SprocketTools tools, Clip video, Clip _) = await LinkedPair();
+        int clipId = RuntimeIds.IdOf(video);
+        int undoDepth = session.History.UndoCount;
+
+        JsonNode added = JsonNode.Parse(await tools.AddEffect(clipId, EffectTypeIds.DayForNight, preset: "street scene"))!;
+        EffectInstance effect = video.Effects[(int)added["effect_index"]!];
+
+        Assert.Equal(EffectTypeIds.DayForNight, effect.EffectTypeId);
+        foreach ((string name, double value) in DayForNightPresets.StreetScene.Values)
+            Assert.Equal(value, effect.Parameters[name].Evaluate(default), 6);
+        Assert.Equal(1.0, effect.Parameters[EffectParamNames.NightStrength].Evaluate(default), 6); // the default, untouched
+        Assert.Equal(undoDepth + 1, session.History.UndoCount);
+
+        await Assert.ThrowsAsync<McpException>(() => tools.AddEffect(clipId, EffectTypeIds.DayForNight, preset: "Noon"));
+        await Assert.ThrowsAsync<McpException>(() => tools.AddEffect(clipId, EffectTypeIds.Brightness, preset: "Standard"));
+    }
 }

@@ -62,7 +62,9 @@ frames never touch the managed heap per frame.
   chromatic aberration, impact shake, and flicker, all deterministic GPU shaders sized as a fraction of
   the frame, so a preview and an export of the same timeline match exactly — plus one-click action VFX
   presets (muzzle flash, fire burst, ground explosion, aftermath, burning edge, dust hit, aftershock)
-  that stack them with the atmospheric generators as ordinary, editable layers.
+  that stack them with the atmospheric generators as ordinary, editable layers, and a guided
+  day-for-night grade (sky, highlights, moonlight tint, practical lights and skin protection) with
+  one-click looks.
 - **Stabilization** — background motion analysis (cached per source) feeding a deterministic solve:
   adaptive intent-preserving smoothing, per-channel control, a cropping-budget auto-zoom, and a
   Scale Lock that fixes focus breathing — with a camera-path graph to see what was tracked.
@@ -102,8 +104,8 @@ OpenColorIO/OFX video (the managed plugin host, built-in effects, in-app Plugin 
 frame-interpolated slow motion (constant / ramped / reverse retime and freeze frames ship today) · a bundled
 impulse-response library (the Convolution Reverb with
 user IR import, Studio Reverb, Shimmer Reverb, and audio freeze ship today) · grading presets /
-creative looks · day-for-night (the reusable effect primitives, atmospheric generators and action VFX
-presets ship today).
+creative looks · tracked / masked VFX placement (the reusable effect primitives, atmospheric generators,
+action VFX presets and the day-for-night grade ship today).
 See the [Roadmap](#roadmap).
 
 ---
@@ -354,9 +356,9 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
   clip-audio freeze ship today).
 - **Grading presets / creative looks** — a Looks browser with one-click creative grades, saveable
   looks, and creative `.cube` LUTs (the grading suite and camera-log input transforms ship today).
-- **Day-for-night & tracked VFX** — a guided day-for-night grading toolkit, and tracked/masked
-  placement of VFX. The reusable primitives, the atmospheric generators and the coordinated fire /
-  explosion / muzzle-flash action presets built from them ship today.
+- **Tracked VFX** — tracked/masked placement of VFX and matte-based sky/subject isolation. The reusable
+  primitives, the atmospheric generators, the coordinated fire / explosion / muzzle-flash action presets
+  built from them, and the guided day-for-night grade ship today.
 - **Live stop-motion capture** — a capture mode with onion-skinning (deferred until packaging
   stabilizes; image-sequence import and stop-motion frame editing ship today).
 

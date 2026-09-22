@@ -90,6 +90,22 @@ public static class EffectTypeIds
     public const string BlackWhite = "builtin.blackwhite";
 
     /// <summary>
+    /// Day for Night (plan/features/special-effects.md, phase 4): a guided night-exterior grade — underexposure,
+    /// sky darkening, a highlight shoulder, saturation restraint, a luma-preserving moonlight tint, a tinted
+    /// shadow floor and a vignette, applied in that fixed order, with warm practical lights and skin tones keyed
+    /// from the source and protected — all blended against the original by
+    /// <see cref="EffectParamNames.NightStrength"/>. The Final Cut Pro "Day into Night" / Magic Bullet shape:
+    /// one purpose-built stage with a few high-value controls rather than a hand-assembled grading stack.
+    /// Parameters: <see cref="EffectParamNames.NightStrength"/>, <see cref="EffectParamNames.Exposure"/>,
+    /// <see cref="EffectParamNames.SkyDarken"/>, <see cref="EffectParamNames.HighlightRolloff"/>,
+    /// <see cref="EffectParamNames.ShadowFloor"/>, <see cref="EffectParamNames.Saturation"/>,
+    /// <see cref="EffectParamNames.MoonlightTint"/>, <see cref="EffectParamNames.MoonlightHue"/>,
+    /// <see cref="EffectParamNames.PracticalLights"/>, <see cref="EffectParamNames.ProtectSkin"/>,
+    /// <see cref="EffectParamNames.VignetteAmount"/>.
+    /// </summary>
+    public const string DayForNight = "builtin.dayfornight";
+
+    /// <summary>
     /// Input color transform (PLAN.md steps 37, 52): converts a log-encoded source to the working/display
     /// space — DJI D-Log / D-Log M via a bundled vendor 3D LUT sampled on the GPU (step 37); every other
     /// vendor (ARRI, Sony, Panasonic, Canon, Blackmagic, Fujifilm, Nikon) via a closed-form curve + gamut
@@ -660,6 +676,36 @@ public static class EffectParamNames
 
     /// <summary>Blend in [0, 1] from a clean periodic waveform (0) to hashed noise (1) — <see cref="EffectTypeIds.Flicker"/>.</summary>
     public const string Randomness = "randomness";
+
+    // ── Day for Night (plan/features/special-effects.md, phase 4) ────────────────────────────────────
+    // The toolkit also reuses Exposure, Saturation (the fraction of colour kept, [0, 1]) and VignetteAmount.
+
+    /// <summary>Master blend in [0, 1] from the untouched plate (0) to the full night grade (1) —
+    /// <see cref="EffectTypeIds.DayForNight"/>.</summary>
+    public const string NightStrength = "nightStrength";
+
+    /// <summary>How far a bright sky in the upper frame is pulled down, in [0, 1] — <see cref="EffectTypeIds.DayForNight"/>.</summary>
+    public const string SkyDarken = "skyDarken";
+
+    /// <summary>Strength of the highlight shoulder in [0, 1] (0 = none) — <see cref="EffectTypeIds.DayForNight"/>.</summary>
+    public const string HighlightRolloff = "highlightRolloff";
+
+    /// <summary>The moonlit floor the blacks are lifted to, in [0, 0.25] — <see cref="EffectTypeIds.DayForNight"/>.</summary>
+    public const string ShadowFloor = "shadowFloor";
+
+    /// <summary>Strength of the luma-preserving moonlight tint in [0, 1] — <see cref="EffectTypeIds.DayForNight"/>.</summary>
+    public const string MoonlightTint = "moonlightTint";
+
+    /// <summary>Hue of the moonlight tint in degrees on the colour wheel — <see cref="EffectTypeIds.DayForNight"/>.</summary>
+    public const string MoonlightHue = "moonlightHue";
+
+    /// <summary>How much of a warm, bright source pixel (lamps, windows, fire) survives the grade, in [0, 1] —
+    /// <see cref="EffectTypeIds.DayForNight"/>.</summary>
+    public const string PracticalLights = "practicalLights";
+
+    /// <summary>How much of skin tones' natural colour survives the desaturation and tint, in [0, 1] —
+    /// <see cref="EffectTypeIds.DayForNight"/>.</summary>
+    public const string ProtectSkin = "protectSkin";
 
     /// <summary>Gain in decibels (0 = unity) — <see cref="EffectTypeIds.AudioGain"/>.</summary>
     public const string GainDb = "gainDb";
