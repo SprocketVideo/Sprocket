@@ -208,6 +208,11 @@ verification-only items carry their checklist in the step's history entry.
   are rebuilt on every repaint, and per-frame allocation *rate* has never been measured (the 2026-06-30
   benchmark saw 0 collections but did not count bytes). Measure first, then remediate in payoff order →
   [plan/features/preview-allocation-churn.md](plan/features/preview-allocation-churn.md)
+- [ ] **Export speed / throughput** (unscheduled feature) — improve export throughput in two deliberate
+  tiers: deterministic **Final Export** stays the reference path, while a speed-first **Fast Export** mode
+  may use hardware decode/render and cache reuse; start with diagnostics + actual-encoder visibility,
+  then overlap decode/render/encode before adding the opt-in fast path →
+  [plan/features/export-speed.md](plan/features/export-speed.md)
 - [ ] **Linux hardware-accel verification** — step 57 Phase 5: real VAAPI + NVENC encode/decode
   on physical Intel/AMD/NVIDIA boxes, probe-order + software-fallback confirmation
   ([details](plan/history/steps-41-57.md#step-57))
