@@ -304,6 +304,17 @@ session prompt: "Implement phase N of plan/features/stabilization.md".
   (centred zoom / roll ⇒ zero pan; true pan unchanged), Render (`CentredZoom` helper encodes the estimator's
   convention), Analysis (Camera Lock on the zoompan fixture adds no pan).
 
+- **2026-09-22 — framing budget over the clip's used range only.** The analysed track covers the clip's range
+  padded to 5 s cache buckets (+2 s handles), so it can include footage the clip trimmed away — and the framing
+  solve (`Covered` / `MinimalZoom` / `MaxLambda`), the Camera Lock mean, and the scale-lock references were taken
+  over the *whole* track. A settling jolt in the first second of a take therefore forced a bigger zoom (or λ < 1,
+  softening the lock across the entire clip) on a clip that had cut it out. `ResolvedEffect` now carries
+  `SourceIn/SourceOut` (the render graph fills them from the clip, angle-mapped for multicam), the solver takes an
+  optional used range (frames from the one shown at the in-point to the one shown at the out-point — the
+  renderer's own lookup), and the Render solve cache keys on it. Smoothing still sees the whole track (no edge
+  effects at the cut). Inspector graph/readout use the same range. Tests: Core (jolt outside the used range costs no
+  zoom; lock target is the used-range mean; null range = whole track; `ResolveEffects` carries the range).
+
 ## Follow-ons (out of scope for v1)
 
 Subspace Warp (mesh), Synthesize Edges (temporal inpaint), Rolling Shutter (FCP-style separate effect),

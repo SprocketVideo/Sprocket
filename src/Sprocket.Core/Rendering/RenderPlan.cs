@@ -22,13 +22,20 @@ namespace Sprocket.Core.Rendering;
 /// the key a source-referenced stage such as Stabilization uses to find the media's analysis (motion track).
 /// <see langword="null"/> for layers with no source media (generators, adjustment layers) and for callers with no
 /// clip context.</param>
+/// <param name="SourceIn">The start of the source range the clip actually uses (<see cref="Model.Clip.SourceIn"/>,
+/// mapped for a multicam angle). A source-referenced stage such as Stabilization limits its framing budget and lock
+/// references to this span, so a jolt in footage the clip has trimmed away doesn't cost the kept footage zoom or
+/// lock strength. <see langword="null"/> when there is no clip context (the whole analysed range is used).</param>
+/// <param name="SourceOut">The end of the used source range (see <paramref name="SourceIn"/>).</param>
 public sealed record ResolvedEffect(
     string EffectTypeId,
     IReadOnlyDictionary<string, double> Parameters,
     IReadOnlyDictionary<string, string>? Assets = null,
     long FrameTime = 0,
     Timecode SourceTime = default,
-    MediaRefId? MediaRefId = null)
+    MediaRefId? MediaRefId = null,
+    Timecode? SourceIn = null,
+    Timecode? SourceOut = null)
 {
     /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set.</summary>
     public double Get(string name, double fallback = 0) =>

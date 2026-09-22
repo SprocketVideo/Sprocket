@@ -94,19 +94,19 @@ public static class RenderGraph
             case ClipKind.Generator:
                 // A generator has no source media, so a source-referenced stage (Stabilization) has nothing to bind.
                 return new VideoLayer(
-                    default, sourceT, ResolveEffectsCore(clip, t, sourceT, null), opacity, blend,
+                    default, sourceT, ResolveEffectsCore(clip, t, sourceT, null, null, null), opacity, blend,
                     LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t, LocalProgress(clip, t)));
 
             case ClipKind.Adjustment:
                 // An adjustment layer applies to the composite beneath it — again, no source media to reference.
-                return new VideoLayer(default, sourceT, ResolveEffectsCore(clip, t, sourceT, null), opacity, blend,
+                return new VideoLayer(default, sourceT, ResolveEffectsCore(clip, t, sourceT, null, null, null), opacity, blend,
                     LayerKind.Adjustment);
 
             case ClipKind.Sequence:
                 // A valid, in-bounds, non-cyclic nested sequence carries its resolved child plan; a missing /
                 // cyclic / too-deep reference contributes nothing (renders as empty, like an offline source §15).
                 return PlanNestedVideo(project, clip, sourceT, path, depth) is { } nested
-                    ? new VideoLayer(default, sourceT, ResolveEffectsCore(clip, t, sourceT, null), opacity, blend,
+                    ? new VideoLayer(default, sourceT, ResolveEffectsCore(clip, t, sourceT, null, null, null), opacity, blend,
                         LayerKind.Sequence, NestedPlan: nested, ConformMode: clip.ConformMode)
                     : null;
 
@@ -120,14 +120,16 @@ public static class RenderGraph
                     Timecode angleSourceT = ClipSync.AngleSourceTime(angle, sourceT);
                     return new VideoLayer(
                         angle.MediaRefId, angleSourceT,
-                        ResolveEffectsCore(clip, t, angleSourceT, angle.MediaRefId), opacity, blend,
-                        ConformMode: clip.ConformMode, Reverse: clip.Reverse);
+                        ResolveEffectsCore(clip, t, angleSourceT, angle.MediaRefId,
+                            ClipSync.AngleSourceTime(angle, clip.SourceIn), ClipSync.AngleSourceTime(angle, clip.SourceOut)),
+                        opacity, blend, ConformMode: clip.ConformMode, Reverse: clip.Reverse);
                 }
                 return null;
 
             default:
                 return new VideoLayer(
-                    clip.MediaRefId, sourceT, ResolveEffectsCore(clip, t, sourceT, clip.MediaRefId), opacity, blend,
+                    clip.MediaRefId, sourceT,
+                    ResolveEffectsCore(clip, t, sourceT, clip.MediaRefId, clip.SourceIn, clip.SourceOut), opacity, blend,
                     ConformMode: clip.ConformMode, Reverse: clip.Reverse);
         }
     }
@@ -443,10 +445,11 @@ public static class RenderGraph
         // resolves identically in the live preview. Media clips reference their own source; layers with no source
         // media (generators, adjustment layers) pass a null media id.
         Timecode sourceT = clip.MapToSource(t);
-        MediaRefId? mediaRefId = clip.Kind is ClipKind.Generator or ClipKind.Adjustment or ClipKind.Sequence
-            ? null
-            : clip.MediaRefId;
-        return ResolveEffectsCore(clip, t, sourceT, mediaRefId);
+        bool sourceless = clip.Kind is ClipKind.Generator or ClipKind.Adjustment or ClipKind.Sequence;
+        return ResolveEffectsCore(clip, t, sourceT,
+            sourceless ? null : clip.MediaRefId,
+            sourceless ? null : clip.SourceIn,
+            sourceless ? null : clip.SourceOut);
     }
 
     /// <summary>
@@ -553,7 +556,8 @@ public static class RenderGraph
     /// for a multicam clip, and <paramref name="mediaRefId"/> is <see langword="null"/> for layers with no source
     /// media (generators, adjustment layers).
     /// </summary>
-    private static ResolvedEffect[] ResolveEffectsCore(Clip clip, Timecode t, Timecode sourceTime, MediaRefId? mediaRefId)
+    private static ResolvedEffect[] ResolveEffectsCore(
+        Clip clip, Timecode t, Timecode sourceTime, MediaRefId? mediaRefId, Timecode? sourceIn, Timecode? sourceOut)
     {
         if (clip.Effects.Count == 0)
             return [];
@@ -571,9 +575,11 @@ public static class RenderGraph
             // frame's timeline ticks — the Render layer auto-binds it to a registry effect's reserved
             // `sprocket_time` uniform (grain seed, animated noise); nested sequences resolve at the child's local
             // time, so grain re-seeds per rendered frame there too. SourceTime/MediaRefId give a source-referenced
-            // stage (Stabilization) the media and source frame this layer samples.
+            // stage (Stabilization) the media and source frame this layer samples; SourceIn/Out the span the clip
+            // uses, so its framing budget ignores footage the clip trimmed away.
             (resolved ??= []).Add(new ResolvedEffect(
-                effect.EffectTypeId, values, FrameTime: t.Ticks, SourceTime: sourceTime, MediaRefId: mediaRefId));
+                effect.EffectTypeId, values, FrameTime: t.Ticks, SourceTime: sourceTime, MediaRefId: mediaRefId,
+                SourceIn: sourceIn, SourceOut: sourceOut));
         }
         return resolved?.ToArray() ?? [];
     }

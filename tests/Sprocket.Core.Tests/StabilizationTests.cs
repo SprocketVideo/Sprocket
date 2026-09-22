@@ -511,6 +511,52 @@ public class StabilizationTests
     }
 
     [Fact]
+    public void Framing_Budget_And_Lock_Target_Consider_Only_The_Clips_Used_Range()
+    {
+        // A violent jolt in the first 20 frames (the camera settling after record), then a still shot. The clip
+        // uses frames 30..59 only. Camera Lock over the whole track must pay for the jolt (a big zoom, or λ < 1);
+        // over the used range the shot is nearly still, so the zoom is ~1 and the lock is complete.
+        MotionTrack track = Track(60, i => new FrameMotion(i < 20 ? 0.02 : 0.0002, i < 20 ? -0.015 : 0, 0, 0, Homography.Identity, 1, 50));
+        var settings = With(StabilizationSettings.Default, mode: StabilizationMode.CameraLock, strength: 1.0, zoom: true);
+        Timecode usedIn = new(30L * Timecode.TicksPerSecond / 30);
+        Timecode usedOut = new(59L * Timecode.TicksPerSecond / 30);
+
+        StabilizationSolution whole = StabilizationSolver.Solve(track, settings, 1920, 1080);
+        StabilizationSolution used = StabilizationSolver.Solve(track, settings, 1920, 1080, usedIn, usedOut);
+
+        Assert.True(whole.AppliedZoom > 1.1, $"whole-track solve should need a big zoom, got {whole.AppliedZoom:F3}");
+        Assert.True(used.AppliedZoom < 1.02, $"used-range solve should need almost no zoom, got {used.AppliedZoom:F3}");
+
+        // The lock target is the mean over the used frames, and the lock is undamped there (λ = 1 ⇒ smoothed == target).
+        double meanUsed = Enumerable.Range(30, 30).Average(i => used.RawPath[i].Tx);
+        for (int i = 30; i < 60; i++)
+            Assert.Equal(meanUsed, used.SmoothedPath[i].Tx, 9);
+
+        // No range ⇒ the whole track. A range past the track's end clamps to the frame the renderer would hold
+        // there (the last one), which alone needs no zoom.
+        StabilizationSolution unbounded = StabilizationSolver.Solve(track, settings, 1920, 1080, null, null);
+        Assert.Equal(whole.AppliedZoom, unbounded.AppliedZoom, 9);
+        StabilizationSolution past = StabilizationSolver.Solve(track, settings, 1920, 1080,
+            new Timecode(100L * Timecode.TicksPerSecond), new Timecode(200L * Timecode.TicksPerSecond));
+        Assert.Equal(1.0, past.AppliedZoom, 9);
+    }
+
+    [Fact]
+    public void Resolved_Effects_Carry_The_Clips_Used_Source_Range()
+    {
+        var media = new MediaRefId(Guid.NewGuid());
+        var clip = new Clip(media, Timecode.FromSeconds(4), Timecode.FromSeconds(9), Timecode.Zero);
+        clip.Effects.Add(new EffectInstance(EffectTypeIds.Stabilization));
+
+        IReadOnlyList<ResolvedEffect> resolved = RenderGraph.ResolveEffects(clip, Timecode.FromSeconds(1));
+
+        ResolvedEffect stab = Assert.Single(resolved);
+        Assert.Equal(media, stab.MediaRefId);
+        Assert.Equal(Timecode.FromSeconds(4), stab.SourceIn);
+        Assert.Equal(Timecode.FromSeconds(9), stab.SourceOut);
+    }
+
+    [Fact]
     public void Empty_Track_Solves_To_An_Empty_Identity_Solution()
     {
         MotionTrack track = Track(0, _ => FrameMotion.Identity);

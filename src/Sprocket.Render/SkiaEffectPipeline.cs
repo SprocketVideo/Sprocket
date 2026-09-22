@@ -1027,7 +1027,9 @@ half4 main(float2 coord) {
         if (track is null || track.FrameCount == 0)
             return null; // not analysed yet (or the range doesn't cover this time) → pass-through
 
-        StabilizationSolution solution = _stabCache.Get(track, settings, srcWidth, srcHeight);
+        // The framing budget / lock references are taken over the clip's used source range only (a trimmed-away
+        // jolt must not cost the kept footage zoom or lock strength); the settings-only cache keys on it too.
+        StabilizationSolution solution = _stabCache.Get(track, settings, srcWidth, srcHeight, effect.SourceIn, effect.SourceOut);
         if (solution.FrameCount == 0)
             return null;
 

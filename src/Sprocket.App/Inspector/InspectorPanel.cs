@@ -1128,7 +1128,8 @@ public sealed class InspectorPanel : UserControl
                 return;
             }
 
-            StabilizationSolution sol = StabilizationSolver.Solve(track, SettingsFor(), fw, fh);
+            // Same used-range framing as the render (a trimmed-away jolt doesn't count against this clip's budget).
+            StabilizationSolution sol = StabilizationSolver.Solve(track, SettingsFor(), fw, fh, clip.SourceIn, clip.SourceOut);
             lastSol = sol;
             lastTrack = track;
             zoomReadout.IsVisible = true;

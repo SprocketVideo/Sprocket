@@ -1,4 +1,5 @@
 using Sprocket.Core.Stabilization;
+using Sprocket.Core.Timing;
 
 namespace Sprocket.Render;
 
@@ -22,7 +23,8 @@ internal sealed class StabilizationSolveCache
 
     // The track is compared by reference (a MotionTrack has no value equality), the settings by value (so a
     // freshly-read but identical snapshot still hits), and the frame size by value.
-    private readonly record struct Key(MotionTrack Track, StabilizationSettings Settings, int Width, int Height);
+    private readonly record struct Key(
+        MotionTrack Track, StabilizationSettings Settings, int Width, int Height, Timecode? UsedIn, Timecode? UsedOut);
 
     private readonly Dictionary<Key, StabilizationSolution> _cache = new();
 
@@ -31,17 +33,19 @@ internal sealed class StabilizationSolveCache
     public int SolveCount { get; private set; }
 
     /// <summary>The cached solution for (<paramref name="track"/>, <paramref name="settings"/>,
-    /// <paramref name="width"/>×<paramref name="height"/>), solving and storing it on a miss.</summary>
-    public StabilizationSolution Get(MotionTrack track, StabilizationSettings settings, int width, int height)
+    /// <paramref name="width"/>×<paramref name="height"/>, the clip's used source range), solving and storing it
+    /// on a miss.</summary>
+    public StabilizationSolution Get(
+        MotionTrack track, StabilizationSettings settings, int width, int height, Timecode? usedIn, Timecode? usedOut)
     {
-        var key = new Key(track, settings, width, height);
+        var key = new Key(track, settings, width, height, usedIn, usedOut);
         if (_cache.TryGetValue(key, out StabilizationSolution? cached))
             return cached;
 
         if (_cache.Count >= MaxEntries)
             _cache.Clear();
 
-        StabilizationSolution solution = StabilizationSolver.Solve(track, settings, width, height);
+        StabilizationSolution solution = StabilizationSolver.Solve(track, settings, width, height, usedIn, usedOut);
         SolveCount++;
         _cache[key] = solution;
         return solution;

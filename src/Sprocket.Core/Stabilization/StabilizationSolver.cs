@@ -1,3 +1,5 @@
+using Sprocket.Core.Timing;
+
 namespace Sprocket.Core.Stabilization;
 
 /// <summary>
@@ -19,7 +21,16 @@ public static class StabilizationSolver
     /// size (the frame size sets the aspect used for border coverage / zoom). Returns an all-identity solution
     /// for an empty track.
     /// </summary>
-    public static StabilizationSolution Solve(MotionTrack track, StabilizationSettings settings, int frameWidth, int frameHeight)
+    /// <param name="usedIn">Optional start of the source range the clip actually uses. The analysed track covers
+    /// the clip's range padded to cache buckets (<see cref="AnalysisKey"/>), so it can include footage the clip
+    /// trimmed away; the framing budget (zoom / damping), the Camera Lock mean, and the lock references are
+    /// computed over the used frames only, so a jolt outside the clip costs the kept footage nothing. Smoothing
+    /// still sees the whole track (context past the in/out points avoids edge effects). <see langword="null"/>
+    /// (or a span that meets no track frame) means the whole track.</param>
+    /// <param name="usedOut">Optional end of the used source range (see <paramref name="usedIn"/>).</param>
+    public static StabilizationSolution Solve(
+        MotionTrack track, StabilizationSettings settings, int frameWidth, int frameHeight,
+        Timecode? usedIn = null, Timecode? usedOut = null)
     {
         ArgumentNullException.ThrowIfNull(track);
         ArgumentNullException.ThrowIfNull(settings);
@@ -29,6 +40,8 @@ public static class StabilizationSolver
 
         if (n == 0)
             return new StabilizationSolution([], [], [], [], 1.0, aspY);
+
+        (int lo, int hi) = UsedRange(track.FramePts, usedIn, usedOut);
 
         // 1. Integrate the inter-frame motion into a cumulative camera path (per channel).
         var rawTx = new double[n];
@@ -65,9 +78,9 @@ public static class StabilizationSolver
                 // similarity channels above (both models are fit to the same correspondences), so only the two
                 // projective terms are taken from the homography — a non-overlapping decomposition. Interpolated
                 // low-confidence frames carry an identity homography ⇒ a zero increment (no spurious perspective).
-                (double gi, double hi) = CentredProjectiveRow(m.Homography, aspY);
-                rawG[i] = rawG[i - 1] + gi;
-                rawH[i] = rawH[i - 1] + hi;
+                (double gInc, double hInc) = CentredProjectiveRow(m.Homography, aspY);
+                rawG[i] = rawG[i - 1] + gInc;
+                rawH[i] = rawH[i - 1] + hInc;
             }
         }
 
@@ -77,16 +90,16 @@ public static class StabilizationSolver
         double baseRadius = Math.Max(0.0, settings.Smoothness) * fps;
 
         // 2. Per-channel smoothed (target) path.
-        double[] targTx = SmoothChannel(rawTx, baseRadius * settings.PositionSmooth, settings.Mode, fps);
-        double[] targTy = SmoothChannel(rawTy, baseRadius * settings.PositionSmooth, settings.Mode, fps);
+        double[] targTx = SmoothChannel(rawTx, baseRadius * settings.PositionSmooth, settings.Mode, fps, lo, hi);
+        double[] targTy = SmoothChannel(rawTy, baseRadius * settings.PositionSmooth, settings.Mode, fps, lo, hi);
 
         double[] targAngle;
         if (translationOnly)
             targAngle = (double[])rawAngle.Clone();
         else if (settings.LockRotation)
-            targAngle = Constant(n, rawAngle[0]);
+            targAngle = Constant(n, rawAngle[lo]);
         else
-            targAngle = SmoothChannel(rawAngle, baseRadius * settings.RotationSmooth, settings.Mode, fps);
+            targAngle = SmoothChannel(rawAngle, baseRadius * settings.RotationSmooth, settings.Mode, fps, lo, hi);
 
         double[] targLog;
         if (translationOnly)
@@ -95,13 +108,13 @@ public static class StabilizationSolver
             targLog = settings.ScaleMode switch
             {
                 ScaleMode.Preserve => (double[])rawLog.Clone(),
-                ScaleMode.Lock => Constant(n, ScaleReference(rawLog, settings.ScaleLockRef)),
-                _ => SmoothChannel(rawLog, baseRadius * settings.ScaleSmooth, settings.Mode, fps),
+                ScaleMode.Lock => Constant(n, ScaleReference(rawLog, settings.ScaleLockRef, lo, hi)),
+                _ => SmoothChannel(rawLog, baseRadius * settings.ScaleSmooth, settings.Mode, fps, lo, hi),
             };
 
         // Projective channels smooth like the (angular) rotation channel; zero for the non-perspective methods.
-        double[] targG = perspective ? SmoothChannel(rawG, baseRadius * settings.RotationSmooth, settings.Mode, fps) : rawG;
-        double[] targH = perspective ? SmoothChannel(rawH, baseRadius * settings.RotationSmooth, settings.Mode, fps) : rawH;
+        double[] targG = perspective ? SmoothChannel(rawG, baseRadius * settings.RotationSmooth, settings.Mode, fps, lo, hi) : rawG;
+        double[] targH = perspective ? SmoothChannel(rawH, baseRadius * settings.RotationSmooth, settings.Mode, fps, lo, hi) : rawH;
 
         // 3. Strength blend: target = lerp(raw, smoothed, strength).
         double s = Math.Clamp(settings.Strength, 0.0, 1.0);
@@ -136,20 +149,20 @@ public static class StabilizationSolver
         }
 
         // 5. Framing: choose a uniform zoom (and, if the crop budget binds, a residual damping λ) so the
-        //    corrected frame covers the output.
+        //    corrected frame covers the output — over the frames the clip actually uses.
         double lambda = 1.0;
         double zoom = 1.0;
         if (settings.Zoom)
         {
             double cap = 1.0 / Math.Clamp(settings.CroppingRatio, 0.5, 1.0);
-            if (Covered(resTx, resTy, resLog, resAngle, resG, resH, 1.0, cap, aspY, n))
+            if (Covered(resTx, resTy, resLog, resAngle, resG, resH, 1.0, cap, aspY, lo, hi))
             {
-                zoom = MinimalZoom(resTx, resTy, resLog, resAngle, resG, resH, cap, aspY, n);
+                zoom = MinimalZoom(resTx, resTy, resLog, resAngle, resG, resH, cap, aspY, lo, hi);
             }
             else
             {
                 zoom = cap;
-                lambda = MaxLambda(resTx, resTy, resLog, resAngle, resG, resH, cap, aspY, n);
+                lambda = MaxLambda(resTx, resTy, resLog, resAngle, resG, resH, cap, aspY, lo, hi);
             }
         }
 
@@ -197,7 +210,7 @@ public static class StabilizationSolver
     /// divide, so it is correct for the projective (Perspective) third row as well as the affine methods.</summary>
     private static bool Covered(
         double[] resTx, double[] resTy, double[] resLog, double[] resAngle, double[] resG, double[] resH,
-        double scale, double zoom, double aspY, int n)
+        double scale, double zoom, double aspY, int lo, int hi)
     {
         const double eps = 1e-9;
         double hx = 0.5, hy = 0.5 * aspY;
@@ -205,7 +218,7 @@ public static class StabilizationSolver
         [
             (-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy),
         ];
-        for (int i = 0; i < n; i++)
+        for (int i = lo; i <= hi; i++)
         {
             double[] m = BuildMatrix(
                 resTx[i] * scale, resTy[i] * scale, resLog[i] * scale, resAngle[i] * scale,
@@ -227,13 +240,13 @@ public static class StabilizationSolver
     /// caller has already confirmed the cap covers).</summary>
     private static double MinimalZoom(
         double[] resTx, double[] resTy, double[] resLog, double[] resAngle, double[] resG, double[] resH,
-        double cap, double aspY, int n)
+        double cap, double aspY, int first, int last)
     {
         double lo = 1.0, hi = cap;
         for (int iter = 0; iter < 40; iter++)
         {
             double mid = 0.5 * (lo + hi);
-            if (Covered(resTx, resTy, resLog, resAngle, resG, resH, 1.0, mid, aspY, n))
+            if (Covered(resTx, resTy, resLog, resAngle, resG, resH, 1.0, mid, aspY, first, last))
                 hi = mid;
             else
                 lo = mid;
@@ -245,18 +258,59 @@ public static class StabilizationSolver
     /// search). λ = 0 (no stabilization) always covers, so a value exists.</summary>
     private static double MaxLambda(
         double[] resTx, double[] resTy, double[] resLog, double[] resAngle, double[] resG, double[] resH,
-        double cap, double aspY, int n)
+        double cap, double aspY, int first, int last)
     {
         double lo = 0.0, hi = 1.0;
         for (int iter = 0; iter < 40; iter++)
         {
             double mid = 0.5 * (lo + hi);
-            if (Covered(resTx, resTy, resLog, resAngle, resG, resH, mid, cap, aspY, n))
+            if (Covered(resTx, resTy, resLog, resAngle, resG, resH, mid, cap, aspY, first, last))
                 lo = mid;
             else
                 hi = mid;
         }
         return lo;
+    }
+
+    /// <summary>
+    /// The inclusive track index span [first, last] of the frames the clip's used source range
+    /// [<paramref name="usedIn"/>, <paramref name="usedOut"/>] displays: from the frame shown at the in-point to
+    /// the frame shown at the out-point, each being the latest track sample at or before that time (the same
+    /// lookup the renderer uses per frame, clamped to the track's ends). The whole track when no range is given.
+    /// </summary>
+    private static (int First, int Last) UsedRange(IReadOnlyList<long> pts, Timecode? usedIn, Timecode? usedOut)
+    {
+        int n = pts.Count;
+        if (usedIn is not { } tin || usedOut is not { } tout || n == 0)
+            return (0, n - 1);
+
+        long a = Math.Min(tin.Ticks, tout.Ticks);
+        long b = Math.Max(tin.Ticks, tout.Ticks);
+        int first = LatestAtOrBefore(pts, a);
+        int last = Math.Max(first, LatestAtOrBefore(pts, b));
+        return (first, last);
+    }
+
+    /// <summary>The index of the latest sample at or before <paramref name="t"/> (0 when <paramref name="t"/>
+    /// precedes the track) — the renderer's frame lookup.</summary>
+    private static int LatestAtOrBefore(IReadOnlyList<long> pts, long t)
+    {
+        int lo = 0, hi = pts.Count - 1;
+        if (t <= pts[0])
+            return 0;
+        if (t >= pts[hi])
+            return hi;
+        while (lo <= hi)
+        {
+            int mid = (int)(((uint)lo + (uint)hi) >> 1);
+            if (pts[mid] == t)
+                return mid;
+            if (pts[mid] < t)
+                lo = mid + 1;
+            else
+                hi = mid - 1;
+        }
+        return Math.Max(0, lo - 1);
     }
 
     /// <summary>
@@ -309,9 +363,10 @@ public static class StabilizationSolver
         a[6] * b[0] + a[7] * b[3] + a[8] * b[6], a[6] * b[1] + a[7] * b[4] + a[8] * b[7], a[6] * b[2] + a[7] * b[5] + a[8] * b[8],
     ];
 
-    private static double[] SmoothChannel(double[] x, double radius, StabilizationMode mode, double fps) => mode switch
+    private static double[] SmoothChannel(double[] x, double radius, StabilizationMode mode, double fps, int lo, int hi) => mode switch
     {
-        StabilizationMode.CameraLock => Constant(x.Length, Mean(x)),
+        // The lock target is the mean over the frames the clip uses, so trimmed-away footage doesn't pull the framing.
+        StabilizationMode.CameraLock => Constant(x.Length, Mean(x, lo, hi)),
         StabilizationMode.SmoothCamera => AdaptiveSmooth(x, radius, fps),
         _ => GaussianSmooth(x, radius),
     };
@@ -371,7 +426,7 @@ public static class StabilizationSolver
             localMedV[i] = MedianInWindow(vel, i, wide);
         for (int i = 0; i < n; i++)
             dev[i] = Math.Abs(vel[i] - localMedV[i]);
-        double jitter = Median(dev) + 1e-9;
+        double jitter = Median(dev, 0, n - 1) + 1e-9;
 
         var outp = new double[n];
         for (int i = 0; i < n; i++)
@@ -400,12 +455,13 @@ public static class StabilizationSolver
         return outp;
     }
 
-    private static double ScaleReference(double[] rawLog, ScaleLockReference reference) => reference switch
+    /// <summary>The locked scale, taken over the used frames [<paramref name="lo"/>, <paramref name="hi"/>].</summary>
+    private static double ScaleReference(double[] rawLog, ScaleLockReference reference, int lo, int hi) => reference switch
     {
-        ScaleLockReference.Tightest => Max(rawLog),   // most zoomed-in = largest scale
-        ScaleLockReference.Widest => Min(rawLog),
-        ScaleLockReference.FirstFrame => rawLog[0],
-        _ => Median(rawLog),
+        ScaleLockReference.Tightest => Max(rawLog, lo, hi),   // most zoomed-in = largest scale
+        ScaleLockReference.Widest => Min(rawLog, lo, hi),
+        ScaleLockReference.FirstFrame => rawLog[lo],
+        _ => Median(rawLog, lo, hi),
     };
 
     private static double[] Constant(int n, double value)
@@ -417,39 +473,42 @@ public static class StabilizationSolver
 
     private static double Lerp(double a, double b, double t) => a + (b - a) * t;
 
-    private static double Mean(double[] x)
+    private static double Mean(double[] x) => Mean(x, 0, x.Length - 1);
+
+    private static double Mean(double[] x, int lo, int hi)
     {
-        if (x.Length == 0)
+        if (hi < lo)
             return 0;
         double sum = 0;
-        foreach (double v in x)
-            sum += v;
-        return sum / x.Length;
+        for (int i = lo; i <= hi; i++)
+            sum += x[i];
+        return sum / (hi - lo + 1);
     }
 
-    private static double Max(double[] x)
+    private static double Max(double[] x, int lo, int hi)
     {
-        double m = x[0];
-        foreach (double v in x)
-            if (v > m)
-                m = v;
+        double m = x[lo];
+        for (int i = lo + 1; i <= hi; i++)
+            if (x[i] > m)
+                m = x[i];
         return m;
     }
 
-    private static double Min(double[] x)
+    private static double Min(double[] x, int lo, int hi)
     {
-        double m = x[0];
-        foreach (double v in x)
-            if (v < m)
-                m = v;
+        double m = x[lo];
+        for (int i = lo + 1; i <= hi; i++)
+            if (x[i] < m)
+                m = x[i];
         return m;
     }
 
-    private static double Median(double[] x)
+    private static double Median(double[] x, int lo, int hi)
     {
-        if (x.Length == 0)
+        if (hi < lo)
             return 0;
-        var copy = (double[])x.Clone();
+        var copy = new double[hi - lo + 1];
+        Array.Copy(x, lo, copy, 0, copy.Length);
         Array.Sort(copy);
         int mid = copy.Length / 2;
         return copy.Length % 2 == 1 ? copy[mid] : 0.5 * (copy[mid - 1] + copy[mid]);
