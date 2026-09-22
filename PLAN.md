@@ -171,15 +171,18 @@ verification-only items carry their checklist in the step's history entry.
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →
   [plan/features/looks-browser.md](plan/features/looks-browser.md)
-- [ ] **Special effects roadmap** (unscheduled feature) — 🟡 **phases 1–2 shipped 2026-09-22**:
+- [ ] **Special effects roadmap** (unscheduled feature) — 🟡 **phases 1–3 shipped 2026-09-22**:
   phase 1 is the eight primitive image effects — Glow, Directional Blur, Zoom Blur, Heat Distortion,
   Shockwave, Chromatic Aberration, Impact Shake, Flicker — as registry SkSL effects on the existing
   `IVideoEffect` seam; phase 2 is the six atmospheric generators — Smoke, Fog, Dust, Embers, Sparks,
   Light Leak — on the existing generator seam, their Inspector rows built from the descriptor. Across
   both, every spatial value is a fraction of the frame/layer rect and every animated one a pure function
-  of the clip's local time, so preview and export match. Phases 3–6 open: action VFX presets, the
-  day-for-night toolkit, tracking + masking integration, docs & samples; Light Wrap and Lens Dirt are
-  deferred pending a compositing-context seam and an image-asset pipeline →
+  of the clip's local time, so preview and export match. Phase 3 is seven action VFX presets (Muzzle
+  Flash, Small Fire Burst, Ground Explosion, Explosion Aftermath, Burning Edge, Dust Hit, Aftershock) —
+  `ActionVfxCatalog` stacks of those generators plus a keyframed adjustment layer, inserted at the
+  playhead as one undoable composite of ordinary tracks/clips/effects (no new seam, no format change).
+  Phases 4–6 open: the day-for-night toolkit, tracking + masking integration, docs & samples; Light
+  Wrap and Lens Dirt are deferred pending a compositing-context seam and an image-asset pipeline →
   [plan/features/special-effects.md](plan/features/special-effects.md)
 - [x] **Convolution reverb (Acoustic Space)** — step 49, shipped 2026-08-26 (user WAV IR import; bundled
   IR library deliberately deferred on licensing) → [history](plan/history/steps-41-57.md#step-49)

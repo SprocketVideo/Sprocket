@@ -58,9 +58,11 @@ frames never touch the managed heap per frame.
 - **GPU effects & keyframing** — brightness, color, and geometric transform as SkSL shaders that
   compose identically on preview and export; animate any effect parameter with keyframe lanes and
   an editable velocity graph.
-- **Visual effects primitives** — glow/bloom, directional and zoom blur, heat distortion, shockwave,
+- **Visual effects** — glow/bloom, directional and zoom blur, heat distortion, shockwave,
   chromatic aberration, impact shake, and flicker, all deterministic GPU shaders sized as a fraction of
-  the frame, so a preview and an export of the same timeline match exactly.
+  the frame, so a preview and an export of the same timeline match exactly — plus one-click action VFX
+  presets (muzzle flash, fire burst, ground explosion, aftermath, burning edge, dust hit, aftershock)
+  that stack them with the atmospheric generators as ordinary, editable layers.
 - **Stabilization** — background motion analysis (cached per source) feeding a deterministic solve:
   adaptive intent-preserving smoothing, per-channel control, a cropping-budget auto-zoom, and a
   Scale Lock that fixes focus breathing — with a camera-path graph to see what was tracked.
@@ -100,8 +102,8 @@ OpenColorIO/OFX video (the managed plugin host, built-in effects, in-app Plugin 
 frame-interpolated slow motion (constant / ramped / reverse retime and freeze frames ship today) · a bundled
 impulse-response library (the Convolution Reverb with
 user IR import, Studio Reverb, Shimmer Reverb, and audio freeze ship today) · grading presets /
-creative looks · action VFX presets and day-for-night (the reusable effect primitives and the
-atmospheric generators ship today).
+creative looks · day-for-night (the reusable effect primitives, atmospheric generators and action VFX
+presets ship today).
 See the [Roadmap](#roadmap).
 
 ---
@@ -352,11 +354,9 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
   clip-audio freeze ship today).
 - **Grading presets / creative looks** — a Looks browser with one-click creative grades, saveable
   looks, and creative `.cube` LUTs (the grading suite and camera-log input transforms ship today).
-- **Action VFX & day-for-night** — coordinated fire / explosion / muzzle-flash presets, a guided
-  day-for-night grading toolkit, and tracked/masked placement. The pieces those are built from ship
-  today: the reusable primitives — glow, directional and zoom blur, heat distortion, shockwave,
-  chromatic aberration, impact shake, flicker — and the atmospheric generators — smoke, fog, dust,
-  embers, sparks, light leaks.
+- **Day-for-night & tracked VFX** — a guided day-for-night grading toolkit, and tracked/masked
+  placement of VFX. The reusable primitives, the atmospheric generators and the coordinated fire /
+  explosion / muzzle-flash action presets built from them ship today.
 - **Live stop-motion capture** — a capture mode with onion-skinning (deferred until packaging
   stabilizes; image-sequence import and stop-motion frame editing ship today).
 

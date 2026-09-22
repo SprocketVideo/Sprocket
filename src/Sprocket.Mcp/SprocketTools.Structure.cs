@@ -256,6 +256,49 @@ public sealed partial class SprocketTools
             }.ToJsonString();
         });
 
+    // ── Action VFX presets (plan/features/special-effects.md, phase 3) ─────────────────────────────────
+
+    [McpServerTool(Name = "list_action_vfx_presets", ReadOnly = true, Idempotent = true)]
+    [Description("The catalog of action-VFX presets (Muzzle Flash, Ground Explosion, Aftershock, …) that " +
+                 "add_action_vfx accepts: each preset's layers (generator overlays with their blend mode, or an " +
+                 "adjustment layer) and effect stacks, its duration and a placement hint.")]
+    public Task<string> ListActionVfxPresets() =>
+        _session.OnModelThreadAsync(_ => StateFormatter.ActionVfxPresets());
+
+    [McpServerTool(Name = "add_action_vfx")]
+    [Description("Inserts an action-VFX preset at the given time — treat startTicks as the impact frame; the " +
+                 "flash/decay keyframes start there. Its generator overlays and adjustment layer stack above " +
+                 "every video track with content over the span (reusing free tracks with a matching blend mode, " +
+                 "otherwise adding tracks), as one undo entry. Every layer is an ordinary clip afterwards: edit " +
+                 "with set_generator_parameter / set_effect_parameter, trim or remove freely.")]
+    public Task<string> AddActionVfx(
+        [Description("Preset id from list_action_vfx_presets, e.g. \"builtin.vfx.groundexplosion\".")] string presetId,
+        [Description("Timeline position of the impact frame, in ticks.")] long startTicks) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            ActionVfxDescriptor descriptor = ActionVfxCatalog.Find(presetId)
+                ?? throw new McpException($"unknown action VFX preset '{presetId}' — call list_action_vfx_presets.");
+            ActionVfxInsertion insertion = descriptor.PlanInsert(api.Project.Timeline, new Timecode(Math.Max(0, startTicks)));
+            api.History.Execute(insertion.Command);
+            api.RefreshPreview();
+            var clips = new JsonArray();
+            for (int i = 0; i < insertion.Clips.Count; i++)
+                clips.Add(new JsonObject
+                {
+                    ["layer"] = descriptor.Layers[i].Name,
+                    ["clip_id"] = RuntimeIds.IdOf(insertion.Clips[i]),
+                });
+            Clip first = insertion.Clips[0];
+            return new JsonObject
+            {
+                ["clips"] = clips,
+                ["start_ticks"] = first.TimelineStart.Ticks,
+                ["end_ticks"] = first.TimelineEnd.Ticks,
+                ["placement_hint"] = descriptor.PlacementHint,
+                ["history"] = StateFormatter.HistoryObject(api.History, $"added {descriptor.DisplayName}"),
+            }.ToJsonString();
+        });
+
     [McpServerTool(Name = "set_generator_text")]
     [Description("Sets a string attribute of a generator clip (its text, colors as #AARRGGBB hex, font " +
                  "family, alignment, scroll mode, …). See list_generator_types / get_clip for names. An " +

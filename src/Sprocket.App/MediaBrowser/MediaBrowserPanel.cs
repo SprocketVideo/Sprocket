@@ -74,6 +74,10 @@ public sealed class MediaBrowserPanel : UserControl
     /// selected clip. Dragging a transition onto a cut is handled by the timeline directly.</summary>
     public event Action<string>? TransitionActivated;
 
+    /// <summary>Raised when an Action VFX preset is double-clicked in the Effects browser (plan/features/
+    /// special-effects.md, phase 3); the shell inserts it at the timeline playhead.</summary>
+    public event Action<ActionVfxDescriptor>? ActionVfxActivated;
+
     /// <summary>Raised when the media-bin tile's "Interpret Footage…" is chosen (PLAN.md step 42); the shell opens
     /// the frame-rate dialog and runs the reinterpret command for the source.</summary>
     public event Action<MediaRef>? InterpretFootageRequested;
@@ -454,6 +458,58 @@ public sealed class MediaBrowserPanel : UserControl
 
         foreach (EffectDescriptor effect in EffectCatalog.All)
             _effectsList.Children.Add(EffectRow(effect));
+
+        // Action VFX presets (plan/features/special-effects.md, phase 3) — a visible group so users need not
+        // assemble fire/explosion stacks from the primitives. They insert at the playhead rather than applying
+        // to the selection, because each is a stack of new layers above the shot.
+        _effectsList.Children.Add(new TextBlock
+        {
+            Text = "ACTION VFX",
+            FontSize = Typography.Micro,
+            Foreground = MutedText,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Avalonia.Thickness(0, 10, 0, 0),
+        });
+        _effectsList.Children.Add(new TextBlock
+        {
+            Text = "Double-click to insert at the playhead, parked on the impact frame. Each layer stays editable.",
+            FontSize = Typography.Caption,
+            Foreground = FaintText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Avalonia.Thickness(0, 0, 0, 4),
+        });
+        foreach (ActionVfxDescriptor preset in ActionVfxCatalog.BuiltIns)
+            _effectsList.Children.Add(ActionVfxRow(preset));
+    }
+
+    private Control ActionVfxRow(ActionVfxDescriptor preset)
+    {
+        var title = new TextBlock { Text = preset.DisplayName, FontSize = Typography.Body, Foreground = TextBrush, FontWeight = FontWeight.SemiBold };
+        var layers = new TextBlock { Text = $"{preset.Layers.Count} layer{(preset.Layers.Count == 1 ? "" : "s")}", FontSize = Typography.Micro, Foreground = Accent };
+        var header = new DockPanel();
+        DockPanel.SetDock(layers, Dock.Right);
+        header.Children.Add(layers);
+        header.Children.Add(title);
+
+        var desc = new TextBlock
+        {
+            Text = preset.Description,
+            FontSize = Typography.Caption,
+            Foreground = MutedText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Avalonia.Thickness(0, 2, 0, 0),
+        };
+
+        var row = new Border
+        {
+            Background = RaisedBg,
+            CornerRadius = new Avalonia.CornerRadius(5),
+            Padding = new Avalonia.Thickness(8, 6),
+            Child = new StackPanel { Children = { header, desc } },
+        };
+        row.DoubleTapped += (_, _) => ActionVfxActivated?.Invoke(preset);
+        ToolTip.SetTip(row, $"Double-click to insert at the playhead. {preset.PlacementHint}");
+        return row;
     }
 
     private Control EffectRow(EffectDescriptor effect)

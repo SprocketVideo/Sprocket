@@ -182,6 +182,39 @@ public static class StateFormatter
         }.ToJsonString(Indented);
     }
 
+    /// <summary>The action-VFX preset catalog — the <c>list_action_vfx_presets</c> payload. Layers are listed
+    /// bottom-up with the effect types each stacks; exact values are read back per clip with <c>get_clip</c>.</summary>
+    public static string ActionVfxPresets()
+    {
+        var presets = new JsonArray();
+        foreach (ActionVfxDescriptor descriptor in ActionVfxCatalog.BuiltIns)
+        {
+            var layers = new JsonArray();
+            foreach (ActionVfxLayer layer in descriptor.Layers)
+            {
+                Clip sample = layer.CreateClip(Timecode.Zero, Timecode.FromSeconds(descriptor.DurationSeconds));
+                layers.Add(new JsonObject
+                {
+                    ["name"] = layer.Name,
+                    ["kind"] = layer.IsAdjustment ? "adjustment" : "generator",
+                    ["generator_type_id"] = layer.GeneratorTypeId,
+                    ["blend_mode"] = layer.BlendMode.ToString(),
+                    ["effects"] = new JsonArray([.. sample.Effects.Select(e => (JsonNode?)e.EffectTypeId)]),
+                });
+            }
+            presets.Add(new JsonObject
+            {
+                ["preset_id"] = descriptor.Id,
+                ["display_name"] = descriptor.DisplayName,
+                ["description"] = descriptor.Description,
+                ["placement_hint"] = descriptor.PlacementHint,
+                ["duration_seconds"] = descriptor.DurationSeconds,
+                ["layers"] = layers,
+            });
+        }
+        return new JsonObject { ["action_vfx_presets"] = presets }.ToJsonString(Indented);
+    }
+
     private static JsonObject ParameterDescriptorObject(EffectParameterDescriptor p)
     {
         var obj = new JsonObject

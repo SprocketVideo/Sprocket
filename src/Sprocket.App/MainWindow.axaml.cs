@@ -743,6 +743,17 @@ public partial class MainWindow : Window
         var adjustmentItem = new MenuItem { Header = "Adjustment Layer" };
         adjustmentItem.Click += (_, _) => _timeline?.InsertAdjustmentLayer();
         insertItems.Add(adjustmentItem);
+        // Action VFX presets (plan/features/special-effects.md, phase 3): multi-layer stacks inserted at the playhead.
+        var actionVfxItems = new System.Collections.Generic.List<MenuItem>();
+        foreach (ActionVfxDescriptor preset in ActionVfxCatalog.BuiltIns)
+        {
+            ActionVfxDescriptor p = preset; // capture per iteration
+            var item = new MenuItem { Header = p.DisplayName };
+            ToolTip.SetTip(item, $"{p.Description} {p.PlacementHint}");
+            item.Click += (_, _) => _timeline?.InsertActionVfx(p);
+            actionVfxItems.Add(item);
+        }
+        insertItems.Add(new MenuItem { Header = "Action VFX", ItemsSource = actionVfxItems });
         this.FindControl<MenuItem>("ClipInsertMenuItem")!.ItemsSource = insertItems;
 
         // ── Effects (populated from the registry incl. plugins, PLAN.md steps 15–16, 33; rebuilt on open so
@@ -1860,6 +1871,7 @@ public partial class MainWindow : Window
         browser.FilesDropped += paths => _ = ImportAsync(paths); // OS file-drop onto the bin (PLAN.md step 16b)
         // Double-clicking a transition in the browser applies it to the selected clip's cut (PLAN.md step 25).
         browser.TransitionActivated += id => _timeline?.ApplyTransitionToSelectedCut(id);
+        browser.ActionVfxActivated += preset => _timeline?.InsertActionVfx(preset);
         browser.InterpretFootageRequested += media => _ = InterpretFootageAsync(media); // PLAN.md step 42
         // Pre-warm the stabilization analysis cache for the whole source from the bin (FCP), so it's ready before
         // the effect is applied. Standard (non-detailed) analysis over the full source duration.

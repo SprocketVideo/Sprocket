@@ -595,6 +595,30 @@ public class SprocketToolsExtendedTests
     }
 
     [Fact]
+    public async Task Action_Vfx_Tools_List_And_Insert_A_Preset_As_One_Undo_Entry()
+    {
+        var session = new FakeEditorSession();
+        var tools = new SprocketTools(session);
+
+        JsonNode list = JsonNode.Parse(await tools.ListActionVfxPresets())!;
+        JsonNode explosion = list["action_vfx_presets"]!.AsArray()
+            .Single(p => (string)p!["preset_id"]! == ActionVfxIds.GroundExplosion)!;
+        Assert.Equal("adjustment", (string)explosion["layers"]!.AsArray().Last()!["kind"]!);
+
+        int tracksBefore = session.Project.Timeline.Tracks.Count;
+        JsonNode added = JsonNode.Parse(await tools.AddActionVfx(ActionVfxIds.GroundExplosion, 240000))!;
+        JsonArray clips = added["clips"]!.AsArray();
+        Assert.Equal(ActionVfxCatalog.Find(ActionVfxIds.GroundExplosion)!.Layers.Count, clips.Count);
+        foreach (JsonNode? c in clips)
+            Assert.NotNull(RuntimeIds.FindClip(session.Project, (int)c!["clip_id"]!, out _));
+        Assert.Equal(240000, (long)added["start_ticks"]!);
+
+        await tools.Undo();
+        Assert.Equal(tracksBefore, session.Project.Timeline.Tracks.Count);
+        await Assert.ThrowsAsync<McpException>(() => tools.AddActionVfx("builtin.vfx.nope", 0));
+    }
+
+    [Fact]
     public async Task Audio_Chain_Tools_Manage_All_Three_Scopes()
     {
         var session = new FakeEditorSession();

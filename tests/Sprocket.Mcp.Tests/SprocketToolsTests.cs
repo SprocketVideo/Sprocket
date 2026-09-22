@@ -52,6 +52,8 @@ public class SprocketToolsTests
             "stop", "go_to_start", "go_to_end", "step_frames",
             // Stabilization tools (stabilization phase 6)
             "stabilization_status", "stabilization_analyze",
+            // Action VFX presets (special-effects phase 3)
+            "list_action_vfx_presets", "add_action_vfx",
         ];
         Assert.Equal(expected.Length, names.Count);
         foreach (string name in expected)

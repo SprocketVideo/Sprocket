@@ -1,6 +1,6 @@
 # Action VFX and day-for-night
 
-🟡 **Phases 1–2 shipped 2026-09-22; phases 3–6 open.** Unscheduled feature; tracked in
+🟡 **Phases 1–3 shipped 2026-09-22; phases 4–6 open.** Unscheduled feature; tracked in
 [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** add a practical special-effects roadmap centered on three editorially useful
@@ -90,7 +90,7 @@ finished, and day-for-night becomes more credible once the grading-preset surfac
 |---|---|---|---|
 | 1 | Primitive image effects ✅ (2026-09-22) | existing effect seam | Glow/bloom, heat haze, shockwave, directional blur, zoom blur, flicker, chromatic aberration, impact shake |
 | 2 | Atmospheric generators ✅ (2026-09-22) | 1 | Smoke, Fog, Dust, Embers, Sparks, Light Leak; usable as standalone mood layers |
-| 3 | Action VFX presets | 1–2 | Fire / explosion / muzzle-flash preset stacks over overlays and generators |
+| 3 | Action VFX presets ✅ (2026-09-22) | 1–2 | Fire / explosion / muzzle-flash preset stacks over overlays and generators |
 | 4 | Day-for-night toolkit | grading + looks work | Guided preset stack over the existing grading system; likely the highest practical user value |
 | 5 | Tracking / masking integration | stabilization + future masks | Motion attachment, better placement, sky/subject isolation, occlusion |
 | 6 | Polish / docs / samples | 1–5 | Tutorials, sample assets policy, FEATURES/README close-out if shipped |
@@ -237,6 +237,53 @@ thinning, light-leak anchoring and width).
 **Not in phase 2:** no imported alpha-stock workflow changes were needed — step 26's alpha media import
 already composites stock elements, which stays the recommended route for fire and explosion plates
 (phase 3).
+
+## Phase 3 — ✅ DONE (2026-09-22)
+
+Seven action presets that assemble the phase-1 effects and phase-2 generators into editorial building
+blocks. `ActionVfxCatalog` (`Sprocket.Core/Model/ActionVfxCatalog.cs`, ids in `ActionVfxIds`) registers each
+as an `ActionVfxDescriptor` — a name, a one-line description, a **placement hint**, a duration, and a
+bottom-up list of `ActionVfxLayer`s (a generator overlay with its blend mode, or an adjustment layer), each
+with its effect stack and keyframes. `PlanInsert(timeline, at)` expands a preset into **one**
+`CompositeCommand` of ordinary `AddTrackCommand` / `AddClipCommand`s; the App (`TimelineControl.InsertActionVfx`)
+and MCP (`add_action_vfx`) both execute that plan, so the UI, the AI and the tests cannot drift.
+
+**Shipped:** Muzzle Flash, Small Fire Burst, Ground Explosion, Explosion Aftermath, Burning Edge, Dust Hit,
+Aftershock. Entry points: **Clip ▸ Insert ▸ Action VFX**, the Effects browser's **ACTION VFX** group
+(double-click), and MCP `list_action_vfx_presets` / `add_action_vfx`.
+
+**Decisions worth keeping:**
+
+- **A preset is a bundle, not a new seam.** A single `EffectPreset` (one effect's values) cannot express a
+  generator + blend mode + an effect stack on another layer, so phase 3 adds the one small multi-layer model
+  the sketch anticipated — but it only ever *produces* existing model types. No render-graph, persistence,
+  Inspector or project-format change: an inserted preset saves, round-trips, trims and undoes like
+  hand-built layers, and every value stays editable (the Premiere / Resolve "an effects preset is a starting
+  stack" behaviour, not an opaque mega-effect).
+- **Plate-wide motion rides on an adjustment layer on top.** Shake, shockwave, zoom blur, fringing and the
+  interactive-light exposure pop must move the plate *and* the overlays together, so every preset that has
+  them ends with an adjustment layer above its overlays rather than decorating the selected clip. No preset
+  needs a selection — the playhead alone places it.
+- **The playhead is the impact frame.** Keyframes are absolute timeline time, so each layer's decays are
+  authored relative to the hit and anchored at insert time; decays use EaseIn (fast departure, gentle
+  landing) — the shape of a real hit settling.
+- **Blend modes live on the track, so layers get tracks.** Each layer lands above every video track with
+  content over the preset's span; it reuses a free track above that floor whose blend mode already matches
+  (a second hit later in the scene shares the first hit's VFX tracks) and otherwise stacks a new track with
+  the right mode. An overlapping hit therefore stacks above rather than colliding.
+- **Durations snap up to whole frames** of the sequence rate, so every layer ends on a frame boundary at
+  23.976 as well as 24/25/30.
+- **Honest scope.** The procedural layers are the *interactive* part of a hit — light, shake, distortion,
+  debris, smoke. The flame or fireball plate itself is still best sourced as imported alpha stock (step 26),
+  which the placement hints say; phase 3 adds no fire generator.
+
+**Tests:** `tests/Sprocket.Core.Tests/ActionVfxCatalogTests.cs` (catalog coverage; every preset built only
+from registered generators/effects with every constant and keyframe inside the descriptor's range and inside
+the clip; frame-snapped duration; command expansion — layer order, blend modes, adjustment on top, one undo
+entry, undo/redo; keyframes anchored at the insert point; track reuse for non-overlapping hits and stacking
+for overlapping ones; the render graph resolving the stack bottom-up with the flash at its peak) plus an MCP
+round-trip in `tests/Sprocket.Mcp.Tests/SprocketToolsExtendedTests.cs`. No new render tests — phase 3 adds
+no shader; its parts are covered by the phase-1/2 suites.
 
 ## UI notes
 

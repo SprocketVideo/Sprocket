@@ -1063,6 +1063,24 @@ public sealed class TimelineControl : Control
             t => descriptor.CreateClip(GeneratorCatalog.DefaultDuration, t), $"Insert {descriptor.DisplayName}");
     }
 
+    /// <summary>
+    /// Inserts an action-VFX preset (plan/features/special-effects.md, phase 3) at the playhead — the playhead is
+    /// the impact frame. Its generator overlays and adjustment layer stack above the content under the span, on
+    /// reused or new tracks with the right blend modes, as one undo entry; the first layer becomes the selection
+    /// and the status line carries the preset's placement hint.
+    /// </summary>
+    public void InsertActionVfx(ActionVfxDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        if (_history is null || _project is null)
+            return;
+        ActionVfxInsertion insertion = descriptor.PlanInsert(_project.Timeline, _playhead);
+        Execute(insertion.Command);
+        Select(insertion.Clips[0]);
+        ClipPlaced?.Invoke();
+        Status?.Invoke($"Inserted {descriptor.DisplayName}. {descriptor.PlacementHint}");
+    }
+
     /// <summary>Inserts an adjustment layer at the playhead (PLAN.md step 19): its effects grade the tracks below
     /// it for its span. Always lands on a track above the content so it doesn't displace it.</summary>
     public void InsertAdjustmentLayer() =>
