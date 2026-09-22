@@ -944,6 +944,14 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Delete || e.Key == Key.Back) { _timeline?.DeleteSelected(); e.Handled = true; }
         else if (alt && e.Key == Key.Left) { _timeline?.NudgeSelected(-1); e.Handled = true; }
         else if (alt && e.Key == Key.Right) { _timeline?.NudgeSelected(+1); e.Handled = true; }
+        // Frame step on the active monitor: ←/→ one frame, Shift+←/→ five (the Premiere convention; FCP/Avid step
+        // ten). Home/End jump to the start/end, as in every leading editor. Bare keys, so they sit below the text
+        // guard; a focused slider or list handles its own arrows first (this is the window's bubbling handler),
+        // and Alt+←/→ (nudge) is matched above.
+        else if (!primary && !ctrl && e.Key == Key.Left) { _active?.StepFrame(shift ? -5 : -1); e.Handled = true; }
+        else if (!primary && !ctrl && e.Key == Key.Right) { _active?.StepFrame(shift ? +5 : +1); e.Handled = true; }
+        else if (!primary && !ctrl && !shift && e.Key == Key.Home) { _active?.JumpToStart(); e.Handled = true; }
+        else if (!primary && !ctrl && !shift && e.Key == Key.End) { _active?.JumpToEnd(); e.Handled = true; }
         // Activate a work area directly (Shift+1 Project, Shift+2 Timeline, Shift+3 Monitor, Shift+4 Inspector —
         // the Premiere-style "activate panel by number" convention, see WorkAreaFocus.TryDirectKey). Sits above
         // the bare 1–9 multicam angle keys, which are gated on !shift so the two never collide, and below the

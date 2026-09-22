@@ -448,7 +448,7 @@
                    geometry, not glyph text, so they render identically across platforms. -->
               <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" VerticalAlignment="Center">
                 <Button x:Name="JumpStartButton" Grid.Column="0" Classes="transport"
-                        AutomationProperties.Name="Jump to start" ToolTip.Tip="Jump to start">
+                        AutomationProperties.Name="Jump to start" ToolTip.Tip="Jump to start — press Home">
                   <Path Data="{x:Static local:Icons.SkipBack}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
                         StrokeLineCap="Round" StrokeJoin="Round" Width="10.5" Height="12" Stretch="Uniform" />
                 </Button>
@@ -460,7 +460,7 @@
                      transport row's 12px (14px for the composite chevron+diamond icons) reference dimension;
                      the other is that icon's own aspect-derived literal. -->
                 <Button x:Name="StepBackButton" Grid.Column="1" Classes="transport" Margin="4,0,0,0"
-                        AutomationProperties.Name="Step back one frame" ToolTip.Tip="Step back one frame">
+                        AutomationProperties.Name="Step back one frame" ToolTip.Tip="Step back one frame — press ← (Shift+← for five)">
                   <Path Data="{x:Static local:Icons.Rewind}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
                         StrokeLineCap="Round" StrokeJoin="Round" Width="12" Height="8.4" Stretch="Uniform" />
                 </Button>
@@ -470,12 +470,12 @@
                   <Path x:Name="PlayPauseIcon" Data="{x:Static local:Icons.Play}" Fill="White" Width="9.3" Height="12" Stretch="Uniform" />
                 </Button>
                 <Button x:Name="StepForwardButton" Grid.Column="3" Classes="transport" Margin="4,0,0,0"
-                        AutomationProperties.Name="Step forward one frame" ToolTip.Tip="Step forward one frame">
+                        AutomationProperties.Name="Step forward one frame" ToolTip.Tip="Step forward one frame — press → (Shift+→ for five)">
                   <Path Data="{x:Static local:Icons.FastForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
                         StrokeLineCap="Round" StrokeJoin="Round" Width="12" Height="8.4" Stretch="Uniform" />
                 </Button>
                 <Button x:Name="JumpEndButton" Grid.Column="4" Classes="transport" Margin="4,0,0,0"
-                        AutomationProperties.Name="Jump to end" ToolTip.Tip="Jump to end">
+                        AutomationProperties.Name="Jump to end" ToolTip.Tip="Jump to end — press End">
                   <Path Data="{x:Static local:Icons.SkipForward}" Stroke="{DynamicResource Text}" StrokeThickness="1.7"
                         StrokeLineCap="Round" StrokeJoin="Round" Width="10.5" Height="12" Stretch="Uniform" />
                 </Button>
