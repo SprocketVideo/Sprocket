@@ -274,6 +274,16 @@ half4 main(float2 coord) {
         RegisterEffect(new Effects.HslQualifierEffect());
         // Black & White (plan/features/black-and-white.md) — the film-emulation monochrome effect.
         RegisterEffect(new Effects.BlackWhiteEffect());
+        // Action-VFX primitives (plan/features/special-effects.md, phase 1) — the reusable optical and
+        // geometric building blocks the later action / atmospheric / day-for-night presets combine.
+        RegisterEffect(new Effects.GlowEffect());
+        RegisterEffect(new Effects.DirectionalBlurEffect());
+        RegisterEffect(new Effects.ZoomBlurEffect());
+        RegisterEffect(new Effects.HeatDistortionEffect());
+        RegisterEffect(new Effects.ShockwaveEffect());
+        RegisterEffect(new Effects.ChromaticAberrationEffect());
+        RegisterEffect(new Effects.ImpactShakeEffect());
+        RegisterEffect(new Effects.FlickerEffect());
     }
 
     /// <summary>

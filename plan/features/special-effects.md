@@ -88,7 +88,7 @@ finished, and day-for-night becomes more credible once the grading-preset surfac
 
 | Phase | Ships | Depends | Notes |
 |---|---|---|---|
-| 1 | Primitive image effects | existing effect seam | Glow/bloom, heat haze, shockwave, directional blur, flicker, chromatic aberration, impact shake |
+| 1 | Primitive image effects ✅ (2026-09-22) | existing effect seam | Glow/bloom, heat haze, shockwave, directional blur, zoom blur, flicker, chromatic aberration, impact shake |
 | 2 | Atmospheric generators | 1 | Smoke, embers, dust, light leaks; usable as standalone mood layers |
 | 3 | Action VFX presets | 1–2 | Fire / explosion / muzzle-flash preset stacks over overlays and generators |
 | 4 | Day-for-night toolkit | grading + looks work | Guided preset stack over the existing grading system; likely the highest practical user value |
@@ -129,6 +129,55 @@ finished, and day-for-night becomes more credible once the grading-preset surfac
 - `Day for Night - Exterior Wide`
 - `Day for Night - Street Scene`
 - `Day for Night - Blue Moon`
+
+
+## Phase 1 — ✅ DONE (2026-09-22)
+
+Eight registry SkSL effects on the existing `IVideoEffect` seam (`Sprocket.Render/Effects/*Effect.cs`,
+registered in `SkiaEffectPipeline`'s static constructor next to the grading toolset), their descriptors in
+`EffectCatalog.BuiltIns` under `EffectCategory.Video`, and their ids/parameter names in `EffectTypeIds` /
+`EffectParamNames`. No new seam, no pipeline special-case, no App change — `EffectRelevance` offers every
+Video-category descriptor to video-track clips already, and the Inspector builds each control from the
+descriptor, so the eight appear in the Effects browser, the Effects menu, the Inspector, and MCP with no
+per-effect UI code.
+
+**Shipped:** Glow (`GL`), Directional Blur (`DB`), Zoom Blur (`ZB`), Heat Distortion (`HD`), Shockwave
+(`SW`), Chromatic Aberration (`CA`), Impact Shake (`IS`), Flicker (`FL`).
+
+**Decisions worth keeping:**
+
+- **Everything spatial is a fraction of the layer rect**, read from the reserved `sprocket_bounds` uniform,
+  never a pixel count. This is what makes a preview at one resolution and an export at another produce the
+  same picture (§5); `VfxPrimitiveCatalogTests` guards it at the descriptor level.
+- **Time-driven effects read the reserved `sprocket_time` uniform** (Heat Distortion, Impact Shake,
+  Flicker) and use hashed value noise rather than a texture or any hidden state, so each is a pure function
+  of (project, time) — asserted by the "is a pure function of frame time" render tests.
+- **Shockwave's ring position is an ordinary keyframeable `Radius`**, not an internal clock. The user owns
+  the timing (After Effects' CC Ripple / Resolve's Ripple convention), the wave retimes with the clip, and
+  the render stays deterministic. Same reasoning puts the decay of Impact Shake on a keyframed `Amount`.
+- **Impact Shake's `Amount` is a master intensity** that scales the roll as well as the throw, so one
+  keyframe lane decays the whole hit — the After Effects wiggle-amplitude / FCP Earthquake behaviour.
+  `Overscan` (default 105%) keeps the shake off the frame edge.
+- **The keyframe-driven three default to identity** (Zoom Blur / Chromatic Aberration `Amount` 0, Shockwave
+  `Radius` 0) so dropping one on a clip never causes a visible jump; the always-on ones (Glow, Heat
+  Distortion, Flicker, Impact Shake) default to a usable look.
+- **Blur cost is honest and bounded.** Each tap re-evaluates the upstream chain (the shader-graph model,
+  §7), so Glow is 25 taps and the two blurs 13–15 — enough that a small highlight does not ring, few enough
+  to stay a single pass. A true separable/downsampled bloom would need an offscreen round-trip and belongs
+  with the phase-5 work if it is ever wanted.
+- **Premultiplied-alpha discipline throughout.** Glow raises alpha along with the added light so a bloom
+  can spill past an alpha layer's edge; Chromatic Aberration recombines its three samples unpremultiplied
+  so channels taken at different alphas do not contaminate each other; Flicker clamps back to the pixel's
+  own alpha.
+
+**Tests:** `tests/Sprocket.Render.Tests/VfxPrimitiveEffectTests.cs` (27 offscreen render tests — a
+pass-through assertion at each effect's neutral setting, a behavioural assertion for what it claims to do,
+and frame-time determinism for the three animated ones) and
+`tests/Sprocket.Core.Tests/VfxPrimitiveCatalogTests.cs` (registration, category, parameter sets,
+identity defaults, resolution-independence, no presets yet).
+
+**Not in phase 1:** Light Wrap and Lens Dirt / Edge Burn — see the candidate list above for why each needs
+a seam phase 1 does not have.
 
 ## UI notes
 

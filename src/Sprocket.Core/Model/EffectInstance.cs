@@ -121,6 +121,79 @@ public static class EffectTypeIds
     /// </summary>
     public const string Stabilization = "builtin.stabilization";
 
+    // ── Action-VFX primitives (plan/features/special-effects.md, phase 1) ────────────────────────────
+    // Reusable optical/geometric primitives the later action + atmospheric presets are assembled from.
+    // All are registry SkSL effects on the IVideoEffect seam, and all express their spatial parameters as
+    // a fraction of the layer rect (the reserved `sprocket_bounds` uniform) so a preview at one resolution
+    // and an export at another produce the same picture (§5).
+
+    /// <summary>
+    /// Glow / Bloom (plan/features/special-effects.md): a threshold bright-pass blurred over a ring kernel
+    /// and added back optically — the halation every fire/explosion/practical-light composite needs.
+    /// Parameters: <see cref="EffectParamNames.Threshold"/>, <see cref="EffectParamNames.Radius"/>,
+    /// <see cref="EffectParamNames.Intensity"/>.
+    /// </summary>
+    public const string Glow = "builtin.glow";
+
+    /// <summary>
+    /// Directional Blur (plan/features/special-effects.md): a linear smear along an angle — the After Effects
+    /// / Resolve "Directional Blur" primitive, used for speed, impacts and motion cheats. Parameters:
+    /// <see cref="EffectParamNames.Angle"/>, <see cref="EffectParamNames.BlurLength"/>.
+    /// </summary>
+    public const string DirectionalBlur = "builtin.directionalblur";
+
+    /// <summary>
+    /// Zoom Blur (plan/features/special-effects.md): a radial smear along the rays from a centre point —
+    /// the "Radial Blur (Zoom)" primitive used for impacts, punch-ins and explosion hits. Parameters:
+    /// <see cref="EffectParamNames.CenterX"/>/<see cref="EffectParamNames.CenterY"/>,
+    /// <see cref="EffectParamNames.Amount"/>.
+    /// </summary>
+    public const string ZoomBlur = "builtin.zoomblur";
+
+    /// <summary>
+    /// Heat Distortion (plan/features/special-effects.md): animated smooth-noise refraction — the shimmer over
+    /// fire, exhaust and hot ground. Deterministic in the frame's time, so preview and export match.
+    /// Parameters: <see cref="EffectParamNames.Amount"/>, <see cref="EffectParamNames.NoiseScale"/>,
+    /// <see cref="EffectParamNames.Speed"/>.
+    /// </summary>
+    public const string HeatDistortion = "builtin.heatdistortion";
+
+    /// <summary>
+    /// Shockwave (plan/features/special-effects.md): a radial ring displacement expanding from a centre — the
+    /// blast wave of an explosion or impact. The ring's <see cref="EffectParamNames.Radius"/> is an ordinary
+    /// keyframeable parameter (rather than being driven by a hidden clock), so the user owns the timing and
+    /// the result stays a pure function of (project, time). Parameters:
+    /// <see cref="EffectParamNames.CenterX"/>/<see cref="EffectParamNames.CenterY"/>,
+    /// <see cref="EffectParamNames.Radius"/>, <see cref="EffectParamNames.RingWidth"/>,
+    /// <see cref="EffectParamNames.Amplitude"/>.
+    /// </summary>
+    public const string Shockwave = "builtin.shockwave";
+
+    /// <summary>
+    /// Chromatic Aberration (plan/features/special-effects.md): red/blue channels scaled apart radially from a
+    /// centre — lens fringing, used both as a lens-realism pass and as an impact accent. Parameters:
+    /// <see cref="EffectParamNames.Amount"/>, <see cref="EffectParamNames.CenterX"/>/<see cref="EffectParamNames.CenterY"/>.
+    /// </summary>
+    public const string ChromaticAberration = "builtin.chromaticaberration";
+
+    /// <summary>
+    /// Impact Shake (plan/features/special-effects.md): deterministic camera-shake — noise-driven translation
+    /// and roll from the frame's time, with an <see cref="EffectParamNames.Overscan"/> zoom so the shake never
+    /// reveals the frame edge. The inverse of <see cref="Stabilization"/>, and the standard finishing move on
+    /// an explosion or a hit. Parameters: <see cref="EffectParamNames.Amount"/>,
+    /// <see cref="EffectParamNames.Frequency"/>, <see cref="EffectParamNames.Rotation"/>,
+    /// <see cref="EffectParamNames.Overscan"/>.
+    /// </summary>
+    public const string ImpactShake = "builtin.impactshake";
+
+    /// <summary>
+    /// Flicker / Exposure Pulse (plan/features/special-effects.md): a time-driven exposure modulation between a
+    /// clean sine and hashed noise — firelight, failing practicals, muzzle-flash throb. Deterministic in the
+    /// frame's time. Parameters: <see cref="EffectParamNames.Amount"/>, <see cref="EffectParamNames.Frequency"/>,
+    /// <see cref="EffectParamNames.Randomness"/>.
+    /// </summary>
+    public const string Flicker = "builtin.flicker";
+
     /// <summary>
     /// Audio gain/pan (PLAN.md step 31): a static per-chain-stage gain (<see cref="EffectParamNames.GainDb"/>)
     /// and stereo balance (<see cref="EffectParamNames.Pan"/>), the simplest audio DSP stage.
@@ -286,7 +359,11 @@ public static class EffectTypeIds
 /// <summary>Well-known parameter names used by the built-in effects.</summary>
 public static class EffectParamNames
 {
-    /// <summary>Brightness multiplier (1.0 = unchanged).</summary>
+    /// <summary>Brightness multiplier (1.0 = unchanged) — <see cref="EffectTypeIds.Brightness"/>; also the
+    /// generic "how much of this effect" amount in [0, 1] for the action-VFX primitives
+    /// (<see cref="EffectTypeIds.ZoomBlur"/>, <see cref="EffectTypeIds.HeatDistortion"/>,
+    /// <see cref="EffectTypeIds.ChromaticAberration"/>, <see cref="EffectTypeIds.ImpactShake"/>,
+    /// <see cref="EffectTypeIds.Flicker"/>), whose descriptors declare their own range.</summary>
     public const string Amount = "amount";
 
     /// <summary>Opacity / gain multiplier in [0, 1] — used by <see cref="EffectTypeIds.Fade"/> and
@@ -533,6 +610,56 @@ public static class EffectParamNames
     /// <summary>Hide Warning Banner toggle (0/1): suppress the monitor "needs analysis / analyzing / low
     /// confidence" banner — <see cref="EffectTypeIds.Stabilization"/>.</summary>
     public const string HideBanner = "hideBanner";
+
+    // ── Action-VFX primitives (plan/features/special-effects.md, phase 1) ────────────────────────────
+    // Spatial parameters are fractions of the layer rect, never pixels, so the same values render the same
+    // picture at preview resolution and at export resolution.
+
+    /// <summary>Bright-pass threshold in [0, 1] — only luma above it glows — <see cref="EffectTypeIds.Glow"/>.</summary>
+    public const string Threshold = "threshold";
+
+    /// <summary>Glow spread as a fraction of the frame width — <see cref="EffectTypeIds.Glow"/>.</summary>
+    public const string Radius = "radius";
+
+    /// <summary>How strongly the blurred bright-pass is added back (1.0 = unity) — <see cref="EffectTypeIds.Glow"/>.</summary>
+    public const string Intensity = "intensity";
+
+    /// <summary>Blur direction in degrees, clockwise from horizontal — <see cref="EffectTypeIds.DirectionalBlur"/>.</summary>
+    public const string Angle = "angle";
+
+    /// <summary>Blur smear length as a fraction of the frame width — <see cref="EffectTypeIds.DirectionalBlur"/>.</summary>
+    public const string BlurLength = "blurLength";
+
+    /// <summary>Effect centre X in [0, 1] across the layer (0.5 = centre) — <see cref="EffectTypeIds.ZoomBlur"/>,
+    /// <see cref="EffectTypeIds.Shockwave"/>, <see cref="EffectTypeIds.ChromaticAberration"/>.</summary>
+    public const string CenterX = "centerX";
+
+    /// <summary>Effect centre Y in [0, 1] down the layer (0.5 = centre) — <see cref="EffectTypeIds.ZoomBlur"/>,
+    /// <see cref="EffectTypeIds.Shockwave"/>, <see cref="EffectTypeIds.ChromaticAberration"/>.</summary>
+    public const string CenterY = "centerY";
+
+    /// <summary>Noise cells across the frame — larger is finer shimmer — <see cref="EffectTypeIds.HeatDistortion"/>.</summary>
+    public const string NoiseScale = "noiseScale";
+
+    /// <summary>Animation rate multiplier for a time-driven effect — <see cref="EffectTypeIds.HeatDistortion"/>.</summary>
+    public const string Speed = "speed";
+
+    /// <summary>Shockwave ring thickness as a fraction of the frame half-diagonal — <see cref="EffectTypeIds.Shockwave"/>.</summary>
+    public const string RingWidth = "ringWidth";
+
+    /// <summary>Shockwave displacement height as a fraction of the frame width — <see cref="EffectTypeIds.Shockwave"/>.</summary>
+    public const string Amplitude = "amplitude";
+
+    /// <summary>Oscillation rate in Hz for a time-driven effect — <see cref="EffectTypeIds.ImpactShake"/>,
+    /// <see cref="EffectTypeIds.Flicker"/>.</summary>
+    public const string Frequency = "frequency";
+
+    /// <summary>Scale-up factor (1.0 = none) that keeps a displacement from revealing the frame edge —
+    /// <see cref="EffectTypeIds.ImpactShake"/>.</summary>
+    public const string Overscan = "overscan";
+
+    /// <summary>Blend in [0, 1] from a clean periodic waveform (0) to hashed noise (1) — <see cref="EffectTypeIds.Flicker"/>.</summary>
+    public const string Randomness = "randomness";
 
     /// <summary>Gain in decibels (0 = unity) — <see cref="EffectTypeIds.AudioGain"/>.</summary>
     public const string GainDb = "gainDb";

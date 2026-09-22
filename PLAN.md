@@ -171,9 +171,13 @@ verification-only items carry their checklist in the step's history entry.
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →
   [plan/features/looks-browser.md](plan/features/looks-browser.md)
-- [ ] **Special effects roadmap** (unscheduled feature) — practical action VFX and day-for-night on
-  the existing effect/compositing seams: fire and explosion composites via overlays, generators,
-  distortion/light primitives, plus a guided day-for-night toolkit rather than full simulation →
+- [ ] **Special effects roadmap** (unscheduled feature) — 🟡 **phase 1 shipped 2026-09-22**: the eight
+  primitive image effects — Glow, Directional Blur, Zoom Blur, Heat Distortion, Shockwave, Chromatic
+  Aberration, Impact Shake, Flicker — as registry SkSL effects on the existing `IVideoEffect` seam, every
+  spatial value a fraction of the layer rect and every animated one a pure function of frame time, so
+  preview and export match. Phases 2–6 open: atmospheric generators (smoke / embers / dust / fog / light
+  leaks), action VFX presets, the day-for-night toolkit, tracking + masking integration, docs & samples;
+  Light Wrap and Lens Dirt are deferred pending a compositing-context seam and an image-asset pipeline →
   [plan/features/special-effects.md](plan/features/special-effects.md)
 - [x] **Convolution reverb (Acoustic Space)** — step 49, shipped 2026-08-26 (user WAV IR import; bundled
   IR library deliberately deferred on licensing) → [history](plan/history/steps-41-57.md#step-49)

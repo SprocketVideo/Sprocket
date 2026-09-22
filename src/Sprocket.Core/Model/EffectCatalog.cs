@@ -246,6 +246,127 @@ public static class EffectCatalog
             Presets = StabilizationPresets.All,
         },
 
+        // ── Action-VFX primitives (plan/features/special-effects.md, phase 1) — registry SkSL effects, the
+        // reusable optical/geometric building blocks the later action, atmospheric and day-for-night presets
+        // combine. Naming and default values follow the equivalent After Effects / Resolve primitives so the
+        // controls read the way editors expect. Every spatial value is a fraction of the layer rect, so a
+        // preview at one resolution and an export at another match (§5). ──
+        new EffectDescriptor(
+            EffectTypeIds.Glow,
+            "Glow",
+            EffectCategory.Video,
+            "Blooms the brightest parts of the image outward — halation for fire, explosions and practical lights.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.Threshold, "Threshold", 0.7, 0.0, 1.0, 0.01, "%",
+                    "How bright a pixel must be before it glows (lower = more of the image blooms).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Radius, "Radius", 0.03, 0.0, 0.25, 0.005, "%",
+                    "How far the glow spreads, as a fraction of the frame width.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Intensity, "Intensity", 1.0, 0.0, 4.0, 0.05, "%",
+                    "How strongly the glow is added back over the picture (100% = unity).") { DisplayScale = 100 },
+            ]) { ShortCode = "GL" },
+
+        new EffectDescriptor(
+            EffectTypeIds.DirectionalBlur,
+            "Directional Blur",
+            EffectCategory.Video,
+            "Smears the image along one angle — speed, impacts, and faked motion blur.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.Angle, "Angle", 0.0, -180.0, 180.0, 1.0, "°",
+                    "Direction of the smear, in degrees clockwise from horizontal."),
+                new EffectParameterDescriptor(EffectParamNames.BlurLength, "Length", 0.02, 0.0, 0.25, 0.005, "%",
+                    "How long the smear is, as a fraction of the frame width.") { DisplayScale = 100 },
+            ]) { ShortCode = "DB" },
+
+        new EffectDescriptor(
+            EffectTypeIds.ZoomBlur,
+            "Zoom Blur",
+            EffectCategory.Video,
+            "Smears the image along the rays from a centre point — punch-ins, hits and blast moments.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.Amount, "Amount", 0.0, 0.0, 1.0, 0.01, "%",
+                    "How far the image is smeared toward and away from the centre.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.CenterX, "Center X", 0.5, 0.0, 1.0, 0.01,
+                    Description: "Horizontal centre of the zoom (0 = left edge, 1 = right edge)."),
+                new EffectParameterDescriptor(EffectParamNames.CenterY, "Center Y", 0.5, 0.0, 1.0, 0.01,
+                    Description: "Vertical centre of the zoom (0 = top edge, 1 = bottom edge)."),
+            ]) { ShortCode = "ZB" },
+
+        new EffectDescriptor(
+            EffectTypeIds.HeatDistortion,
+            "Heat Distortion",
+            EffectCategory.Video,
+            "Animated refraction shimmer — the air over fire, exhaust, or hot ground.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.Amount, "Amount", 0.01, 0.0, 0.1, 0.001, "%",
+                    "How far the image is refracted, as a fraction of the frame width.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.NoiseScale, "Detail", 12.0, 1.0, 60.0, 1.0,
+                    Description: "How many shimmer cells fit across the frame — higher is finer, tighter shimmer."),
+                new EffectParameterDescriptor(EffectParamNames.Speed, "Speed", 1.0, 0.0, 5.0, 0.05,
+                    Description: "How fast the shimmer moves (0 = a frozen, still distortion)."),
+            ]) { ShortCode = "HD" },
+
+        new EffectDescriptor(
+            EffectTypeIds.Shockwave,
+            "Shockwave",
+            EffectCategory.Video,
+            "A ring of displacement expanding from a centre — an explosion's blast wave. Keyframe Radius to fire it.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.Radius, "Radius", 0.0, 0.0, 1.5, 0.01, "%",
+                    "Where the ring currently is, as a fraction of the frame's half-diagonal — keyframe this to make the wave travel.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.RingWidth, "Width", 0.1, 0.01, 1.0, 0.01, "%",
+                    "How thick the ring is — wider is a softer, slower-looking wave.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Amplitude, "Amplitude", 0.02, 0.0, 0.2, 0.005, "%",
+                    "How far the ring pushes the picture, as a fraction of the frame width.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.CenterX, "Center X", 0.5, 0.0, 1.0, 0.01,
+                    Description: "Horizontal origin of the wave (0 = left edge, 1 = right edge)."),
+                new EffectParameterDescriptor(EffectParamNames.CenterY, "Center Y", 0.5, 0.0, 1.0, 0.01,
+                    Description: "Vertical origin of the wave (0 = top edge, 1 = bottom edge)."),
+            ]) { ShortCode = "SW" },
+
+        new EffectDescriptor(
+            EffectTypeIds.ChromaticAberration,
+            "Chromatic Aberration",
+            EffectCategory.Video,
+            "Splits red and blue radially from a centre — lens fringing, and an accent on impacts.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.Amount, "Amount", 0.0, 0.0, 1.0, 0.01, "%",
+                    "How far the red and blue channels are pushed apart toward the frame edges.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.CenterX, "Center X", 0.5, 0.0, 1.0, 0.01,
+                    Description: "Horizontal centre the fringing radiates from (0 = left edge, 1 = right edge)."),
+                new EffectParameterDescriptor(EffectParamNames.CenterY, "Center Y", 0.5, 0.0, 1.0, 0.01,
+                    Description: "Vertical centre the fringing radiates from (0 = top edge, 1 = bottom edge)."),
+            ]) { ShortCode = "CA" },
+
+        new EffectDescriptor(
+            EffectTypeIds.ImpactShake,
+            "Impact Shake",
+            EffectCategory.Video,
+            "Adds camera shake — the finishing move on an explosion or hit. Keyframe Amount to make it decay.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.Amount, "Amount", 0.5, 0.0, 1.0, 0.05, "%",
+                    "Master intensity of the shake — scales both the throw and the roll; keyframe it down to decay the hit.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Frequency, "Frequency", 8.0, 0.1, 30.0, 0.5, "Hz",
+                    "How rapidly the shake jitters, in shakes per second."),
+                new EffectParameterDescriptor(EffectParamNames.Rotation, "Rotation", 1.0, 0.0, 15.0, 0.5, "°",
+                    "How much roll the shake adds, in degrees."),
+                new EffectParameterDescriptor(EffectParamNames.Overscan, "Overscan", 1.05, 1.0, 1.5, 0.01, "%",
+                    "Scales the frame up so the shake never reveals the edge (100% = no scale-up).") { DisplayScale = 100 },
+            ]) { ShortCode = "IS" },
+
+        new EffectDescriptor(
+            EffectTypeIds.Flicker,
+            "Flicker",
+            EffectCategory.Video,
+            "Pulses exposure over time — firelight, failing practicals, muzzle-flash throb.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.Amount, "Amount", 0.2, 0.0, 1.0, 0.01, "%",
+                    "How far the exposure swings above and below normal.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Frequency, "Frequency", 6.0, 0.1, 30.0, 0.5, "Hz",
+                    "How rapidly the exposure pulses, in cycles per second."),
+                new EffectParameterDescriptor(EffectParamNames.Randomness, "Randomness", 0.5, 0.0, 1.0, 0.05, "%",
+                    "Blends from a steady pulse (0%) to irregular, firelight-like flicker (100%).") { DisplayScale = 100 },
+            ]) { ShortCode = "FL" },
+
         new EffectDescriptor(
             EffectTypeIds.Color,
             "Color",

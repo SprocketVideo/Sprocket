@@ -58,6 +58,9 @@ frames never touch the managed heap per frame.
 - **GPU effects & keyframing** — brightness, color, and geometric transform as SkSL shaders that
   compose identically on preview and export; animate any effect parameter with keyframe lanes and
   an editable velocity graph.
+- **Visual effects primitives** — glow/bloom, directional and zoom blur, heat distortion, shockwave,
+  chromatic aberration, impact shake, and flicker, all deterministic GPU shaders sized as a fraction of
+  the frame, so a preview and an export of the same timeline match exactly.
 - **Stabilization** — background motion analysis (cached per source) feeding a deterministic solve:
   adaptive intent-preserving smoothing, per-channel control, a cropping-budget auto-zoom, and a
   Scale Lock that fixes focus breathing — with a camera-path graph to see what was tracked.
@@ -96,7 +99,7 @@ OpenColorIO/OFX video (the managed plugin host, built-in effects, in-app Plugin 
 frame-interpolated slow motion (constant / ramped / reverse retime and freeze frames ship today) · a bundled
 impulse-response library (the Convolution Reverb with
 user IR import, Studio Reverb, Shimmer Reverb, and audio freeze ship today) · grading presets /
-creative looks.
+creative looks · action VFX presets and day-for-night (the reusable effect primitives ship today).
 See the [Roadmap](#roadmap).
 
 ---
@@ -347,6 +350,10 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
   clip-audio freeze ship today).
 - **Grading presets / creative looks** — a Looks browser with one-click creative grades, saveable
   looks, and creative `.cube` LUTs (the grading suite and camera-log input transforms ship today).
+- **Action VFX & day-for-night** — atmospheric generators (smoke, embers, dust, fog, light leaks),
+  coordinated fire / explosion / muzzle-flash presets, and a guided day-for-night grading toolkit. The
+  reusable primitives those are built from — glow, directional and zoom blur, heat distortion, shockwave,
+  chromatic aberration, impact shake, flicker — ship today.
 - **Live stop-motion capture** — a capture mode with onion-skinning (deferred until packaging
   stabilizes; image-sequence import and stop-motion frame editing ship today).
 
