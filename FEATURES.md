@@ -205,6 +205,13 @@ in terms an app-side committer can check against their diff.
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
 | Insert generators: Title, Lower Third, Credits Roll, Crawl, Color Matte | Sprocket.Core/Model/GeneratorCatalog.cs | edit/titles-and-generators.md#adding-a-title-or-other-generator | ✅ |
+| Smoke generator (`builtin.gen.smoke`): drifting fractal smoke over transparency — amount, scale, speed, direction, detail, softness, ground bias, tint, seed | GeneratorCatalog.cs `builtin.gen.smoke`; Sprocket.Render/AtmosphereRenderer.cs; plan/features/special-effects.md | — | ❌ |
+| Fog generator (`builtin.gen.fog`): slow low-lying haze settling toward the bottom of frame — same cloud parameter set as Smoke | GeneratorCatalog.cs `builtin.gen.fog`; Sprocket.Render/AtmosphereRenderer.cs; plan/features/special-effects.md | — | ❌ |
+| Dust generator (`builtin.gen.dust`): floating dust motes — amount, count, size, speed, direction, spread, flicker, streak, source bias, tint, seed | GeneratorCatalog.cs `builtin.gen.dust`; Sprocket.Render/AtmosphereRenderer.cs; plan/features/special-effects.md | — | ❌ |
+| Embers generator (`builtin.gen.embers`): rising warm flickering embers — same particle parameter set as Dust | GeneratorCatalog.cs `builtin.gen.embers`; Sprocket.Render/AtmosphereRenderer.cs; plan/features/special-effects.md | — | ❌ |
+| Sparks generator (`builtin.gen.sparks`): fast struck sparks with motion streaks — same particle parameter set as Dust | GeneratorCatalog.cs `builtin.gen.sparks`; Sprocket.Render/AtmosphereRenderer.cs; plan/features/special-effects.md | — | ❌ |
+| Light Leak generator (`builtin.gen.lightleak`): angled film light leak, best on an upper track set to Screen — amount, direction, position X/Y, width, softness, speed, tint, seed | GeneratorCatalog.cs `builtin.gen.lightleak`; Sprocket.Render/AtmosphereRenderer.cs; plan/features/special-effects.md | — | ❌ |
+| Generator Inspector rows are built from `GeneratorDescriptor.Parameters`/`Colors` (sliders, integer snapping, %-scaled values, colour pickers) | Sprocket.App/Inspector/InspectorPanel.cs; GeneratorCatalog.cs | — | ❌ |
 | Edit title text inline (double-click title clip) | TimelineControl.cs:1432 | edit/titles-and-generators.md#editing-a-titles-text | ✅ |
 | Rich text & titles (styling, lower thirds, credits) | PLAN.md step 40; Sprocket.Render/{TitleRenderer,TitleFonts}.cs; Sprocket.Core/Model/{Generator,GeneratorCatalog}.cs | edit/titles-and-generators.md#styling-a-title-in-the-inspector | ✅ |
 | Adjustment layers | MainWindow.axaml.cs:390; PLAN.md step 19 | edit/titles-and-generators.md#adjustment-layers | ✅ |
@@ -392,7 +399,7 @@ features users can't use; recheck each audit and promote to the matrix when buil
 |---|---|
 | Pitch-preserving time-stretch / frame-interpolated slow motion | PLAN.md step 21 (reverse + speed ramps shipped 2026-08-27; these two remain later quality tiers) |
 | Native VST3 / AU audio plugin hosting | PLAN.md step 31 (🟡 partial) |
-| Atmospheric generators (smoke / embers / dust / fog / light leaks), action VFX presets (fire, explosion, muzzle flash) and the day-for-night toolkit | plan/features/special-effects.md phases 2–6 (phase 1's primitive effects ship today — see §4) |
+| Action VFX presets (fire, explosion, muzzle flash), the day-for-night toolkit, and tracked/masked placement | plan/features/special-effects.md phases 3–6 (phase 1's primitive effects ship today — see §4; phase 2's atmospheric generators — Smoke, Fog, Dust, Embers, Sparks, Light Leak — see §3) |
 | Native OCIO / OFX hosting; scene-linear color management | PLAN.md step 33 (🟡 partial); [COLOR_GRADING_ROADMAP.md](COLOR_GRADING_ROADMAP.md) has the detailed parity sequence and follow-on grading roadmap |
 | Bundled impulse-response library for the Convolution Reverb (CC0 / Sprocket-recorded captures) | PLAN.md step 49 follow-on (the convolution engine + user IR import shipped in step 49; licensing-clear IRs deferred) |
 | Code-signing & macOS notarization (installers themselves shipped: Windows Setup.exe, Linux AppImage, macOS .app via scripts/release.ps1 + Velopack; alpha is unsigned) | PLAN.md step 36 (✅ done except signing/notarization, deliberately deferred) |

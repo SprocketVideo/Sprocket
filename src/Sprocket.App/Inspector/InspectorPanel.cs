@@ -262,6 +262,15 @@ public sealed class InspectorPanel : UserControl
             _body.Children.Add(BuildTextStyleSection(gen));
             _body.Children.Add(BuildScrollSection(gen));
         }
+        // Every other generator describes its own controls (GeneratorDescriptor.Parameters/Colors), so the
+        // atmospherics — and any generator registered later — get their section with no bespoke UI code, the
+        // way effects already do (plan/features/special-effects.md, phase 2).
+        else if (_clip.Kind == ClipKind.Generator && _clip.Generator is { } procedural
+            && GeneratorCatalog.Find(procedural.GeneratorTypeId) is { } descriptor
+            && (descriptor.Parameters.Count > 0 || descriptor.Colors.Count > 0))
+        {
+            _body.Children.Add(BuildGeneratorSection(descriptor, procedural));
+        }
 
         Clip clip = _clip;
         var clipContext = new ChainContext(clip.Effects, clip, e => new RemoveEffectCommand(clip, e), ClipScope: true);
@@ -775,6 +784,31 @@ public sealed class InspectorPanel : UserControl
             _suppress = false;
         });
         return LabeledRow(label, check);
+    }
+
+    /// <summary>
+    /// The descriptor-driven section for a procedural generator (plan/features/special-effects.md, phase 2):
+    /// one animatable row per <see cref="GeneratorDescriptor.Parameters"/> entry and one swatch per
+    /// <see cref="GeneratorDescriptor.Colors"/> entry, in registration order. Nothing here names a specific
+    /// generator, so registering a new one in <see cref="GeneratorCatalog"/> is the whole UI change.
+    /// </summary>
+    private Control BuildGeneratorSection(GeneratorDescriptor descriptor, GeneratorSpec gen)
+    {
+        var rows = new StackPanel { Spacing = 4, Margin = new Avalonia.Thickness(4, 4, 4, 2) };
+
+        foreach (GeneratorColorDescriptor color in descriptor.Colors)
+            rows.Children.Add(BuildColorRow(gen, color.DisplayName, color.Name, color.Default));
+
+        foreach (EffectParameterDescriptor p in descriptor.Parameters)
+        {
+            EffectParameterDescriptor param = p; // capture per iteration
+            rows.Children.Add(BuildAnimatableRow(
+                param,
+                () => gen.Parameters.TryGetValue(param.Name, out AnimatableValue? v) ? v : AnimatableValue.Constant(param.Default),
+                (next, coalescing) => ExecuteGeneratorParam(gen, param.Name, next, coalescing)));
+        }
+
+        return Section(descriptor.DisplayName, rows, expanded: true);
     }
 
     /// <summary>An animatable numeric generator parameter row — the same slider/box/keyframe-lane UI effect

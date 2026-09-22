@@ -95,7 +95,7 @@ public static class RenderGraph
                 // A generator has no source media, so a source-referenced stage (Stabilization) has nothing to bind.
                 return new VideoLayer(
                     default, sourceT, ResolveEffectsCore(clip, t, sourceT, null, null, null), opacity, blend,
-                    LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t, LocalProgress(clip, t)));
+                    LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t, LocalProgress(clip, t), sourceT.ToSeconds()));
 
             case ClipKind.Adjustment:
                 // An adjustment layer applies to the composite beneath it — again, no source media to reference.
@@ -511,21 +511,23 @@ public static class RenderGraph
     public static ResolvedGenerator ResolveGenerator(GeneratorSpec generator, Timecode t)
     {
         ArgumentNullException.ThrowIfNull(generator);
-        return ResolveGeneratorCore(generator, t, progress: 0.0);
+        // No clip context: there is no local progress, and the only sensible local clock is the time asked for.
+        return ResolveGeneratorCore(generator, t, progress: 0.0, localSeconds: t.ToSeconds());
     }
 
     /// <summary>
     /// Resolves a generator <b>clip</b> at timeline time <paramref name="t"/>, carrying the clip's normalised
     /// local progress (0 at the clip's start, 1 at its end) so duration-relative content — a rolling/crawling
     /// title (PLAN.md step 40) — stays a pure, deterministic function of (project, t) with the clip's duration
-    /// setting the speed. Throws when the clip is not a generator clip.
+    /// setting the speed, plus the clip's local time in seconds for rate-driven content (the phase-2
+    /// atmospherics). Throws when the clip is not a generator clip.
     /// </summary>
     public static ResolvedGenerator ResolveGenerator(Clip clip, Timecode t)
     {
         ArgumentNullException.ThrowIfNull(clip);
         if (clip.Generator is null)
             throw new ArgumentException("Clip is not a generator clip.", nameof(clip));
-        return ResolveGeneratorCore(clip.Generator, t, LocalProgress(clip, t));
+        return ResolveGeneratorCore(clip.Generator, t, LocalProgress(clip, t), clip.MapToSource(t).ToSeconds());
     }
 
     /// <summary>The clip's normalised local progress at <paramref name="t"/>: 0 at <see cref="Clip.TimelineStart"/>,
@@ -538,14 +540,15 @@ public static class RenderGraph
         return Math.Clamp((double)(t.Ticks - clip.TimelineStart.Ticks) / duration, 0.0, 1.0);
     }
 
-    private static ResolvedGenerator ResolveGeneratorCore(GeneratorSpec generator, Timecode t, double progress)
+    private static ResolvedGenerator ResolveGeneratorCore(
+        GeneratorSpec generator, Timecode t, double progress, double localSeconds)
     {
         var values = new Dictionary<string, double>(generator.Parameters.Count);
         foreach ((string name, AnimatableValue value) in generator.Parameters)
             values[name] = value.Evaluate(t);
         // Copy the string map so the resolved generator is an immutable snapshot independent of later edits.
         var strings = new Dictionary<string, string>(generator.Strings);
-        return new ResolvedGenerator(generator.GeneratorTypeId, strings, values, progress);
+        return new ResolvedGenerator(generator.GeneratorTypeId, strings, values, progress, localSeconds);
     }
 
     /// <summary>

@@ -57,11 +57,18 @@ public sealed record ResolvedEffect(
 /// <param name="Progress">The clip's normalised local progress at the frame's time — 0 at the clip's start,
 /// 1 at its end (PLAN.md step 40). Drives duration-relative content such as a rolling/crawling title; 0 for
 /// callers that resolve a bare spec with no clip context.</param>
+/// <param name="LocalSeconds">The clip's local time at this frame, in seconds (0 at the clip's start), taken
+/// from the clip's source-time map so it follows trims, speed changes and reverse. Drives the phase-2
+/// atmospheric generators, whose motion is a <em>rate</em> rather than a fraction of the clip: a longer smoke
+/// clip drifts further, it does not drift slower (plan/features/special-effects.md). Together with the
+/// parameters this is the generator's whole input, so the drawing stays a pure function of (project, time)
+/// and preview and export match frame for frame (ARCHITECTURE.md &#167;5).</param>
 public sealed record ResolvedGenerator(
     string GeneratorTypeId,
     IReadOnlyDictionary<string, string> Strings,
     IReadOnlyDictionary<string, double> Parameters,
-    double Progress = 0.0)
+    double Progress = 0.0,
+    double LocalSeconds = 0.0)
 {
     /// <summary>Gets a numeric parameter, or <paramref name="fallback"/> if it is not set.</summary>
     public double Get(string name, double fallback = 0) =>

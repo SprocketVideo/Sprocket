@@ -69,8 +69,9 @@ frames never touch the managed heap per frame.
   looks and film stocks), plus log-footage input transforms for DJI (GPU LUT) and ARRI, Sony,
   Panasonic, Canon, Blackmagic, Fujifilm, and Nikon (GPU math curves).
 - **Generators, titles, adjustment layers & transitions** — title/text generator clips (including
-  scrolling titles), adjustment layers whose effect stacks apply to everything beneath, and a
-  transition library with overlapping-clip resolution.
+  scrolling titles), procedural atmospherics (smoke, fog, dust, embers, sparks, light leaks),
+  adjustment layers whose effect stacks apply to everything beneath, and a transition library with
+  overlapping-clip resolution.
 - **Audio** — sample-accurate mixer with per-clip gain envelopes, per-track gain/pan/mute/solo,
   built-in audio effects on insert chains at clip / track / bus / master scope, loudness metering &
   normalization, and a master limiter. **Audio is the master clock** for A/V sync.
@@ -99,7 +100,8 @@ OpenColorIO/OFX video (the managed plugin host, built-in effects, in-app Plugin 
 frame-interpolated slow motion (constant / ramped / reverse retime and freeze frames ship today) · a bundled
 impulse-response library (the Convolution Reverb with
 user IR import, Studio Reverb, Shimmer Reverb, and audio freeze ship today) · grading presets /
-creative looks · action VFX presets and day-for-night (the reusable effect primitives ship today).
+creative looks · action VFX presets and day-for-night (the reusable effect primitives and the
+atmospheric generators ship today).
 See the [Roadmap](#roadmap).
 
 ---
@@ -350,10 +352,11 @@ the MCP server all ship today. Remaining work (full detail and per-step status i
   clip-audio freeze ship today).
 - **Grading presets / creative looks** — a Looks browser with one-click creative grades, saveable
   looks, and creative `.cube` LUTs (the grading suite and camera-log input transforms ship today).
-- **Action VFX & day-for-night** — atmospheric generators (smoke, embers, dust, fog, light leaks),
-  coordinated fire / explosion / muzzle-flash presets, and a guided day-for-night grading toolkit. The
-  reusable primitives those are built from — glow, directional and zoom blur, heat distortion, shockwave,
-  chromatic aberration, impact shake, flicker — ship today.
+- **Action VFX & day-for-night** — coordinated fire / explosion / muzzle-flash presets, a guided
+  day-for-night grading toolkit, and tracked/masked placement. The pieces those are built from ship
+  today: the reusable primitives — glow, directional and zoom blur, heat distortion, shockwave,
+  chromatic aberration, impact shake, flicker — and the atmospheric generators — smoke, fog, dust,
+  embers, sparks, light leaks.
 - **Live stop-motion capture** — a capture mode with onion-skinning (deferred until packaging
   stabilizes; image-sequence import and stop-motion frame editing ship today).
 

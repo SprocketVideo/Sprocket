@@ -774,7 +774,9 @@ half4 main(float2 coord) {
 
     /// <summary>Draws one generator's content into a transparent <paramref name="width"/>×<paramref name="height"/>
     /// canvas. Solid colour fills the frame; the title-family generators (Title / Lower Third / Roll / Crawl) draw
-    /// via <see cref="TitleRenderer"/> (rich text + scroll, PLAN.md step 40).
+    /// via <see cref="TitleRenderer"/> (rich text + scroll, PLAN.md step 40); the atmospherics (Smoke / Fog / Dust /
+    /// Embers / Sparks / Light Leak) draw via <see cref="AtmosphereRenderer"/>
+    /// (plan/features/special-effects.md, phase 2).
     /// Unknown generator ids leave the canvas transparent (a generator plugin with no Render binding is a no-op).</summary>
     private static void RenderGeneratorContent(SKCanvas canvas, ResolvedGenerator generator, int width, int height)
     {
@@ -788,6 +790,10 @@ half4 main(float2 coord) {
 
             case var id when GeneratorTypeIds.IsTitle(id):
                 TitleRenderer.Draw(canvas, generator, width, height);
+                break;
+
+            case var id when GeneratorTypeIds.IsAtmosphere(id):
+                AtmosphereRenderer.Draw(canvas, generator, width, height);
                 break;
 
             // Unknown generator: leave transparent.

@@ -171,13 +171,15 @@ verification-only items carry their checklist in the step's history entry.
 - [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
   existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →
   [plan/features/looks-browser.md](plan/features/looks-browser.md)
-- [ ] **Special effects roadmap** (unscheduled feature) — 🟡 **phase 1 shipped 2026-09-22**: the eight
-  primitive image effects — Glow, Directional Blur, Zoom Blur, Heat Distortion, Shockwave, Chromatic
-  Aberration, Impact Shake, Flicker — as registry SkSL effects on the existing `IVideoEffect` seam, every
-  spatial value a fraction of the layer rect and every animated one a pure function of frame time, so
-  preview and export match. Phases 2–6 open: atmospheric generators (smoke / embers / dust / fog / light
-  leaks), action VFX presets, the day-for-night toolkit, tracking + masking integration, docs & samples;
-  Light Wrap and Lens Dirt are deferred pending a compositing-context seam and an image-asset pipeline →
+- [ ] **Special effects roadmap** (unscheduled feature) — 🟡 **phases 1–2 shipped 2026-09-22**:
+  phase 1 is the eight primitive image effects — Glow, Directional Blur, Zoom Blur, Heat Distortion,
+  Shockwave, Chromatic Aberration, Impact Shake, Flicker — as registry SkSL effects on the existing
+  `IVideoEffect` seam; phase 2 is the six atmospheric generators — Smoke, Fog, Dust, Embers, Sparks,
+  Light Leak — on the existing generator seam, their Inspector rows built from the descriptor. Across
+  both, every spatial value is a fraction of the frame/layer rect and every animated one a pure function
+  of the clip's local time, so preview and export match. Phases 3–6 open: action VFX presets, the
+  day-for-night toolkit, tracking + masking integration, docs & samples; Light Wrap and Lens Dirt are
+  deferred pending a compositing-context seam and an image-asset pipeline →
   [plan/features/special-effects.md](plan/features/special-effects.md)
 - [x] **Convolution reverb (Acoustic Space)** — step 49, shipped 2026-08-26 (user WAV IR import; bundled
   IR library deliberately deferred on licensing) → [history](plan/history/steps-41-57.md#step-49)

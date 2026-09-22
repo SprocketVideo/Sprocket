@@ -30,6 +30,46 @@ public static class GeneratorTypeIds
     /// (<see cref="GeneratorParamNames.ScrollMode"/> = <c>crawl</c>).</summary>
     public const string Crawl = "builtin.gen.crawl";
 
+    /// <summary>
+    /// Drifting volumetric smoke (plan/features/special-effects.md, phase 2): fractal value-noise clouds over a
+    /// transparent frame. Shares the cloud render path with <see cref="Fog"/>; a distinct id so the browser lists
+    /// it separately and its defaults read as smoke (tighter, faster, more contrast).
+    /// </summary>
+    public const string Smoke = "builtin.gen.smoke";
+
+    /// <summary>Low, slow atmospheric haze — the cloud path with a broad scale, high softness and a vertical
+    /// density bias so it settles toward the bottom of the frame.</summary>
+    public const string Fog = "builtin.gen.fog";
+
+    /// <summary>Floating dust motes drifting through a light shaft: the particle render path with slow,
+    /// wandering, barely-flickering specks.</summary>
+    public const string Dust = "builtin.gen.dust";
+
+    /// <summary>Rising fire embers: the particle path aimed upward, warm-tinted, strongly flickering.</summary>
+    public const string Embers = "builtin.gen.embers";
+
+    /// <summary>Struck sparks: the particle path, faster and more directional than <see cref="Embers"/>, with
+    /// motion-streaked sprites.</summary>
+    public const string Sparks = "builtin.gen.sparks";
+
+    /// <summary>An angled film light leak — a soft coloured band anchored at a point in the frame, breathing
+    /// slowly. Intended for an upper track on Screen/Add, like the leak overlays editors stack from stock packs.</summary>
+    public const string LightLeak = "builtin.gen.lightleak";
+
+    /// <summary>Whether <paramref name="generatorTypeId"/> is one of the phase-2 atmospheric generators — the
+    /// ids drawn by the Render layer's <c>AtmosphereRenderer</c> and given the Inspector's descriptor-driven
+    /// GENERATOR section (plan/features/special-effects.md, phase 2).</summary>
+    public static bool IsAtmosphere(string generatorTypeId) =>
+        generatorTypeId is Smoke or Fog or Dust or Embers or Sparks or LightLeak;
+
+    /// <summary>Whether <paramref name="generatorTypeId"/> is one of the noise-cloud atmospherics (Smoke / Fog),
+    /// which share one shader and parameter set.</summary>
+    public static bool IsCloud(string generatorTypeId) => generatorTypeId is Smoke or Fog;
+
+    /// <summary>Whether <paramref name="generatorTypeId"/> is one of the particle atmospherics (Dust / Embers /
+    /// Sparks), which share one shader and parameter set.</summary>
+    public static bool IsParticles(string generatorTypeId) => generatorTypeId is Dust or Embers or Sparks;
+
     /// <summary>Whether <paramref name="generatorTypeId"/> is one of the title-family generators — the ids that
     /// share the rich-text render path and the Inspector's TEXT section (PLAN.md step 40).</summary>
     public static bool IsTitle(string generatorTypeId) =>
@@ -127,6 +167,57 @@ public static class GeneratorParamNames
     /// <summary>Start/end fully off-screen: <c>"true"</c> (default when absent) / <c>"false"</c> — when false the
     /// scroll starts/ends at the block's resting position (the start/end off-screen options found in leading editors). A string entry.</summary>
     public const string ScrollOffscreen = "scrollOffscreen";
+
+    // ── Atmospheric generators (plan/features/special-effects.md, phase 2). Every spatial quantity is a
+    // fraction of the *frame height* and every rate is per second, so the same clip renders identically at
+    // preview and export resolution (§5) and its motion does not change with the clip's length. All are
+    // animatable AnimatableValue Parameters, so any of them keyframes like an effect parameter.
+
+    /// <summary>Master density / opacity of an atmospheric generator, 0–1. 0 renders nothing. Numeric, animatable.</summary>
+    public const string Amount = "amount";
+
+    /// <summary>Feature size of the noise clouds (Smoke / Fog) as cells across the frame height — bigger = finer.
+    /// Numeric, animatable.</summary>
+    public const string Scale = "scale";
+
+    /// <summary>Animation rate multiplier (1 = the generator's natural speed). 0 freezes the look. Numeric, animatable.</summary>
+    public const string Speed = "speed";
+
+    /// <summary>Flow direction in degrees, counter-clockwise from screen right, with 90° pointing <em>up</em>
+    /// the frame (the compass every NLE's wind/particle control uses). Numeric, animatable.</summary>
+    public const string Direction = "direction";
+
+    /// <summary>Cloud roughness, 0–1: how much the fine fractal octaves contribute (0 = soft billows,
+    /// 1 = wispy detail). Numeric, animatable.</summary>
+    public const string Detail = "detail";
+
+    /// <summary>Edge softness, 0–1: how gradually the cloud density or light-leak band falls off. Numeric, animatable.</summary>
+    public const string Softness = "softness";
+
+    /// <summary>Vertical density bias, 0–1: 0 fills the frame evenly, 1 settles the cloud toward the bottom
+    /// (ground fog). Numeric, animatable.</summary>
+    public const string Falloff = "falloff";
+
+    /// <summary>Particle count as cells across the frame height (Dust / Embers / Sparks) — one particle per
+    /// cell, so bigger = more and smaller. Numeric, animatable.</summary>
+    public const string Count = "count";
+
+    /// <summary>Particle radius as a fraction of the frame height. Numeric, animatable.</summary>
+    public const string Size = "size";
+
+    /// <summary>Cross-flow wander, 0–1: how far particles drift sideways off the flow direction. Numeric, animatable.</summary>
+    public const string Spread = "spread";
+
+    /// <summary>Per-particle brightness flicker, 0–1 (0 = steady). Numeric, animatable.</summary>
+    public const string Flicker = "flicker";
+
+    /// <summary>Motion streak, 0–1: elongates each particle along the flow direction (sparks, not dust).
+    /// Numeric, animatable.</summary>
+    public const string Streak = "streak";
+
+    /// <summary>Random seed. Changing it re-rolls the noise/particle layout without touching any other
+    /// parameter — the "randomize" every procedural generator offers. Numeric (whole numbers), animatable.</summary>
+    public const string Seed = "seed";
 
     /// <summary>Typewriter reveal: the fraction of characters drawn, 0–1. Absent = 1 (all). Keyframe 0→1 for the
     /// typewriter entrance (PLAN.md step 40). Numeric, animatable.</summary>

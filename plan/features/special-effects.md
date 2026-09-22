@@ -1,7 +1,7 @@
 # Action VFX and day-for-night
 
-❌ **Not started.** Unscheduled feature; tracked in [PLAN.md](../../PLAN.md) Open work. Relative
-links resolve from the repo root.
+🟡 **Phases 1–2 shipped 2026-09-22; phases 3–6 open.** Unscheduled feature; tracked in
+[PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
 **Scope in one line:** add a practical special-effects roadmap centered on three editorially useful
 families rather than physics simulation: **action composites** (fire, explosions, muzzle flashes,
@@ -89,7 +89,7 @@ finished, and day-for-night becomes more credible once the grading-preset surfac
 | Phase | Ships | Depends | Notes |
 |---|---|---|---|
 | 1 | Primitive image effects ✅ (2026-09-22) | existing effect seam | Glow/bloom, heat haze, shockwave, directional blur, zoom blur, flicker, chromatic aberration, impact shake |
-| 2 | Atmospheric generators | 1 | Smoke, embers, dust, light leaks; usable as standalone mood layers |
+| 2 | Atmospheric generators ✅ (2026-09-22) | 1 | Smoke, Fog, Dust, Embers, Sparks, Light Leak; usable as standalone mood layers |
 | 3 | Action VFX presets | 1–2 | Fire / explosion / muzzle-flash preset stacks over overlays and generators |
 | 4 | Day-for-night toolkit | grading + looks work | Guided preset stack over the existing grading system; likely the highest practical user value |
 | 5 | Tracking / masking integration | stabilization + future masks | Motion attachment, better placement, sky/subject isolation, occlusion |
@@ -178,6 +178,65 @@ identity defaults, resolution-independence, no presets yet).
 
 **Not in phase 1:** Light Wrap and Lens Dirt / Edge Burn — see the candidate list above for why each needs
 a seam phase 1 does not have.
+
+## Phase 2 — ✅ DONE (2026-09-22)
+
+Six procedural atmospherics on the **existing generator seam** — no new seam, no pipeline special-case,
+no App code per generator. They are registered in `GeneratorCatalog.BuiltIns`
+(`Sprocket.Core/Model/GeneratorCatalog.cs`) with ids in `GeneratorTypeIds`
+(`Sprocket.Core/Model/Generator.cs`), drawn by one new renderer
+(`Sprocket.Render/AtmosphereRenderer.cs`) dispatched from `SkiaEffectPipeline.RenderGeneratorContent`
+via `GeneratorTypeIds.IsAtmosphere`, and edited through one generic Inspector section
+(`InspectorPanel.BuildGeneratorSection`). Each behaves like any other generator clip: insert it on a
+video track, trim it, stack effects and keyframes on it, set its blend mode (Screen/Add for the
+luminous ones, Normal for smoke and fog), and it persists and round-trips with no format change.
+
+**Shipped:** Smoke, Fog, Dust, Embers, Sparks, Light Leak.
+
+**Decisions worth keeping:**
+
+- **`ResolvedGenerator.LocalSeconds` is a new, separate input from `Progress`.** Atmospheric motion is a
+  *rate* — a longer smoke clip drifts further, it does not drift slower — whereas the step-40 titles are
+  duration-relative (`Progress`). Both now ride on the resolved generator, and `LocalSeconds` comes from
+  the clip's source-time map so it follows trims, speed changes and reverse. The drawing stays a pure
+  function of (project, time), so preview and export match (§5).
+- **The Inspector is descriptor-driven, not per-generator.** `GeneratorDescriptor.Parameters` (reusing
+  `EffectParameterDescriptor`, so sliders, integer snapping, `%` display scaling, units and keyframe lanes
+  all come for free) plus `GeneratorDescriptor.Colors` for the one tint. Registering a generator in the
+  catalog is the *whole* UI change — the same property that made the phase-1 effects free. The title
+  family keeps its bespoke TEXT sections, which a generic list cannot express.
+- **Two shared render paths, six looks from the defaults.** Fractal-noise clouds (Smoke, Fog) and a hashed
+  particle field (Dust, Embers, Sparks) — what makes one read as embers and another as dust is its
+  registered defaults, not its own shader. Light Leak is the third, small program.
+- **Every default is stated exactly once,** in the descriptor: `GeneratorDescriptor.CreateSpec` seeds a
+  fresh spec from `Parameters`/`Colors` when no explicit factory is registered, so the browser, the
+  Inspector, MCP and the tests cannot drift from each other.
+- **The particle field is two layers (near/far) at different scales and rates.** One hashed lattice reads
+  as a grid however it is jittered; two overlaid at incommensurate scales does not.
+- **Embers/Sparks source falloff biases the per-particle spawn gate,** not a per-pixel alpha multiply — so
+  the field genuinely thins as it rises instead of every particle fading uniformly.
+- **Fog's `Ground bias` *stratifies* as well as ramping density with height** — it squashes the noise
+  domain vertically and stretches it horizontally, so a high setting forms the full-width layers real
+  ground fog does instead of pooling the same billows in the bottom corner (which reads as thin smoke).
+- **Sizes, positions and counts are fractions of the frame height; rates are per second.** Same
+  resolution-independence rule as phase 1 — a generator looks identical at preview and export resolution.
+- **Premultiplied-alpha discipline,** as phase 1: every path returns `half4(rgb * a, a)`. The tests assert
+  it by reading raw `SKBitmap.Bytes` — `GetPixel` unpremultiplies and would hide the bug it is checking for.
+- **`Amount` 0 draws nothing and `Speed` 0 freezes the look on a still frame** for all six, so a generator
+  is always safe to park at a neutral setting and to golden-frame.
+- **`Seed` re-rolls the layout without changing anything else,** the After Effects / Resolve convention for
+  procedural noise, instead of hiding the randomness.
+
+**Tests:** `tests/Sprocket.Render.Tests/AtmosphereGeneratorTests.cs` — 59 offscreen render tests: a
+parameterised set across all six (draws something at defaults, draws nothing at `Amount` 0, pure function
+of the clip's local time, frozen at `Speed` 0, valid premultiplied alpha, resolution-independent, `Seed`
+re-rolls the layout, takes its colour from the tint) plus behavioural assertions per look (smoke density
+and drift direction, fog ground bias, ember/spark count, streak elongation, dust flicker, source-bias
+thinning, light-leak anchoring and width).
+
+**Not in phase 2:** no imported alpha-stock workflow changes were needed — step 26's alpha media import
+already composites stock elements, which stays the recommended route for fire and explosion plates
+(phase 3).
 
 ## UI notes
 
