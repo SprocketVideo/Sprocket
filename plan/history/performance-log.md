@@ -63,3 +63,13 @@
   own; it overlaps render via prefetch so it isn't on the critical path here, but it would matter on a
   decode-heavy (4K / long-GOP) project — a candidate for later tuning (e.g. contiguous chunks per worker).
   Hardware engagement and the muted-A1 audio skip (audio 0 ms) confirmed; phase-1 manual acceptance closed.
+
+- **Procedural generators rendered on the CPU (recorded 2026-09-23; confirmed in-app — Smoke and the Ground Explosion stack now play smoothly).** Reported:
+  after inserting a Smoke generator, the preview became very laggy and the playhead wouldn't drag through the smoke
+  clip (it jumped before/after it); removing the clip restored normal speed. Cause: `SkiaEffectPipeline.DrawGenerator`
+  rendered every generator into a **raster** `SKSurface.Create(info)` at sequence resolution. So the atmospheric
+  generators' SkSL (the Smoke/Fog clouds run ~10 value-noise samples per pixel) ran in Skia's CPU interpreter, and
+  the result was uploaded to the GPU every frame. Titles and mattes were cheap enough to hide this. **Fix:** create
+  the offscreen on the destination canvas's `GRRecordingContext` (budgeted, so Skia's scratch-texture cache recycles
+  it), with raster kept as the fallback for a CPU canvas (headless tests, CPU export). The scrub symptom was the same
+  stall: each redraw had to finish the CPU smoke frame.

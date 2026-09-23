@@ -728,7 +728,15 @@ half4 main(float2 coord) {
             return;
 
         var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
-        using SKSurface? offscreen = SKSurface.Create(info);
+        // Render on the destination's GPU context when there is one. A raster surface here runs the procedural
+        // generators' SkSL (Smoke / Fog / Dust / …) in Skia's CPU interpreter for every pixel of every frame and then
+        // uploads the result — hundreds of ms per frame at sequence resolution, which stalls preview and scrubbing.
+        // A budgeted GPU surface comes from Skia's scratch-texture cache, so per-frame creation stays cheap. Raster
+        // remains the fallback for a CPU canvas (headless tests, CPU export).
+        GRRecordingContext? context = canvas.Context;
+        using SKSurface? offscreen = context is not null
+            ? SKSurface.Create(context, budgeted: true, info) ?? SKSurface.Create(info)
+            : SKSurface.Create(info);
         if (offscreen is null)
             return;
 
