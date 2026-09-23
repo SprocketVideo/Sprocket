@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using SkiaSharp;
 using Sprocket.Audio;
 using Sprocket.Core.Audio;
@@ -144,6 +145,23 @@ public static class VideoExporter
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default,
         IMotionTrackProvider? motionTracks = null)
+        => ExportWithSummary(project, outputPath, options, sequenceId, range, progress, cancellationToken, motionTracks);
+
+    /// <summary>
+    /// Exports exactly as <see cref="Export(Project, string, ExportOptions, SequenceId?, ExportRange?, IProgress{double}?, CancellationToken, IMotionTrackProvider?)"/>
+    /// and returns the measured <see cref="ExportRunSummary"/> — the encoder that actually opened, whether hardware
+    /// engaged, what was written, and per-stage timings (export-speed phase 1). The summary is returned only after
+    /// the output is finalized; cancellation / failure still throws and deletes the partial file.
+    /// </summary>
+    public static ExportRunSummary ExportWithSummary(
+        Project project,
+        string outputPath,
+        ExportOptions options,
+        SequenceId? sequenceId,
+        ExportRange? range,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default,
+        IMotionTrackProvider? motionTracks = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentException.ThrowIfNullOrEmpty(outputPath);
@@ -156,10 +174,10 @@ public static class VideoExporter
         // export — the video-side options are ignored — while reusing the range / handles / progress / cancellation
         // and partial-file cleanup below.
         if (options.AudioFormat is { } audioFormat)
-        {
-            ExportAudioOnly(project, sequence, outputPath, audioFormat, options, range, progress, cancellationToken);
-            return;
-        }
+            return ExportAudioOnly(project, sequence, outputPath, audioFormat, options, range, progress, cancellationToken);
+
+        // Total covers setup (encoder/device open is user-visible latency) through the successful Finish().
+        long totalStart = Stopwatch.GetTimestamp();
 
         // `default(ExportOptions)` leaves Channels = 0; treat that as the documented stereo default.
         int channels = options.Channels > 0 ? options.Channels : 2;
@@ -220,7 +238,8 @@ public static class VideoExporter
             throw new ArgumentException("The timeline resolution is too small to export.", nameof(project));
         int sampleRate = timeline.SampleRate > 0 ? timeline.SampleRate : 48000;
 
-        bool wantAudio = !options.VideoOnly && HasAudibleAudio(project, sequence);
+        // Muted-only / solo-excluded timelines skip audio mixing + encoding entirely (planner-matched audibility).
+        bool wantAudio = !options.VideoOnly && RenderGraph.HasAudibleAudio(project, sequence);
 
         VideoCodecInfo videoCodec = ExportCodecs.Video(format.VideoCodec);
         // Hardware acceleration (PLAN.md step 29): probe the platform GPU encoders for this codec before the
@@ -261,6 +280,7 @@ public static class VideoExporter
         SkiaEffectPipeline? pipeline = null;
         float[] mixBuffer = [];
         bool completed = false;
+        ExportRunSummary summary;
 
         try
         {
@@ -281,6 +301,7 @@ public static class VideoExporter
             long totalSamples = encoder.HasAudio ? duration.ToSampleIndex(sampleRate) : 0;
             long nextVideoIndex = 0;
             long nextSample = 0;
+            var timer = new StageTimer();
 
             while (true)
             {
@@ -297,17 +318,30 @@ public static class VideoExporter
                 // Emit whichever stream's next packet sits earlier on the timeline, so the muxer interleaves cleanly.
                 if (!videoDone && (audioDone || videoTick <= audioTick))
                 {
+                    // Render time is the call's elapsed time minus the decode it triggered inside the providers.
+                    TimeSpan decodeBefore = SumDecode(providers);
+                    long t0 = Stopwatch.GetTimestamp();
                     RenderVideoFrame(project, sequence, rangeIn, nextVideoIndex, fps, surface, pipeline, fullRect, providers, burnIns, options.BakeColorTransform);
-                    using SKPixmap pixels = surface.PeekPixels();
-                    encoder.WriteVideoFrame(pixels.GetPixels(), pixels.RowBytes, nextVideoIndex);
+                    long t1 = Stopwatch.GetTimestamp();
+                    TimeSpan decodeDelta = SumDecode(providers) - decodeBefore;
+                    timer.VideoDecode += decodeDelta;
+                    timer.VideoRender += Stopwatch.GetElapsedTime(t0, t1) - decodeDelta;
+
+                    using (SKPixmap pixels = surface.PeekPixels())
+                        encoder.WriteVideoFrame(pixels.GetPixels(), pixels.RowBytes, nextVideoIndex);
+                    timer.VideoEncode += Stopwatch.GetElapsedTime(t1);
                     nextVideoIndex++;
                 }
                 else
                 {
                     int chunk = (int)Math.Min(encoder.AudioFrameSize, totalSamples - nextSample);
                     Span<float> buffer = mixBuffer.AsSpan(0, chunk * channels);
+                    long t0 = Stopwatch.GetTimestamp();
                     mixer!.MixInto(buffer, rangeIn + Timecode.FromSamples(nextSample, sampleRate), project, sequence);
+                    long t1 = Stopwatch.GetTimestamp();
                     encoder.WriteAudioFrame(buffer, nextSample);
+                    timer.AudioMix += Stopwatch.GetElapsedTime(t0, t1);
+                    timer.AudioEncode += Stopwatch.GetElapsedTime(t1);
                     nextSample += chunk;
                 }
 
@@ -315,6 +349,9 @@ public static class VideoExporter
             }
 
             encoder.Finish();
+            summary = new ExportRunSummary(
+                options.Acceleration, videoCodec.EncoderName, encoder.VideoEncoderName, encoder.IsHardwareVideo,
+                nextVideoIndex, nextSample, timer.ToTimings(Stopwatch.GetElapsedTime(totalStart)));
             progress?.Report(1.0);
             completed = true;
         }
@@ -333,6 +370,26 @@ public static class VideoExporter
             if (!completed)
                 TryDelete(outputPath);
         }
+        return summary;
+    }
+
+    /// <summary>Accumulated per-stage elapsed time for one export run (a mutable struct local to the export loop).</summary>
+    private struct StageTimer
+    {
+        public TimeSpan VideoDecode, VideoRender, VideoEncode, AudioMix, AudioEncode;
+
+        public readonly ExportStageTimings ToTimings(TimeSpan total) =>
+            new(VideoDecode, VideoRender, VideoEncode, AudioMix, AudioEncode, total);
+    }
+
+    /// <summary>Total decode time across every opened provider (a handful of sources — no allocation).</summary>
+    private static TimeSpan SumDecode(Dictionary<MediaRefId, ExportFrameProvider?> providers)
+    {
+        TimeSpan sum = TimeSpan.Zero;
+        foreach (ExportFrameProvider? provider in providers.Values)
+            if (provider is not null)
+                sum += provider.DecodeElapsed;
+        return sum;
     }
 
     /// <summary>
@@ -342,11 +399,12 @@ public static class VideoExporter
     /// video encoder or renders a frame. Honours the export range / handles, reports progress, observes cancellation,
     /// and deletes a partial file on failure, matching the video export job plumbing.
     /// </summary>
-    private static void ExportAudioOnly(
+    private static ExportRunSummary ExportAudioOnly(
         Project project, Sequence sequence, string outputPath, ExportAudioFormat audioFormat,
         ExportOptions options, ExportRange? range,
         IProgress<double>? progress, CancellationToken cancellationToken)
     {
+        long totalStart = Stopwatch.GetTimestamp();
         Timeline timeline = sequence.Timeline;
         Timecode fullDuration = timeline.Duration;
         if (fullDuration <= Timecode.Zero)
@@ -382,6 +440,7 @@ public static class VideoExporter
         AudioMixer? mixer = null;
         float[] mixBuffer = [];
         bool completed = false;
+        ExportRunSummary summary;
         try
         {
             encoder = MediaEncoder.CreateAudioOnly(outputPath, audio, info.MuxerName, BuildMetadata(options));
@@ -390,20 +449,29 @@ public static class VideoExporter
 
             long totalSamples = duration.ToSampleIndex(sampleRate);
             long nextSample = 0;
+            var timer = new StageTimer();
             while (nextSample < totalSamples)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 int chunk = (int)Math.Min(encoder.AudioFrameSize, totalSamples - nextSample);
                 Span<float> buffer = mixBuffer.AsSpan(0, chunk * channels);
+                long t0 = Stopwatch.GetTimestamp();
                 mixer.MixInto(buffer, rangeIn + Timecode.FromSamples(nextSample, sampleRate), project, sequence);
+                long t1 = Stopwatch.GetTimestamp();
                 encoder.WriteAudioFrame(buffer, nextSample);
+                timer.AudioMix += Stopwatch.GetElapsedTime(t0, t1);
+                timer.AudioEncode += Stopwatch.GetElapsedTime(t1);
                 nextSample += chunk;
 
                 progress?.Report(totalSamples <= 0 ? 1.0 : Math.Clamp((double)nextSample / totalSamples, 0.0, 1.0));
             }
 
             encoder.Finish();
+            // Audio-only: no video stream, so no encoder names, no frames, and zero video timings.
+            summary = new ExportRunSummary(
+                options.Acceleration, RequestedVideoEncoder: "", ActualVideoEncoder: "", HardwareVideoEngaged: false,
+                VideoFrames: 0, AudioSampleFrames: nextSample, timer.ToTimings(Stopwatch.GetElapsedTime(totalStart)));
             progress?.Report(1.0);
             completed = true;
         }
@@ -414,6 +482,7 @@ public static class VideoExporter
             if (!completed)
                 TryDelete(outputPath);
         }
+        return summary;
     }
 
     private static void TryDelete(string path)
@@ -743,42 +812,6 @@ public static class VideoExporter
         catch
         {
             return null;
-        }
-    }
-
-    /// <summary>Whether the export will have audible audio — any enabled audio track (in the exported
-    /// <paramref name="sequence"/> or, recursively, a nested one) carrying a clip whose source has audio
-    /// (PLAN.md step 23).</summary>
-    private static bool HasAudibleAudio(Project project, Sequence sequence) =>
-        SequenceHasAudio(project, sequence, []);
-
-    private static bool SequenceHasAudio(Project project, Sequence sequence, HashSet<SequenceId> path)
-    {
-        if (!path.Add(sequence.Id))
-            return false; // cycle guard
-        try
-        {
-            foreach (AudioTrack track in sequence.Timeline.AudioTracks)
-            {
-                if (!track.Enabled)
-                    continue;
-                foreach (Clip clip in track.Clips)
-                {
-                    if (clip.Kind == ClipKind.Sequence)
-                    {
-                        if (clip.SourceSequenceId is { } id && project.GetSequence(id) is { } child
-                            && SequenceHasAudio(project, child, path))
-                            return true;
-                    }
-                    else if (project.MediaPool.Get(clip.MediaRefId) is { Info.HasAudio: true })
-                        return true;
-                }
-            }
-            return false;
-        }
-        finally
-        {
-            path.Remove(sequence.Id);
         }
     }
 

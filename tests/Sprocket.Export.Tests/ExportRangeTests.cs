@@ -98,7 +98,7 @@ public sealed class ExportRangeTests
         using var whole = new TempFile();
         using var slice = new TempFile();
         var queue = new ExportQueue((job, progress, ct) =>
-            VideoExporter.Export(project, job.OutputPath, job.Options, job.SequenceId, job.Range, progress, ct));
+            VideoExporter.ExportWithSummary(project, job.OutputPath, job.Options, job.SequenceId, job.Range, progress, ct));
 
         ExportJob wholeJob = queue.Enqueue(whole.Path, default, name: "whole");
         var range = new ExportRange(Timecode.FromSeconds(0.2), Timecode.FromSeconds(0.6));

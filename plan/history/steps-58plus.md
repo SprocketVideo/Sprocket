@@ -445,3 +445,45 @@ implementation logs live in the feature plan's checklist
 
 **Persistence: none** — `EffectDto` round-trips the id + parameter map; the motion track lives only in the
 per-user analysis cache, regenerable and never in the project file.
+
+## Export speed — phase 1 (unscheduled feature, 2026-09-22) ✅ DONE
+
+Observability + cheap wins from [plan/features/export-speed.md](../features/export-speed.md). No change to export
+pixels or scheduling; every existing `void VideoExporter.Export(...)` overload is now a compatibility wrapper.
+
+- **Result model** — `Sprocket.Export/ExportRunSummary.cs`: `ExportStageTimings` (VideoDecode / VideoRender /
+  VideoEncode / AudioMix / AudioEncode / Total) and `ExportRunSummary` (requested acceleration, requested
+  software-family encoder, **actual** encoder from `MediaEncoder.VideoEncoderName`, `HardwareVideoEngaged` from
+  `MediaEncoder.IsHardwareVideo` — never inferred from the name — frame / sample counts, timings;
+  `FellBackToSoftware`, `IsAudioOnly`). Audio-only exports report empty encoder names, 0 frames, zero video timings.
+- **Measured entry point** — `VideoExporter.ExportWithSummary(...)` owns the implementation; returns only after a
+  successful `Finish()` (cancel / failure still throw + delete the partial file). Timing is monotonic
+  (`Stopwatch.GetTimestamp` / `GetElapsedTime`), allocation-free (a local `StageTimer` struct). Total includes
+  setup (encoder / device open) and the mux trailer; the per-stage fields do not sum to it. Render = the
+  `RenderVideoFrame` call minus the decode it triggered; encode = `PeekPixels` + `WriteVideoFrame`.
+- **Decode accounting** — `ExportFrameProvider.DecodeElapsed` / `DecodeOperations`: one private helper each around
+  `SeekTo`, `TryDecodeNextFrame`, and the reverse `GopFrameWindow.FillBelow` refill, so look-ahead / window cache
+  hits are free. No per-frame collections or pixel copies.
+- **Audio gating** — `RenderGraph.HasAudibleAudio(Project, Sequence)` replaces the exporter's source-presence-only
+  recursion and mirrors `PlanAudioBufferCore` admission exactly: disabled / muted / non-solo tracks (enabled-only
+  `anySolo`), disabled clips, `MediaRef.Info.HasAudio`, nested sequences with the cycle + `MaxNestingDepth` guards,
+  multicam active-angle `EffectiveAudioRefId`. **Behavior change:** a muted-only or solo-excluded timeline now
+  exports **with no audio stream** (previously a silent one) and skips mixing/encoding. Audio-only export is
+  unaffected (still writes the full-length mix, silent if nothing is audible).
+- **Queue** — `ExportJobRunner` returns `ExportRunSummary`; `ExportJob.Summary` is cleared on `Running` and set in
+  the same `_gate`-locked terminal transition as `Succeeded` (Cancelled / Failed transitions now also lock), so a
+  UI snapshot never sees `Succeeded` without its summary.
+- **App** — `ExportSummaryText` (pure, invariant): `Compact` → "Exported with h264_nvenc in 00:42" (fallback adds
+  "(hardware unavailable)"; audio-only omits the encoder) for the status bar + queue rows; `CompletionDetails` →
+  encoder + hardware/software (fallback stated explicitly), elapsed + average fps, and the stage ms breakdown,
+  appended to the Export Complete dialog. `RunMcpExportAsync` retains the summary in `_mcpExportSummary` for a
+  later additive MCP payload extension (not yet exposed). `PreviewRenderer` keeps the void wrapper.
+- **Tests** — Core `HasAudibleAudioTests` (11: muted, disabled track, no-audio source, empty track, solo exclusion,
+  disabled-track solo, disabled clip, nested recursion + child mute, nested cycle, multicam active angle); Export
+  `ExportSummaryTests` (actual encoder / counts / timings, hardware request consistency without asserting a GPU,
+  muted → 0 samples + no audio stream, audio-only zeros, compatibility wrapper) and `ExportQueueTests` (summary
+  lands with `Succeeded`; failed / cancelled / skipped jobs null) with fakes via `TestSummaries.Runner`; App
+  `ExportSummaryTextTests` (hardware, fallback, software, audio-only, zero-elapsed, elapsed formatting). Full
+  solution `dotnet test` green.
+- **Pending:** the manual `Psycho.json` acceptance run + Phase-1 baseline entry in
+  [performance-log.md](performance-log.md) (needs the interactive app on the GPU box).

@@ -269,7 +269,7 @@ internal sealed class ExportQueueWindow : Window
             {
                 ExportJobStatus.Queued => ("Queued", Palette.MutedTextBrush),
                 ExportJobStatus.Running => ($"Exporting… {job.Progress * 100:0}%", Palette.AccentBrush),
-                ExportJobStatus.Succeeded => ("Done", Palette.GoodBrush),
+                ExportJobStatus.Succeeded => (job.Summary is { } summary ? ExportSummaryText.Compact(summary) : "Done", Palette.GoodBrush),
                 ExportJobStatus.Cancelled => ("Cancelled", Palette.MutedTextBrush),
                 ExportJobStatus.Failed => ($"Failed — {job.Error}", Palette.BadBrush),
                 _ => (job.Status.ToString(), Palette.MutedTextBrush),

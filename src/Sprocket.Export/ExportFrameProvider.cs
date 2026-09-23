@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Sprocket.Core.Timing;
 using Sprocket.Media;
 
@@ -41,6 +42,10 @@ internal sealed class ExportFrameProvider : IDisposable
 
     private bool _disposed;
 
+    // Decode-time accounting (export-speed phase 1): Stopwatch ticks spent in seek / decode / GOP refill only, so a
+    // look-ahead or window cache hit costs nothing. Two timestamps per decode operation — no allocation.
+    private long _decodeTimestampTicks;
+
     /// <param name="source">The full-resolution source to decode. The provider owns and disposes it.</param>
     /// <param name="isStill">Whether the source is a single still image (PLAN.md step 42): its one frame is held
     /// and returned for every requested source time, so a still clip renders identically across its whole span
@@ -51,6 +56,12 @@ internal sealed class ExportFrameProvider : IDisposable
         _isStill = isStill;
         _pool = new VideoFramePool(source.Info.Width, source.Info.Height);
     }
+
+    /// <summary>Total time spent seeking / decoding the source so far (cache hits excluded).</summary>
+    internal TimeSpan DecodeElapsed => Stopwatch.GetElapsedTime(0, _decodeTimestampTicks);
+
+    /// <summary>Number of seek / decode / GOP-refill operations performed so far.</summary>
+    internal long DecodeOperations { get; private set; }
 
     /// <summary>Source frame width in pixels.</summary>
     public int Width => _source.Info.Width;
@@ -88,26 +99,26 @@ internal sealed class ExportFrameProvider : IDisposable
             _window?.Clear();
             _inReverse = false;
             Reset();
-            _source.SeekTo(sourceTime);
+            Seek(sourceTime);
             _started = true;
         }
         else if (!_started)
         {
-            _source.SeekTo(sourceTime);
+            Seek(sourceTime);
             _started = true;
         }
         else if (_current is not null && sourceTime.Ticks < _current.Pts.Ticks - MatchToleranceTicks)
         {
             // The request moved backwards (a cut to an earlier in-point); re-seek and rebuild the look-ahead.
             Reset();
-            _source.SeekTo(sourceTime);
+            Seek(sourceTime);
         }
 
         while (true)
         {
             if (_pending is null && !_eof)
             {
-                if (_source.TryDecodeNextFrame(_pool, out VideoFrame? next))
+                if (TryDecodeNext(out VideoFrame? next))
                     _pending = next;
                 else
                     _eof = true;
@@ -146,9 +157,38 @@ internal sealed class ExportFrameProvider : IDisposable
                                                  || _window.FirstPts is { } first && first.Ticks < exclusiveEnd.Ticks)
             ? _window.PeekBelow(exclusiveEnd)
             : null;
-        if (hit is null && _window.FillBelow(exclusiveEnd) > 0)
+        if (hit is null && FillWindowBelow(exclusiveEnd) > 0)
             hit = _window.PeekBelow(exclusiveEnd);
         return hit;
+    }
+
+    private void Seek(Timecode sourceTime)
+    {
+        long start = Stopwatch.GetTimestamp();
+        _source.SeekTo(sourceTime);
+        EndDecode(start);
+    }
+
+    private bool TryDecodeNext([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out VideoFrame? frame)
+    {
+        long start = Stopwatch.GetTimestamp();
+        bool decoded = _source.TryDecodeNextFrame(_pool, out frame);
+        EndDecode(start);
+        return decoded;
+    }
+
+    private int FillWindowBelow(Timecode exclusiveEnd)
+    {
+        long start = Stopwatch.GetTimestamp();
+        int held = _window!.FillBelow(exclusiveEnd);
+        EndDecode(start);
+        return held;
+    }
+
+    private void EndDecode(long startTimestamp)
+    {
+        _decodeTimestampTicks += Stopwatch.GetTimestamp() - startTimestamp;
+        DecodeOperations++;
     }
 
     private void Reset()

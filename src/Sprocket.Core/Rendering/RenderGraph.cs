@@ -226,6 +226,72 @@ public static class RenderGraph
             masterGain, [sequence.Id], depth: 0, scope);
     }
 
+    /// <summary>
+    /// Whether <paramref name="sequence"/> contains any material <see cref="PlanAudioBuffer(Project, Sequence, Timecode, Timecode, AudioPlanScope?)"/>
+    /// would admit over its timeline: an enabled, unmuted (and, when any track is soloed, soloed) audio track carrying
+    /// an enabled clip whose source has audio — recursing into nested sequences with the planner's cycle/depth guards,
+    /// and inspecting a multicam clip's active-angle audio. Export uses it to skip audio mixing/encoding entirely for a
+    /// muted-only or solo-excluded timeline (export-speed phase 1). Timeline-wide: it does not scan a sub-range.
+    /// </summary>
+    public static bool HasAudibleAudio(Project project, Sequence sequence)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(sequence);
+        return SequenceHasAudibleAudio(project, sequence, [sequence.Id], depth: 0);
+    }
+
+    private static bool SequenceHasAudibleAudio(Project project, Sequence sequence, HashSet<SequenceId> path, int depth)
+    {
+        // Admission mirrors PlanAudioBufferCore exactly (enabled / muted / solo, then per-clip enabled).
+        bool anySolo = sequence.Timeline.AudioTracks.Any(at => at is { Enabled: true, Solo: true });
+        foreach (AudioTrack track in sequence.Timeline.AudioTracks)
+        {
+            if (!track.Enabled || track.Muted)
+                continue;
+            if (anySolo && !track.Solo)
+                continue;
+
+            foreach (Clip clip in track.Clips)
+            {
+                if (!clip.Enabled)
+                    continue;
+                if (ClipHasAudibleAudio(project, clip, path, depth))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool ClipHasAudibleAudio(Project project, Clip clip, HashSet<SequenceId> path, int depth)
+    {
+        switch (clip.Kind)
+        {
+            case ClipKind.Sequence:
+            {
+                // Same guards as PlanNestedAudio: depth cap, missing child, cycle on the current path.
+                if (clip.SourceSequenceId is not { } childId || depth + 1 > SequenceGraph.MaxNestingDepth)
+                    return false;
+                if (project.GetSequence(childId) is not { } child || !path.Add(childId))
+                    return false;
+                try
+                {
+                    return SequenceHasAudibleAudio(project, child, path, depth + 1);
+                }
+                finally
+                {
+                    path.Remove(childId);
+                }
+            }
+
+            case ClipKind.Multicam:
+                return ResolveMulticamAngle(project, clip) is { } angle
+                    && project.MediaPool.Get(angle.EffectiveAudioRefId) is { Info.HasAudio: true };
+
+            default:
+                return project.MediaPool.Get(clip.MediaRefId) is { Info.HasAudio: true };
+        }
+    }
+
     private static AudioBufferPlan PlanAudioBufferCore(
         Project project, Sequence sequence, Timecode bufferStart, Timecode bufferDuration,
         double masterGainLinear, HashSet<SequenceId> path, int depth, AudioPlanScope? scope = null,

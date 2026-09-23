@@ -77,6 +77,12 @@ public sealed class ExportJob
     /// <summary>The failure message when <see cref="Status"/> is <see cref="ExportJobStatus.Failed"/>.</summary>
     public string? Error { get; internal set; }
 
+    /// <summary>The measured run facts (actual encoder, hardware engagement, stage timings) once
+    /// <see cref="Status"/> is <see cref="ExportJobStatus.Succeeded"/>; <see langword="null"/> in every other state.
+    /// Set together with the <see cref="ExportJobStatus.Succeeded"/> transition, so a snapshot never sees one
+    /// without the other.</summary>
+    public ExportRunSummary? Summary { get; internal set; }
+
     /// <summary>Whether the job has reached a final state (succeeded, cancelled, or failed).</summary>
     public bool IsTerminal =>
         Status is ExportJobStatus.Succeeded or ExportJobStatus.Cancelled or ExportJobStatus.Failed;
@@ -86,10 +92,13 @@ public sealed class ExportJob
 /// Runs one export job: renders/encodes it to its output, reporting progress and observing the cancellation
 /// token. Throws <see cref="OperationCanceledException"/> if cancelled and any other exception on failure — the
 /// <see cref="ExportQueue"/> maps those onto the job's terminal state. The production runner wraps
-/// <see cref="VideoExporter.Export(Project, string, ExportOptions, Core.Model.SequenceId?, ExportRange?, IProgress{double}?, CancellationToken)"/>;
+/// <see cref="VideoExporter.ExportWithSummary"/> and returns its measured <see cref="ExportRunSummary"/>;
 /// tests inject a fake so the queue's orchestration is verified without encoding.
 /// </summary>
-public delegate void ExportJobRunner(ExportJob job, IProgress<double> progress, CancellationToken cancellationToken);
+public delegate ExportRunSummary ExportJobRunner(
+    ExportJob job,
+    IProgress<double> progress,
+    CancellationToken cancellationToken);
 
 /// <summary>
 /// A sequential export queue (PLAN.md step 29): jobs run one at a time on a background worker so a single
@@ -263,6 +272,7 @@ public sealed class ExportQueue
                 job.Status = ExportJobStatus.Running;
                 job.Progress = 0;
                 job.Error = null;
+                job.Summary = null;
             }
             RaiseChanged();
 
@@ -271,18 +281,28 @@ public sealed class ExportQueue
             {
                 // Run the (CPU-bound) job on the thread pool so RunAsync stays non-blocking when awaited on the UI
                 // thread. If the token is already cancelled, Task.Run yields a cancelled task → OperationCanceledException.
-                await Task.Run(() => _runner(job, progress, jobCts.Token), jobCts.Token).ConfigureAwait(false);
-                job.Status = ExportJobStatus.Succeeded;
-                job.Progress = 1.0;
+                ExportRunSummary summary =
+                    await Task.Run(() => _runner(job, progress, jobCts.Token), jobCts.Token).ConfigureAwait(false);
+                // One terminal transition under the gate: the summary lands with Succeeded, never after it.
+                lock (_gate)
+                {
+                    job.Summary = summary;
+                    job.Status = ExportJobStatus.Succeeded;
+                    job.Progress = 1.0;
+                }
             }
             catch (OperationCanceledException)
             {
-                job.Status = ExportJobStatus.Cancelled;
+                lock (_gate)
+                    job.Status = ExportJobStatus.Cancelled;
             }
             catch (Exception ex)
             {
-                job.Status = ExportJobStatus.Failed;
-                job.Error = ex.Message;
+                lock (_gate)
+                {
+                    job.Status = ExportJobStatus.Failed;
+                    job.Error = ex.Message;
+                }
             }
             finally
             {

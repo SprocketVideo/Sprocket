@@ -20,7 +20,7 @@ public sealed class ExportQueueTests
     public async Task RunAsync_RunsAllJobs_InEnqueueOrder_MarkingSucceeded()
     {
         var order = new List<string>();
-        var queue = new ExportQueue((job, _, _) => { lock (order) order.Add(job.Name); });
+        var queue = new ExportQueue(TestSummaries.Runner((job, _, _) => { lock (order) order.Add(job.Name); }));
         queue.Enqueue(Job("a"));
         queue.Enqueue(Job("b"));
         queue.Enqueue(Job("c"));
@@ -36,11 +36,11 @@ public sealed class ExportQueueTests
     [Fact]
     public async Task RunAsync_ForwardsProgress_AndCompletesToOne()
     {
-        var queue = new ExportQueue((_, progress, _) =>
+        var queue = new ExportQueue(TestSummaries.Runner((_, progress, _) =>
         {
             progress.Report(0.25);
             progress.Report(0.5);
-        });
+        }));
         ExportJob job = queue.Enqueue(Job("a"));
 
         var observed = new List<double>();
@@ -56,11 +56,11 @@ public sealed class ExportQueueTests
     [Fact]
     public async Task FailingJob_IsMarkedFailed_WithMessage_AndTheQueueContinues()
     {
-        var queue = new ExportQueue((job, _, _) =>
+        var queue = new ExportQueue(TestSummaries.Runner((job, _, _) =>
         {
             if (job.Name == "bad")
                 throw new InvalidOperationException("boom");
-        });
+        }));
         ExportJob a = queue.Enqueue(Job("a"));
         ExportJob bad = queue.Enqueue(Job("bad"));
         ExportJob c = queue.Enqueue(Job("c"));
@@ -77,7 +77,7 @@ public sealed class ExportQueueTests
     public async Task CancelJob_BeforeItRuns_SkipsIt()
     {
         var ran = new List<string>();
-        var queue = new ExportQueue((job, _, _) => { lock (ran) ran.Add(job.Name); });
+        var queue = new ExportQueue(TestSummaries.Runner((job, _, _) => { lock (ran) ran.Add(job.Name); }));
         ExportJob a = queue.Enqueue(Job("a"));
         ExportJob b = queue.Enqueue(Job("b"));
 
@@ -94,7 +94,7 @@ public sealed class ExportQueueTests
     public async Task CancelJob_WhileRunning_MarksItCancelled_AndRunsTheNext()
     {
         using var started = new ManualResetEventSlim();
-        var queue = new ExportQueue((job, _, ct) =>
+        var queue = new ExportQueue(TestSummaries.Runner((job, _, ct) =>
         {
             if (job.Name == "long")
             {
@@ -102,7 +102,7 @@ public sealed class ExportQueueTests
                 ct.WaitHandle.WaitOne(Bound);      // block until cancelled
                 ct.ThrowIfCancellationRequested();
             }
-        });
+        }));
         ExportJob longJob = queue.Enqueue(Job("long"));
         ExportJob next = queue.Enqueue(Job("next"));
 
@@ -119,12 +119,12 @@ public sealed class ExportQueueTests
     public async Task CancelAll_CancelsTheRunningJobAndAllQueuedJobs()
     {
         using var started = new ManualResetEventSlim();
-        var queue = new ExportQueue((_, _, ct) =>
+        var queue = new ExportQueue(TestSummaries.Runner((_, _, ct) =>
         {
             started.Set();
             ct.WaitHandle.WaitOne(Bound);
             ct.ThrowIfCancellationRequested();
-        });
+        }));
         ExportJob a = queue.Enqueue(Job("a"));
         ExportJob b = queue.Enqueue(Job("b"));
         ExportJob c = queue.Enqueue(Job("c"));
@@ -145,7 +145,7 @@ public sealed class ExportQueueTests
     {
         using var started = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        var queue = new ExportQueue((_, _, _) => { started.Set(); release.Wait(Bound); });
+        var queue = new ExportQueue(TestSummaries.Runner((_, _, _) => { started.Set(); release.Wait(Bound); }));
         ExportJob running = queue.Enqueue(Job("running"));
         ExportJob queued = queue.Enqueue(Job("queued"));
 
@@ -167,12 +167,12 @@ public sealed class ExportQueueTests
     {
         var ran = new List<string>();
         ExportQueue queue = null!;
-        queue = new ExportQueue((job, _, _) =>
+        queue = new ExportQueue(TestSummaries.Runner((job, _, _) =>
         {
             lock (ran) ran.Add(job.Name);
             if (job.Name == "first")
                 queue.Enqueue(Job("added-mid-run"));
-        });
+        }));
         queue.Enqueue(Job("first"));
 
         await queue.RunAsync().WaitAsync(Bound);
@@ -183,11 +183,11 @@ public sealed class ExportQueueTests
     [Fact]
     public async Task ClearCompleted_RemovesFinishedJobs_KeepsQueuedOnes()
     {
-        var queue = new ExportQueue((job, _, _) =>
+        var queue = new ExportQueue(TestSummaries.Runner((job, _, _) =>
         {
             if (job.Name == "bad")
                 throw new InvalidOperationException("x");
-        });
+        }));
         queue.Enqueue(Job("ok"));   // will succeed
         queue.Enqueue(Job("bad"));  // will fail
         await queue.RunAsync().WaitAsync(Bound);
@@ -205,7 +205,7 @@ public sealed class ExportQueueTests
     public void Enqueue_RaisesChanged_AndAppendsInOrder()
     {
         int changes = 0;
-        var queue = new ExportQueue((_, _, _) => { });
+        var queue = new ExportQueue(TestSummaries.Runner((_, _, _) => { }));
         queue.Changed += () => Interlocked.Increment(ref changes);
 
         ExportJob a = queue.Enqueue(Job("a"));
@@ -214,6 +214,58 @@ public sealed class ExportQueueTests
         Assert.True(changes >= 2);
         Assert.Equal([a.Id, b.Id], queue.Jobs.Select(j => j.Id));
         Assert.All(queue.Jobs, j => Assert.Equal(ExportJobStatus.Queued, j.Status));
+    }
+
+    [Fact]
+    public async Task Success_StoresTheRunnersExactSummary_BeforeTheSucceededChange()
+    {
+        var summary = TestSummaries.Fake with { ActualVideoEncoder = "h264_nvenc", HardwareVideoEngaged = true };
+        bool sawRunningWithSummary = false;
+        bool sawSucceededWithoutSummary = false;
+        var queue = new ExportQueue((_, _, _) => summary);
+        ExportJob job = queue.Enqueue(Job("a"));
+        queue.Changed += () =>
+        {
+            // Every observer snapshot must pair Succeeded with its summary, and never show one while running.
+            if (job.Status == ExportJobStatus.Running && job.Summary is not null)
+                sawRunningWithSummary = true;
+            if (job.Status == ExportJobStatus.Succeeded && !ReferenceEquals(job.Summary, summary))
+                sawSucceededWithoutSummary = true;
+        };
+
+        await queue.RunAsync().WaitAsync(Bound);
+
+        Assert.Equal(ExportJobStatus.Succeeded, job.Status);
+        Assert.Same(summary, job.Summary);
+        Assert.False(sawRunningWithSummary);
+        Assert.False(sawSucceededWithoutSummary);
+    }
+
+    [Fact]
+    public async Task FailedAndCancelledJobs_HaveNullSummaries()
+    {
+        var queue = new ExportQueue(TestSummaries.Runner((job, _, ct) =>
+        {
+            if (job.Name == "bad")
+                throw new InvalidOperationException("boom");
+            if (job.Name == "cancel")
+                throw new OperationCanceledException(ct);
+        }));
+        ExportJob bad = queue.Enqueue(Job("bad"));
+        ExportJob cancel = queue.Enqueue(Job("cancel"));
+        ExportJob skipped = queue.Enqueue(Job("skipped"));
+        ExportJob ok = queue.Enqueue(Job("ok"));
+        queue.CancelJob(skipped);
+
+        await queue.RunAsync().WaitAsync(Bound);
+
+        Assert.Equal(ExportJobStatus.Failed, bad.Status);
+        Assert.Null(bad.Summary);
+        Assert.Equal(ExportJobStatus.Cancelled, cancel.Status);
+        Assert.Null(cancel.Summary);
+        Assert.Equal(ExportJobStatus.Cancelled, skipped.Status);
+        Assert.Null(skipped.Summary);
+        Assert.Same(TestSummaries.Fake, ok.Summary);
     }
 
     [Fact]

@@ -223,7 +223,8 @@ verification-only items carry their checklist in the step's history entry.
 - [ ] **Export speed / throughput** (unscheduled feature) — improve export throughput in two deliberate
   tiers: deterministic **Final Export** stays the reference path, while a speed-first **Fast Export** mode
   may use hardware decode/render and cache reuse; start with diagnostics + actual-encoder visibility,
-  then overlap decode/render/encode before adding the opt-in fast path →
+  then overlap decode/render/encode before adding the opt-in fast path (phase 1 — diagnostics + actual-encoder
+  reporting + audio gating — ✅ 2026-09-22) →
   [plan/features/export-speed.md](plan/features/export-speed.md)
 - [ ] **Linux hardware-accel verification** — step 57 Phase 5: real VAAPI + NVENC encode/decode
   on physical Intel/AMD/NVIDIA boxes, probe-order + software-fallback confirmation

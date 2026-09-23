@@ -4275,6 +4275,8 @@ public partial class MainWindow : Window
     private bool _mcpExportCompleted;
     private bool _mcpExportCancelled;
     private string? _mcpExportError;
+    // Retained for a later additive get_export_status extension (export-speed phase 1); not yet in the payload.
+    private ExportRunSummary? _mcpExportSummary;
 
     /// <summary>The MCP export's observable state (<c>get_export_status</c>).</summary>
     internal Sprocket.Mcp.McpExportStatus McpExportStatus => new(
@@ -4404,6 +4406,7 @@ public partial class MainWindow : Window
         _mcpExportCompleted = false;
         _mcpExportCancelled = false;
         _mcpExportError = null;
+        _mcpExportSummary = null;
         // The token source is created (and Running becomes true) before the async runner is fired, so a
         // status poll issued right after this call never sees a not-running/not-completed gap.
         var cts = new CancellationTokenSource();
@@ -4427,11 +4430,12 @@ public partial class MainWindow : Window
         SetStatus($"Exporting (MCP) → {outputPath}");
         try
         {
-            await Task.Run(() => VideoExporter.Export(
+            ExportRunSummary summary = await Task.Run(() => VideoExporter.ExportWithSummary(
                 _project!, outputPath, options, sequenceId: null, range, progress, cts.Token, _stab));
+            _mcpExportSummary = summary;
             _mcpExportProgress = 1;
             _mcpExportCompleted = true;
-            SetStatus($"Exported → {outputPath}");
+            SetStatus($"{ExportSummaryText.Compact(summary)} → {outputPath}");
         }
         catch (OperationCanceledException)
         {
@@ -4651,14 +4655,13 @@ public partial class MainWindow : Window
         var progress = new Progress<double>(p => dialog.SetProgress(p));
         _ = dialog.ShowDialog(this); // modal: input-blocks the shell while exporting; dismissed in the finally
 
-        bool ok = false;
+        ExportRunSummary? summary = null;
         bool cancelled = false;
         string? error = null;
         try
         {
-            await Task.Run(() => VideoExporter.Export(
+            summary = await Task.Run(() => VideoExporter.ExportWithSummary(
                 _project, outputPath, options, sequenceId: null, range, progress, cts.Token, _stab));
-            ok = true;
         }
         catch (OperationCanceledException)
         {
@@ -4679,11 +4682,11 @@ public partial class MainWindow : Window
             SetEnabled(true);
         }
 
-        if (ok)
+        if (summary is not null)
         {
-            SetStatus($"Exported → {outputPath}");
+            SetStatus($"{ExportSummaryText.Compact(summary)} → {outputPath}");
             if (await ConfirmDialog.Show(this, "Export Complete",
-                    $"Exported to:\n{outputPath}", "Open folder", "Close"))
+                    $"Exported to:\n{outputPath}\n\n{ExportSummaryText.CompletionDetails(summary)}", "Open folder", "Close"))
                 RevealInFolder(outputPath);
         }
         else if (cancelled)
@@ -4765,7 +4768,7 @@ public partial class MainWindow : Window
     private void EnsureExportQueue()
     {
         _exportQueue ??= new Export.ExportQueue((job, progress, ct) =>
-            VideoExporter.Export(_project!, job.OutputPath, job.Options, job.SequenceId, job.Range, progress, ct, _stab));
+            VideoExporter.ExportWithSummary(_project!, job.OutputPath, job.Options, job.SequenceId, job.Range, progress, ct, _stab));
     }
 
     /// <summary>The queue window's "Add…" action: pick a delivery format then an output file, and enqueue a job for

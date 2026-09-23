@@ -1,6 +1,6 @@
 # Export speed / throughput
 
-❌ **Not started.** Improve export throughput in two deliberate tiers: keep a deterministic
+🟡 **Phase 1 done (2026-09-22)**; phases 2–5 open. Improve export throughput in two deliberate tiers: keep a deterministic
 **Final Export** path for golden-frame parity, and add an explicitly speed-first **Fast Export**
 mode that may trade determinism for wall-clock speed. Tracked in [PLAN.md](../../PLAN.md) Open work.
 Relative links resolve from the repo root.
@@ -71,7 +71,9 @@ and keep the riskier behavior changes behind instrumentation.
 | 4 | Cache-aware Fast/Draft Export reuse | 2, 3 | 1 |
 | 5 | Per-effect cost attribution + docs / FEATURES / README close-out | 1–4 | 0.5–1 |
 
-- [ ] **Phase 1 — Observability and cheap wins.** Add an `ExportDiagnostics` / `ExportRunSummary` shape in
+- [x] **Phase 1 — Observability and cheap wins.** ✅ 2026-09-22 — DONE log in
+  [plan/history/steps-58plus.md](../history/steps-58plus.md#export-speed--phase-1-unscheduled-feature-2026-09-22--done); the manual `Psycho.json`
+  baseline for performance-log.md is still to be recorded. Add an `ExportDiagnostics` / `ExportRunSummary` shape in
   `Sprocket.Export`, timestamp the current stages in `VideoExporter`, surface `MediaEncoder.IsHardwareVideo`
   + `VideoEncoderName` on completion, and plumb the summary through the queue/UI. Tighten audio gating so muted
   or solo-excluded timelines skip audio work. Acceptance: the export completion path can tell the user
