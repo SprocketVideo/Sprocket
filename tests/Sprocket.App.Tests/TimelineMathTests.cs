@@ -235,6 +235,49 @@ public class TimelineMathTests
         Assert.Equal(ClipDragMode.TrimStart, TimelineMath.HitMode(101, clipX0: 100, clipX1: 104, edgeGrip: 7));
     }
 
+    // Arbitrates spans the way TimelineControl.TryHitClip does: highest HitPriority wins, later wins ties.
+    private static (int Index, ClipDragMode Mode) Resolve(double pointerX, params (double X0, double X1)[] spans)
+    {
+        (int index, ClipDragMode mode, int best) = (-1, ClipDragMode.None, 0);
+        for (int i = 0; i < spans.Length; i++)
+        {
+            ClipDragMode m = TimelineMath.HitMode(pointerX, spans[i].X0, spans[i].X1, edgeGrip: 7);
+            int priority = TimelineMath.HitPriority(pointerX, spans[i].X0, spans[i].X1, m);
+            if (priority > 0 && priority >= best)
+                (index, mode, best) = (i, m, priority);
+        }
+        return (index, mode);
+    }
+
+    [Theory]
+    [InlineData(294, 0, ClipDragMode.TrimEnd)]   // just left of the cut → outgoing clip's out-point
+    [InlineData(299, 0, ClipDragMode.TrimEnd)]
+    [InlineData(300, 1, ClipDragMode.TrimStart)] // exactly on the cut → incoming clip's in-point (Premiere)
+    [InlineData(301, 1, ClipDragMode.TrimStart)] // just right of the cut → incoming clip's in-point
+    [InlineData(306, 1, ClipDragMode.TrimStart)]
+    public void Butt_Join_Splits_The_Edit_Point_Between_Both_Clips(double pointerX, int expectedClip, ClipDragMode expected)
+    {
+        // Clip order in the track list must not decide the side: check both orders.
+        Assert.Equal((expectedClip, expected), Resolve(pointerX, (100, 300), (300, 500)));
+        Assert.Equal((1 - expectedClip, expected), Resolve(pointerX, (300, 500), (100, 300)));
+    }
+
+    [Theory]
+    [InlineData(95, ClipDragMode.TrimStart)] // outside grip before a lone start edge still trims
+    [InlineData(305, ClipDragMode.TrimEnd)]  // outside grip after a lone end edge still trims
+    public void Lone_Edge_Keeps_Its_Outside_Grip(double pointerX, ClipDragMode expected)
+    {
+        Assert.Equal((0, expected), Resolve(pointerX, (100, 300)));
+    }
+
+    [Fact]
+    public void Small_Gap_Arbitrates_Body_Side_Then_Later_Clip()
+    {
+        // A 4 px gap: over a body that clip wins; inside the gap both grips reach in from outside, so the later one does.
+        Assert.Equal((1, ClipDragMode.TrimStart), Resolve(302, (100, 300), (304, 500)));
+        Assert.Equal((0, ClipDragMode.TrimEnd), Resolve(299, (100, 300), (304, 500)));
+    }
+
     [Fact]
     public void ClampSlip_Allows_A_Slip_Within_The_Media()
     {

@@ -258,6 +258,23 @@ public static class TimelineMath
     }
 
     /// <summary>
+    /// Ranks a <see cref="HitMode"/> result so a track's clips can be arbitrated when several claim the pointer —
+    /// chiefly at a butt join, where the outgoing clip's end grip and the incoming clip's start grip cover the same
+    /// pixels. Mirrors Premiere / Resolve / Avid: the edit point splits at the cut, so a grip on the pointer's side of
+    /// the cut (the pointer is over that clip's body) beats one reaching out past the clip's edge, and exactly on
+    /// the cut the incoming clip's start wins. A lone edge keeps its outside grip (nothing outranks it there).
+    /// Higher wins; 0 = no hit. Callers let a later clip win ties, preserving drawn-on-top order.
+    /// </summary>
+    public static int HitPriority(double pointerX, double clipX0, double clipX1, ClipDragMode mode)
+    {
+        if (mode == ClipDragMode.None)
+            return 0;
+        if (pointerX < clipX0 || pointerX > clipX1)
+            return 1; // an edge grip reaching outside the clip
+        return mode == ClipDragMode.TrimStart ? 3 : 2;
+    }
+
+    /// <summary>
     /// The cursor the timeline should show while idle-hovering, from the active tool and what the pointer is
     /// over (the <see cref="HitMode"/> result, or <see cref="ClipDragMode.None"/> off-clip). Mirrors the leading
     /// editors: the Select tool shows a side-specific trim cursor only inside an edge grip; Ripple/Roll act on

@@ -103,6 +103,8 @@ public partial class App : Application
             string audioDevice = (oldWindow as MainWindow)?.AudioDeviceSetting ?? "";
             MediaBootstrap.Result result = MediaBootstrap.CreateForProject(request.Project, request.Status, audioDevice);
             MainWindow window = BuildWindow(result.Engine, result.Project, request.Status, request.ProjectPath, result.Proxy, result.AudioClock, result.Stab, placement);
+            if (request.Recovered)
+                window.MarkRecovered();
             _desktop.MainWindow = window;
             window.Show();
 

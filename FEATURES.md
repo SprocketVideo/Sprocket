@@ -122,10 +122,10 @@ in terms an app-side committer can check against their diff.
 | New Project (`Ctrl+N`) | MainWindow.axaml.cs `NewProject` | get-started/getting-started.md#open-something-to-work-with | ✅ |
 | Open Project (`Ctrl+O`) | MainWindow.axaml.cs `OpenProjectAsync` | get-started/getting-started.md#open-something-to-work-with | ✅ |
 | Open Sample Project | MainWindow.axaml.cs `OpenSampleProject` | get-started/getting-started.md#open-something-to-work-with | ✅ |
-| Open Recent (File ▸ Open Recent — up to 10 recent projects, newest first; Clear Recent; stale entries self-prune) | MainWindow.axaml.cs `RefreshRecentMenu`/`OpenRecentAsync`; UserSettingsStore.cs `PushRecent` | — | ❌ |
+| Open Recent (File ▸ Open Recent — up to 10 recent projects, newest first, numbered 1–10 as access keys; Clear Recent; stale entries self-prune) | MainWindow.axaml.cs `RefreshRecentMenu`/`OpenRecentAsync`; UserSettingsStore.cs `PushRecent` | — | ❌ |
 | Save / Save As (`Ctrl+S` / `Ctrl+Shift+S`) | MainWindow.axaml.cs `Save`/`SaveAsAsync` | get-started/getting-started.md#11-save-your-project | ✅ |
 | Unsaved-changes prompt when dirty (Save · Don't Save · Cancel) — guards New / Open / Open Sample **and** closing the window / Exit / Quit; Save that fails or is cancelled aborts the action | MainWindow.axaml.cs `ConfirmSaveIfDirtyAsync`, `ConfirmCloseAsync`, `OnClosing`; App.axaml.cs `OnShutdownRequested` | get-started/projects-and-saving.md#the-unsaved-changes-safety-check | ❌ (page documents the old two-button discard prompt, and predates the close/quit guard) |
-| Autosave + crash recovery (recover-newer-autosave prompt) | Sprocket.App/AutosaveService.cs; `ShouldRecoverAsync` | get-started/projects-and-saving.md#autosave-and-crash-recovery | ✅ |
+| Autosave + crash recovery (one-shot recover-newer-autosave prompt: Recover opens it as unsaved changes, Discard autosave deletes it; Don't Save on close/New/Open also deletes the autosave) | Sprocket.App/AutosaveService.cs; `ShouldRecoverAsync`; `DiscardAutosave` | get-started/projects-and-saving.md#autosave-and-crash-recovery | ⚠️ stale — prompt buttons renamed (Recover / Discard autosave) and discard-deletes-autosave behavior not described |
 | Relink Media (folder pick, match preview) | MainWindow.axaml.cs `RelinkMediaAsync` | get-started/projects-and-saving.md#relink-moved-or-missing-media | ✅ |
 | Undo / Redo with named steps (`Ctrl+Z` / `Ctrl+Shift+Z`, `⌘Z` / `⌘⇧Z` on macOS; `Ctrl+Y` alias on Windows/Linux only) | UI.md; MainWindow.axaml.cs:322 | get-started/getting-started.md#10-undo-and-redo | ✅ (`Ctrl+Y` alias in the shortcut reference) |
 
@@ -161,7 +161,7 @@ in terms an app-side committer can check against their diff.
 
 | Feature | Source of truth | Docs | Docs status |
 |---|---|---|---|
-| Select tool — move & edge-trim (side-specific trim cursor on edge hover) | UI.md §3.2; TimelineControl.cs; TimelineMath.HoverCursor | edit/editing-on-the-timeline.md#select--move-and-trim | ✅ (hover trim cursor covered in #the-editing-tools) |
+| Select tool — move & edge-trim (side-specific trim cursor on edge hover; at a butt join the left half of the edit point trims the outgoing clip's end, the right half the incoming clip's start) | UI.md §3.2; TimelineControl.cs; TimelineMath.HoverCursor/HitPriority | edit/editing-on-the-timeline.md#select--move-and-trim | ⚠️ stale — hover trim cursor covered in #the-editing-tools; butt-join side split not described |
 | Blade tool — split clips (hover cut-line preview) | TimelineControl.cs `BladeClip` / `DrawBladePreview` | get-started/getting-started.md#5-split-a-clip-with-the-blade; edit/editing-on-the-timeline.md#the-editing-tools | ✅ (split in getting-started; cut-line preview noted in #the-editing-tools) |
 | Per-tool custom cursors (trim/ripple brackets, roll, slip/slide, razor, hand, magnifier) | ToolCursors.cs; TimelineMath.HoverCursor | edit/editing-on-the-timeline.md#the-editing-tools | ✅ |
 | Ripple tool | PLAN.md step 22; TimelineControl `DragKind.Ripple` | edit/editing-on-the-timeline.md#ripple | ✅ |

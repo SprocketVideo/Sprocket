@@ -219,7 +219,9 @@ public partial class MainWindow : Window
     /// <param name="Project">The new (empty) or freshly loaded project.</param>
     /// <param name="Status">A status line describing the session.</param>
     /// <param name="ProjectPath">The file it was loaded from, or <see langword="null"/> for an untitled project.</param>
-    public readonly record struct SessionRequest(Project Project, string Status, string? ProjectPath);
+    /// <param name="Recovered">The project was loaded from an autosave rather than its saved file, so the new
+    /// session opens dirty (its content differs from what's on disk).</param>
+    public readonly record struct SessionRequest(Project Project, string Status, string? ProjectPath, bool Recovered = false);
 
     /// <summary>The chosen audio output device (an OpenAL specifier, "" = system default) for this window's
     /// settings — read by the composition root so a session swap opens on the same device.</summary>
@@ -564,6 +566,14 @@ public partial class MainWindow : Window
     /// window over a document the user has already answered for).</summary>
     internal void ApproveClose() => _closeApproved = true;
 
+    /// <summary>Marks a session whose project came from an autosave as unsaved: the recovered edits aren't in the
+    /// project file yet, so the title shows dirty and closing / New / Open prompt to save them.</summary>
+    internal void MarkRecovered()
+    {
+        _savedUndoCount = -1; // no real history depth matches, so the document reads dirty until the next save
+        OnHistoryChanged();
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         if (_mcpService is { } mcpService)
@@ -592,7 +602,11 @@ public partial class MainWindow : Window
         this.FindControl<MenuItem>("NewMenuItem")!.Click += (_, _) => NewProject();
         this.FindControl<MenuItem>("OpenMenuItem")!.Click += (_, _) => _ = OpenProjectAsync();
         _openRecentMenuItem = this.FindControl<MenuItem>("OpenRecentMenuItem")!;
-        _openRecentMenuItem.SubmenuOpened += (_, _) => RefreshRecentMenu();
+        // Refresh from the parent File menu, not Open Recent's own SubmenuOpened: an Avalonia MenuItem with no
+        // children is a leaf that never opens a submenu, so an initially-empty Open Recent would never fill itself.
+        // Populate once up front too, so the item always carries a submenu (and the macOS bridge mirrors one).
+        this.FindControl<MenuItem>("FileMenu")!.SubmenuOpened += (_, _) => RefreshRecentMenu();
+        RefreshRecentMenu();
         this.FindControl<MenuItem>("OpenSampleMenuItem")!.Click += (_, _) => OpenSampleProject();
         this.FindControl<MenuItem>("SaveMenuItem")!.Click += (_, _) => Save();
         this.FindControl<MenuItem>("SaveAsMenuItem")!.Click += (_, _) => _ = SaveAsAsync();
@@ -4029,7 +4043,7 @@ public partial class MainWindow : Window
                 project = ProjectSerializer.Load(path);
                 status = $"Opened {Path.GetFileName(path)}";
             }
-            SessionRequested?.Invoke(new SessionRequest(project, status, path));
+            SessionRequested?.Invoke(new SessionRequest(project, status, path, recover));
             return true;
         }
         catch (Exception ex)
@@ -4065,6 +4079,7 @@ public partial class MainWindow : Window
     {
         _userSettings = _userSettings with { RecentProjects = recent };
         UserSettingsFile.Save(_userSettings);
+        RefreshRecentMenu(); // keep the live submenu in step (e.g. Clear Recent while it is open)
     }
 
     /// <summary>
@@ -4080,7 +4095,11 @@ public partial class MainWindow : Window
         IReadOnlyList<string> recent = _userSettings.RecentProjects;
         var existing = recent.Where(File.Exists).ToList();
         if (existing.Count != recent.Count)
-            PersistRecent(existing); // self-heal: forget files that are gone
+        {
+            // Self-heal: forget files that are gone (saved directly — PersistRecent would re-enter this method).
+            _userSettings = _userSettings with { RecentProjects = existing };
+            UserSettingsFile.Save(_userSettings);
+        }
 
         var items = new List<Control>(existing.Count + 2);
         if (existing.Count == 0)
@@ -4089,10 +4108,13 @@ public partial class MainWindow : Window
         }
         else
         {
-            foreach (string path in existing)
+            for (int n = 0; n < existing.Count; n++)
             {
-                string captured = path; // capture per iteration
-                var item = new MenuItem { Header = Path.GetFileName(captured) };
+                string captured = existing[n]; // capture per iteration
+                // Numbered like Premiere / VS Code so each entry has an access key (_1 … _9, then 1_0). The file
+                // name's own underscores are doubled so Avalonia shows them literally rather than as access keys.
+                string number = n < 9 ? $"_{n + 1}" : $"{(n + 1) / 10}_{(n + 1) % 10}";
+                var item = new MenuItem { Header = $"{number}  {Path.GetFileName(captured).Replace("_", "__")}" };
                 ToolTip.SetTip(item, captured);
                 item.Click += (_, _) => _ = OpenRecentAsync(captured);
                 items.Add(item);
@@ -4109,6 +4131,9 @@ public partial class MainWindow : Window
     /// Crash recovery (PLAN.md step 20): if a newer autosave sidecar sits beside the project being opened, ask
     /// whether to recover it. The decision is the pure <see cref="AutosaveRecovery"/>; this just gathers the
     /// filesystem timestamps and shows the prompt. Returns <c>true</c> to load the autosave instead.
+    /// The offer is one-shot, as in Word / Premiere / Resolve: choosing <b>Discard autosave</b> deletes the sidecar
+    /// so the same stale recovery isn't offered on every later open. Dismissing the prompt without choosing opens
+    /// the saved version but keeps the sidecar, so the decision can still be made next time.
     /// </summary>
     private async Task<bool> ShouldRecoverAsync(string projectPath)
     {
@@ -4121,11 +4146,14 @@ public partial class MainWindow : Window
         if (!AutosaveRecovery.ShouldOffer(state))
             return false;
 
-        return await ConfirmDialog.Show(
+        bool? choice = await ConfirmDialog.ShowOrDismiss(
             this, "Recover unsaved changes?",
             "A more recent autosave was found for this project — it may contain changes that weren't saved before "
-            + "the app last closed. Recover it, or open the last saved version?",
-            "Recover", "Open saved version");
+            + "the app last closed. Recover it, or discard the autosave and open the last saved version?",
+            "Recover", "Discard autosave");
+        if (choice == false)
+            TryDeleteAutosave(autosavePath);
+        return choice == true;
     }
 
     /// <summary>
@@ -4543,13 +4571,42 @@ public partial class MainWindow : Window
             return choice switch
             {
                 SaveChangesChoice.Save => await SaveBeforeDiscardAsync(),
-                SaveChangesChoice.Discard => true,
+                SaveChangesChoice.Discard => DiscardAutosave(),
                 _ => false,
             };
         }
         finally
         {
             _unsavedPromptOpen = false;
+        }
+    }
+
+    /// <summary>The Don't Save half of the gate: the user chose to lose these edits, so drop the autosave that
+    /// holds them too — otherwise the next open would offer to "recover" exactly what was just discarded. Always
+    /// returns <c>true</c> (proceed).</summary>
+    private bool DiscardAutosave()
+    {
+        if (_autosave is { } autosave)
+        {
+            autosave.ClearDirty(); // stop a pending tick from re-writing the sidecar before the window goes away
+            TryDeleteAutosave(autosave.CurrentAutosavePath());
+        }
+        return true;
+    }
+
+    /// <summary>Deletes an autosave sidecar, best-effort: one we can't delete only costs an extra recovery prompt
+    /// later, which is no reason to fail the open / close in progress.</summary>
+    private static void TryDeleteAutosave(string autosavePath)
+    {
+        try
+        {
+            Autosave.Delete(autosavePath);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 

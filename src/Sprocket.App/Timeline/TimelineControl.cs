@@ -2310,14 +2310,18 @@ public sealed class TimelineControl : Control
             return false;
 
         Track track = lanes[i].track;
-        // Last clip wins so a clip drawn on top (later in the list) is hit first.
+        // Highest HitPriority wins, so at a butt join each side of the cut grabs the clip it's over (not whichever
+        // clip iterates last); ties go to the later clip so one drawn on top (later in the list) is hit first.
+        int best = 0;
         foreach (Clip c in track.Clips)
         {
             double x0 = TimelineMath.XAtTicks(c.TimelineStart.Ticks, _pxPerSecond, _scrollX, _headerWidth);
             double x1 = TimelineMath.XAtTicks(c.TimelineEnd.Ticks, _pxPerSecond, _scrollX, _headerWidth);
             ClipDragMode m = TimelineMath.HitMode(p.X, x0, x1, EdgeGrip);
-            if (m != ClipDragMode.None)
+            int priority = TimelineMath.HitPriority(p.X, x0, x1, m);
+            if (priority > 0 && priority >= best)
             {
+                best = priority;
                 clip = c;
                 mode = m;
             }

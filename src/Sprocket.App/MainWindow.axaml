@@ -60,7 +60,7 @@
         <Menu x:Name="MenuBar" Grid.Column="1" VerticalAlignment="Center" Background="Transparent"
               Margin="6,0,0,0" FontSize="{x:Static local:Typography.Body}"
               chrome:WindowDecorationProperties.ElementRole="User">
-          <MenuItem Header="_File">
+          <MenuItem x:Name="FileMenu" Header="_File">
             <MenuItem x:Name="NewMenuItem" Header="_New Project" InputGesture="Ctrl+N" />
             <MenuItem x:Name="OpenMenuItem" Header="_Open Project…" InputGesture="Ctrl+O" />
             <MenuItem x:Name="OpenRecentMenuItem" Header="Open _Recent" />

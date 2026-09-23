@@ -262,7 +262,16 @@ internal static class ThirdPartyNoticesDialog
 /// the user accepts, <c>false</c> on cancel / close.</summary>
 internal static class ConfirmDialog
 {
-    public static Task<bool> Show(Window owner, string title, string message, string confirmText, string cancelText)
+    public static Task<bool> Show(Window owner, string title, string message, string confirmText, string cancelText) =>
+        Build(title, message, confirmText, cancelText).ShowDialog<bool>(owner);
+
+    /// <summary>Like <see cref="Show"/>, but tells a title-bar dismissal apart from the cancel button: <c>true</c>
+    /// = confirm, <c>false</c> = cancel button, <c>null</c> = closed without choosing. For prompts whose cancel
+    /// button is itself a destructive choice (e.g. discarding an autosave), so closing the window stays a no-op.</summary>
+    public static Task<bool?> ShowOrDismiss(Window owner, string title, string message, string confirmText, string cancelText) =>
+        Build(title, message, confirmText, cancelText).ShowDialog<bool?>(owner);
+
+    private static Window Build(string title, string message, string confirmText, string cancelText)
     {
         var confirm = new Button
         {
@@ -320,7 +329,7 @@ internal static class ConfirmDialog
 
         confirm.Click += (_, _) => dialog.Close(true);
         cancel.Click += (_, _) => dialog.Close(false);
-        return dialog.ShowDialog<bool>(owner);
+        return dialog;
     }
 }
 
