@@ -182,6 +182,7 @@ in terms an app-side committer can check against their diff.
 | Enable/Disable clip (`Shift+E`, checkable Clip-menu/context item; disabled clips render nothing in preview *and* export, draw dimmed) | PLAN.md step 53; Clip.Enabled; TimelineControl `ToggleSelectedEnabled`; PlaybackEngine `ActiveVideoClip` | edit/editing-on-the-timeline.md#turning-a-clip-off-without-deleting-it | ✅ |
 | Add video/audio tracks (+ Track) | MainWindow.axaml.cs `AddTrack` | get-started/getting-started.md#9-add-a-track | ✅ |
 | Track header toggles: Enable (eye) / Mute / Solo | TimelineControl.cs `HandleHeaderClick` | audio/audio-mixing.md#adjust-the-audio | 🟡 (M/S/eye covered; per-track *video* enable only parenthetical) |
+| Delete tracks (right-click a track header ▸ Delete Track — confirms when the track has clips; ▸ Delete Empty Tracks — removes every clip-less track; each one undo step; the last video / audio track is never deleted) | TimelineControl.cs `DeleteTrack` / `DeleteEmptyTracks`; MainWindow.axaml.cs `ShowTrackContextMenu`; Sprocket.Core/Commands/ModelCommands.cs `TrackRemoval` | — | ❌ |
 | Rename a track (double-click header) | TimelineControl.cs:1380 | edit/editing-on-the-timeline.md#renaming-and-resizing-tracks | ✅ |
 | Resize track-header column | TimelineControl.cs:1371 | edit/editing-on-the-timeline.md#renaming-and-resizing-tracks | ✅ |
 | Fade handles & opacity rubber-band on clips | PLAN.md step 39; TimelineControl.cs:40–99 | edit/editing-on-the-timeline.md#fading-a-clip-in-or-out | ✅ |

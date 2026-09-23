@@ -270,6 +270,13 @@ public sealed class TimelineControl : Control
     /// </summary>
     public event Action<Clip, Track>? ClipContextMenuRequested;
 
+    /// <summary>
+    /// Raised when a track header is right-clicked, so the shell can open the track context menu (Delete Track /
+    /// Delete Empty Tracks, as in Premiere and Resolve). Like <see cref="ClipContextMenuRequested"/>, the menu lives
+    /// in <see cref="MainWindow"/> because its confirm prompt is a dialog and this custom-drawn control can't host it.
+    /// </summary>
+    public event Action<Track>? TrackContextMenuRequested;
+
     /// <summary>Whether edge/playhead snapping is active during drags.</summary>
     public bool Snapping { get; set; } = true;
 
@@ -1868,6 +1875,18 @@ public sealed class TimelineControl : Control
                 ClipContextMenuRequested?.Invoke(rightClicked, rightClickedTrack);
                 e.Handled = true;
             }
+            else if (rp.X < _headerWidth && rp.Y >= RulerHeight)
+            {
+                // Right-click on a track header → the track context menu.
+                List<(Track track, bool isVideo)> lanes = Lanes();
+                int lane = LaneAtY(rp.Y);
+                if (lane >= 0 && lane < lanes.Count)
+                {
+                    Focus();
+                    TrackContextMenuRequested?.Invoke(lanes[lane].track);
+                    e.Handled = true;
+                }
+            }
             return;
         }
 
@@ -2283,6 +2302,35 @@ public sealed class TimelineControl : Control
             return;
         Execute(SetPropertyCommand<string>.Create(
             "Rename track", () => track.Name, v => track.Name = v, trimmed));
+    }
+
+    /// <summary>Whether <paramref name="track"/> can be deleted — never the last video or audio track.</summary>
+    public bool CanDeleteTrack(Track track) =>
+        _project is not null && _history is not null && TrackRemoval.CanRemove(_project.Timeline, track);
+
+    /// <summary>Deletes <paramref name="track"/> (with any clips on it) as one undoable step. The shell confirms
+    /// first when the track carries clips; stale clip / transition selections are pruned by the history refresh.</summary>
+    public void DeleteTrack(Track track)
+    {
+        if (!CanDeleteTrack(track))
+            return;
+        Execute(new RemoveTrackCommand(_project!.Timeline, track));
+        ClipPlaced?.Invoke(); // the timeline's extent may have shrunk
+    }
+
+    /// <summary>Whether Delete Empty Tracks has anything to remove.</summary>
+    public bool CanDeleteEmptyTracks =>
+        _project is not null && _history is not null && TrackRemoval.EmptyRemovable(_project.Timeline).Count > 0;
+
+    /// <summary>Deletes every clip-less track as one undoable step (keeping one track of each kind). Returns how
+    /// many tracks were removed.</summary>
+    public int DeleteEmptyTracks()
+    {
+        if (_project is null || _history is null || TrackRemoval.RemoveEmptyTracks(_project.Timeline) is not { } command)
+            return 0;
+        int count = TrackRemoval.EmptyRemovable(_project.Timeline).Count;
+        Execute(command);
+        return count;
     }
 
     /// <summary>

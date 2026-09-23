@@ -68,7 +68,7 @@ public partial class MainWindow : Window
     private Mixer.MixerView? _mixer; // audio mixer hosted in the Project panel's Audio tab (PLAN.md step 30)
     private InspectorPanel? _inspector;
     private TimelineControl? _timeline;
-    private ContextMenu? _clipContextMenu; // the open clip right-click menu — closed before showing another (only one at a time)
+    private ContextMenu? _clipContextMenu; // the open clip / track-header right-click menu — closed before showing another (only one at a time)
     private Clip? _selectedClip; // the timeline selection (keyframe navigation targets its keyframes, step 16d)
 
     // Inline track-rename editor (overlaid on the timeline): the TextBox and the track being renamed.
@@ -2537,6 +2537,7 @@ public partial class MainWindow : Window
         timeline.ClipPlaced += UpdateTimelineHeader; // a media-bin drop / paste may extend the timeline
         timeline.Status += SetStatus;                 // transition hints, etc. (PLAN.md step 25)
         timeline.ClipContextMenuRequested += ShowClipContextMenu; // clip right-click menu (PLAN.md step 53)
+        timeline.TrackContextMenuRequested += ShowTrackContextMenu; // track-header right-click menu
         WireTrackRename(timeline);
         WireTitleEdit(timeline);
         UpdateRenderBar(); // initial render-bar state (a reopened project may already have valid renders, step 32)
@@ -3007,6 +3008,47 @@ public partial class MainWindow : Window
         menu.Closed += (_, _) => { if (ReferenceEquals(_clipContextMenu, menu)) _clipContextMenu = null; };
         _clipContextMenu = menu;
         menu.Open(timeline);
+    }
+
+    /// <summary>
+    /// Builds and opens the track-header context menu: Delete Track and Delete Empty Tracks, as Premiere and Resolve
+    /// offer them. Delete Track is disabled on the last video / audio track (a sequence always keeps one of each) and
+    /// asks first when the track still carries clips; both are single undo steps.
+    /// </summary>
+    private void ShowTrackContextMenu(Sprocket.Core.Model.Track track)
+    {
+        if (_timeline is not { } timeline)
+            return;
+
+        var deleteTrack = new MenuItem { Header = "_Delete Track", IsEnabled = timeline.CanDeleteTrack(track) };
+        deleteTrack.Click += (_, _) => _ = DeleteTrackAsync(track);
+        var deleteEmpty = new MenuItem { Header = "Delete _Empty Tracks", IsEnabled = timeline.CanDeleteEmptyTracks };
+        deleteEmpty.Click += (_, _) =>
+        {
+            int removed = timeline.DeleteEmptyTracks();
+            SetStatus($"Deleted {removed} empty track{(removed == 1 ? "" : "s")}");
+        };
+
+        // Shares the clip menu's slot so a right-click on either never stacks two open menus.
+        _clipContextMenu?.Close();
+        var menu = new ContextMenu { Placement = PlacementMode.Pointer, ItemsSource = new Control[] { deleteTrack, deleteEmpty } };
+        menu.Closed += (_, _) => { if (ReferenceEquals(_clipContextMenu, menu)) _clipContextMenu = null; };
+        _clipContextMenu = menu;
+        menu.Open(timeline);
+    }
+
+    private async Task DeleteTrackAsync(Sprocket.Core.Model.Track track)
+    {
+        if (_timeline is not { } timeline || !timeline.CanDeleteTrack(track))
+            return;
+        int clips = track.Clips.Count;
+        if (clips > 0 && !await ConfirmDialog.Show(this, "Delete Track",
+                $"Track \"{track.Name}\" contains {clips} clip{(clips == 1 ? "" : "s")}. Delete the track and its clips?\n\n" +
+                "You can undo this with Edit ▸ Undo.",
+                "Delete", "Cancel"))
+            return;
+        timeline.DeleteTrack(track);
+        SetStatus($"Deleted track {track.Name}");
     }
 
     /// <summary>Whether the timeline selection is a clip whose source carries audio (so Clip ▸ Normalize Audio can act).</summary>

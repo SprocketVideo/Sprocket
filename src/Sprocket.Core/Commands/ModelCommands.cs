@@ -1461,6 +1461,50 @@ public sealed class RemoveTrackCommand(Timeline timeline, Track track) : EditCom
 }
 
 /// <summary>
+/// The track-header delete rules (Delete Track / Delete Empty Tracks), as leading editors apply them: a sequence
+/// always keeps at least one video and one audio track, so the last track of its kind is never removable, and the
+/// empty-track sweep keeps the bottom-most track of a kind whose tracks are all empty.
+/// </summary>
+public static class TrackRemoval
+{
+    /// <summary>Whether <paramref name="track"/> may be deleted — false when it is the last track of its kind.</summary>
+    public static bool CanRemove(Timeline timeline, Track track)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+        ArgumentNullException.ThrowIfNull(track);
+        return timeline.Tracks.Contains(track) && timeline.Tracks.Count(t => t.GetType() == track.GetType()) > 1;
+    }
+
+    /// <summary>
+    /// The clip-less tracks Delete Empty Tracks removes, in timeline order. When every track of a kind is empty, the
+    /// bottom-most one (V1 / A1 — the lowest index) is kept so the sequence still has a track of that kind.
+    /// </summary>
+    public static IReadOnlyList<Track> EmptyRemovable(Timeline timeline)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+        var removable = new List<Track>();
+        foreach (IGrouping<Type, Track> kind in timeline.Tracks.GroupBy(t => t.GetType()))
+        {
+            List<Track> empty = kind.Where(t => t.Clips.Count == 0).ToList();
+            if (empty.Count == kind.Count())
+                empty.RemoveAt(0);
+            removable.AddRange(empty);
+        }
+        return removable.OrderBy(timeline.Tracks.IndexOf).ToList();
+    }
+
+    /// <summary>One undoable command removing every <see cref="EmptyRemovable"/> track, or null when there are none.</summary>
+    public static IEditCommand? RemoveEmptyTracks(Timeline timeline)
+    {
+        IReadOnlyList<Track> empty = EmptyRemovable(timeline);
+        return empty.Count == 0
+            ? null
+            : new CompositeCommand("Delete empty tracks",
+                empty.Select(t => (IEditCommand)new RemoveTrackCommand(timeline, t)).ToList());
+    }
+}
+
+/// <summary>
 /// Adds a transition to a track's cut (PLAN.md step 25); undo removes it. Applying a transition goes through the
 /// command stack like every other model mutation (step 10), so it is undoable and flips the dirty indicator.
 /// </summary>

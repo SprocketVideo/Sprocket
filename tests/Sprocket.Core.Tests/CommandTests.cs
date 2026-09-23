@@ -1026,3 +1026,82 @@ public class EditTransactionTests
         Assert.Equal(3, cell[0]);
     }
 }
+
+/// <summary>The track-header delete rules: the last track of a kind stays, and Delete Empty Tracks is one undo step.</summary>
+public class TrackRemovalTests
+{
+    private static Timeline MakeTimeline() => new(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+
+    private static Clip MakeClip() =>
+        new(MediaRefId.New(), Timecode.FromSeconds(0), Timecode.FromSeconds(5), Timecode.FromSeconds(0));
+
+    [Fact]
+    public void CanRemove_Refuses_Last_Track_Of_Its_Kind()
+    {
+        Timeline timeline = MakeTimeline();
+        var v1 = new VideoTrack();
+        var a1 = new AudioTrack();
+        timeline.Tracks.AddRange([v1, a1]);
+
+        Assert.False(TrackRemoval.CanRemove(timeline, v1));
+        Assert.False(TrackRemoval.CanRemove(timeline, a1));
+
+        var v2 = new VideoTrack();
+        timeline.Tracks.Add(v2);
+        Assert.True(TrackRemoval.CanRemove(timeline, v1));
+        Assert.True(TrackRemoval.CanRemove(timeline, v2));
+        Assert.False(TrackRemoval.CanRemove(timeline, a1));
+        Assert.False(TrackRemoval.CanRemove(timeline, new VideoTrack())); // not on this timeline
+    }
+
+    [Fact]
+    public void EmptyRemovable_Skips_Tracks_With_Clips()
+    {
+        Timeline timeline = MakeTimeline();
+        var v1 = new VideoTrack();
+        v1.Clips.Add(MakeClip());
+        var v2 = new VideoTrack();
+        var v3 = new VideoTrack();
+        var a1 = new AudioTrack();
+        a1.Clips.Add(MakeClip());
+        var a2 = new AudioTrack();
+        timeline.Tracks.AddRange([v1, a1, v2, a2, v3]);
+
+        Assert.Equal(new Track[] { v2, a2, v3 }, TrackRemoval.EmptyRemovable(timeline));
+    }
+
+    [Fact]
+    public void EmptyRemovable_Keeps_Bottom_Track_When_All_Of_A_Kind_Are_Empty()
+    {
+        Timeline timeline = MakeTimeline();
+        var v1 = new VideoTrack();
+        var v2 = new VideoTrack();
+        var a1 = new AudioTrack();
+        timeline.Tracks.AddRange([v1, v2, a1]);
+
+        Assert.Equal(new Track[] { v2 }, TrackRemoval.EmptyRemovable(timeline));
+    }
+
+    [Fact]
+    public void RemoveEmptyTracks_Is_One_Undo_Step_Restoring_Order()
+    {
+        Timeline timeline = MakeTimeline();
+        var v1 = new VideoTrack();
+        v1.Clips.Add(MakeClip());
+        var v2 = new VideoTrack();
+        var a1 = new AudioTrack();
+        var v3 = new VideoTrack();
+        var a2 = new AudioTrack();
+        timeline.Tracks.AddRange([v1, v2, a1, v3, a2]);
+        Track[] before = [.. timeline.Tracks];
+        var history = new EditHistory();
+
+        history.Execute(TrackRemoval.RemoveEmptyTracks(timeline)!);
+        Assert.Equal(new Track[] { v1, a1 }, timeline.Tracks);
+        Assert.Null(TrackRemoval.RemoveEmptyTracks(timeline));
+
+        history.Undo();
+        Assert.Equal(before, timeline.Tracks);
+        Assert.False(history.CanUndo);
+    }
+}
