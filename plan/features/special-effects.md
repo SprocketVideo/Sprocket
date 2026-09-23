@@ -294,7 +294,7 @@ the three it implied: **Night Strength** (master blend), **Exposure**, **Sky**, 
 **Saturation**, **Moonlight Tint**, **Moonlight Hue**, **Practical Lights**, **Protect Skin**, **Vignette**. Looks:
 **Standard** (= the defaults), **Exterior Wide**, **Street Scene**, **Blue Moon**. Entry points: the Effects
 browser's **DAY FOR NIGHT** group (double-click grades the selected clip — or an adjustment layer, for a whole
-scene — with that look, one undo step), the effect itself in the Color list / Effects menu with the Inspector
+scene — with that look, one undo step; dragging a look onto a clip does the same, added 2026-09-23), the effect itself in the Color list / Effects menu with the Inspector
 preset picker, and MCP `add_effect` with the new optional `preset` argument (`list_effect_types` now reports
 each type's preset names).
 
@@ -331,6 +331,11 @@ hue, tinted floor, vignette, practicals kept lit and warm but a sky or a sunlit 
 restored at night brightness and non-skin untouched, transparency and partial alpha preserved); `tests/Sprocket.Core.Tests/DayForNightCatalogTests.cs`
 (registration, control order, darken-only defaults, complete looks that keep Night Strength, Standard = defaults,
 `CreateInstance(preset)` / `FindPreset`); MCP round-trips in `SprocketToolsExtendedTests.cs`.
+
+**Follow-up (2026-09-23):** look rows are drag sources (`DragFormats.EffectPresetName` rides alongside
+`EffectId`, so the timeline drop applies the look), and non-finite parameter values (NaN/±Infinity from a
+hand-edited project file) are now neutralised codebase-wide — `ResolvedEffect`/`ResolvedGenerator`/
+`ResolvedTransition.Get` treat them as unset and return the effect's fallback, and the Fade audio gain skips them.
 
 **Not in phase 4:** the stock-free demo stack (phase 6), and anything needing a matte — sky replacement,
 windows keyed by shape, relighting (phase 5).

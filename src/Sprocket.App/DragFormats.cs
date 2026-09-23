@@ -19,6 +19,13 @@ internal static class DragFormats
     public static readonly DataFormat<string> EffectId =
         DataFormat.CreateStringApplicationFormat("sprocket-effect-id");
 
+    /// <summary>Payload: the name of one of the dragged effect's factory presets (<see cref="Core.Model.EffectPreset"/>)
+    /// — rides alongside <see cref="EffectId"/> when an Effects-browser look row (the DAY FOR NIGHT group) is dragged,
+    /// so the drop adds the effect with that look applied, exactly as double-clicking the row does. A drop target that
+    /// ignores it still gets a valid effect at its defaults.</summary>
+    public static readonly DataFormat<string> EffectPresetName =
+        DataFormat.CreateStringApplicationFormat("sprocket-effect-preset-name");
+
     /// <summary>Payload: a transition type id string — drag a Transitions-browser row onto a cut between two
     /// clips to apply it (PLAN.md step 25).</summary>
     public static readonly DataFormat<string> TransitionId =

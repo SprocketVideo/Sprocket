@@ -3104,7 +3104,7 @@ public sealed class TimelineControl : Control
         if (e.DataTransfer.Contains(DragFormats.MediaRefId))
             DropMedia(e.DataTransfer.TryGetValue(DragFormats.MediaRefId), p);
         else if (e.DataTransfer.Contains(DragFormats.EffectId))
-            DropEffect(e.DataTransfer.TryGetValue(DragFormats.EffectId), p);
+            DropEffect(e.DataTransfer.TryGetValue(DragFormats.EffectId), e.DataTransfer.TryGetValue(DragFormats.EffectPresetName), p);
         else if (e.DataTransfer.Contains(DragFormats.TransitionId))
             DropTransition(e.DataTransfer.TryGetValue(DragFormats.TransitionId), p);
     }
@@ -3175,15 +3175,20 @@ public sealed class TimelineControl : Control
         ClipPlaced?.Invoke();
     }
 
-    /// <summary>Appends the dropped effect to the clip under the cursor (PLAN.md step 16b).</summary>
-    private void DropEffect(string? effectId, Point p)
+    /// <summary>Appends the dropped effect to the clip under the cursor (PLAN.md step 16b) — with
+    /// <paramref name="presetName"/>'s look applied when a preset row was dragged (the DAY FOR NIGHT group), the same
+    /// one-undo-step instance double-clicking that row adds.</summary>
+    private void DropEffect(string? effectId, string? presetName, Point p)
     {
         if (string.IsNullOrEmpty(effectId))
             return;
         if (!TryHitClip(p, out Clip? clip, out _) || clip is null)
             return;
 
-        EffectInstance instance = EffectCatalog.Find(effectId)?.CreateInstance() ?? new EffectInstance(effectId);
+        EffectDescriptor? descriptor = EffectCatalog.Find(effectId);
+        EffectInstance instance = descriptor is null ? new EffectInstance(effectId)
+            : presetName is not null && descriptor.FindPreset(presetName) is { } preset ? descriptor.CreateInstance(preset)
+            : descriptor.CreateInstance();
         Execute(new AddEffectCommand(clip, instance));
         Select(clip);
     }

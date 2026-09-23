@@ -533,7 +533,12 @@ public sealed class MediaBrowserPanel : UserControl
             Child = new StackPanel { Children = { header, desc } },
         };
         row.DoubleTapped += (_, _) => ApplyEffect(effect, preset);
-        ToolTip.SetTip(row, $"Double-click to add {effect.DisplayName} ({preset.Name}) to the selected clip.");
+        EnableDrag(row, data =>
+        {
+            data.Add(DataTransferItem.Create(DragFormats.EffectId, effect.Id));
+            data.Add(DataTransferItem.Create(DragFormats.EffectPresetName, preset.Name));
+        });
+        ToolTip.SetTip(row, $"Double-click to add {effect.DisplayName} ({preset.Name}) to the selected clip, or drag it onto a clip.");
         return row;
     }
 
@@ -653,7 +658,12 @@ public sealed class MediaBrowserPanel : UserControl
 
     /// <summary>Makes <paramref name="source"/> a drag source carrying <paramref name="payloadFactory"/>'s string
     /// under <paramref name="format"/> once the pointer moves past a threshold.</summary>
-    private void EnableDrag(Control source, DataFormat<string> format, Func<string> payloadFactory)
+    private void EnableDrag(Control source, DataFormat<string> format, Func<string> payloadFactory) =>
+        EnableDrag(source, data => data.Add(DataTransferItem.Create(format, payloadFactory())));
+
+    /// <summary>Makes <paramref name="source"/> a drag source whose payload <paramref name="fill"/> writes (for a drag
+    /// carrying more than one format) once the pointer moves past a threshold.</summary>
+    private void EnableDrag(Control source, Action<DataTransfer> fill)
     {
         source.PointerPressed += (_, e) =>
         {
@@ -673,7 +683,7 @@ public sealed class MediaBrowserPanel : UserControl
 
             _pressedArgs = null;
             var data = new DataTransfer();
-            data.Add(DataTransferItem.Create(format, payloadFactory()));
+            fill(data);
             _ = DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Copy); // fire-and-forget; result not needed
         };
         source.PointerReleased += (_, _) => _pressedArgs = null;
