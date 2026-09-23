@@ -174,6 +174,13 @@ public partial class MainWindow : Window
     private Grid? _workspaceGrid, _outerGrid;
     private Border? _projectPane, _inspectorPane;
     private GridSplitter? _projectSplitter, _inspectorSplitter;
+    // Each side pane's last visible width, so hiding and re-showing it (and a layout saved while it is hidden)
+    // keeps the user's splitter position instead of snapping back to the XAML default.
+    private double _projectPaneWidth = ProjectLayoutStore.DefaultProjectWidth;
+    private double _inspectorPaneWidth = ProjectLayoutStore.DefaultInspectorWidth;
+    // The per-user layout this project opened with (ProjectLayoutStore); also supplies the values a session
+    // without an engine (no timeline / monitors) never shows, so saving it doesn't clobber them.
+    private ProjectLayout _layout = new();
 
     // Work-area focus ring (Tab / Shift+Tab, Shift+1–4). The active area is explicit shell state rather than
     // something inferred from whichever child control happens to hold focus: it survives focus landing on the
@@ -298,6 +305,14 @@ public partial class MainWindow : Window
         // After the panes are resolved (WireCommandMenus / WireMediaBrowser / WireInspector) and before the
         // no-engine early return below, so Tab still cycles the shell of an empty project.
         WireWorkAreaFocus();
+
+        // Reopen the panes the way this user left this project (sizes / visibility; the timeline zoom and monitor
+        // tab are restored once those exist, in WireTransport). Per-user state, never in the project file.
+        if (projectPath is not null && ProjectLayoutStore.Load(projectPath) is { } layout)
+        {
+            _layout = layout;
+            ApplyPaneLayout(layout);
+        }
 
         _history.Changed += OnHistoryChanged;
         OnHistoryChanged(); // initialise menu-enable + save-state
@@ -582,6 +597,7 @@ public partial class MainWindow : Window
             updateService.StateChanged -= RefreshUpdateAffordances; // likewise app-scoped (PLAN.md step 45)
         _updateToastTimer?.Stop();
         WindowStateStore.Save(_lastNonMinimizedState); // remember maximized-or-not for next launch
+        SaveProjectLayout(); // this project's panes / zoom / monitor tab, for the next time it is opened
         _telemetryTimer?.Stop(); // stop the status-bar poll (harmless if already idle)
         _statsOverlay?.Close(); // tear down the diagnostics overlay's poll timer
         _proxyWindow?.Close(); // unsubscribes from the proxy service, which outlives this window (session swaps)
@@ -675,6 +691,18 @@ public partial class MainWindow : Window
         // Toolbar toggles are the source of truth for Snapping / Guides; the View menu mirrors them.
         _snappingToggle = this.FindControl<ToggleButton>("SnappingToggle");
         _guidesToggle = this.FindControl<ToggleButton>("GuidesToggle");
+
+        // Snapping / Linked are per-user editing habits carried across projects (UserSettings), not project state.
+        if (_snappingToggle is not null)
+        {
+            _snappingToggle.IsChecked = _userSettings.TimelineSnapping;
+            _snappingToggle.IsCheckedChanged += (_, _) => PersistTimelineToggles();
+        }
+        if (this.FindControl<ToggleButton>("LinkedToggle") is { } linkedToggle)
+        {
+            linkedToggle.IsChecked = _userSettings.TimelineLinked;
+            linkedToggle.IsCheckedChanged += (_, _) => PersistTimelineToggles();
+        }
 
         // Panes / grids for the View panel toggles + Window ▸ Reset Layout.
         _workspaceGrid = this.FindControl<Grid>("WorkspaceGrid");
@@ -2000,6 +2028,7 @@ public partial class MainWindow : Window
         WireMonitorTabs();
         WireZoomAndGuides();
         WireScopes();
+        RestoreViewLayout(_layout);
 
         _exportButton!.Click += (_, _) => _ = ExportAsync();
         WireAddTrackButton();
@@ -3306,16 +3335,20 @@ public partial class MainWindow : Window
             return;
         if (project)
         {
+            if (!visible && _projectPane?.IsVisible != false)
+                _projectPaneWidth = PixelSize(_workspaceGrid.ColumnDefinitions[0].Width, _workspaceGrid.ColumnDefinitions[0].ActualWidth, _projectPaneWidth);
             if (_projectPane is not null) _projectPane.IsVisible = visible;
             if (_projectSplitter is not null) _projectSplitter.IsVisible = visible;
-            _workspaceGrid.ColumnDefinitions[0].Width = visible ? new GridLength(240) : new GridLength(0);
+            _workspaceGrid.ColumnDefinitions[0].Width = visible ? new GridLength(_projectPaneWidth) : new GridLength(0);
             _workspaceGrid.ColumnDefinitions[1].Width = visible ? new GridLength(6) : new GridLength(0);
         }
         else
         {
+            if (!visible && _inspectorPane?.IsVisible != false)
+                _inspectorPaneWidth = PixelSize(_workspaceGrid.ColumnDefinitions[4].Width, _workspaceGrid.ColumnDefinitions[4].ActualWidth, _inspectorPaneWidth);
             if (_inspectorPane is not null) _inspectorPane.IsVisible = visible;
             if (_inspectorSplitter is not null) _inspectorSplitter.IsVisible = visible;
-            _workspaceGrid.ColumnDefinitions[4].Width = visible ? new GridLength(300) : new GridLength(0);
+            _workspaceGrid.ColumnDefinitions[4].Width = visible ? new GridLength(_inspectorPaneWidth) : new GridLength(0);
             // The column's 192px floor (declared in XAML) would block collapsing to 0 — lift it while hidden.
             _workspaceGrid.ColumnDefinitions[4].MinWidth = visible ? 192 : 0;
             _workspaceGrid.ColumnDefinitions[3].Width = visible ? new GridLength(6) : new GridLength(0);
@@ -3331,6 +3364,8 @@ public partial class MainWindow : Window
     /// <summary>Window ▸ Reset Layout: restore the pane splitters to their default sizes and show all panes.</summary>
     private void ResetLayout()
     {
+        _projectPaneWidth = ProjectLayoutStore.DefaultProjectWidth;
+        _inspectorPaneWidth = ProjectLayoutStore.DefaultInspectorWidth;
         if (_workspaceGrid is not null)
         {
             _workspaceGrid.ColumnDefinitions[0].Width = new GridLength(240);
@@ -3344,6 +3379,94 @@ public partial class MainWindow : Window
         SetPanelVisible(project: true, true);
         SetPanelVisible(project: false, true);
         SetStatus("Layout reset.");
+    }
+
+    /// <summary>A pane's size in px: its definition's absolute size (what a splitter drag writes), else the laid-out
+    /// size, else <paramref name="fallback"/> (never laid out, e.g. a window closed before its first layout).</summary>
+    private static double PixelSize(GridLength length, double actual, double fallback) =>
+        length.IsAbsolute && length.Value > 0 ? length.Value : actual > 0 ? actual : fallback;
+
+    /// <summary>Applies a saved layout's pane sizes and visibility (<see cref="ProjectLayoutStore"/>).</summary>
+    private void ApplyPaneLayout(ProjectLayout layout)
+    {
+        _projectPaneWidth = layout.ProjectWidth;
+        _inspectorPaneWidth = layout.InspectorWidth;
+        if (_workspaceGrid is not null)
+        {
+            // Write the columns first: hiding a pane remembers its current column width as the one to restore.
+            _workspaceGrid.ColumnDefinitions[0].Width = new GridLength(layout.ProjectWidth);
+            _workspaceGrid.ColumnDefinitions[4].Width = new GridLength(layout.InspectorWidth);
+        }
+        if (_outerGrid is not null)
+            _outerGrid.RowDefinitions[2].Height = new GridLength(layout.TimelineHeight);
+        SetPanelVisible(project: true, layout.ProjectVisible);
+        SetPanelVisible(project: false, layout.InspectorVisible);
+        RefreshViewMenu();
+    }
+
+    /// <summary>Restores a saved layout's timeline zoom and monitor tab, once the timeline and monitors exist. The
+    /// Source tab is only brought back with the clip it was showing, and only while that clip is still in the bin
+    /// (an empty Source monitor is no use); otherwise the Program monitor stays up.</summary>
+    private void RestoreViewLayout(ProjectLayout layout)
+    {
+        _timeline?.RestoreZoom(layout.TimelinePxPerSecond);
+        if (_project is null || layout.SourceMediaPath is not { } sourcePath)
+            return;
+        StringComparison cmp = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        MediaRef? media = _project.MediaPool.Items.FirstOrDefault(m => string.Equals(m.AbsolutePath, sourcePath, cmp));
+        if (media is not { Info.HasVideo: true })
+            return;
+        if (layout.SourceMonitorActive)
+            Dispatcher.UIThread.Post(() => ShowInSourceMonitor(media)); // after the window is up, like a user double-click
+        else
+            _source?.SetSource(media); // loaded but behind the Program tab, as it was left
+    }
+
+    /// <summary>Snapshots this project's view layout. Values a session without an engine never shows (zoom,
+    /// monitor tab) carry over from the layout it opened with.</summary>
+    private ProjectLayout CaptureLayout()
+    {
+        bool projectVisible = _projectPane?.IsVisible != false;
+        bool inspectorVisible = _inspectorPane?.IsVisible != false;
+        double projectWidth = _projectPaneWidth, inspectorWidth = _inspectorPaneWidth;
+        if (_workspaceGrid is not null)
+        {
+            if (projectVisible)
+                projectWidth = PixelSize(_workspaceGrid.ColumnDefinitions[0].Width, _workspaceGrid.ColumnDefinitions[0].ActualWidth, projectWidth);
+            if (inspectorVisible)
+                inspectorWidth = PixelSize(_workspaceGrid.ColumnDefinitions[4].Width, _workspaceGrid.ColumnDefinitions[4].ActualWidth, inspectorWidth);
+        }
+        double timelineHeight = _outerGrid is null
+            ? _layout.TimelineHeight
+            : PixelSize(_outerGrid.RowDefinitions[2].Height, _outerGrid.RowDefinitions[2].ActualHeight, _layout.TimelineHeight);
+
+        bool sourceActive = _source is not null ? ReferenceEquals(_active, _source) : _layout.SourceMonitorActive;
+        string? sourcePath = _source is not null ? _source.Media?.AbsolutePath : _layout.SourceMediaPath;
+
+        return new ProjectLayout(
+            projectWidth, inspectorWidth, timelineHeight, projectVisible, inspectorVisible,
+            _timeline?.PxPerSecond ?? _layout.TimelinePxPerSecond, sourceActive, sourcePath);
+    }
+
+    /// <summary>Writes this project's per-user layout (<see cref="ProjectLayoutStore"/>), on close and before a
+    /// session swap. An untitled, never-saved project has nowhere to key it, so it persists nothing.</summary>
+    internal void SaveProjectLayout()
+    {
+        if (_currentProjectPath is { } path)
+            ProjectLayoutStore.Save(path, CaptureLayout());
+    }
+
+    /// <summary>Persists the Snapping / Linked toolbar toggles as user preferences (carried across projects).</summary>
+    private void PersistTimelineToggles()
+    {
+        bool snapping = _snappingToggle?.IsChecked == true;
+        bool linked = this.FindControl<ToggleButton>("LinkedToggle")?.IsChecked == true;
+        if (_userSettings.TimelineSnapping == snapping && _userSettings.TimelineLinked == linked)
+            return;
+        _userSettings = _userSettings with { TimelineSnapping = snapping, TimelineLinked = linked };
+        UserSettingsFile.Save(_userSettings);
     }
 
     // ── Edit-history reactions: menu enable + dirty indicator ───────────────────────────────────────

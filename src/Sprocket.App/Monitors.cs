@@ -118,6 +118,10 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
     private bool _active;
 
     public PlaybackEngine? CurrentEngine => _engine;
+
+    /// <summary>The source the shell last asked to preview (persisted per project, see <see cref="ProjectLayout"/>).</summary>
+    public MediaRef? Media => _desired;
+
     public int FrameWidth => _shown?.Info.Width ?? 0;
     public int FrameHeight => _shown?.Info.Height ?? 0;
     public Timecode Position => _engine?.Position ?? Timecode.Zero;

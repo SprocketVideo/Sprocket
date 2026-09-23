@@ -50,6 +50,10 @@ namespace Sprocket.App;
 /// <param name="AudioOutputDevice">The chosen audio output device, as an OpenAL device specifier (a name from
 /// <see cref="Sprocket.Audio.OpenAlAudioOutput.EnumerateOutputDevices"/>). "" = the system default. A saved
 /// device that is no longer present falls back to the default automatically when a session opens.</param>
+/// <param name="TimelineSnapping">The timeline toolbar's Snapping toggle (View ▸ Snapping). A per-user editing
+/// habit carried across every project (as Premiere's snap toggle is), never stored in a project file.</param>
+/// <param name="TimelineLinked">The timeline toolbar's Linked (linked selection) toggle, persisted the same way
+/// as <paramref name="TimelineSnapping"/>.</param>
 public sealed record UserSettings(
     string ExportTitle = "{project}",
     string ExportAuthor = "{username}",
@@ -68,7 +72,9 @@ public sealed record UserSettings(
     double StillImageDefaultSeconds = 5,
     string TimelineAutoScroll = nameof(Sprocket.App.TimelineAutoScroll.Page),
     bool LinuxDesktopIntegrationPrompted = false,
-    string AudioOutputDevice = "")
+    string AudioOutputDevice = "",
+    bool TimelineSnapping = true,
+    bool TimelineLinked = true)
 {
     /// <summary>
     /// The plugin assemblies the user has disabled in the Plugin Manager (PLAN.md step 58), by full assembly

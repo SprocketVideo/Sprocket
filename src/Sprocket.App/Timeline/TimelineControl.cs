@@ -33,8 +33,9 @@ public sealed class TimelineControl : Control
     private const double TrackGap = 4;
     private const double EdgeGrip = 7;
     private const double NameLeft = 10;
-    private const double MinPxPerSecond = 8;
-    private const double MaxPxPerSecond = 600;
+    internal const double MinPxPerSecond = 8;
+    internal const double MaxPxPerSecond = 600;
+    internal const double DefaultPxPerSecond = 70;
     private const double SnapTolerancePx = 8;
     private const double EdgeScrollMarginPx = 24;  // how close to the viewport edge a scrub starts auto-scrolling
     private const double EdgeScrollStepPx = 14;    // scroll per tick at 1× (scales with how far past the edge)
@@ -115,7 +116,7 @@ public sealed class TimelineControl : Control
     private EditHistory? _history;
     private PlaybackEngine? _engine;
 
-    private double _pxPerSecond = 70;
+    private double _pxPerSecond = DefaultPxPerSecond;
     private double _scrollX;
     private Timecode _playhead = Timecode.Zero;
 
@@ -384,6 +385,21 @@ public sealed class TimelineControl : Control
             return;
         double seconds = (double)durTicks / Timecode.TicksPerSecond;
         _pxPerSecond = Math.Clamp(view / seconds, MinPxPerSecond, MaxPxPerSecond);
+        _scrollX = 0;
+        ClampScroll();
+        InvalidateVisual();
+    }
+
+    /// <summary>The current zoom, in pixels per second of timeline (persisted per project, see
+    /// <see cref="ProjectLayout"/>).</summary>
+    public double PxPerSecond => _pxPerSecond;
+
+    /// <summary>Restores a saved zoom (clamped to the zoom range) and scrolls back to the start.</summary>
+    public void RestoreZoom(double pxPerSecond)
+    {
+        if (!double.IsFinite(pxPerSecond))
+            return;
+        _pxPerSecond = Math.Clamp(pxPerSecond, MinPxPerSecond, MaxPxPerSecond);
         _scrollX = 0;
         ClampScroll();
         InvalidateVisual();

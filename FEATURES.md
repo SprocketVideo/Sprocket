@@ -103,6 +103,7 @@ in terms an app-side committer can check against their diff.
 | Resizable panels (splitters) | MainWindow.axaml GridSplitters | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
 | Show/hide Project & Inspector panels (View menu) | MainWindow.axaml.cs `SetPanelVisible` | — | ❌ |
 | Reset Layout | MainWindow.axaml.cs `ResetLayout` | — | ❌ |
+| Per-project layout memory: each project reopens with its panel sizes, Project/Inspector visibility, timeline zoom and Program/Source monitor tab (with the Source clip). Stored per user in `%LocalAppData%/Sprocket/layouts`, never in the shared project file; untitled projects use the defaults. Hiding and re-showing a panel keeps its width | Sprocket.App/ProjectLayoutStore.cs; MainWindow.axaml.cs `SaveProjectLayout`/`ApplyPaneLayout`/`RestoreViewLayout` | — | ❌ |
 | Window-state persistence (reopens maximized/centered; size, position and maximized/full-screen state also survive opening a project) | Sprocket.App/WindowStateStore.cs (`WindowStateStore`, `WindowPlacement`) | — | ➖ (invisible; mention only if asked) |
 | Project name + saved/unsaved indicator in title bar | MainWindow.axaml.cs:1609 | get-started/getting-started.md#11-save-your-project | ✅ |
 | Status bar (engine state, messages, live fps/size/duration) | UI.md §3.7; MainWindow.axaml.cs `RenderTelemetry` | get-started/getting-started.md#a-quick-tour-of-the-main-screen | ✅ |
@@ -169,8 +170,8 @@ in terms an app-side committer can check against their diff.
 | Slip tool | TimelineControl `DragKind.Slip` | edit/editing-on-the-timeline.md#slip | ✅ |
 | Slide tool | TimelineControl `DragKind.Slide` | edit/editing-on-the-timeline.md#slide | ✅ |
 | Hand & Zoom view tools | TimelineControl.cs | edit/editing-on-the-timeline.md#getting-around-hand-and-zoom | ✅ |
-| Snapping toggle | TimelineControl.Snapping | edit/editing-on-the-timeline.md#snapping | ✅ |
-| Linked A/V toggle + Link / Unlink (Clip menu & context menu; `Ctrl+L` toggles by selection state — Link needs a multi-selection spanning video + audio) | MainWindow.axaml.cs:1134; TimelineControl `LinkSelected`/`UnlinkSelected`; ClipEdits.cs link builders; PLAN.md steps 13/55 | edit/editing-on-the-timeline.md#keeping-audio-and-video-together | ✅ |
+| Snapping toggle (remembered per user across sessions and projects) | TimelineControl.Snapping; UserSettings `TimelineSnapping` | edit/editing-on-the-timeline.md#snapping | 🟡 (toggle covered; that it is now remembered across sessions is undocumented) |
+| Linked A/V toggle + Link / Unlink (Clip menu & context menu; `Ctrl+L` toggles by selection state — Link needs a multi-selection spanning video + audio). The Linked toggle is remembered per user across sessions and projects | MainWindow.axaml.cs:1134; TimelineControl `LinkSelected`/`UnlinkSelected`; ClipEdits.cs link builders; UserSettings `TimelineLinked`; PLAN.md steps 13/55 | edit/editing-on-the-timeline.md#keeping-audio-and-video-together | 🟡 (Link/Unlink covered; that the toggle is now remembered across sessions is undocumented) |
 | Timeline zoom in/out/fit (`-`/`=` or `Ctrl+-`/`Ctrl+=`; `Shift+Z` fits). Zoom anchors on the playhead, or on the viewport centre when the playhead is off-screen | TimelineControl `ZoomIn/Out/ToFit`; TimelineMath `ZoomAnchorX` | get-started/getting-started.md#2-zoom-the-timeline-in-and-out | ✅ |
 | Move / delete / Ripple Delete (`Delete` / `Shift+Delete`) | TimelineControl.cs:2184 | edit/editing-on-the-timeline.md#deleting-clips-and-closing-gaps | ✅ |
 | Cut / Copy / Paste clips (paste at playhead; a multi-clip selection pastes as a set with relative offsets preserved) | Sprocket.App/ClipboardOps.cs; PLAN.md step 54 | edit/editing-on-the-timeline.md#cut-copy-and-paste | ✅ |

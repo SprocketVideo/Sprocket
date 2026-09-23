@@ -98,6 +98,9 @@ public partial class App : Application
             // maximized-or-not at the XAML default size — a window maximized or resized since launch visibly
             // shrank on Open Sample Project. Opening a project must never move the window (WindowPlacement).
             WindowPlacement? placement = (oldWindow as MainWindow)?.CapturePlacement();
+            // Persist the outgoing project's layout *before* the replacement loads one, so re-opening the same
+            // project (or reverting it) picks up the arrangement just left rather than the previous close's.
+            (oldWindow as MainWindow)?.SaveProjectLayout();
 
             // The new session opens on the current window's chosen output device (the persisted Preferences pick).
             string audioDevice = (oldWindow as MainWindow)?.AudioDeviceSetting ?? "";

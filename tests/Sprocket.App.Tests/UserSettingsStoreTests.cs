@@ -129,6 +129,18 @@ public class UserSettingsStoreTests
     }
 
     [Fact]
+    public void Timeline_Snapping_And_Linked_Default_On_And_Round_Trip()
+    {
+        // Both toolbar toggles start on; an old settings file written before the fields existed gets them on too.
+        UserSettings old = UserSettingsStore.Deserialize("""{"McpEnabled": true}""");
+        Assert.True(old.TimelineSnapping);
+        Assert.True(old.TimelineLinked);
+
+        var settings = new UserSettings(TimelineSnapping: false, TimelineLinked: false);
+        Assert.Equal(settings, UserSettingsStore.Deserialize(UserSettingsStore.Serialize(settings)));
+    }
+
+    [Fact]
     public void Timeline_Auto_Scroll_Round_Trips()
     {
         var settings = new UserSettings(TimelineAutoScroll: nameof(TimelineAutoScroll.Smooth));
