@@ -93,7 +93,18 @@ public sealed record EffectParameterDescriptor(
     /// parameter may legitimately store 0–100 and display <c>"%"</c> with no scaling at all.
     /// </summary>
     public double DisplayScale { get; init; } = 1.0;
+
+    /// <summary>
+    /// For a <see cref="ParameterKind.Asset"/> parameter, the file kind the Inspector's picker filters to: a
+    /// display name (e.g. <c>"WAV audio"</c>) and its extensions without the dot (e.g. <c>["wav"]</c>).
+    /// <see langword="null"/> for every other kind, and for an asset that accepts any file.
+    /// </summary>
+    public AssetFileType? AssetType { get; init; }
 }
+
+/// <summary>The file kind an <see cref="ParameterKind.Asset"/> parameter accepts (see
+/// <see cref="EffectParameterDescriptor.AssetType"/>): a display name and its extensions without the dot.</summary>
+public sealed record AssetFileType(string Name, IReadOnlyList<string> Extensions);
 
 /// <summary>
 /// A named factory preset for an effect (PLAN.md step 41): the parameter values that give a recognisable
@@ -648,6 +659,22 @@ public static class EffectCatalog
             Presets = DayForNightPresets.All,
         },
 
+        // ── Creative LUT (plan/features/looks-browser.md) — a tier-2 creative look from a user .cube file, through
+        // the input color transform's packed-LUT GPU stage. Kept a separate type from the tier-1 transform below
+        // (ARCHITECTURE §18) so a camera conversion can never be mistaken for, or stacked as, a look. ──
+        new EffectDescriptor(
+            EffectTypeIds.CreativeLut,
+            "Creative LUT",
+            EffectCategory.Color,
+            "Applies a creative .cube look LUT to Rec.709 footage, blended by Intensity.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.LutFile, "LUT File", 0.0, 0.0, 0.0, 1.0,
+                    Description: "A creative 3D LUT in .cube format, made for Rec.709 footage (not a camera log conversion).",
+                    Kind: ParameterKind.Asset) { AssetType = new AssetFileType("Cube LUT", ["cube"]) },
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Intensity", 1.0, 0.0, 1.0, 0.05, "%",
+                    "Blend between the original (0%) and the full look (100%).") { DisplayScale = 100 },
+            ]) { ShortCode = "LU" },
+
         new EffectDescriptor(
             EffectTypeIds.ColorTransform,
             "Input Color Transform",
@@ -1021,7 +1048,7 @@ public static class EffectCatalog
             [
                 new EffectParameterDescriptor(EffectParamNames.ImpulseResponse, "Impulse Response", 0.0, 0.0, 0.0, 1.0,
                     Description: "The captured space — a mono or stereo WAV impulse response (up to 10 s).",
-                    Kind: ParameterKind.Asset),
+                    Kind: ParameterKind.Asset) { AssetType = new AssetFileType("WAV audio", ["wav"]) },
                 new EffectParameterDescriptor(EffectParamNames.PreDelayMs, "Pre-Delay", 0.0, 0.0, 200.0, 1.0, "ms",
                     "Gap between the dry sound and the start of the reverb."),
                 new EffectParameterDescriptor(EffectParamNames.IrLength, "Length", 1.0, 0.05, 1.0, 0.05, "%",

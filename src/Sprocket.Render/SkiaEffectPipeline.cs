@@ -132,6 +132,33 @@ half4 main(float2 coord) {
     return half4(half3(outRgb * a), c.a);
 }";
 
+    // Creative LUT (plan/features/looks-browser.md) — the same packed-LUT trilinear lookup as the input color
+    // transform above, over a user .cube file (CreativeLuts), blended against the (unpremultiplied, clamped)
+    // input by `amount` — the Intensity control every NLE's LUT/look slot has. Kept a separate program so the
+    // tier-1 transform's shader, and its golden tests, stay untouched.
+    private const string CreativeLutSksl = @"
+uniform shader src;
+uniform shader lut;
+uniform float lutSize;
+uniform float amount;
+half4 main(float2 coord) {
+    half4 c = src.eval(coord);
+    float a = float(c.a);
+    if (a <= 0.0) return c;
+    float3 rgb = clamp(float3(c.rgb) / a, 0.0, 1.0);
+    float n = lutSize;
+    float3 v = rgb * (n - 1.0);
+    float b0 = floor(v.b);
+    float f = v.b - b0;
+    float b1 = min(b0 + 1.0, n - 1.0);
+    float2 uv = float2(v.r + 0.5, v.g + 0.5);
+    float3 s0 = float3(lut.eval(float2(b0 * n + uv.x, uv.y)).rgb);
+    float3 s1 = float3(lut.eval(float2(b1 * n + uv.x, uv.y)).rgb);
+    float3 looked = clamp(mix(s0, s1, f), 0.0, 1.0);
+    float3 outRgb = mix(rgb, looked, amount);
+    return half4(half3(outRgb * a), c.a);
+}";
+
     // Input color transform, math profiles (PLAN.md step 52) — the non-DJI camera log profiles, converted
     // via a closed-form curve + gamut matrix instead of a texture LUT (those vendors publish their curve's
     // exact formula, unlike DJI). `kind` selects which decode shape runs (see ColorProfileCurves' doc
@@ -380,6 +407,7 @@ half4 main(float2 coord) {
     private readonly SKRuntimeEffect _stabilize;
     private readonly SKRuntimeEffect _colorTransform;
     private readonly SKRuntimeEffect _colorTransformCurve;
+    private readonly SKRuntimeEffect _creativeLut;
     private readonly SKRuntimeEffect _crossDissolve;
     private readonly SKRuntimeEffect _dipToBlack;
     private readonly SKRuntimeEffect _dipToWhite;
@@ -432,6 +460,8 @@ half4 main(float2 coord) {
             ?? throw new InvalidOperationException($"Color-transform SkSL failed to compile: {colorTransformErr}");
         _colorTransformCurve = SKRuntimeEffect.CreateShader(ColorTransformCurveSksl, out string colorTransformCurveErr)
             ?? throw new InvalidOperationException($"Color-transform (curve) SkSL failed to compile: {colorTransformCurveErr}");
+        _creativeLut = SKRuntimeEffect.CreateShader(CreativeLutSksl, out string creativeLutErr)
+            ?? throw new InvalidOperationException($"Creative LUT SkSL failed to compile: {creativeLutErr}");
         _crossDissolve = SKRuntimeEffect.CreateShader(CrossDissolveSksl, out string crossErr)
             ?? throw new InvalidOperationException($"Cross-dissolve SkSL failed to compile: {crossErr}");
         _dipToBlack = SKRuntimeEffect.CreateShader(DipToBlackSksl, out string dipBlackErr)
@@ -885,6 +915,9 @@ half4 main(float2 coord) {
             case EffectTypeIds.ColorTransform:
                 return BuildColorTransformShader(effect, src);
 
+            case EffectTypeIds.CreativeLut:
+                return BuildCreativeLutShader(effect, src);
+
             default:
                 return BuildRegisteredEffectShader(effect, src, dest);
         }
@@ -965,6 +998,24 @@ half4 main(float2 coord) {
         var uniforms = new SKRuntimeEffectUniforms(_colorTransform) { ["lutSize"] = (float)size };
         var children = new SKRuntimeEffectChildren(_colorTransform) { ["src"] = src, ["lut"] = lutShader };
         return _colorTransform.ToShader(uniforms, children);
+    }
+
+    /// <summary>
+    /// Builds the Creative LUT shader (plan/features/looks-browser.md): samples the user's <c>.cube</c> file via
+    /// <see cref="CreativeLuts"/> and blends it in by Intensity. No file, a missing/unreadable one, or a zero
+    /// Intensity passes through (<see langword="null"/>) rather than killing the frame (§15).
+    /// </summary>
+    private SKShader? BuildCreativeLutShader(ResolvedEffect effect, SKShader src)
+    {
+        float amount = (float)Math.Clamp(effect.Get(EffectParamNames.Mix, 1.0), 0.0, 1.0);
+        if (amount <= 0f || !CreativeLuts.TryGet(effect.GetAsset(EffectParamNames.LutFile), out SKImage lut, out int size))
+            return null;
+
+        SKShader lutShader = lut.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, Sampling);
+        _scratch.Add(lutShader);
+        var uniforms = new SKRuntimeEffectUniforms(_creativeLut) { ["lutSize"] = (float)size, ["amount"] = amount };
+        var children = new SKRuntimeEffectChildren(_creativeLut) { ["src"] = src, ["lut"] = lutShader };
+        return _creativeLut.ToShader(uniforms, children);
     }
 
     /// <summary>
@@ -1151,6 +1202,7 @@ half4 main(float2 coord) {
         _stabilize.Dispose();
         _colorTransform.Dispose();
         _colorTransformCurve.Dispose();
+        _creativeLut.Dispose();
         _crossDissolve.Dispose();
         _dipToBlack.Dispose();
         _dipToWhite.Dispose();

@@ -94,18 +94,21 @@ public sealed class ParameterKindTests
         int discrete = AllBuiltInParams().Count(x => x.Param.Kind != ParameterKind.Continuous);
         // 18 toggles (ShowMask, B&W Static Grain, PingPong, Low/HighEnable, 8 tap enables, + Stabilization's
         // LockRotation/Zoom/DetailedAnalysis/ShowTrackPoints/HideBanner) + 5 dropdowns (SourceProfile +
-        // Stabilization's StabMode/StabMethod/ScaleMode/ScaleLockRef) + 1 integer + 1 asset.
-        Assert.Equal(25, discrete);
+        // Stabilization's StabMode/StabMethod/ScaleMode/ScaleLockRef) + 1 integer + 2 assets (IR, creative LUT).
+        Assert.Equal(26, discrete);
     }
 
     [Fact]
-    public void The_Impulse_Response_Is_The_Only_Asset()
+    public void The_Impulse_Response_And_Creative_Lut_Are_The_Only_Assets()
     {
-        // Step 49: a file reference, not a number — it lives in EffectInstance.Assets, so no numeric default.
-        (EffectDescriptor effect, EffectParameterDescriptor p) = Assert.Single(
-            AllBuiltInParams(), x => x.Param.Kind == ParameterKind.Asset);
-        Assert.Equal(EffectTypeIds.AudioConvolutionReverb, effect.Id);
-        Assert.Equal(EffectParamNames.ImpulseResponse, p.Name);
-        Assert.Null(p.Choices);
+        // Step 49 / looks browser: file references, not numbers — they live in EffectInstance.Assets, so no
+        // numeric default; each names the file kind its picker filters to.
+        (EffectDescriptor Effect, EffectParameterDescriptor Param)[] assets =
+            [.. AllBuiltInParams().Where(x => x.Param.Kind == ParameterKind.Asset)];
+        Assert.Equal(
+            [(EffectTypeIds.AudioConvolutionReverb, EffectParamNames.ImpulseResponse), (EffectTypeIds.CreativeLut, EffectParamNames.LutFile)],
+            assets.Select(x => (x.Effect.Id, x.Param.Name)).OrderBy(x => x.Id == EffectTypeIds.CreativeLut));
+        Assert.All(assets, x => Assert.Null(x.Param.Choices));
+        Assert.All(assets, x => Assert.NotEmpty(x.Param.AssetType!.Extensions));
     }
 }

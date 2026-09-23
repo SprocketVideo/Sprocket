@@ -39,6 +39,23 @@ public class RenderGraphPlanTests
     }
 
     [Fact]
+    public void Video_Effect_Assets_Reach_The_Plan_As_A_Snapshot()
+    {
+        // The Creative LUT's .cube path (looks browser) rides on the resolved effect, copied so a later edit on
+        // the UI thread cannot mutate a plan a render/export worker is reading.
+        Project project = ProjectWithVideoClip(out _, out Clip clip, out _);
+        EffectInstance lut = EffectCatalog.Find(EffectTypeIds.CreativeLut)!.CreateInstance()
+            .SetAsset(EffectParamNames.LutFile, "/looks/warm.cube");
+        clip.Effects.Add(lut);
+
+        VideoFramePlan plan = RenderGraph.PlanVideoFrame(project, Timecode.FromSeconds(11));
+        ResolvedEffect resolved = Assert.Single(Assert.Single(plan.Layers).Effects);
+        lut.SetAsset(EffectParamNames.LutFile, "/looks/other.cube");
+
+        Assert.Equal("/looks/warm.cube", resolved.GetAsset(EffectParamNames.LutFile));
+    }
+
+    [Fact]
     public void Skips_Disabled_Track()
     {
         Project project = ProjectWithVideoClip(out VideoTrack track, out _, out _);

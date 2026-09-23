@@ -36,8 +36,10 @@ public sealed class CubeLut
     /// Parses a <c>.cube</c> text (comments, <c>TITLE</c>, and <c>DOMAIN_MIN/MAX</c> headers are tolerated;
     /// only the identity domain [0,1] is supported — the bundled camera LUTs all use it). Throws
     /// <see cref="FormatException"/> on a malformed table so a bad asset fails loudly at load, not mid-draw.
+    /// <paramref name="maxSize"/> caps <c>LUT_3D_SIZE</c> <em>before</em> the table is allocated, so an untrusted
+    /// user file cannot claim a lattice far larger than its text (a 256³ header alone would allocate ~200 MB).
     /// </summary>
-    public static CubeLut Parse(string text)
+    public static CubeLut Parse(string text, int maxSize = 256)
     {
         ArgumentNullException.ThrowIfNull(text);
         int size = 0;
@@ -56,7 +58,7 @@ public sealed class CubeLut
                 {
                     ReadOnlySpan<char> value = line["LUT_3D_SIZE".Length..].Trim();
                     if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out size)
-                        || size is < 2 or > 256)
+                        || size < 2 || size > Math.Min(maxSize, 256))
                         throw new FormatException($"Invalid LUT_3D_SIZE '{value}'.");
                     data = new float[3 * size * size * size];
                 }

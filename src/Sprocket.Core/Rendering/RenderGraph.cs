@@ -639,15 +639,18 @@ public static class RenderGraph
             var values = new Dictionary<string, double>(effect.Parameters.Count);
             foreach ((string name, AnimatableValue value) in effect.Parameters)
                 values[name] = value.Evaluate(t);
-            // Video effects carry no asset references today (only the audio Convolution Reverb does, PLAN.md
-            // step 49); forward effect.Assets here when the first video Asset descriptor arrives. FrameTime is the
+            // Asset references (the Creative LUT's .cube path) are copied, like the audio plan does, so the
+            // resolved effect is an immutable snapshot a render/export worker can read while the UI thread runs a
+            // SetEffectAssetCommand; most effects have none, so this is usually null. FrameTime is the
             // frame's timeline ticks — the Render layer auto-binds it to a registry effect's reserved
             // `sprocket_time` uniform (grain seed, animated noise); nested sequences resolve at the child's local
             // time, so grain re-seeds per rendered frame there too. SourceTime/MediaRefId give a source-referenced
             // stage (Stabilization) the media and source frame this layer samples; SourceIn/Out the span the clip
             // uses, so its framing budget ignores footage the clip trimmed away.
             (resolved ??= []).Add(new ResolvedEffect(
-                effect.EffectTypeId, values, FrameTime: t.Ticks, SourceTime: sourceTime, MediaRefId: mediaRefId,
+                effect.EffectTypeId, values,
+                Assets: effect.Assets.Count > 0 ? new Dictionary<string, string>(effect.Assets) : null,
+                FrameTime: t.Ticks, SourceTime: sourceTime, MediaRefId: mediaRefId,
                 SourceIn: sourceIn, SourceOut: sourceOut));
         }
         return resolved?.ToArray() ?? [];

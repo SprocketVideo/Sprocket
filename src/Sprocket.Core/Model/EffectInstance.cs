@@ -119,6 +119,17 @@ public static class EffectTypeIds
     public const string ColorTransform = "builtin.colortransform";
 
     /// <summary>
+    /// Creative LUT (plan/features/looks-browser.md): applies a user-chosen creative <c>.cube</c> 3D LUT — a
+    /// <em>look</em>, authored against normalized Rec.709 footage — through the same packed-LUT GPU stage as the
+    /// input color transform, blended against the original by <see cref="EffectParamNames.Mix"/> (Intensity). A
+    /// distinct type from <see cref="ColorTransform"/> on purpose (the ARCHITECTURE §18 tier split): camera
+    /// conversion is tier 1 and sits first in the stack, a creative look is tier 2 and grades the converted
+    /// image. Parameters: <see cref="EffectParamNames.LutFile"/> (an <see cref="EffectInstance.Assets"/> path),
+    /// <see cref="EffectParamNames.Mix"/>. A missing or unreadable file passes through (§15).
+    /// </summary>
+    public const string CreativeLut = "builtin.lut.creative";
+
+    /// <summary>
     /// Stabilization (plan/features/stabilization.md): removes unwanted camera shake — pan/tilt jitter,
     /// rotation, and focus-breathing scale pumping — by warping each frame along a smoothed camera path
     /// recovered from a per-source motion track. A hard-coded projective pipeline stage (like
@@ -578,6 +589,10 @@ public static class EffectParamNames
     /// <summary>Source log profile index into <see cref="ColorProfiles.All"/> —
     /// <see cref="EffectTypeIds.ColorTransform"/>.</summary>
     public const string SourceProfile = "sourceProfile";
+
+    /// <summary>The creative LUT <em>asset</em> key (an absolute <c>.cube</c> path in
+    /// <see cref="EffectInstance.Assets"/>, not a numeric parameter) — <see cref="EffectTypeIds.CreativeLut"/>.</summary>
+    public const string LutFile = "lutFile";
 
     // ── Stabilization (plan/features/stabilization.md). All model units; dropdowns store their choice index
     // (see Sprocket.Core.Stabilization.StabilizationSettings), toggles store 0/1. ──
