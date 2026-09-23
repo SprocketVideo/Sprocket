@@ -64,6 +64,7 @@ public partial class MainWindow : Window
     private UserSettings _userSettings = UserSettingsFile.Load(); // user-scoped app preferences (PLAN.md step 38)
 
     private ThumbnailService? _thumbnails;
+    private LooksLibrary? _looks; // the Looks browser's app-wide library (plan/features/looks-browser.md)
     private MediaBrowserPanel? _mediaBrowser;
     private Mixer.MixerView? _mixer; // audio mixer hosted in the Project panel's Audio tab (PLAN.md step 30)
     private InspectorPanel? _inspector;
@@ -1921,6 +1922,13 @@ public partial class MainWindow : Window
         browser.MediaActivated += ShowInSourceMonitor; // double-click a bin item → Source monitor
         browser.Attach(_project, _history, _thumbnails);
 
+        // The Looks tab (plan/features/looks-browser.md): built-ins + the user's saved looks. Save Look… samples
+        // keyframed values at the playhead; the timeline resolves dragged look rows through the same library.
+        _looks = new LooksLibrary();
+        browser.AttachLooks(_looks, () => _engine?.Position ?? Timecode.Zero);
+        if (_looks.LoadWarnings.Count > 0)
+            SetStatus($"Looks: {_looks.LoadWarnings[0]}{(_looks.LoadWarnings.Count > 1 ? $" (+{_looks.LoadWarnings.Count - 1} more)" : "")} The original is kept as {Path.GetFileName(_looks.BackupPath)} before it is next saved.");
+
         WireMixer(browser);
     }
 
@@ -2577,6 +2585,8 @@ public partial class MainWindow : Window
         timeline.Attach(_project!, _history, _engine);
         timeline.ClipPlaced += UpdateTimelineHeader; // a media-bin drop / paste may extend the timeline
         timeline.Status += SetStatus;                 // transition hints, etc. (PLAN.md step 25)
+        if (_looks is { } looks)
+            timeline.FindLook = looks.Find;           // Looks-browser row → clip drop (none when the browser is absent)
         timeline.ClipContextMenuRequested += ShowClipContextMenu; // clip right-click menu (PLAN.md step 53)
         timeline.TrackContextMenuRequested += ShowTrackContextMenu; // track-header right-click menu
         WireTrackRename(timeline);

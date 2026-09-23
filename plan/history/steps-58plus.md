@@ -581,3 +581,36 @@ GPU decode was found to be slower than software, so it moved behind an opt-in. N
   `ExportSummaryTextTests` (Fast cases); Mcp (`fast` passes through). Full solution `dotnet test` green.
 - **Deferred** — phase 3b: a GPU render surface, and a shared per-source decoder to end the N× duplicated decode
   across render workers.
+
+## Grading presets / creative looks — Looks browser (unscheduled feature, 2026-09-23) ✅ DONE
+
+Tier-2 creative looks from [plan/features/looks-browser.md](../features/looks-browser.md), per the
+[ARCHITECTURE §18](../../ARCHITECTURE.md) preset taxonomy: a look is a saved stack of grading effects and never
+carries the tier-1 `builtin.colortransform`.
+
+- **Model (Core, a659a86)** — `Look` / `LookEntry` records, `LookRules.IsLookEffect` (any registered Color-category
+  effect except the input transform), `LookApplication.Build` (one `CompositeCommand` appending the look's effects
+  to the end of the clip's stack, so a tier-1 transform at index 0 stays first; unknown types are skipped with a
+  warning, invalid values clamped) and `LookApplication.Capture` (the clip's enabled grading stack, keyframed values
+  sampled at a time). `LooksCatalog` has 20 built-ins over Color / White Balance / Color Wheels / Curves in
+  Cinematic, Film, Vintage, Mood and Clean groups, tuned against a neutral chart and the sample footage.
+- **Creative LUT (Core + Render, a659a86)** — `builtin.lut.creative` (a `.cube` asset + Intensity) through the
+  packed-LUT SkSL stage, kept separate from tier-1 by effect type. `CreativeLuts` loads each file once with size and
+  lattice bounds; a missing or bad file passes through. `RenderGraph` now forwards effect asset paths.
+- **Persistence (a659a86)** — `LooksStore`: user looks JSON with an atomic temp-file-then-move save and a defensive
+  load (repairs ids, strips tier-1 transforms, keeps not-yet-loaded plugin types).
+- **App UI** — a **Looks** tab in `MediaBrowserPanel` (between Effects and Transitions) with its own search filter,
+  grouped rows and a badge (`LUT` / effect count). Double-click applies to the selected clip; dragging a row
+  (`DragFormats.LookId`) onto a timeline clip applies there (`TimelineControl.DropLook`, resolved through the
+  shell-set `FindLook`). Both go through `LooksBrowserModel.Apply` (one undo step, and any LUT preloads off the
+  render thread) and report to the status strip, naming skipped effects. **Save Look…** captures the selected clip
+  at the playhead (clamped onto the clip); **Import LUT…** validates each `.cube` off the UI thread before adding it;
+  saved looks get **Rename… / Delete** (confirmed, since the library is outside the undo history).
+  `LooksLibrary` owns the user looks at `%AppData%/Sprocket/looks.json` (per-platform app-data), saves on every
+  change, gives duplicate names a ` 2` / ` 3` suffix, and keeps built-ins read-only. The shell builds one per window
+  in `WireMediaBrowser` and shows any load warnings once in the status strip. The export-preset name prompt was
+  generalized into `NamePromptDialog`, which both use.
+- **Tests** — Core `LooksTests`, Persistence `LooksStoreTests`, Render `CreativeLutRenderTests` (a659a86); App
+  `LooksBrowserModelTests` (badge, search, grouping, LUT import, apply/undo, status text) and `LooksLibraryTests`
+  (persist, reload, unique names, read-only built-ins, garbage file).
+- **Deferred** — per-look thumbnail swatches, an MCP `apply_look` tool, and a Save Look entry point in the Inspector.

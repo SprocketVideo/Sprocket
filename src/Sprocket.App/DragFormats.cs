@@ -26,6 +26,11 @@ internal static class DragFormats
     public static readonly DataFormat<string> EffectPresetName =
         DataFormat.CreateStringApplicationFormat("sprocket-effect-preset-name");
 
+    /// <summary>Payload: a <see cref="Core.Model.Look"/> id — drag a Looks-browser row onto a clip to apply the look
+    /// (plan/features/looks-browser.md), exactly as double-clicking the row does for the selected clip.</summary>
+    public static readonly DataFormat<string> LookId =
+        DataFormat.CreateStringApplicationFormat("sprocket-look-id");
+
     /// <summary>Payload: a transition type id string — drag a Transitions-browser row onto a cut between two
     /// clips to apply it (PLAN.md step 25).</summary>
     public static readonly DataFormat<string> TransitionId =

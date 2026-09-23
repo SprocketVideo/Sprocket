@@ -433,6 +433,96 @@ internal static class SaveChangesDialog
     }
 }
 
+/// <summary>
+/// A tiny modal that prompts for a single name (an export preset, a saved look); returns the trimmed name, or
+/// <see langword="null"/> on cancel / empty. Mirrors the shell's other code-built dialogs against the shared dark
+/// palette.
+/// </summary>
+internal static class NamePromptDialog
+{
+    /// <summary>Shows the prompt titled <paramref name="title"/> over <paramref name="owner"/>, prefilled with
+    /// <paramref name="initial"/> (selected, so typing replaces it).</summary>
+    public static Task<string?> Show(Window owner, string title, string label, string placeholder, string? initial = null)
+    {
+        var nameBox = new TextBox
+        {
+            PlaceholderText = placeholder,
+            Text = initial,
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var ok = new Button
+        {
+            Content = "Save",
+            Padding = new Thickness(16, 5),
+            Foreground = Brushes.White,
+            Background = Palette.AccentBrush,
+            CornerRadius = new CornerRadius(5),
+        };
+        var cancel = new Button
+        {
+            Content = "Cancel",
+            Padding = new Thickness(16, 5),
+            Foreground = Palette.TextBrush,
+            Background = Palette.PanelBgBrush,
+            CornerRadius = new CornerRadius(5),
+        };
+        var dlg = new Window
+        {
+            Title = title,
+            Icon = AppIcon.Window,
+            Width = 340,
+            Height = 160,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Palette.WindowBgBrush,
+            FontSize = Typography.Body,
+            Content = new DockPanel
+            {
+                Margin = new Thickness(22),
+                Children =
+                {
+                    new StackPanel
+                    {
+                        [DockPanel.DockProperty] = Dock.Bottom,
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Margin = new Thickness(0, 16, 0, 0),
+                        Children = { cancel, ok },
+                    },
+                    new StackPanel
+                    {
+                        Spacing = 6,
+                        Children =
+                        {
+                            new TextBlock { Text = label, Foreground = Palette.MutedTextBrush, FontSize = Typography.Body },
+                            nameBox,
+                        },
+                    },
+                },
+            },
+        };
+
+        void Accept()
+        {
+            string trimmed = (nameBox.Text ?? string.Empty).Trim();
+            dlg.Close(string.IsNullOrEmpty(trimmed) ? null : trimmed);
+        }
+        ok.Click += (_, _) => Accept();
+        cancel.Click += (_, _) => dlg.Close((string?)null);
+        nameBox.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) Accept(); };
+
+        dlg.Opened += (_, _) =>
+        {
+            nameBox.Focus();
+            nameBox.SelectAll();
+        };
+        return dlg.ShowDialog<string?>(owner);
+    }
+}
+
 /// <summary>A single-button information dialog (e.g. "export complete / failed"). Mirrors
 /// <see cref="ConfirmDialog"/>'s look but has nothing to decide — it just acknowledges a message.</summary>
 internal static class MessageDialog
@@ -1410,81 +1500,9 @@ internal static class ExportSettingsDialog
     private static int IndexOfFrameRate(Rational? value) =>
         Array.FindIndex(FrameRates, f => f.Value.Equals(value));
 
-    /// <summary>A tiny modal that prompts for a preset name; returns the trimmed name, or <see langword="null"/> on
-    /// cancel / empty. Mirrors the shell's other code-built dialogs against the shared dark palette.</summary>
-    private static Task<string?> PromptForPresetName(Window owner)
-    {
-        var nameBox = new TextBox
-        {
-            PlaceholderText = "e.g. YouTube 1080p",
-            Foreground = Palette.TextBrush,
-            Background = Palette.PanelBgBrush,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var ok = new Button
-        {
-            Content = "Save",
-            Padding = new Thickness(16, 5),
-            Foreground = Brushes.White,
-            Background = Palette.AccentBrush,
-            CornerRadius = new CornerRadius(5),
-        };
-        var cancel = new Button
-        {
-            Content = "Cancel",
-            Padding = new Thickness(16, 5),
-            Foreground = Palette.TextBrush,
-            Background = Palette.PanelBgBrush,
-            CornerRadius = new CornerRadius(5),
-        };
-        var dlg = new Window
-        {
-            Title = "Save Export Preset",
-            Icon = AppIcon.Window,
-            Width = 340,
-            Height = 160,
-            CanResize = false,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = Palette.WindowBgBrush,
-            FontSize = Typography.Body,
-            Content = new DockPanel
-            {
-                Margin = new Thickness(22),
-                Children =
-                {
-                    new StackPanel
-                    {
-                        [DockPanel.DockProperty] = Dock.Bottom,
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Spacing = 8,
-                        Margin = new Thickness(0, 16, 0, 0),
-                        Children = { cancel, ok },
-                    },
-                    new StackPanel
-                    {
-                        Spacing = 6,
-                        Children =
-                        {
-                            new TextBlock { Text = "Preset name", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body },
-                            nameBox,
-                        },
-                    },
-                },
-            },
-        };
-
-        void Accept()
-        {
-            string trimmed = (nameBox.Text ?? string.Empty).Trim();
-            dlg.Close(string.IsNullOrEmpty(trimmed) ? null : trimmed);
-        }
-        ok.Click += (_, _) => Accept();
-        cancel.Click += (_, _) => dlg.Close((string?)null);
-        nameBox.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) Accept(); };
-
-        return dlg.ShowDialog<string?>(owner);
-    }
+    /// <summary>Prompts for an export preset name (see <see cref="NamePromptDialog"/>).</summary>
+    private static Task<string?> PromptForPresetName(Window owner) =>
+        NamePromptDialog.Show(owner, "Save Export Preset", "Preset name", "e.g. YouTube 1080p");
 
     /// <summary>A nine-point burn-in position picker, preselected to <paramref name="defaultIndex"/>.</summary>
     private static ComboBox MakePositionCombo(int defaultIndex)

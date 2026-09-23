@@ -1,7 +1,13 @@
 # Grading presets / creative looks (Looks browser)
 
-❌ **Not started.** Unscheduled feature (no build-order step number yet); tracked in
-[PLAN.md](../../PLAN.md) Open work. Relative links below resolve from the repo root.
+✅ **Shipped 2026-09-23** (phases 1–2 model / Creative LUT / store in a659a86; phase 3 App UI after). DONE log in
+[plan/history/steps-58plus.md](../history/steps-58plus.md). Unscheduled feature (no build-order step number);
+tracked in [PLAN.md](../../PLAN.md) Open work. Relative links below resolve from the repo root.
+**Deferred:** thumbnail swatches per look, an MCP `apply_look` tool, and an Inspector-side "Save Look…" entry
+point (the browser's button is the one surface today). **Known gaps (from review):** two running instances each
+keep their own list, so the last to save wins (merge-on-save by id would fix it); and `CreativeLuts.Load` only
+requires an absolute path, so a shared `looks.json` or project could point a LUT at a UNC share or device path.
+Reject UNC and device paths and require a regular file, shared with project-file LUT paths.
 
 ## Original PLAN.md scope note (moved verbatim, 2026-08-26)
 

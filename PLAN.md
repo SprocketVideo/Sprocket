@@ -174,8 +174,11 @@ verification-only items carry their checklist in the step's history entry.
   low-confidence surfacing, user docs) — all shipped 2026-09-21. DONE log in
   [plan/history/steps-58plus.md](plan/history/steps-58plus.md); phase checklist + design in
   [plan/features/stabilization.md](plan/features/stabilization.md)
-- [ ] **Grading presets / creative looks** (unscheduled feature) — a Looks browser over the
-  existing tier-2 grading effects, per the [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy →
+- [x] **Grading presets / creative looks** (unscheduled feature) — ✅ **shipped 2026-09-23**: a Looks
+  tab in the Project panel over the existing tier-2 grading effects, per the
+  [ARCHITECTURE §18](ARCHITECTURE.md) preset taxonomy — 20 curated built-in looks, Save Look…, creative
+  `.cube` LUT import (the new `builtin.lut.creative` effect), double-click / drag-to-clip apply as one undo
+  step. DONE log in [plan/history/steps-58plus.md](plan/history/steps-58plus.md); design in
   [plan/features/looks-browser.md](plan/features/looks-browser.md)
 - [ ] **Special effects roadmap** (unscheduled feature) — 🟡 **phases 1–4 shipped 2026-09-22**:
   phase 1 is the eight primitive image effects — Glow, Directional Blur, Zoom Blur, Heat Distortion,

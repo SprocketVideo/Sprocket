@@ -12,6 +12,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
+using Sprocket.Core.Timing;
+using Sprocket.Render;
 using ShapesPath = Avalonia.Controls.Shapes.Path; // aliased so it doesn't clash with System.IO.Path
 
 namespace Sprocket.App.MediaBrowser;
@@ -20,7 +22,9 @@ namespace Sprocket.App.MediaBrowser;
 /// The Project panel's tabbed browser (PLAN.md step 15, UI.md §3.3): a <b>Media</b> bin of poster-frame /
 /// waveform thumbnails with metadata badges and a search filter, an <b>Effects</b> browser over the
 /// <see cref="EffectCatalog"/> (double-click to add the effect to the selected clip, through the step-10
-/// command stack), a <b>Transitions</b> browser over the <see cref="TransitionCatalog"/> (drag onto a cut, or
+/// command stack), a <b>Looks</b> browser of one-click creative grades (<see cref="LooksLibrary"/>: the curated
+/// <see cref="LooksCatalog"/> plus the user's saved looks and imported creative LUTs — plan/features/looks-browser.md),
+/// a <b>Transitions</b> browser over the <see cref="TransitionCatalog"/> (drag onto a cut, or
 /// double-click to apply to the selected clip's cut — PLAN.md step 25), and an <b>Audio</b> tab listing the
 /// bin's audio sources as waveforms. Built entirely in code like <see cref="TimelineControl"/> /
 /// <see cref="PreviewSurface"/>; thumbnails are produced off-thread by <see cref="ThumbnailService"/>.
@@ -48,6 +52,9 @@ public sealed class MediaBrowserPanel : UserControl
     private Clip? _selectedClip;
 
     private string _search = string.Empty;
+    private string _lookSearch = string.Empty; // the Looks tab keeps its own filter; the box shows the active tab's
+    private LooksLibrary? _looks;
+    private Func<Timecode>? _playhead;
     private Tab _activeTab = Tab.Media;
     private Control? _mixer; // the audio mixer installed by the shell (PLAN.md step 30); null → the audio-media list
     private bool _audioGridStale = true; // the audio-media list needs (re)building before it is next shown
@@ -58,8 +65,9 @@ public sealed class MediaBrowserPanel : UserControl
     private readonly WrapPanel _audioGrid;
     private readonly StackPanel _effectsList;
     private readonly StackPanel _transitionsList;
+    private readonly StackPanel _looksList;
     private readonly Decorator _content;            // hosts the active tab's body
-    private readonly ScrollViewer _mediaView, _audioView, _effectsView, _transitionsView;
+    private readonly ScrollViewer _mediaView, _audioView, _effectsView, _transitionsView, _looksView;
     private readonly Dictionary<Tab, Button> _tabButtons = new();
 
     /// <summary>Raised with a short message for the status strip (effect applied / select-a-clip hint).</summary>
@@ -91,7 +99,7 @@ public sealed class MediaBrowserPanel : UserControl
     /// Source monitor. Fires for tiles in both the Media and Audio tabs.</summary>
     public event Action<MediaRef>? MediaActivated;
 
-    private enum Tab { Media, Effects, Transitions, Audio }
+    private enum Tab { Media, Effects, Looks, Transitions, Audio }
 
     public MediaBrowserPanel()
     {
@@ -105,7 +113,18 @@ public sealed class MediaBrowserPanel : UserControl
         };
         _searchBox.TextChanged += (_, _) =>
         {
-            _search = _searchBox.Text ?? string.Empty;
+            string text = _searchBox.Text ?? string.Empty;
+            if (_activeTab == Tab.Looks)
+            {
+                if (text == _lookSearch)
+                    return;
+                _lookSearch = text;
+                BuildLooks();
+                return;
+            }
+            if (text == _search)
+                return; // a tab switch restoring the media filter must not re-request every thumbnail
+            _search = text;
             RebuildGrids();
         };
 
@@ -113,11 +132,13 @@ public sealed class MediaBrowserPanel : UserControl
         _audioGrid = new WrapPanel { Margin = new Avalonia.Thickness(6) };
         _effectsList = new StackPanel { Margin = new Avalonia.Thickness(8), Spacing = 6 };
         _transitionsList = new StackPanel { Margin = new Avalonia.Thickness(8), Spacing = 6 };
+        _looksList = new StackPanel { Margin = new Avalonia.Thickness(8), Spacing = 6 };
 
         _mediaView = Scroll(_mediaGrid);
         _audioView = Scroll(_audioGrid);
         _effectsView = Scroll(_effectsList);
         _transitionsView = Scroll(_transitionsList);
+        _looksView = Scroll(_looksList);
 
         _content = new Decorator();
 
@@ -171,6 +192,20 @@ public sealed class MediaBrowserPanel : UserControl
         RebuildGrids();
     }
 
+    /// <summary>
+    /// Binds the Looks tab to the looks library and a playhead source (Save Look… snapshots keyframed values at the
+    /// playhead). Call once; the tab re-lists whenever the library changes.
+    /// </summary>
+    internal void AttachLooks(LooksLibrary library, Func<Timecode> playhead)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentNullException.ThrowIfNull(playhead);
+        _looks = library;
+        _playhead = playhead;
+        library.Changed += BuildLooks;
+        BuildLooks();
+    }
+
     /// <summary>Sets the clip the Effects browser will apply effects to (driven by the timeline selection).</summary>
     public void SetSelectedClip(Clip? clip) => _selectedClip = clip;
 
@@ -220,11 +255,14 @@ public sealed class MediaBrowserPanel : UserControl
             b.FontWeight = t == tab ? FontWeight.SemiBold : FontWeight.Normal;
         }
 
-        _searchBox.IsVisible = tab == Tab.Media || (tab == Tab.Audio && _mixer is null);
+        _searchBox.IsVisible = tab is Tab.Media or Tab.Looks || (tab == Tab.Audio && _mixer is null);
+        _searchBox.PlaceholderText = tab == Tab.Looks ? "Search looks…" : "Search media…";
+        _searchBox.Text = tab == Tab.Looks ? _lookSearch : _search;
         _content.Child = tab switch
         {
             Tab.Media => _mediaView,
             Tab.Effects => _effectsView,
+            Tab.Looks => _looksView,
             Tab.Transitions => _transitionsView,
             Tab.Audio => (Control?)_mixer ?? _audioView,
             _ => _mediaView,
@@ -624,6 +662,240 @@ public sealed class MediaBrowserPanel : UserControl
         EnableDrag(row, DragFormats.EffectId, () => effect.Id);
         return row;
     }
+
+    // ── Looks browser (plan/features/looks-browser.md) ────────────────────────────────────────────────
+
+    private void BuildLooks()
+    {
+        _looksList.Children.Clear();
+        if (_looks is null)
+            return;
+
+        var save = ToolbarButton("Save Look…", "Save the selected clip's grade (its colour effects, not the input transform) as a look.");
+        save.Click += (_, _) => _ = SaveLookAsync();
+        var import = ToolbarButton("Import LUT…", "Add a creative .cube LUT (made for Rec.709 footage) as a look.");
+        import.Click += (_, _) => _ = ImportLutAsync();
+        _looksList.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { save, import } });
+        _looksList.Children.Add(new TextBlock
+        {
+            Text = "Double-click a look to grade the selected clip, or drag it onto a clip. Each look adds ordinary effects you can fine-tune in the Inspector.",
+            FontSize = Typography.Caption,
+            Foreground = FaintText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Avalonia.Thickness(0, 2, 0, 4),
+        });
+
+        bool any = false;
+        foreach ((string group, IReadOnlyList<Look> looks) in LooksBrowserModel.Grouped(_looks.All, _lookSearch))
+        {
+            bool userGroup = group == Look.UserGroup;
+            if (looks.Count == 0 && _lookSearch.Length > 0)
+                continue; // a filtered-out user group needs no empty-state hint
+            _looksList.Children.Add(GroupHeader(group.ToUpperInvariant()));
+            if (looks.Count == 0 && userGroup)
+                _looksList.Children.Add(new TextBlock
+                {
+                    Text = "No saved looks yet. Grade a clip and choose Save Look…, or import a creative LUT.",
+                    FontSize = Typography.Caption,
+                    Foreground = FaintText,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+            foreach (Look look in looks)
+            {
+                _looksList.Children.Add(LookRow(look));
+                any = true;
+            }
+        }
+        if (!any && _lookSearch.Length > 0)
+            _looksList.Children.Add(EmptyNote("No looks match the search."));
+    }
+
+    private Control LookRow(Look look)
+    {
+        var title = new TextBlock { Text = look.Name, FontSize = Typography.Body, Foreground = TextBrush, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+        var badge = new TextBlock { Text = LooksBrowserModel.Badge(look), FontSize = Typography.Micro, Foreground = Accent, Margin = new Avalonia.Thickness(6, 0, 0, 0) };
+        var header = new DockPanel();
+        DockPanel.SetDock(badge, Dock.Right);
+        header.Children.Add(badge);
+        header.Children.Add(title);
+
+        // A saved look has no curated description; list what it stacks instead, so rows stay distinguishable.
+        string description = look.Description
+            ?? string.Join(" · ", look.Entries.Select(e => EffectCatalog.DisplayName(e.EffectTypeId)));
+        var desc = new TextBlock
+        {
+            Text = description,
+            FontSize = Typography.Caption,
+            Foreground = MutedText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Avalonia.Thickness(0, 2, 0, 0),
+        };
+
+        var row = new Border
+        {
+            Background = RaisedBg,
+            CornerRadius = new Avalonia.CornerRadius(5),
+            Padding = new Avalonia.Thickness(8, 6),
+            Child = new StackPanel { Children = { header, desc } },
+        };
+        row.DoubleTapped += (_, _) => ApplyLook(look);
+        EnableDrag(row, DragFormats.LookId, () => look.Id);
+        ToolTip.SetTip(row, $"Double-click to apply {look.Name} to the selected clip, or drag it onto a clip.");
+
+        if (!look.IsBuiltIn)
+        {
+            var rename = new MenuItem { Header = "Rename…" };
+            rename.Click += (_, _) => _ = RenameLookAsync(look);
+            var delete = new MenuItem { Header = "Delete" };
+            delete.Click += (_, _) => _ = DeleteLookAsync(look);
+            row.ContextMenu = new ContextMenu { ItemsSource = new MenuItem[] { rename, delete } };
+        }
+        return row;
+    }
+
+    private void ApplyLook(Look look)
+    {
+        if (_selectedClip is null || _history is null || _project is null)
+        {
+            Status?.Invoke("Select a clip in the timeline to apply a look.");
+            return;
+        }
+        Status?.Invoke(LooksBrowserModel.ApplyToClip(look, _selectedClip, _project, _history));
+    }
+
+    /// <summary>Save Look… — snapshots the selected clip's enabled grading effects (at the playhead, for keyframed
+    /// values) as a named user look.</summary>
+    private async Task SaveLookAsync()
+    {
+        try
+        {
+            if (_looks is null || _selectedClip is not { } clip)
+            {
+                Status?.Invoke("Select a graded clip in the timeline to save its look.");
+                return;
+            }
+            Timecode at = _playhead?.Invoke() ?? clip.TimelineStart;
+            if (at < clip.TimelineStart || at >= clip.TimelineEnd)
+                at = clip.TimelineStart; // keyframes are sampled on the clip, never off either end
+            if (LookApplication.Capture(clip, "Look", at) is not { } captured)
+            {
+                Status?.Invoke("The selected clip has no colour effects to save as a look.");
+                return;
+            }
+            if (TopLevel.GetTopLevel(this) is not Window owner
+                || await NamePromptDialog.Show(owner, "Save Look", "Look name", "e.g. Warm Interview",
+                    _looks.UniqueName("My Look")) is not { } name)
+                return;
+            Look stored = _looks.Add(captured with { Name = name });
+            Status?.Invoke(_looks.LastSaveFailed
+                ? $"Saved look {stored.Name} for this session, but the looks file could not be written."
+                : $"Saved look {stored.Name} ({LooksBrowserModel.Badge(stored)}).");
+        }
+        catch (Exception ex)
+        {
+            // Fire-and-forget from a click handler: never let a dialog failure escape.
+            System.Diagnostics.Debug.WriteLine($"save look failed: {ex}");
+        }
+    }
+
+    /// <summary>Import LUT… — adds each chosen creative <c>.cube</c> as a one-effect look, after checking it loads.</summary>
+    private async Task ImportLutAsync()
+    {
+        try
+        {
+            if (_looks is null || TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
+                return;
+            IReadOnlyList<IStorageFile> files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Import Creative LUT",
+                AllowMultiple = true,
+                FileTypeFilter = [new FilePickerFileType("Cube LUT") { Patterns = ["*.cube"] }, FilePickerFileTypes.All],
+            });
+            var added = new List<string>();
+            foreach (IStorageFile file in files)
+            {
+                if (file.TryGetLocalPath() is not { } path)
+                    continue;
+                CreativeLuts.Invalidate(path); // a re-import must re-read the file, not replay a cached verdict
+                bool ok = await Task.Run(() => CreativeLuts.TryGet(path, out _, out _));
+                if (!ok)
+                {
+                    Status?.Invoke($"Couldn't import {Path.GetFileName(path)}: {CreativeLuts.Error(path) ?? "not a readable 3D .cube LUT"}");
+                    continue;
+                }
+                added.Add(_looks.Add(LooksBrowserModel.FromLutFile(path)).Name);
+            }
+            if (added.Count > 0)
+                Status?.Invoke((added.Count == 1 ? $"Imported LUT look {added[0]}." : $"Imported {added.Count} LUT looks.") + UnsavedNote());
+        }
+        catch (Exception ex)
+        {
+            // Some Linux portals throw on cancel; a picker failure must never take the process down.
+            System.Diagnostics.Debug.WriteLine($"import LUT failed: {ex}");
+        }
+    }
+
+    private async Task RenameLookAsync(Look look)
+    {
+        try
+        {
+            if (_looks is null || TopLevel.GetTopLevel(this) is not Window owner)
+                return;
+            if (await NamePromptDialog.Show(owner, "Rename Look", "Look name", look.Name, look.Name) is { } name
+                && _looks.Rename(look.Id, name) is { } renamed)
+                Status?.Invoke($"Renamed look to {renamed.Name}.{UnsavedNote()}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"rename look failed: {ex}");
+        }
+    }
+
+    private async Task DeleteLookAsync(Look look)
+    {
+        try
+        {
+            if (_looks is null || TopLevel.GetTopLevel(this) is not Window owner)
+                return;
+            // Saved looks live outside the project's undo history, so deleting one is confirmed.
+            if (await ConfirmDialog.Show(owner, "Delete Look",
+                    $"Delete the look “{look.Name}”? This can't be undone. Clips it was applied to keep their effects.",
+                    "Delete", "Cancel")
+                && _looks.Remove(look.Id))
+                Status?.Invoke($"Deleted look {look.Name}.{UnsavedNote()}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"delete look failed: {ex}");
+        }
+    }
+
+    /// <summary>The suffix for a library edit whose file write failed (the change holds for this session only).</summary>
+    private string UnsavedNote() => _looks?.LastSaveFailed == true
+        ? " The looks file could not be written, so this change lasts for this session only."
+        : string.Empty;
+
+    private static Button ToolbarButton(string text, string tip)
+    {
+        var button = new Button
+        {
+            Content = text,
+            FontSize = Typography.Caption,
+            Padding = new Avalonia.Thickness(8, 3),
+            MinHeight = 24,
+        };
+        ToolTip.SetTip(button, tip);
+        return button;
+    }
+
+    private static TextBlock GroupHeader(string text) => new()
+    {
+        Text = text,
+        FontSize = Typography.Micro,
+        Foreground = MutedText,
+        FontWeight = FontWeight.SemiBold,
+        Margin = new Avalonia.Thickness(0, 10, 0, 0),
+    };
 
     // ── Transitions browser ─────────────────────────────────────────────────────────────────────────
 

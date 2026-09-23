@@ -139,7 +139,7 @@ public static class LooksStore
     /// </summary>
     public static bool Save(string path, IReadOnlyList<Look> looks)
     {
-        string temp = path + ".tmp";
+        string temp = $"{path}.{Environment.ProcessId}.tmp"; // per process, so two running instances never share one
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);

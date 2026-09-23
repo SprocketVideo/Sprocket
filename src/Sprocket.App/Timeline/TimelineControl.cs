@@ -3161,12 +3161,19 @@ public sealed class TimelineControl : Control
     /// <summary>Raised when a clip is placed by a media-bin drop, so the shell can refresh the timeline header.</summary>
     public event Action? ClipPlaced;
 
+    /// <summary>Resolves a dragged Looks-browser row's id to its look (plan/features/looks-browser.md); set by the shell
+    /// from the looks library. Null → look drops are refused.</summary>
+    internal Func<string, Look?>? FindLook { get; set; }
+
     private void OnDragOver(object? sender, DragEventArgs e)
     {
         bool media = e.DataTransfer.Contains(DragFormats.MediaRefId);
         bool effect = e.DataTransfer.Contains(DragFormats.EffectId);
         bool transition = e.DataTransfer.Contains(DragFormats.TransitionId);
-        if (!media && !effect && !transition)
+        // A look only grades video, so an audio lane refuses it up front (DropLook reports the same on a drop).
+        bool look = FindLook is not null && e.DataTransfer.Contains(DragFormats.LookId)
+            && TrackAndKindAtY(e.GetPosition(this).Y).track is not AudioTrack;
+        if (!media && !effect && !transition && !look)
         {
             e.DragEffects = DragDropEffects.None;
             ClearDropPreview();
@@ -3199,6 +3206,8 @@ public sealed class TimelineControl : Control
             DropEffect(e.DataTransfer.TryGetValue(DragFormats.EffectId), e.DataTransfer.TryGetValue(DragFormats.EffectPresetName), p);
         else if (e.DataTransfer.Contains(DragFormats.TransitionId))
             DropTransition(e.DataTransfer.TryGetValue(DragFormats.TransitionId), p);
+        else if (e.DataTransfer.Contains(DragFormats.LookId))
+            DropLook(e.DataTransfer.TryGetValue(DragFormats.LookId), p);
     }
 
     /// <summary>The X of the cut nearest the cursor on the hovered track, or null when none is near (so the drop
@@ -3282,6 +3291,21 @@ public sealed class TimelineControl : Control
             : presetName is not null && descriptor.FindPreset(presetName) is { } preset ? descriptor.CreateInstance(preset)
             : descriptor.CreateInstance();
         Execute(new AddEffectCommand(clip, instance));
+        Select(clip);
+    }
+
+    /// <summary>Applies the dropped look to the clip under the cursor — the same one-undo-step
+    /// <see cref="MediaBrowser.LooksBrowserModel.Apply"/> path double-clicking the row takes for the selected clip.</summary>
+    private void DropLook(string? lookId, Point p)
+    {
+        if (string.IsNullOrEmpty(lookId) || FindLook?.Invoke(lookId) is not { } look)
+            return;
+        if (!TryHitClip(p, out Clip? clip, out _) || clip is null)
+        {
+            Status?.Invoke("Drop a look onto a clip to apply it.");
+            return;
+        }
+        Status?.Invoke(MediaBrowser.LooksBrowserModel.ApplyToClip(look, clip, _project!, _history!));
         Select(clip);
     }
 
