@@ -50,6 +50,7 @@ public sealed class MediaBrowserPanel : UserControl
     private string _search = string.Empty;
     private Tab _activeTab = Tab.Media;
     private Control? _mixer; // the audio mixer installed by the shell (PLAN.md step 30); null → the audio-media list
+    private bool _audioGridStale = true; // the audio-media list needs (re)building before it is next shown
 
     // Built-once chrome.
     private readonly TextBox _searchBox;
@@ -228,6 +229,7 @@ public sealed class MediaBrowserPanel : UserControl
             Tab.Audio => (Control?)_mixer ?? _audioView,
             _ => _mediaView,
         };
+        EnsureAudioGrid(); // the audio-media list is built lazily, on first show (no mixer installed)
     }
 
     /// <summary>Installs the audio <b>mixer</b> as the Audio tab's body (PLAN.md step 30, UI.md §3.3), replacing the
@@ -248,30 +250,49 @@ public sealed class MediaBrowserPanel : UserControl
     {
         _mediaGrid.Children.Clear();
         _audioGrid.Children.Clear();
+        _audioGridStale = true;
         if (_project is null || _thumbs is null)
             return;
 
-        List<MediaRef> items = _project.MediaPool.Items
-            .OrderBy(m => Path.GetFileName(m.AbsolutePath), StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<MediaRef> items = SortedItems();
         ItemCountChanged?.Invoke(items.Count);
 
         foreach (MediaRef media in items)
         {
             string name = Path.GetFileName(media.AbsolutePath);
-            if (!MediaSearch.Matches(name, _search))
-                continue;
-
-            _mediaGrid.Children.Add(BuildTile(media, name));
-            if (media.Info.HasAudio)
-                _audioGrid.Children.Add(BuildTile(media, name, audioView: true));
+            if (MediaSearch.Matches(name, _search))
+                _mediaGrid.Children.Add(BuildTile(media, name));
         }
 
         if (_mediaGrid.Children.Count == 0)
             _mediaGrid.Children.Add(EmptyNote(_search.Length > 0 ? "No media matches the search." : "No media imported."));
+
+        EnsureAudioGrid();
+    }
+
+    /// <summary>Builds the Audio-tab waveform list, but only when it is actually on screen: once the shell installs
+    /// the mixer (<see cref="SetMixer"/>) the list is never shown, so building it eagerly would decode a waveform
+    /// per audio source for nothing on every project open. Stale after each <see cref="RebuildGrids"/>.</summary>
+    private void EnsureAudioGrid()
+    {
+        if (!_audioGridStale || _activeTab != Tab.Audio || _mixer is not null || _project is null || _thumbs is null)
+            return;
+        _audioGridStale = false;
+
+        _audioGrid.Children.Clear();
+        foreach (MediaRef media in SortedItems())
+        {
+            string name = Path.GetFileName(media.AbsolutePath);
+            if (media.Info.HasAudio && MediaSearch.Matches(name, _search))
+                _audioGrid.Children.Add(BuildTile(media, name, audioView: true));
+        }
         if (_audioGrid.Children.Count == 0)
             _audioGrid.Children.Add(EmptyNote("No audio sources."));
     }
+
+    private List<MediaRef> SortedItems() => _project!.MediaPool.Items
+        .OrderBy(m => Path.GetFileName(m.AbsolutePath), StringComparer.OrdinalIgnoreCase)
+        .ToList();
 
     /// <summary>Builds one bin tile: a poster (video) or waveform (audio) thumbnail, the filename, and badges.</summary>
     private Control BuildTile(MediaRef media, string name, bool audioView = false)

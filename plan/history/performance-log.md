@@ -73,3 +73,31 @@
   the offscreen on the destination canvas's `GRRecordingContext` (budgeted, so Skia's scratch-texture cache recycles
   it), with raster kept as the fallback for a CPU canvas (headless tests, CPU export). The scrub symptom was the same
   stall: each redraw had to finish the CPU smoke frame.
+
+- **CPU spike and UI stall on project open (recorded 2026-09-23).** Reported: the app starts quickly, but
+  opening a project pegs the CPU and the UI stutters for a while. Loading the project file was cheap (JSON; the
+  probe info is stored, so nothing is re-probed). The cost came from work that starts when `MainWindow` is built:
+  1. **Media-bin thumbnails.** `MediaBrowserPanel.RebuildGrids` started one unthrottled `Task.Run` per tile.
+     Posters decoded in software with auto threading (one FFmpeg thread per core, per job), so N items meant
+     roughly N × cores threads. Every audio-bearing item also started a waveform decode (up to 4M samples) for an
+     Audio-tab grid that the mixer replaces, so it was never shown. The cache was in-memory and per window, so
+     every open, including reopening the same project, regenerated everything.
+  2. **Idle timeline repaint.** The pump raised `PositionChanged` every ~16 ms even while paused, and
+     `TimelineControl` invalidated unconditionally. Partly visible clips drew their schematic waveform and
+     filmstrip across the full clip width.
+  3. **Proxy builds** capped only the encoder (`-threads` sat after `-i`). On the UI thread, `oldProxy.Dispose()`
+     and `StabilizationService.Dispose()` could each block for up to 5 s.
+
+  **Fix:**
+  - **Thumbnails:** a shared `SemaphoreSlim` limits generation to `clamp(cores/4, 1, 4)`. Thumbnail decoders get
+    a new `MediaOpenRequest.DecoderThreads = 1`, and pending work is cancelled when the service is disposed.
+  - **Thumbnail disk cache:** `ThumbnailDiskCache` (`%LocalAppData%/Sprocket/thumbs`), keyed by SHA-256 over
+    kind, path, size, mtime and dimensions. Cache hits skip the semaphore. The cache is pruned above 200 MB,
+    down to 150 MB.
+  - **Waveforms:** the hidden audio grid is only built when it can actually be shown, and waveform peaks are
+    reduced while streaming (`WaveformPeakAccumulator`) instead of buffering 4M samples.
+  - **Idle repaint:** the engine raises `PositionChanged` only when the position changes or a seek/force-present
+    happens, so a same-position seek still echoes. `TimelineControl` and the monitor readouts skip repeats and
+    coalesce their posts, and clip decoration loops are clipped to the viewport.
+  - **Proxies and teardown:** proxy ffmpeg also passes `-threads` before `-i`, and old-session proxy and
+    stabilization teardown runs on a background thread. Not yet measured in the interactive app.

@@ -138,6 +138,12 @@ shipped step append to its history entry directly.
 The actionable remainder. Each large feature has its detailed plan in `plan/features/`;
 verification-only items carry their checklist in the step's history entry.
 
+- [x] **Project-open CPU spike / UI stall** (perf fix, shipped 2026-09-23) — media-bin thumbnails are
+  throttled (shared semaphore, single-threaded decoders, cancelled on window dispose) and cached on disk
+  (`ThumbnailDiskCache`, keyed by source size/mtime); the hidden Audio-tab waveform grid is built lazily;
+  the engine stops raising `PositionChanged` for a parked playhead so the timeline no longer repaints
+  ~60 Hz while idle; proxy ffmpeg caps decode threads; old-session proxy/stabilization teardown moved off
+  the UI thread. Detail in [plan/history/performance-log.md](plan/history/performance-log.md).
 - [x] **File ▸ Open Recent** (small feature) — shipped 2026-09-21: a persisted MRU (up to 10 projects,
   newest first, Clear Recent, stale entries self-pruned), stored in `UserSettings.RecentProjects` and
   populated on submenu-open. Recorded on every open (`MainWindow` ctor) and save (`SaveTo`).

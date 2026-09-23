@@ -145,11 +145,14 @@ public sealed class TimelineControl : Control
     private long _lastSeekFrame = -1;
     private long _pendingSeekTicks = -1;
 
-    // The playhead position the auto-scroll last acted on. The pump raises PositionChanged at ~60 Hz even while
-    // stopped, so without this a stopped reveal would re-centre the view every 16 ms and make scrolling a paused
+    // The playhead position the auto-scroll last acted on. The pump re-raises an unchanged PositionChanged on a
+    // stopped seek/forced tick (and used to at ~60 Hz), so without this a stopped reveal would re-centre the view every 16 ms and make scrolling a paused
     // timeline by hand impossible. Locally-driven playhead moves (SeekToX) record it too, so a scrub's own echo
     // never pages the view out from under the pointer.
     private long _lastFollowTicks = -1;
+
+    // 1 while an engine-position follow/repaint post is queued on the UI thread (OnEnginePosition coalesces on it).
+    private int _positionPostQueued;
 
     // Rubber-band marquee state (PLAN.md step 54): a Select-tool drag on empty lane area selects every clip
     // the band touches (live, as it moves); Ctrl/Shift at the press adds to the existing selection. A press
@@ -416,10 +419,19 @@ public sealed class TimelineControl : Control
                 return;
             _pendingSeekTicks = -1;
         }
+        if (t == _playhead)
+            return; // unchanged (e.g. a scrub echo SeekToX already painted) — no follow or repaint to do
         _playhead = t;
         // The follow has to run on the UI thread with the rest of the view state — it reads Bounds and writes
-        // _scrollX. Coalescing with the repaint keeps it at one computation per painted frame.
-        Dispatcher.UIThread.Post(() => { FollowPlayhead(); InvalidateVisual(); }, DispatcherPriority.Render);
+        // _scrollX. Coalescing with the repaint keeps it at one computation per painted frame, and at most one post
+        // is queued at a time: the callback reads the latest _playhead, so a backlog of stale posts is pure waste.
+        if (Interlocked.Exchange(ref _positionPostQueued, 1) == 0)
+            Dispatcher.UIThread.Post(() =>
+            {
+                Volatile.Write(ref _positionPostQueued, 0);
+                FollowPlayhead();
+                InvalidateVisual();
+            }, DispatcherPriority.Render);
     }
 
     /// <summary>
@@ -1544,10 +1556,11 @@ public sealed class TimelineControl : Control
 
                 using (ctx.PushClip(rect))
                 {
+                    // Only the on-screen span of the lane area (the outer clip) needs its detail strokes.
                     if (isVideo)
-                        DrawFilmstrip(ctx, rect);
+                        DrawFilmstrip(ctx, rect, _headerWidth, size.Width);
                     else
-                        DrawWaveform(ctx, rect);
+                        DrawWaveform(ctx, rect, _headerWidth, size.Width);
                     ctx.DrawText(Label(ClipName(clip), 11, Text), new Point(rect.X + 6, rect.Y + 4));
                     DrawClipMarkers(ctx, clip, rect);
                     DrawFadeOverlay(ctx, clip, rect);
@@ -1729,19 +1742,30 @@ public sealed class TimelineControl : Control
         ctx.DrawGeometry(active ? Accent : FadeHandleFill, null, tri);
     }
 
+    private static readonly Pen FilmstripPen = new(ClipDetail, 1);
+    private static readonly Pen WaveformPen = new(AudioDetail, 1);
+
+    /// <summary>First x on the grid <c>origin + k·step</c> (k ≥ 0) that is ≥ <paramref name="visibleLeft"/>. The
+    /// detail patterns below start there rather than at the clip's left edge, so a long clip scrolled mostly
+    /// off-screen only draws its visible strokes, while the grid stays anchored to the clip (no swimming on scroll).</summary>
+    private static double FirstVisibleStep(double origin, double step, double visibleLeft)
+        => visibleLeft <= origin ? origin : origin + Math.Ceiling((visibleLeft - origin) / step) * step;
+
     // Schematic only (real poster frames are step 15): even vertical dividers like a filmstrip.
-    private static void DrawFilmstrip(DrawingContext ctx, Rect rect)
+    private static void DrawFilmstrip(DrawingContext ctx, Rect rect, double visibleLeft, double visibleRight)
     {
-        for (double x = rect.X + 22; x < rect.Right - 2; x += 26)
-            ctx.DrawLine(new Pen(ClipDetail, 1), new Point(x, rect.Y + 16), new Point(x, rect.Bottom - 3));
+        double end = Math.Min(rect.Right - 2, visibleRight);
+        for (double x = FirstVisibleStep(rect.X + 22, 26, visibleLeft); x < end; x += 26)
+            ctx.DrawLine(FilmstripPen, new Point(x, rect.Y + 16), new Point(x, rect.Bottom - 3));
     }
 
     // Schematic only (real waveforms are step 15): a deterministic bar pattern around the centre line.
-    private static void DrawWaveform(DrawingContext ctx, Rect rect)
+    private static void DrawWaveform(DrawingContext ctx, Rect rect, double visibleLeft, double visibleRight)
     {
         double mid = rect.Y + rect.Height * 0.62;
-        var pen = new Pen(AudioDetail, 1);
-        for (double x = rect.X + 4; x < rect.Right - 2; x += 3)
+        Pen pen = WaveformPen;
+        double end = Math.Min(rect.Right - 2, visibleRight);
+        for (double x = FirstVisibleStep(rect.X + 4, 3, visibleLeft); x < end; x += 3)
         {
             double phase = (x - rect.X) * 0.20;
             double amp = (rect.Height * 0.30) * (0.35 + 0.65 * Math.Abs(Math.Sin(phase) * Math.Cos(phase * 0.37)));

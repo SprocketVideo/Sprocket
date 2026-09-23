@@ -14,10 +14,14 @@ namespace Sprocket.Media;
 /// <see langword="null"/> to let FFmpeg probe by extension (ordinary files).</param>
 /// <param name="Options">Demuxer options (e.g. <c>framerate</c> / <c>start_number</c> / <c>pattern_type</c>),
 /// or <see langword="null"/> for none.</param>
+/// <param name="DecoderThreads">Software-decoder worker threads: 0 (the default) lets libavcodec size the pool from
+/// the CPU count (the playback path); a positive value caps it — used by background work such as bin thumbnails so
+/// many concurrent opens don't each spawn a thread per core. Ignored by hardware decode.</param>
 public readonly record struct MediaOpenRequest(
     string Path,
     string? InputFormatName = null,
-    IReadOnlyList<KeyValuePair<string, string>>? Options = null)
+    IReadOnlyList<KeyValuePair<string, string>>? Options = null,
+    int DecoderThreads = 0)
 {
     /// <summary>A plain open by path — ordinary container files, and single stills (which the <c>image2</c>
     /// demuxer already auto-detects for one image).</summary>

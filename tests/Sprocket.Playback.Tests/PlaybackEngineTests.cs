@@ -286,6 +286,37 @@ public class PlaybackEngineTests
     }
 
     [Fact]
+    public async Task Parked_Playhead_Stops_Raising_Position_But_A_Same_Position_Seek_Still_Echoes()
+    {
+        // An idle pump must not re-raise an unchanged position every tick (that repainted the whole timeline at
+        // ~60 Hz while paused), yet a seek to the position already shown must still echo — the timeline's scrub
+        // reconciliation waits on that exact echo.
+        using var cts = new CancellationTokenSource(Timeout);
+        (Project project, RingVideoFrameFeed feed) = BuildSession();
+        await using var engine = new PlaybackEngine(project, feed, new SoftwareClock(() => TimeSpan.Zero));
+
+        var raised = new List<long>();
+        engine.PositionChanged += p => raised.Add(p.Ticks);
+
+        feed.Start();
+        engine.SeekTo(Timecode.FromFrames(30, Fps));
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        for (int i = 0; i < 5; i++)
+            await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        Assert.Equal(new[] { 30 * FrameTicks }, raised);
+
+        engine.SeekTo(Timecode.FromFrames(30, Fps));
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        Assert.Equal(new[] { 30 * FrameTicks, 30 * FrameTicks }, raised);
+
+        // A late subscriber is handed the current position on the next tick.
+        Timecode? late = null;
+        engine.PositionChanged += p => late = p;
+        await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+        Assert.Equal(30 * FrameTicks, late?.Ticks);
+    }
+
+    [Fact]
     public async Task Paused_Seeks_Wake_The_Running_Pump_Immediately()
     {
         // Scrub latency (PLAN.md step 17): with the pump loop actually running, a seek while paused must be

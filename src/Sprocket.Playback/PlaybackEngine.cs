@@ -255,8 +255,33 @@ public sealed class PlaybackEngine : IAsyncDisposable
     /// <summary>Raised after any track's presented frame changes. Fires on the pump thread.</summary>
     public event Action? FramePresented;
 
-    /// <summary>Raised each pump tick with the current timeline position. Fires on the pump thread.</summary>
-    public event Action<Timecode>? PositionChanged;
+    /// <summary>
+    /// Raised on a pump tick whose timeline position differs from the last one raised, and on every tick that
+    /// services a seek or a forced present (so a seek to the position already shown still echoes — the timeline's
+    /// scrub reconciliation waits on that exact echo). A parked playhead therefore stops raising, which is what
+    /// keeps the subscribed UI from repainting ~60 Hz while idle. A new subscriber gets the current position on the
+    /// next tick. Fires on the pump thread.
+    /// </summary>
+    public event Action<Timecode>? PositionChanged
+    {
+        add
+        {
+            // Same lock-free combine the compiler-generated accessor uses, so subscription stays thread-safe.
+            Action<Timecode>? seen, next;
+            do { seen = _positionChanged; next = seen + value; }
+            while (Interlocked.CompareExchange(ref _positionChanged, next, seen) != seen);
+            Volatile.Write(ref _lastRaisedPositionTicks, long.MinValue); // hand the newcomer the current position
+        }
+        remove
+        {
+            Action<Timecode>? seen, next;
+            do { seen = _positionChanged; next = seen - value; }
+            while (Interlocked.CompareExchange(ref _positionChanged, next, seen) != seen);
+        }
+    }
+
+    private Action<Timecode>? _positionChanged;
+    private long _lastRaisedPositionTicks = long.MinValue; // pump-thread dedupe for PositionChanged; MinValue = raise next tick
 
     /// <summary>Raised when the transport state changes. Fires on the pump or calling thread.</summary>
     public event Action<PlaybackState>? StateChanged;
@@ -898,7 +923,11 @@ public sealed class PlaybackEngine : IAsyncDisposable
             FramePresented?.Invoke();
         }
 
-        PositionChanged?.Invoke(pos);
+        if (force || pos.Ticks != Volatile.Read(ref _lastRaisedPositionTicks))
+        {
+            Volatile.Write(ref _lastRaisedPositionTicks, pos.Ticks);
+            _positionChanged?.Invoke(pos);
+        }
         HandleEnd(pos);
     }
 

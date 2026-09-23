@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using SkiaSharp;
@@ -16,13 +17,22 @@ namespace Sprocket.App.MediaBrowser;
 /// <summary>
 /// Generates media-bin thumbnails (PLAN.md step 15, UI.md §3.3): a poster frame for video sources and a
 /// waveform image for audio. Each is produced once on a background thread (decode is slow and must not block
-/// the UI) and cached by source + size, then handed back as an Avalonia <see cref="Bitmap"/>.
+/// the UI) and cached by source + size, then handed back as an Avalonia <see cref="Bitmap"/>. The encoded PNG is
+/// also persisted in the per-user <see cref="ThumbnailDiskCache"/>, so re-opening a project reuses it instead of
+/// re-decoding every source.
 /// </summary>
 /// <remarks>
 /// Decoding a single poster frame / a stretch of PCM and rasterising it once is a one-off cost, NOT the
 /// per-frame render hot path, so the no-managed-pixels rule (ARCHITECTURE.md §1) does not apply here — a
 /// thumbnail is deliberately copied into a small managed bitmap. Poster decode forces the software path
 /// (<see cref="HardwareAccelMode.Disabled"/>) so it is deterministic and carries no GPU dependency.
+/// <para>
+/// Opening a project with a large bin must not spike the CPU or stall the UI, so generation is throttled
+/// process-wide (<see cref="GenerationGate"/>: a quarter of the cores, capped at 4), each thumbnail decoder runs
+/// single-threaded (<see cref="MediaOpenRequest.DecoderThreads"/> = 1) instead of spawning a thread per core,
+/// waveforms reduce PCM to peaks as it streams rather than buffering it, and <see cref="Dispose"/> cancels work
+/// still queued. Disk-cache hits bypass the gate — they only read a small PNG.
+/// </para>
 /// </remarks>
 public sealed class ThumbnailService : IDisposable
 {
@@ -34,8 +44,24 @@ public sealed class ThumbnailService : IDisposable
     // At most this many mono samples are read for a waveform; longer audio is summarised from the lead-in.
     private const int MaxWaveformSamples = 4_000_000;
 
+    // Process-wide cap on concurrent thumbnail generation (decode + rasterise). Static so several windows / a
+    // project re-open share one budget; a quarter of the cores leaves the UI and playback headroom.
+    private static readonly int GenerationConcurrency = Math.Clamp(Environment.ProcessorCount / 4, 1, 4);
+    private static readonly SemaphoreSlim GenerationGate = new(GenerationConcurrency, GenerationConcurrency);
+
+    // Disk-cache kind tags (part of the cache key).
+    private const string PosterKind = "poster";
+    private const string WaveKind = "wave";
+    private const string StripKind = "strip";
+
     private readonly ConcurrentDictionary<string, Task<Bitmap?>> _cache = new();
+    private readonly CancellationTokenSource _cts = new();
+    private readonly ThumbnailDiskCache? _disk;
     private volatile bool _disposed;
+
+    /// <summary>Creates the service over <paramref name="disk"/> (defaults to the per-user
+    /// <see cref="ThumbnailDiskCache.Default"/>).</summary>
+    public ThumbnailService(ThumbnailDiskCache? disk = null) => _disk = disk ?? ThumbnailDiskCache.Default;
 
     /// <summary>
     /// Returns the poster-frame thumbnail for a video source, scaled to fit <paramref name="width"/>×
@@ -49,7 +75,8 @@ public sealed class ThumbnailService : IDisposable
             return Task.FromResult<Bitmap?>(null);
 
         string key = $"poster:{media.Id}:{width}x{height}";
-        return _cache.GetOrAdd(key, _ => Task.Run(() => RenderPoster(media, width, height)));
+        return _cache.GetOrAdd(key, _ => Task.Run(() =>
+            ProduceAsync(media, PosterKind, width, height, frames: 0, ct => RenderPoster(media, width, height, ct))));
     }
 
     /// <summary>
@@ -63,7 +90,8 @@ public sealed class ThumbnailService : IDisposable
             return Task.FromResult<Bitmap?>(null);
 
         string key = $"wave:{media.Id}:{width}x{height}";
-        return _cache.GetOrAdd(key, _ => Task.Run(() => RenderWaveform(media, width, height)));
+        return _cache.GetOrAdd(key, _ => Task.Run(() =>
+            ProduceAsync(media, WaveKind, width, height, frames: 0, ct => RenderWaveform(media, width, height, ct))));
     }
 
     /// <summary>
@@ -79,16 +107,95 @@ public sealed class ThumbnailService : IDisposable
             return Task.FromResult<Bitmap?>(null);
 
         string key = $"strip:{media.Id}:{frameWidth}x{frameHeight}x{frames}";
-        return _cache.GetOrAdd(key, _ => Task.Run(() => RenderFilmstrip(media, frameWidth, frameHeight, frames)));
+        return _cache.GetOrAdd(key, _ => Task.Run(() =>
+            ProduceAsync(media, StripKind, frameWidth, frameHeight, frames, ct => RenderFilmstrip(media, frameWidth, frameHeight, frames, ct))));
     }
 
-    private static Bitmap? RenderFilmstrip(MediaRef media, int frameWidth, int frameHeight, int frames)
+    /// <summary>
+    /// The shared body of every thumbnail request, run on a pool thread: serve the disk cache when it holds this
+    /// thumbnail (no gate — a hit is a small file read), otherwise wait for a <see cref="GenerationGate"/> slot,
+    /// render the PNG, persist it, and decode it into a <see cref="Bitmap"/>. Returns <see langword="null"/> on
+    /// failure or once <see cref="Dispose"/> has cancelled the service.
+    /// </summary>
+    private async Task<Bitmap?> ProduceAsync(MediaRef media, string kind, int width, int height, int frames,
+        Func<CancellationToken, byte[]?> render)
+    {
+        CancellationToken ct = _cts.Token;
+        if (ct.IsCancellationRequested)
+            return null;
+
+        string? diskKey = null;
+        if (_disk is not null)
+        {
+            _disk.EnsurePruneStarted();
+            diskKey = ThumbnailDiskCache.KeyFor(media, kind, width, height, frames);
+            if (diskKey is not null && _disk.TryRead(diskKey) is { } cached && Decode(cached) is { } hit)
+                return KeepUnlessDisposed(hit);
+        }
+
+        try
+        {
+            await GenerationGate.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+
+        byte[]? png;
+        try
+        {
+            // Re-check after the (possibly long) wait: a project closed while queued shouldn't start decoding.
+            if (ct.IsCancellationRequested)
+                return null;
+            png = render(ct);
+        }
+        finally
+        {
+            GenerationGate.Release();
+        }
+
+        if (png is null)
+            return null;
+        if (diskKey is not null)
+            _disk!.TryWrite(diskKey, png);
+        return Decode(png) is { } bitmap ? KeepUnlessDisposed(bitmap) : null;
+    }
+
+    // A result that lands after Dispose has already swept the cache would otherwise leak its native bitmap.
+    private Bitmap? KeepUnlessDisposed(Bitmap bitmap)
+    {
+        if (!_disposed)
+            return bitmap;
+        bitmap.Dispose();
+        return null;
+    }
+
+    private static Bitmap? Decode(byte[] png)
+    {
+        try
+        {
+            using var ms = new MemoryStream(png, writable: false);
+            return new Bitmap(ms);
+        }
+        catch
+        {
+            return null; // a corrupt cache file falls through to regeneration
+        }
+    }
+
+    // Thumbnail decoders run single-threaded: the gate already parallelises across sources, and a thread-per-core
+    // pool per open is what made a big bin spike every core on project open.
+    private static MediaOpenRequest ThumbnailOpenRequest(MediaRef media) =>
+        MediaOpenRequest.FromMediaRef(media) with { DecoderThreads = 1 };
+
+    private static byte[]? RenderFilmstrip(MediaRef media, int frameWidth, int frameHeight, int frames, CancellationToken ct)
     {
         if (frameWidth <= 0 || frameHeight <= 0 || frames <= 0)
             return null;
         try
         {
-            using MediaSource source = MediaSource.Open(MediaOpenRequest.FromMediaRef(media), HardwareAccelMode.Disabled);
+            using MediaSource source = MediaSource.Open(ThumbnailOpenRequest(media), HardwareAccelMode.Disabled);
             using var pool = new VideoFramePool(source.Info.Width, source.Info.Height);
 
             var dstInfo = new SKImageInfo(frames * frameWidth, frameHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
@@ -98,6 +205,8 @@ public sealed class ThumbnailService : IDisposable
 
             for (int slot = 0; slot < frames; slot++)
             {
+                if (ct.IsCancellationRequested)
+                    return null;
                 source.SeekTo(FilmstripMath.SampleTime(media.Info.Duration, frames, slot));
                 if (!source.TryDecodeNextFrame(pool, out VideoFrame? frame))
                     continue; // a slot whose decode fails stays background-coloured rather than failing the strip
@@ -120,14 +229,14 @@ public sealed class ThumbnailService : IDisposable
         }
     }
 
-    private static Bitmap? RenderPoster(MediaRef media, int width, int height)
+    private static byte[]? RenderPoster(MediaRef media, int width, int height, CancellationToken ct)
     {
         if (width <= 0 || height <= 0)
             return null;
         try
         {
             // An image sequence opens through the image2 demuxer; a still / ordinary file opens by path (step 42).
-            using MediaSource source = MediaSource.Open(MediaOpenRequest.FromMediaRef(media), HardwareAccelMode.Disabled);
+            using MediaSource source = MediaSource.Open(ThumbnailOpenRequest(media), HardwareAccelMode.Disabled);
             using var pool = new VideoFramePool(source.Info.Width, source.Info.Height);
 
             // Seek a little into the clip for a representative poster (avoids a black/leader first frame). A still has
@@ -139,7 +248,7 @@ public sealed class ThumbnailService : IDisposable
                     source.SeekTo(poster);
             }
 
-            if (!source.TryDecodeNextFrame(pool, out VideoFrame? frame))
+            if (ct.IsCancellationRequested || !source.TryDecodeNextFrame(pool, out VideoFrame? frame))
                 return null;
 
             using (frame)
@@ -163,7 +272,7 @@ public sealed class ThumbnailService : IDisposable
         }
     }
 
-    private static Bitmap? RenderWaveform(MediaRef media, int width, int height)
+    private static byte[]? RenderWaveform(MediaRef media, int width, int height, CancellationToken ct)
     {
         if (width <= 0 || height <= 0)
             return null;
@@ -172,17 +281,38 @@ public sealed class ThumbnailService : IDisposable
             int sampleRate = media.Info.SampleRate > 0 ? media.Info.SampleRate : 48000;
             using IPcmReader reader = AudioSource.Open(media.AbsolutePath, sampleRate, channels: 1);
 
-            // Read up to a bounded number of mono samples, then reduce to one peak per output column.
-            var samples = new List<float>();
+            // Read up to a bounded number of mono samples and reduce them to one peak per output column.
+            int buckets = Math.Max(1, width);
             var chunk = new float[8192];
             int n;
-            while (samples.Count < MaxWaveformSamples && (n = reader.Read(chunk)) > 0)
+            float[] peaks;
+            long expected = ExpectedWaveformSamples(media.Info.Duration, sampleRate);
+            if (expected > 0)
             {
-                for (int i = 0; i < n; i++)
-                    samples.Add(chunk[i]);
+                // Known length: stream the reduction, so no sample buffer is ever materialised.
+                var accumulator = new WaveformPeakAccumulator(buckets, expected);
+                while (!accumulator.IsFull && (n = reader.Read(chunk)) > 0)
+                {
+                    if (ct.IsCancellationRequested)
+                        return null;
+                    accumulator.Add(chunk.AsSpan(0, n));
+                }
+                peaks = accumulator.Peaks;
+            }
+            else
+            {
+                // Unknown duration: the bucket mapping needs the total, so buffer (bounded) and reduce at the end.
+                var samples = new List<float>();
+                while (samples.Count < MaxWaveformSamples && (n = reader.Read(chunk)) > 0)
+                {
+                    if (ct.IsCancellationRequested)
+                        return null;
+                    for (int i = 0; i < n; i++)
+                        samples.Add(chunk[i]);
+                }
+                peaks = WaveformBuilder.BuildPeaks(samples, channels: 1, bucketCount: buckets);
             }
 
-            float[] peaks = WaveformBuilder.BuildPeaks(samples, channels: 1, bucketCount: Math.Max(1, width));
             return DrawWaveform(peaks, width, height);
         }
         catch
@@ -191,7 +321,17 @@ public sealed class ThumbnailService : IDisposable
         }
     }
 
-    private static Bitmap DrawWaveform(float[] peaks, int width, int height)
+    /// <summary>The number of mono samples a waveform summarises: the probed <paramref name="duration"/> at
+    /// <paramref name="sampleRate"/>, capped at <see cref="MaxWaveformSamples"/>; 0 when the duration is unknown.</summary>
+    internal static long ExpectedWaveformSamples(Timecode duration, int sampleRate)
+    {
+        if (duration.Ticks <= 0 || sampleRate <= 0)
+            return 0;
+        long samples = (long)((Int128)duration.Ticks * sampleRate / Timecode.TicksPerSecond);
+        return Math.Min(MaxWaveformSamples, samples);
+    }
+
+    private static byte[] DrawWaveform(float[] peaks, int width, int height)
     {
         var info = new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
         using SKSurface surface = SKSurface.Create(info);
@@ -211,25 +351,25 @@ public sealed class ThumbnailService : IDisposable
         using var centre = new SKPaint { Color = WaveFill.WithAlpha(80), StrokeWidth = 1 };
         canvas.DrawLine(0, mid, width, mid, centre);
 
-        return Encode(surface)!;
+        return Encode(surface);
     }
 
-    private static Bitmap Encode(SKSurface surface)
+    // PNG-encodes the surface; the bytes are both persisted to the disk cache and decoded into the Bitmap.
+    private static byte[] Encode(SKSurface surface)
     {
         using SKImage image = surface.Snapshot();
         using SKData data = image.Encode(SKEncodedImageFormat.Png, 100);
-        using var ms = new MemoryStream();
-        data.SaveTo(ms);
-        ms.Position = 0;
-        return new Bitmap(ms);
+        return data.ToArray();
     }
 
-    /// <summary>Disposes every cached bitmap. Pending decodes complete and their results are dropped.</summary>
+    /// <summary>Disposes every cached bitmap and cancels queued / in-flight generation (a request still waiting
+    /// for a gate slot never starts; a waveform stops at its next chunk). Late results are dropped.</summary>
     public void Dispose()
     {
         if (_disposed)
             return;
         _disposed = true;
+        _cts.Cancel();
         foreach (Task<Bitmap?> task in _cache.Values)
         {
             if (task.IsCompletedSuccessfully)

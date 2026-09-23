@@ -157,14 +157,14 @@ public sealed unsafe class MediaSource : IDisposable
             CodecContextHandle decoder;
             try
             {
-                decoder = CreateDecoder(decoderCodec, codecpar, hw, hwFmt);
+                decoder = CreateDecoder(decoderCodec, codecpar, hw, hwFmt, request.DecoderThreads);
             }
             catch when (hw is not null)
             {
                 hw.Dispose();
                 hw = null;
                 hwFmt = AvConst.PixFmtNone;
-                decoder = CreateDecoder(decoderCodec, codecpar, null, AvConst.PixFmtNone);
+                decoder = CreateDecoder(decoderCodec, codecpar, null, AvConst.PixFmtNone, request.DecoderThreads);
             }
 
             ProbedMediaInfo info = Probe(format, videoStream, decoder);
@@ -273,8 +273,9 @@ public sealed unsafe class MediaSource : IDisposable
     }
 
     /// <summary>Creates and opens the video decoder, attaching the hardware device + a <c>get_format</c> that
-    /// selects the GPU pixel format when <paramref name="hw"/> is present.</summary>
-    private static CodecContextHandle CreateDecoder(IntPtr codec, IntPtr codecpar, IHardwareContext? hw, int hwFmt)
+    /// selects the GPU pixel format when <paramref name="hw"/> is present. <paramref name="threads"/> sizes the
+    /// software decoder's pool (0 = auto).</summary>
+    private static CodecContextHandle CreateDecoder(IntPtr codec, IntPtr codecpar, IHardwareContext? hw, int hwFmt, int threads)
     {
         CodecContextHandle decoder = CodecContextHandle.Alloc(codec);
         try
@@ -294,8 +295,9 @@ public sealed unsafe class MediaSource : IDisposable
                 // 0 = auto (libavcodec sizes the pool from the CPU count). Software-path only: hardware decode runs
                 // on fixed-function silicon that gains nothing from worker threads, and frame threading would hand
                 // get_format per-thread context copies whose pointers miss the WantHwFormat entry keyed above —
-                // silently downgrading the GPU path to software.
-                decoder.ThreadCount = 0;
+                // silently downgrading the GPU path to software. Background callers (bin thumbnails) pass an explicit
+                // small cap so several concurrent opens don't oversubscribe the CPU.
+                decoder.ThreadCount = Math.Max(0, threads);
             }
 
             decoder.Open(codec);

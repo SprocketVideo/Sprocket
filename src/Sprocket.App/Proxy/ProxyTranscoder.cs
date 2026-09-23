@@ -134,12 +134,14 @@ internal static class ProxyTranscoder
         // -an: video-only (audio mixes from the original). scale to the fixed proxy tier (omitted when the target
         // is the source size — a pure codec-conversion proxy); ultrafast/CRF 28 = speed.
         // -threads: leave cores for the live preview (see the class remarks) rather than letting ffmpeg take all.
+        // ffmpeg options are positional, so it appears twice: before -i it caps the source DECODER (otherwise
+        // auto-threaded to every core — a 4K HEVC decode alone can saturate the machine), after it the encoder.
         // -progress pipe:1 -nostats: machine-readable progress on stdout (both streams are drained below).
         string scale = ScaleArgs(media.Info.Width, media.Info.Height, target);
-        int threads = EncodeThreadCount(Environment.ProcessorCount);
+        string threads = EncodeThreadCount(Environment.ProcessorCount).ToString(CultureInfo.InvariantCulture);
         var psi = new ProcessStartInfo("ffmpeg",
-            $"-y -nostdin -loglevel error -progress pipe:1 -nostats -i \"{media.AbsolutePath}\" -an {scale}" +
-            $"-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p -threads {threads.ToString(CultureInfo.InvariantCulture)} \"{tempPath}\"")
+            $"-y -nostdin -loglevel error -progress pipe:1 -nostats -threads {threads} -i \"{media.AbsolutePath}\" -an {scale}" +
+            $"-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p -threads {threads} \"{tempPath}\"")
         {
             UseShellExecute = false,
             CreateNoWindow = true,

@@ -49,3 +49,52 @@ public static class WaveformBuilder
         return peaks;
     }
 }
+
+/// <summary>
+/// The streaming form of <see cref="WaveformBuilder.BuildPeaks"/> for mono PCM: feed chunks as they are decoded and
+/// read <see cref="Peaks"/> at the end, instead of materialising the whole stretch of samples first (the bin's
+/// waveform thumbnails used to buffer up to 4M samples per source). Because the bucket a sample lands in depends on
+/// the total count, that count must be known up front — the caller derives it from the probed duration. Given
+/// exactly <c>expectedFrames</c> samples the result is identical to <see cref="WaveformBuilder.BuildPeaks"/>;
+/// samples past the expected count are ignored, and a short stream leaves its trailing buckets at zero.
+/// </summary>
+public sealed class WaveformPeakAccumulator
+{
+    private readonly float[] _peaks;
+    private readonly long _expectedFrames;
+    private long _frame;
+
+    /// <summary>Creates an accumulator for <paramref name="bucketCount"/> peaks over
+    /// <paramref name="expectedFrames"/> mono samples (both ≥ 1).</summary>
+    public WaveformPeakAccumulator(int bucketCount, long expectedFrames)
+    {
+        if (bucketCount < 1)
+            throw new ArgumentOutOfRangeException(nameof(bucketCount), "Bucket count must be at least 1.");
+        if (expectedFrames < 1)
+            throw new ArgumentOutOfRangeException(nameof(expectedFrames), "Expected frame count must be at least 1.");
+        _peaks = new float[bucketCount];
+        _expectedFrames = expectedFrames;
+    }
+
+    /// <summary>True once the expected number of samples has been consumed — the caller can stop reading.</summary>
+    public bool IsFull => _frame >= _expectedFrames;
+
+    /// <summary>The per-bucket peaks in [0, 1] accumulated so far (the live array; do not mutate).</summary>
+    public float[] Peaks => _peaks;
+
+    /// <summary>Folds the next chunk of mono samples into the peaks; anything past the expected count is dropped.</summary>
+    public void Add(ReadOnlySpan<float> mono)
+    {
+        int bucketCount = _peaks.Length;
+        for (int i = 0; i < mono.Length && _frame < _expectedFrames; i++, _frame++)
+        {
+            float amp = Math.Abs(mono[i]);
+            // Same mapping as BuildPeaks: the last frame maps to the last bucket exactly.
+            int bucket = (int)(_frame * bucketCount / _expectedFrames);
+            if (bucket >= bucketCount)
+                bucket = bucketCount - 1;
+            if (amp > _peaks[bucket])
+                _peaks[bucket] = amp;
+        }
+    }
+}

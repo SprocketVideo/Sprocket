@@ -2275,7 +2275,19 @@ public partial class MainWindow : Window
     /// active monitor. The Program monitor additionally drives the Inspector's playhead.</summary>
     private void WireMonitorReadouts(IMonitor monitor, bool isProgram)
     {
-        monitor.PositionChanged += pos => Dispatcher.UIThread.Post(() =>
+        // Skip repeats of the position last routed (the engine re-raises an unchanged position on a forced/seek tick):
+        // an unchanged playhead needs no Inspector refresh, banner update or readout write. Read/written only on the
+        // raising (pump) thread; tab switches refresh the readout themselves (RefreshTransportForActive).
+        long lastTicks = long.MinValue;
+        monitor.PositionChanged += pos =>
+        {
+            if (pos.Ticks == lastTicks)
+                return;
+            lastTicks = pos.Ticks;
+            OnMonitorPosition(pos);
+        };
+
+        void OnMonitorPosition(Timecode pos) => Dispatcher.UIThread.Post(() =>
         {
             if (isProgram)
             {

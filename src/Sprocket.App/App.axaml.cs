@@ -113,8 +113,14 @@ public partial class App : Application
             if (oldWindow is MainWindow replaced)
                 replaced.ApproveClose();
             oldWindow?.Close();
-            oldProxy?.Dispose(); // stop the previous session's proxy worker before its engine tears down
-            oldStab?.Dispose();  // and its stabilization analysis worker
+            // Stop the previous session's proxy worker before its engine tears down, then its stabilization analysis
+            // worker. Each Dispose cancels and then blocks up to 5 s joining a worker that may be mid-transcode /
+            // mid-analysis, so run them on the pool — on the UI thread that wait froze the freshly shown window.
+            // Awaiting keeps the teardown order; nothing on the new session touches these old instances.
+            if (oldProxy is not null)
+                await Task.Run(oldProxy.Dispose);
+            if (oldStab is not null)
+                await Task.Run(oldStab.Dispose);
             if (oldEngine is not null)
                 await oldEngine.DisposeAsync();
         }
