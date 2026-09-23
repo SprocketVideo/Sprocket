@@ -35,8 +35,10 @@ public sealed class ExportSummaryTests
         Assert.True(t.VideoEncode > TimeSpan.Zero);
         Assert.True(t.AudioMix > TimeSpan.Zero);
         Assert.True(t.VideoRender >= TimeSpan.Zero);
-        Assert.True(t.VideoDecode + t.VideoRender + t.VideoEncode + t.AudioMix + t.AudioEncode <= t.Total,
-            "stage times are sub-intervals of the total");
+        // The pipelined export overlaps decode / render / encode (export-speed phase 2), so the stages no longer sum
+        // to at most the total — but each one-source stage is still bounded by it.
+        foreach (TimeSpan stage in new[] { t.VideoDecode, t.VideoRender, t.VideoEncode, t.AudioMix, t.AudioEncode })
+            Assert.True(stage <= t.Total, "each stage's busy time fits inside the run");
     }
 
     [Fact]

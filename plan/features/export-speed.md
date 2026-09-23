@@ -78,7 +78,9 @@ and keep the riskier behavior changes behind instrumentation.
   + `VideoEncoderName` on completion, and plumb the summary through the queue/UI. Tighten audio gating so muted
   or solo-excluded timelines skip audio work. Acceptance: the export completion path can tell the user
   "requested hardware, actual encoder = X, hardware engaged = yes/no, total/decode/render/encode/audio ms = ...".
-- [ ] **Phase 2 — Deterministic Final Export pipelining.** Replace the single loop in `VideoExporter.Export(...)`
+- [x] **Phase 2 — Deterministic Final Export pipelining.** ✅ 2026-09-23 — DONE log in
+  [plan/history/steps-58plus.md](../history/steps-58plus.md#export-speed--phase-2-unscheduled-feature-2026-09-23--done); timings in
+  [performance-log.md](../history/performance-log.md). Replace the single loop in `VideoExporter.Export(...)`
   with a bounded staged pipeline that overlaps decode, render, and encode while preserving output order and
   cancellation semantics. Start conservatively: one render worker, overlapped with prefetch/decode and encode,
   then widen only if measurements justify it. Acceptance: golden-frame parity with today's Final Export and a

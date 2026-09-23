@@ -37,3 +37,13 @@
   been measured (the 2026-06-30 run counted collections only) — step 60
   ([plan](../features/preview-allocation-churn.md)) adds a `GC.GetAllocatedBytesForCurrentThread()`
   harness first, then remediates in payoff order.
+
+- **Export speed phase 2 — pipelined Final Export (recorded 2026-09-23).** Throwaway headless harness over
+  `VideoExporter.ExportCore` (not committed), 1080p30 testsrc2 H.264 source, software decode + CPU raster render,
+  x264 encode, 24-core box → 4 render workers. *Plain* (one Brightness effect): sequential ~22 fps → pipelined
+  **40–48 fps** (~2×; now encode-bound). *Heavy* (Brightness + Glow + DirectionalBlur + ColorWheels, 5 frames):
+  sequential **299 s** (~60 s/frame — CPU-raster SkSL for these blurs is extremely slow) → pipelined **162 s**
+  (1.85×). Summed render busy time rose 299 → 490 s, i.e. per-frame render inflates ~1.6× with 4 concurrent
+  workers (memory-bandwidth contention), so raising `MaxRenderWorkers` would buy little; the earlier suspected
+  "hang" was just this per-frame cost, not a deadlock. The real fix for effect-heavy exports is the GPU render path
+  (phase 3 Fast Export). The `Psycho.json` interactive baseline from phase 1 is still to be recorded.

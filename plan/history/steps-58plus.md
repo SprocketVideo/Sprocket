@@ -487,3 +487,39 @@ pixels or scheduling; every existing `void VideoExporter.Export(...)` overload i
   solution `dotnet test` green.
 - **Pending:** the manual `Psycho.json` acceptance run + Phase-1 baseline entry in
   [performance-log.md](performance-log.md) (needs the interactive app on the GPU box).
+
+## Export speed — phase 2 (unscheduled feature, 2026-09-23) ✅ DONE
+
+Deterministic Final Export pipelining from [plan/features/export-speed.md](../features/export-speed.md). The output
+file is **byte-identical** to the sequential schedule; only when work runs changes.
+
+- **Staged pipeline** — `VideoExporter.ExportCore(..., pipelined, renderWorkers)` (internal; every public overload
+  passes `pipelined: true`). N `RenderWorker`s each own an `SkiaEffectPipeline`, their own `ExportFrameProvider`s and
+  a ring of `SurfacesPerWorker = 2` full-size raster surfaces allocated once per export (no steady-state pixel
+  allocation). Worker *w* renders frames *w, w+N, …* (round-robin, so in-order muxing is trivial); the calling thread
+  is the single encoder owner and interleaves video/audio by timeline tick exactly as before. Free/filled slot
+  handoff via per-worker blocking collections; a linked `CancellationTokenSource` stops all stages on cancel or on
+  the first fault, and the original exception surfaces (partial output still deleted). `pipelined: false` keeps the
+  pre-phase-2 one-frame-at-a-time schedule for parity tests.
+- **Worker count** — `RenderWorkerCount`: `ProcessorCount / 2` clamped to `MaxRenderWorkers = 4`, halved above
+  1440p (memory), and **exactly 1** when the project uses a CPU (frei0r) plugin effect (`UsesCpuEffect`) — those keep
+  native per-instance frame history. Built-in SkSL effects are a pure function of (project, t), so frame-parallel
+  rendering is safe for them.
+- **Decode prefetch** — `ExportFrameProvider(prefetch: true)` decodes the frame after the look-ahead on a background
+  task, overlapping the current frame's render; the `MediaSource` is still touched by one thread at a time (every
+  other operation waits for, or ahead of a seek discards, the in-flight prefetch; dispose waits it out).
+  `DecodeElapsed` (Interlocked, all threads) vs new `BlockingDecodeElapsed` (render-thread waits) — render time
+  subtracts only the blocking share.
+- **Seek fix** — `Seek()` now targets one source frame + tolerance *before* the request, so a first request landing
+  between two source frames serves the frame at/before it (what a sequential walk serves). Required for a worker
+  starting mid-stream to match one-worker output.
+- **Timings** — stage times are now per-stage busy time summed across workers and overlap, so they no longer sum to
+  ≤ Total; `ExportSummaryTests` now asserts each stage ≤ Total instead.
+- **Tests** — `ExportPipelineTests`: byte-identical sequential vs pipelined (1 and 3 workers) for effect+audio,
+  backward cut, reverse, held frames, same-source transition; mid-run cancellation throws + no partial file; a
+  mux-stage fault surfaces the original exception; provider prefetch serves the same frames as without; first
+  request between source frames serves the frame at/before. Full solution `dotnet test` green (2,559).
+- **Measured** (24-core box, 4 workers, 1080p30 CPU raster) — see
+  [performance-log.md](performance-log.md): plain scene ~22 → 40–48 fps;
+  Glow + DirectionalBlur + ColorWheels 1.85× (worker count kept as-is).
+- **Still pending from phase 1:** the manual `Psycho.json` baseline in performance-log.md.
