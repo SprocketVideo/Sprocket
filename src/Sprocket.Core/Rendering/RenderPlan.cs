@@ -37,9 +37,12 @@ public sealed record ResolvedEffect(
     Timecode? SourceIn = null,
     Timecode? SourceOut = null)
 {
-    /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set.</summary>
+    /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set <em>or not finite</em>.</summary>
+    /// <remarks>A NaN or ±Infinity — from a hand-edited project file or keyframe math overflowing — reads as unset, so
+    /// every effect gets its own fallback instead of a value its <see cref="Math.Clamp(double, double, double)"/> lets
+    /// through (Clamp passes NaN unchanged) to poison a shader uniform or a DSP filter's state.</remarks>
     public double Get(string name, double fallback = 0) =>
-        Parameters.TryGetValue(name, out double value) ? value : fallback;
+        Parameters.TryGetValue(name, out double value) && double.IsFinite(value) ? value : fallback;
 
     /// <summary>Gets an asset reference (<see cref="Model.EffectInstance.Assets"/>, PLAN.md step 49) — e.g. the
     /// Convolution Reverb's impulse-response path — or <paramref name="fallback"/> if none is set.</summary>
@@ -70,9 +73,10 @@ public sealed record ResolvedGenerator(
     double Progress = 0.0,
     double LocalSeconds = 0.0)
 {
-    /// <summary>Gets a numeric parameter, or <paramref name="fallback"/> if it is not set.</summary>
+    /// <summary>Gets a numeric parameter, or <paramref name="fallback"/> if it is not set or not finite (see
+    /// <see cref="ResolvedEffect.Get"/>).</summary>
     public double Get(string name, double fallback = 0) =>
-        Parameters.TryGetValue(name, out double value) ? value : fallback;
+        Parameters.TryGetValue(name, out double value) && double.IsFinite(value) ? value : fallback;
 
     /// <summary>Gets a string parameter, or <paramref name="fallback"/> if it is not set.</summary>
     public string GetString(string name, string fallback = "") =>
@@ -157,9 +161,10 @@ public sealed record ResolvedTransition(
     VideoLayer From,
     VideoLayer To)
 {
-    /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set.</summary>
+    /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set or not finite (see
+    /// <see cref="ResolvedEffect.Get"/>).</summary>
     public double Get(string name, double fallback = 0) =>
-        Parameters.TryGetValue(name, out double value) ? value : fallback;
+        Parameters.TryGetValue(name, out double value) && double.IsFinite(value) ? value : fallback;
 }
 
 /// <summary>

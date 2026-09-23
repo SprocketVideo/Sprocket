@@ -323,6 +323,43 @@ public class AudioPlanTests
         Assert.Equal(0.5, layer.GainEndLinear, 6);
     }
 
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Non_Finite_Fade_Opacity_Leaves_The_Audio_Gain_Unchanged(double opacity)
+    {
+        // A hand-edited project file can carry a non-finite value; it must not turn the clip's gain into NaN.
+        Project project = ProjectWithAudio(0, out _, out Clip clip);
+        clip.Effects.Add(new EffectInstance(EffectTypeIds.Fade).Set(EffectParamNames.Opacity, opacity));
+
+        AudioLayer layer = Assert.Single(RenderGraph.PlanAudioBuffer(project, Timecode.Zero, Timecode.FromSeconds(0.1)).Layers);
+        Assert.Equal(1.0, layer.GainStartLinear, 6);
+        Assert.Equal(1.0, layer.GainEndLinear, 6);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Resolved_Parameter_Get_Treats_Non_Finite_Values_As_Unset(double bad)
+    {
+        // Every effect reads its parameters through Get, and Math.Clamp passes NaN straight through — so the one
+        // accessor falling back is what keeps a malformed value out of every shader uniform and DSP filter.
+        var values = new Dictionary<string, double> { ["bad"] = bad, ["good"] = 0.25 };
+        var effect = new ResolvedEffect(EffectTypeIds.Brightness, values);
+        var generator = new ResolvedGenerator(GeneratorTypeIds.Title, new Dictionary<string, string>(), values);
+        VideoLayer layer = new(MediaRefId.New(), Timecode.Zero, [], 1.0, BlendMode.Normal);
+        var transition = new ResolvedTransition(TransitionTypeIds.CrossDissolve, 0.5, values, layer, layer);
+
+        Assert.Equal(0.7, effect.Get("bad", 0.7));
+        Assert.Equal(0.7, generator.Get("bad", 0.7));
+        Assert.Equal(0.7, transition.Get("bad", 0.7));
+        Assert.Equal(0.25, effect.Get("good", 0.7));
+        Assert.Equal(0.25, generator.Get("good", 0.7));
+        Assert.Equal(0.25, transition.Get("good", 0.7));
+    }
+
     [Fact]
     public void Master_Gain_Is_Carried_Through()
     {

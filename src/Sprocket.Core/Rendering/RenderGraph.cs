@@ -666,7 +666,10 @@ public static class RenderGraph
             if (effect.Enabled && effect.EffectTypeId == EffectTypeIds.Fade &&
                 effect.Parameters.TryGetValue(EffectParamNames.Opacity, out AnimatableValue? opacity))
             {
-                gain *= opacity.Evaluate(t);
+                // A non-finite opacity (hand-edited file) would make the clip's audio gain NaN; treat it as unset.
+                double value = opacity.Evaluate(t);
+                if (double.IsFinite(value))
+                    gain *= value;
             }
         }
         return gain;
