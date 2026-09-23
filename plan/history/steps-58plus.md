@@ -485,8 +485,8 @@ pixels or scheduling; every existing `void VideoExporter.Export(...)` overload i
   lands with `Succeeded`; failed / cancelled / skipped jobs null) with fakes via `TestSummaries.Runner`; App
   `ExportSummaryTextTests` (hardware, fallback, software, audio-only, zero-elapsed, elapsed formatting). Full
   solution `dotnet test` green.
-- **Pending:** the manual `Psycho.json` acceptance run + Phase-1 baseline entry in
-  [performance-log.md](performance-log.md) (needs the interactive app on the GPU box).
+- **Manual acceptance (2026-09-23):** `Psycho.json` export names `h264_nvenc (hardware)`, muted A1 → audio 0 ms;
+  baseline recorded in [performance-log.md](performance-log.md).
 
 ## Export speed — phase 2 (unscheduled feature, 2026-09-23) ✅ DONE
 
@@ -522,4 +522,5 @@ file is **byte-identical** to the sequential schedule; only when work runs chang
 - **Measured** (24-core box, 4 workers, 1080p30 CPU raster) — see
   [performance-log.md](performance-log.md): plain scene ~22 → 40–48 fps;
   Glow + DirectionalBlur + ColorWheels 1.85× (worker count kept as-is).
-- **Still pending from phase 1:** the manual `Psycho.json` baseline in performance-log.md.
+- **`Psycho.json` (interactive, NVENC):** 56.8 s → 15.3 s (14.4 → 53.4 fps, 3.7×). The Export Complete
+  `ConfirmDialog` was a fixed 400×170 and clipped the diagnostics lines; it now sizes to content (`3355fc6`).

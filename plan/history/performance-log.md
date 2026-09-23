@@ -46,4 +46,20 @@
   (1.85×). Summed render busy time rose 299 → 490 s, i.e. per-frame render inflates ~1.6× with 4 concurrent
   workers (memory-bandwidth contention), so raising `MaxRenderWorkers` would buy little; the earlier suspected
   "hang" was just this per-frame cost, not a deadlock. The real fix for effect-heavy exports is the GPU render path
-  (phase 3 Fast Export). The `Psycho.json` interactive baseline from phase 1 is still to be recorded.
+  (phase 3 Fast Export).
+
+- **Export speed phases 1 → 2 on `Psycho.json` (recorded 2026-09-23).** Manual acceptance in the interactive app
+  (Release, same machine/range), H.264 with *Hardware (if available)*, ~819 frames, A1 muted. Stage times are busy
+  time summed across workers, so after phase 2 they can exceed the total.
+
+  | Build | Encoder | Total | Avg fps | Decode | Render | Encode | Audio |
+  |---|---|---|---|---|---|---|---|
+  | Phase 1 (`98a9a12`, sequential) | h264_nvenc (hw) | 56,825 ms | 14.4 | 972 ms | 51,319 ms | 4,304 ms | 0 ms |
+  | Phase 2 (`ab1eafc`, 4 workers) | h264_nvenc (hw) | 15,333 ms | 53.4 | 4,293 ms | 56,111 ms | 5,047 ms | 0 ms |
+
+  **3.7× wall-clock** — the project is render-bound, and summed render busy time rose only ~9% (51.3 → 56.1 s),
+  i.e. ~3.7 of 4 workers busy on average with little contention (unlike the CPU-blur synthetic, ~1.6×). Summed
+  decode rose ~4.4× (0.97 → 4.3 s) because round-robin makes each worker decode every source frame to reach its
+  own; it overlaps render via prefetch so it isn't on the critical path here, but it would matter on a
+  decode-heavy (4K / long-GOP) project — a candidate for later tuning (e.g. contiguous chunks per worker).
+  Hardware engagement and the muted-A1 audio skip (audio 0 ms) confirmed; phase-1 manual acceptance closed.

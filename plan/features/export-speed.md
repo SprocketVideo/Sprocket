@@ -72,8 +72,8 @@ and keep the riskier behavior changes behind instrumentation.
 | 5 | Per-effect cost attribution + docs / FEATURES / README close-out | 1–4 | 0.5–1 |
 
 - [x] **Phase 1 — Observability and cheap wins.** ✅ 2026-09-22 — DONE log in
-  [plan/history/steps-58plus.md](../history/steps-58plus.md#export-speed--phase-1-unscheduled-feature-2026-09-22--done); the manual `Psycho.json`
-  baseline for performance-log.md is still to be recorded. Add an `ExportDiagnostics` / `ExportRunSummary` shape in
+  [plan/history/steps-58plus.md](../history/steps-58plus.md#export-speed--phase-1-unscheduled-feature-2026-09-22--done); `Psycho.json` manual
+  acceptance + baseline recorded 2026-09-23 in [performance-log.md](../history/performance-log.md). Add an `ExportDiagnostics` / `ExportRunSummary` shape in
   `Sprocket.Export`, timestamp the current stages in `VideoExporter`, surface `MediaEncoder.IsHardwareVideo`
   + `VideoEncoderName` on completion, and plumb the summary through the queue/UI. Tighten audio gating so muted
   or solo-excluded timelines skip audio work. Acceptance: the export completion path can tell the user
