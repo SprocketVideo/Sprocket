@@ -3,6 +3,9 @@
 🟡 **Phases 1–4 shipped 2026-09-22; phases 5–6 open.** Unscheduled feature; tracked in
 [PLAN.md](../../PLAN.md) Open work. Relative links resolve from the repo root.
 
+**Next up (paused 2026-09-23):** the to-do sub-items under *Special effects roadmap* in PLAN.md Open work —
+manual QA of the Day for Night drag-and-drop and Sky control, then drafting the Phase 5 plan.
+
 **Scope in one line:** add a practical special-effects roadmap centered on three editorially useful
 families rather than physics simulation: **action composites** (fire, explosions, muzzle flashes,
 shockwaves), **atmospherics** (smoke, embers, dust, heat haze), and a guided **day-for-night**

@@ -187,6 +187,18 @@ verification-only items carry their checklist in the step's history entry.
   Phases 5–6 open: tracking + masking integration, docs & samples; Light
   Wrap and Lens Dirt are deferred pending a compositing-context seam and an image-asset pipeline →
   [plan/features/special-effects.md](plan/features/special-effects.md)
+  - [ ] **Manual QA: Day for Night drag-and-drop** (added 2026-09-23, untested — no drag tests exist): run the
+    app, drag each DAY FOR NIGHT look row onto a timeline clip and confirm the effect lands with that look
+    applied (same result as double-click), and that dropping on empty track space does nothing.
+  - [ ] **Manual QA: Day for Night Sky control on real footage** — only judged so far against the bundled
+    sample (no sky). Needs a daytime exterior with visible sky; check the sky darkens without dragging
+    blue/near-white objects at the top of frame too far with it, and tune the looks if needed.
+  - [ ] **Draft the Phase 5 plan** (tracking + masking) as its own `plan/features/` file(s), compared
+    against Resolve / Premiere / After Effects. Masks don't exist yet; stabilization's `MotionTrack` is
+    global camera motion only. Likely order: shape masks (keyframed) → point/planar tracking on the
+    stabilization analyzer → attach effects/generators/action VFX to a track → sky/subject isolation
+    for Day for Night.
+  - [ ] **Phase 6** (docs, samples, stock-free demo stack) — after Phase 5.
 - [x] **Convolution reverb (Acoustic Space)** — step 49, shipped 2026-08-26 (user WAV IR import; bundled
   IR library deliberately deferred on licensing) → [history](plan/history/steps-41-57.md#step-49)
 - [x] **Variable / ramped speed & reverse retime** — step 21 remainder, shipped 2026-08-27 (reverse
