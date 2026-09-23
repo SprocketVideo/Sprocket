@@ -1029,6 +1029,7 @@ internal static class ExportSettingsDialog
                 maxRateBox.Text = p.MaxBitRate > 0 ? (p.MaxBitRate / 1_000_000.0).ToString("0.##") : "";
                 resolutionBox.SelectedIndex = Math.Max(0, IndexOfResolution(p.Resolution));
                 fpsBox.SelectedIndex = Math.Max(0, IndexOfFrameRate(p.FrameRate));
+                encodingBox.SelectedIndex = p.Acceleration == ExportAcceleration.Hardware ? 1 : 0;
             }
             applyingPreset = false;
             UpdateAudioOnlyMode();
@@ -1054,6 +1055,7 @@ internal static class ExportSettingsDialog
         maxRateBox.TextChanged += SnapToCustom;
         resolutionBox.SelectionChanged += SnapToCustom;
         fpsBox.SelectionChanged += SnapToCustom;
+        encodingBox.SelectionChanged += SnapToCustom;
         rateControlBox.SelectionChanged += (_, _) => UpdateRateControlMode();
         crfSlider.ValueChanged += (_, _) => UpdateCrfText();
         videoBox.SelectionChanged += (_, _) => UpdateCrfSliderScale();
@@ -1314,7 +1316,8 @@ internal static class ExportSettingsDialog
                     RateControl: rateMode,
                     Crf: crf,
                     VideoBitRate: bitRate,
-                    MaxBitRate: maxRate);
+                    MaxBitRate: maxRate,
+                    Acceleration: encodingBox.SelectedIndex == 1 ? ExportAcceleration.Hardware : ExportAcceleration.Software);
 
             var user = UserExportPresets.Load()
                 .Where(p => !string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))

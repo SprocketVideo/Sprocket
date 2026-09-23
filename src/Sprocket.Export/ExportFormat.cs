@@ -135,6 +135,8 @@ public readonly record struct ExportFormat(
 /// <param name="VideoBitRate">The target video bit rate in bits/s, or <c>0</c> for the resolution-scaled default
 /// (bitrate mode only).</param>
 /// <param name="MaxBitRate">An optional VBR ceiling in bits/s, or <c>0</c> for none (bitrate mode only).</param>
+/// <param name="Acceleration">Software or hardware (if available) video encoding. Software — the deterministic
+/// delivery default — for the built-ins; a user preset records the dialog's Encoding choice.</param>
 public readonly record struct ExportPreset(
     string Name,
     ExportFormat Format,
@@ -145,20 +147,22 @@ public readonly record struct ExportPreset(
     ExportRateControl RateControl = ExportRateControl.Quality,
     int Crf = 0,
     long VideoBitRate = 0,
-    long MaxBitRate = 0)
+    long MaxBitRate = 0,
+    ExportAcceleration Acceleration = ExportAcceleration.Software)
 {
     /// <summary>Whether this is an audio-only delivery preset (PLAN.md step 44).</summary>
     public bool IsAudioOnly => AudioFormat is not null;
 
     /// <summary>The <see cref="ExportOptions"/> this preset applies: for a normal preset, its format, rate control
-    /// (quality tier / CRF or target bit rate), and any resolution / frame-rate override; for an audio-only preset
+    /// (quality tier / CRF or target bit rate), encoding acceleration, and any resolution / frame-rate override; for an audio-only preset
     /// (PLAN.md step 44), just the audio format. Burn-ins and handles are per-export review options, not part of a
     /// delivery preset.</summary>
     public ExportOptions ToOptions() => AudioFormat is { } af
         ? new ExportOptions(AudioFormat: af)
         : new ExportOptions(
             Format: Format, Quality: Quality, Resolution: Resolution, FrameRate: FrameRate,
-            RateControl: RateControl, Crf: Crf, VideoBitRate: VideoBitRate, MaxBitRate: MaxBitRate);
+            RateControl: RateControl, Crf: Crf, VideoBitRate: VideoBitRate, MaxBitRate: MaxBitRate,
+            Acceleration: Acceleration);
 }
 
 /// <summary>

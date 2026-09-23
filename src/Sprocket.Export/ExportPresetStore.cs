@@ -40,7 +40,8 @@ public static class ExportPresetStore
         ExportRateControl? RateControl = null,     // rate control (additive): null / omitted = quality mode with the
         int? Crf = null,                           //   tier-derived CRF — exactly the pre-rate-control behaviour, so
         long? VideoBitRate = null,                 //   older preset files keep working unchanged
-        long? MaxBitRate = null);
+        long? MaxBitRate = null,
+        ExportAcceleration? Acceleration = null);  // additive: null / omitted = Software (the pre-existing behaviour)
 
     /// <summary>Serialises the presets to the persisted JSON form (exposed for testing).</summary>
     public static string Serialize(IReadOnlyList<ExportPreset> presets) =>
@@ -108,7 +109,8 @@ public static class ExportPresetStore
         p.RateControl == ExportRateControl.Quality ? null : p.RateControl,
         p.Crf > 0 ? p.Crf : null,
         p.VideoBitRate > 0 ? p.VideoBitRate : null,
-        p.MaxBitRate > 0 ? p.MaxBitRate : null);
+        p.MaxBitRate > 0 ? p.MaxBitRate : null,
+        p.Acceleration == ExportAcceleration.Software ? null : p.Acceleration);
 
     private static ExportPreset FromDto(PresetDto d) => new(
         d.Name,
@@ -120,5 +122,6 @@ public static class ExportPresetStore
         d.RateControl ?? ExportRateControl.Quality,
         d.Crf ?? 0,
         d.VideoBitRate ?? 0,
-        d.MaxBitRate ?? 0);
+        d.MaxBitRate ?? 0,
+        d.Acceleration ?? ExportAcceleration.Software);
 }

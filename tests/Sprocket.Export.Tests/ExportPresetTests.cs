@@ -59,6 +59,31 @@ public sealed class ExportPresetTests
     }
 
     [Fact]
+    public void Acceleration_RoundTripsThroughJson_AndReachesTheOptions()
+    {
+        ExportPreset hardware = FormatOnly with { Name = "Fast NVENC", Acceleration = ExportAcceleration.Hardware };
+
+        string json = ExportPresetStore.Serialize([FormatOnly, hardware]);
+        IReadOnlyList<ExportPreset> restored = ExportPresetStore.Deserialize(json);
+
+        Assert.Equal(ExportAcceleration.Software, restored[0].Acceleration);
+        Assert.Equal(ExportAcceleration.Hardware, restored[1].Acceleration);
+        Assert.Equal(ExportAcceleration.Hardware, restored[1].ToOptions().Acceleration);
+        // Software is the default and stays out of the file, so a pre-existing preset's JSON is unchanged.
+        Assert.Equal(1, json.Split("\"Acceleration\"").Length - 1);
+    }
+
+    [Fact]
+    public void Store_Deserialize_DefaultsAccelerationToSoftware_ForAnOlderFile()
+    {
+        string json = """
+        [ { "Name": "Old", "Container": "Mp4", "VideoCodec": "H264", "AudioCodec": "Aac", "Quality": "High" } ]
+        """;
+
+        Assert.Equal(ExportAcceleration.Software, ExportPresetStore.Deserialize(json)[0].Acceleration);
+    }
+
+    [Fact]
     public void Store_SerializesEnumsByName_ForAStableHumanEditableFile()
     {
         string json = ExportPresetStore.Serialize([WithResAndRate]);
