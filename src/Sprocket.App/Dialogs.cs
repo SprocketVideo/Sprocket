@@ -286,7 +286,9 @@ internal static class ConfirmDialog
             Title = title,
             Icon = AppIcon.Window,
             Width = 400,
-            Height = 170,
+            MinHeight = 170,
+            // Grow to fit a longer message (e.g. the Export Complete diagnostics block) instead of clipping it.
+            SizeToContent = SizeToContent.Height,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Palette.WindowBgBrush,
