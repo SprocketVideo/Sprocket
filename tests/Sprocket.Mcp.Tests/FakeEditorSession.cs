@@ -47,6 +47,7 @@ internal sealed class FakeEditorSession : IEditorSession, IEditorApi
     public double? ExportBitrateMbps { get; private set; }
     public double? ExportMaxBitrateMbps { get; private set; }
     public bool ExportHardware { get; private set; }
+    public bool ExportFast { get; private set; }
 
     private int _savedUndoCount;
 
@@ -154,7 +155,7 @@ internal sealed class FakeEditorSession : IEditorSession, IEditorApi
     public McpResult<bool> StartExport(
         string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks,
         string? rateControl = null, int? crf = null, double? bitrateMbps = null, double? maxBitrateMbps = null,
-        bool hardware = false)
+        bool hardware = false, bool fast = false)
     {
         if (DurationTicks <= 0)
             return McpResult<bool>.Fail("the timeline is empty — nothing to export.");
@@ -167,6 +168,7 @@ internal sealed class FakeEditorSession : IEditorSession, IEditorApi
         ExportBitrateMbps = bitrateMbps;
         ExportMaxBitrateMbps = maxBitrateMbps;
         ExportHardware = hardware;
+        ExportFast = fast;
         // The fake completes instantly — the real App runs VideoExporter on a background thread.
         ExportStatus = new McpExportStatus(false, 1.0, outputPath, true, false, null);
         return McpResult<bool>.Success(true);

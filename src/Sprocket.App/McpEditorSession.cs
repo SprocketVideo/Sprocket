@@ -133,8 +133,8 @@ internal sealed class McpEditorSession(
     public McpResult<bool> StartExport(
         string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks,
         string? rateControl = null, int? crf = null, double? bitrateMbps = null, double? maxBitrateMbps = null,
-        bool hardware = false) =>
-        window.McpStartExport(outputPath, videoOnly, rangeInTicks, rangeOutTicks, rateControl, crf, bitrateMbps, maxBitrateMbps, hardware) is { } error
+        bool hardware = false, bool fast = false) =>
+        window.McpStartExport(outputPath, videoOnly, rangeInTicks, rangeOutTicks, rateControl, crf, bitrateMbps, maxBitrateMbps, hardware, fast) is { } error
             ? McpResult<bool>.Fail(error)
             : McpResult<bool>.Success(true);
 

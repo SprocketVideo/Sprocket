@@ -103,7 +103,8 @@ public sealed unsafe class MediaSource : IDisposable
     /// Opens a fresh <see cref="MediaSource"/> over the same media this one was opened from, forced to software
     /// decode (<see cref="HardwareAccelMode.Disabled"/>). This is the runtime fallback for a hardware decoder that
     /// opened cleanly but then failed <em>during</em> decode (ARCHITECTURE.md §11): the caller swaps the returned
-    /// source in, re-seeks it, and resumes — this instance is left untouched (the caller disposes it).
+    /// source in, re-seeks it, and resumes — this instance is left untouched (the caller disposes it). Also used by the
+    /// export's GPU-decode path (export-speed phase 3, via InternalsVisibleTo), which applies the same one-shot fallback.
     /// </summary>
     internal MediaSource ReopenInSoftware() => Open(_request, HardwareAccelMode.Disabled);
 

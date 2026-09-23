@@ -794,6 +794,11 @@ public class SprocketToolsExtendedTests
         Assert.Equal(8, session.ExportBitrateMbps);
         Assert.Equal(12, session.ExportMaxBitrateMbps);
         Assert.True(session.ExportHardware);
+        Assert.False(session.ExportFast);
+
+        // Fast Export (export-speed phase 3) passes through as its own flag.
+        await tools.ExportVideo(@"C:\out\draft.mp4", fast: true);
+        Assert.True(session.ExportFast);
 
         // Validation: unknown mode, out-of-range CRF, mode/parameter mismatches, an inverted ceiling.
         await Assert.ThrowsAsync<McpException>(() => tools.ExportVideo(@"C:\out\x.mp4", rateControl: "vbr2pass"));

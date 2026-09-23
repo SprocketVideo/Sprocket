@@ -14,8 +14,9 @@ namespace Sprocket.Export;
 /// so a reverse clip exports at roughly one decode pass per GOP rather than one per frame.
 /// </summary>
 /// <remarks>
-/// <para>Decode runs in software (<see cref="HardwareAccelMode.Disabled"/>) for bit-deterministic output, which is
-/// what makes golden-frame export testing meaningful. Not thread-safe: one provider per source, driven by the
+/// <para>Decode normally runs in software (<see cref="HardwareAccelMode.Disabled"/>) for bit-deterministic output,
+/// which is what makes golden-frame export testing meaningful; only Fast Export's GPU-decode opt-in opens a GPU
+/// decoder (see below). Not thread-safe: one provider per source, driven by the
 /// single export render thread. The returned frame is owned by this provider and stays valid only until the next
 /// <see cref="GetFrame"/> call (the caller composites it immediately), so callers must not hold it.</para>
 /// <para><b>Decode prefetch</b> (export-speed phase 2, opt-in): after a forward request, the frame <em>after</em>
@@ -24,6 +25,11 @@ namespace Sprocket.Export;
 /// frame sequence in the identical order; only <em>when</em> it runs changes, so the output is unchanged. The
 /// <see cref="MediaSource"/> is only ever touched by one thread at a time: every other operation first waits for
 /// (or, ahead of a seek, discards) the in-flight prefetch.</para>
+/// <para><b>GPU decode</b> (Fast Export, export-speed phase 3): a source opened with hardware decode that then fails
+/// <em>during</em> a seek / decode / GOP refill is reopened once in software and the operation retried, resuming after
+/// the last frame it produced — the same one-shot fallback the preview decode rings apply (ARCHITECTURE.md §11).
+/// <see cref="FellBackToSoftware"/> records it for the export summary. A software source's faults propagate as
+/// before.</para>
 /// </remarks>
 internal sealed class ExportFrameProvider : IDisposable
 {
@@ -31,7 +37,7 @@ internal sealed class ExportFrameProvider : IDisposable
     // sub-tick rounding between the timeline clock and the source PTS never skips the correct frame.
     private static readonly long MatchToleranceTicks = Timecode.TicksPerSecond / 1000; // 1 ms
 
-    private readonly MediaSource _source;
+    private MediaSource _source;    // swapped once for a software reopen if a GPU decoder fails mid-export
     private readonly VideoFramePool _pool;
     private readonly bool _isStill;   // a single-frame still: hold the one frame for every requested time (step 42)
     private readonly bool _prefetch;  // decode the next forward frame in the background (export-speed phase 2)
@@ -49,6 +55,15 @@ internal sealed class ExportFrameProvider : IDisposable
     private bool _inReverse;
 
     private bool _disposed;
+
+    // GPU decode facts (export-speed phase 3), captured at open so they stay readable after dispose.
+    private readonly string? _hardwareDevice;
+    private bool _fellBackToSoftware; // the one-shot mid-export software reopen happened
+
+    // Where the forward walk stands, so a software reopen resumes exactly there: the last seek target, and the last
+    // frame decoded since it (null right after a seek). The source's own LastDecodedPts can predate the latest seek.
+    private Timecode _walkSeekTarget;
+    private Timecode? _walkLastPts;
 
     // Decode-time accounting (export-speed phase 1): Stopwatch ticks spent in seek / decode / GOP refill only, so a
     // look-ahead or window cache hit costs nothing. Two timestamps per decode operation — no allocation. The totals
@@ -69,7 +84,32 @@ internal sealed class ExportFrameProvider : IDisposable
         _isStill = isStill;
         _prefetch = prefetch && !isStill; // a still decodes once — nothing to prefetch
         _pool = new VideoFramePool(source.Info.Width, source.Info.Height);
+        _hardwareDevice = source.HardwareDeviceName;
     }
+
+    /// <summary>The GPU device the source opened on (e.g. <c>d3d11va</c>), or <see langword="null"/> when it opened in
+    /// software. Unchanged by a later fallback — see <see cref="FellBackToSoftware"/>.</summary>
+    internal string? HardwareDevice => _hardwareDevice;
+
+    /// <summary>Whether the source is a single still image (held as one frame).</summary>
+    internal bool IsStill => _isStill;
+
+    /// <summary>Whether the source opened on a GPU decoder, failed mid-export, and was reopened in software.</summary>
+    internal bool FellBackToSoftware => _fellBackToSoftware;
+
+    /// <summary>Whether the source decoded on the GPU for the whole export so far.</summary>
+    internal bool DecodedOnHardware => _hardwareDevice is not null && !_fellBackToSoftware;
+
+    /// <summary>Test seam: runs before every seek / decode / GOP refill on the current source; throwing simulates a
+    /// GPU decode fault. Set <see cref="AssumeHardwareForTests"/> too so the fault is treated as a hardware one.</summary>
+    internal Action? DecodeFaultForTests { get; set; }
+
+    /// <summary>Test seam: treat the (software) source as GPU-decoding (CI has no GPU), so an injected fault exercises
+    /// the software fallback.</summary>
+    internal bool AssumeHardwareForTests { get; set; }
+
+    private bool IsHardwareDecoding =>
+        !_fellBackToSoftware && (AssumeHardwareForTests || _source.DecodeInfo.IsHardwareAccelerated);
 
     /// <summary>Total time spent seeking / decoding the source so far (cache hits excluded), on any thread —
     /// including background prefetch that overlapped rendering.</summary>
@@ -222,25 +262,109 @@ internal sealed class ExportFrameProvider : IDisposable
         // export's render workers each start mid-stream and still match the one-worker output (export-speed phase 2).
         Rational fps = _source.Info.FrameRate;
         long lead = fps.Num > 0 && fps.Den > 0 ? Timecode.FromFrames(1, fps).Ticks + MatchToleranceTicks : 0;
+        Timecode target = Timecode.FromTicks(Math.Max(0, sourceTime.Ticks - lead));
         long start = Stopwatch.GetTimestamp();
-        _source.SeekTo(Timecode.FromTicks(Math.Max(0, sourceTime.Ticks - lead)));
+        try
+        {
+            DecodeFaultForTests?.Invoke();
+            _source.SeekTo(target);
+        }
+        catch when (IsHardwareDecoding)
+        {
+            if (!TryReopenInSoftware())
+                throw;
+            _source.SeekTo(target); // a fresh decoder: redo the seek from scratch
+        }
+        _walkSeekTarget = target;
+        _walkLastPts = null;
         EndDecode(start, blocking: true);
     }
 
     private bool TryDecodeNext(bool blocking, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out VideoFrame? frame)
     {
         long start = Stopwatch.GetTimestamp();
-        bool decoded = _source.TryDecodeNextFrame(_pool, out frame);
+        bool decoded;
+        try
+        {
+            DecodeFaultForTests?.Invoke();
+            decoded = _source.TryDecodeNextFrame(_pool, out frame);
+        }
+        catch when (IsHardwareDecoding)
+        {
+            if (!TryReopenInSoftware())
+                throw;
+            decoded = ResumeWalk(out frame);
+        }
+        if (decoded)
+            _walkLastPts = frame!.Pts;
         EndDecode(start, blocking);
         return decoded;
+    }
+
+    /// <summary>After a software reopen mid-walk: seek back to where the walk stands and decode forward — past the
+    /// last frame already produced (dropping it and anything before it), or from the last seek target when nothing
+    /// has been decoded since — so the walk continues with the next frame, no repeat and no gap.</summary>
+    private bool ResumeWalk([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out VideoFrame? frame)
+    {
+        _source.SeekTo(_walkLastPts ?? _walkSeekTarget);
+        while (_source.TryDecodeNextFrame(_pool, out frame))
+        {
+            if (_walkLastPts is not { } last || frame.Pts.Ticks > last.Ticks + MatchToleranceTicks)
+                return true;
+            frame.Dispose(); // already produced before the failure
+        }
+        return false;
     }
 
     private int FillWindowBelow(Timecode exclusiveEnd)
     {
         long start = Stopwatch.GetTimestamp();
-        int held = _window!.FillBelow(exclusiveEnd);
+        int held;
+        try
+        {
+            DecodeFaultForTests?.Invoke();
+            held = _window!.FillBelow(exclusiveEnd);
+        }
+        catch when (IsHardwareDecoding)
+        {
+            if (!TryReopenInSoftware())
+                throw;
+            // The reopen dropped the window over the failed source: rebuild it over the software one and refill
+            // (each fill re-seeks).
+            _window = new GopFrameWindow(_source, _pool);
+            held = _window.FillBelow(exclusiveEnd);
+        }
         EndDecode(start, blocking: true);
         return held;
+    }
+
+    /// <summary>
+    /// One-shot runtime fallback for a GPU decoder that failed during the export: reopen the same media in software
+    /// and swap it in, disposing the failed source. Returns <see langword="false"/> — leaving the original fault to
+    /// propagate — when the software reopen itself fails. Runs on whichever thread holds the source (the render
+    /// thread, or the prefetch task every other operation waits out), so the swap is never raced.
+    /// </summary>
+    private bool TryReopenInSoftware()
+    {
+        MediaSource software;
+        try
+        {
+            software = _source.ReopenInSoftware();
+        }
+        catch
+        {
+            return false;
+        }
+        _source.Dispose();
+        _source = software;
+        // Any GOP window reads the failed source: drop it so the next reverse request rebuilds it over the software
+        // one. Safe to free its frames — a fallback mid-refill discards them anyway, and in forward mode the window
+        // was already cleared on leaving reverse, so no frame it holds is still being served.
+        _window?.Dispose();
+        _window = null;
+        _fellBackToSoftware = true;
+        DecodeFaultForTests = null; // an injected fault targets the GPU decoder, which is gone
+        return true;
     }
 
     private void EndDecode(long startTimestamp, bool blocking)

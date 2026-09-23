@@ -871,10 +871,37 @@ internal static class ExportSettingsDialog
         rateControlBox.SelectedIndex = 0;
         // Encoding: software (deterministic, best compatibility — the default) or hardware (GPU encoder with
         // automatic software fallback, PLAN.md step 29; it honours the same rate control via each vendor's own
-        // quality knob). Kept out of presets: it is a performance choice, not part of the delivery format, so it
-        // neither snaps the preset to Custom nor is captured by Save Preset.
-        ComboBox encodingBox = MakeCombo(["Software", "Hardware (if available)"]);
+        // quality knob). It swaps only the encoder — the label says so, so it never implies the whole export runs on
+        // the GPU (that is Fast Export's job). Presets capture it.
+        ComboBox encodingBox = MakeCombo(["Software", "Hardware encoder (if available)"]);
         encodingBox.SelectedIndex = 0;
+        // Mode (export-speed phase 3): Final Export — the deterministic reference render — or Fast Export, which
+        // always probes the GPU encoders and falls back to a speed-first software preset (the reference-vs-draft split
+        // of leading editors). Fast locks Encoding to hardware, restoring the user's choice when switched back.
+        // Presets capture it.
+        ComboBox modeBox = MakeCombo(["Final Export", "Fast Export"]);
+        modeBox.SelectedIndex = 0;
+        var modeText = new TextBlock { Foreground = Palette.MutedTextBrush, FontSize = Typography.Body, TextWrapping = TextWrapping.Wrap };
+        int encodingBeforeFast = 0;
+        void UpdateModeText() => modeText.Text = modeBox.SelectedIndex == 1
+            ? "Encodes on the GPU when available, otherwise with a faster software preset. Files can be a little larger and differ between machines — not for final delivery."
+            : "Reference quality: reproducible output, for final delivery.";
+        modeBox.SelectionChanged += (_, _) =>
+        {
+            bool fast = modeBox.SelectedIndex == 1;
+            if (fast && encodingBox.IsEnabled)
+            {
+                encodingBeforeFast = encodingBox.SelectedIndex;
+                encodingBox.SelectedIndex = 1;
+            }
+            else if (!fast && !encodingBox.IsEnabled)
+            {
+                encodingBox.SelectedIndex = encodingBeforeFast;
+            }
+            encodingBox.IsEnabled = !fast;
+            UpdateModeText();
+        };
+        UpdateModeText();
         ComboBox resolutionBox = MakeCombo(Resolutions.Select(r => r.Label));
         resolutionBox.SelectedIndex = 0;
         ComboBox fpsBox = MakeCombo(FrameRates.Select(f => f.Label));
@@ -1038,7 +1065,9 @@ internal static class ExportSettingsDialog
                 maxRateBox.Text = p.MaxBitRate > 0 ? (p.MaxBitRate / 1_000_000.0).ToString("0.##") : "";
                 resolutionBox.SelectedIndex = Math.Max(0, IndexOfResolution(p.Resolution));
                 fpsBox.SelectedIndex = Math.Max(0, IndexOfFrameRate(p.FrameRate));
+                modeBox.SelectedIndex = 0; // unlock Encoding before applying the preset's choice
                 encodingBox.SelectedIndex = p.Acceleration == ExportAcceleration.Hardware ? 1 : 0;
+                modeBox.SelectedIndex = p.Mode == ExportMode.Fast ? 1 : 0;
             }
             applyingPreset = false;
             UpdateAudioOnlyMode();
@@ -1065,6 +1094,7 @@ internal static class ExportSettingsDialog
         resolutionBox.SelectionChanged += SnapToCustom;
         fpsBox.SelectionChanged += SnapToCustom;
         encodingBox.SelectionChanged += SnapToCustom;
+        modeBox.SelectionChanged += SnapToCustom;
         rateControlBox.SelectionChanged += (_, _) => UpdateRateControlMode();
         crfSlider.ValueChanged += (_, _) => UpdateCrfText();
         videoBox.SelectionChanged += (_, _) => UpdateCrfSliderScale();
@@ -1144,6 +1174,7 @@ internal static class ExportSettingsDialog
 
         // Video-side rows, captured so audio-only mode (PLAN.md step 44) can hide them (the master mix has no video
         // codec, resolution, frame rate, burn-ins, or color-transform choice).
+        Control modeRow = LabeledRow("Mode", new StackPanel { Spacing = 2, Children = { modeBox, modeText } });
         Control codecRow = TwoColumnRow("Video codec", videoBox, "Audio codec", audioBox);
         Control rateRow = TwoColumnRow("Rate control", rateControlBox, "Encoding", encodingBox);
         Control crfRowControl = LabeledRow("Quality", new StackPanel { Spacing = 2, Children = { crfSlider, crfText } });
@@ -1158,7 +1189,7 @@ internal static class ExportSettingsDialog
         Control handlesRow = LabeledRow("Handles (frames before / after the range)", handlesBox);
         Control colorHeader = new TextBlock { Text = "Color", Foreground = Palette.MutedTextBrush, FontSize = Typography.Body, Margin = new Thickness(0, 8, 0, 0) };
         videoOnlyControls =
-            [codecRow, rateRow, crfRowControl, bitrateRowControl, resFpsRow, resText, burnHeader, tcRow, nameRow, watermarkRow, handlesRow, colorHeader, bakeColorCheck];
+            [modeRow, codecRow, rateRow, crfRowControl, bitrateRowControl, resFpsRow, resText, burnHeader, tcRow, nameRow, watermarkRow, handlesRow, colorHeader, bakeColorCheck];
 
         var settings = new StackPanel
         {
@@ -1168,6 +1199,7 @@ internal static class ExportSettingsDialog
                 LabeledRow("Preset", BurnInRow(presetBox, savePreset)),
                 LabeledRow("Format", containerBox),
                 LabeledRow("Range", rangeBox),
+                modeRow,
                 codecRow,
                 rateRow,
                 crfRowControl,
@@ -1233,6 +1265,15 @@ internal static class ExportSettingsDialog
         bool SelectionComplete() =>
             IsAudioOnly() || (containerBox.SelectedIndex >= 0 && videoBox.SelectedIndex >= 0 && audioBox.SelectedIndex >= 0);
 
+        ExportMode SelectedMode() => modeBox.SelectedIndex == 1 ? ExportMode.Fast : ExportMode.Final;
+
+        // The user's own Encoding choice — the one Fast Export's hardware lock hides — so a Fast preset or export
+        // records what Final Export should use when switched back (the exporter forces hardware for Fast anyway).
+        ExportAcceleration SelectedAcceleration() =>
+            (SelectedMode() == ExportMode.Fast ? encodingBeforeFast : encodingBox.SelectedIndex) == 1
+                ? ExportAcceleration.Hardware
+                : ExportAcceleration.Software;
+
         ExportFormat BuildFormat() => new(
             containers[containerBox.SelectedIndex],
             videoCodecs[videoBox.SelectedIndex],
@@ -1294,12 +1335,13 @@ internal static class ExportSettingsDialog
                 BurnIns: burnIns.Count > 0 ? burnIns : null,
                 Resolution: Resolutions[Math.Max(0, resolutionBox.SelectedIndex)].Value,
                 FrameRate: FrameRates[Math.Max(0, fpsBox.SelectedIndex)].Value,
-                Acceleration: encodingBox.SelectedIndex == 1 ? ExportAcceleration.Hardware : ExportAcceleration.Software,
+                Acceleration: SelectedAcceleration(),
                 BakeColorTransform: bakeColorCheck.IsChecked != false,
                 MetaTitle: metaTitle.Text,
                 MetaAuthor: metaAuthor.Text,
                 MetaCopyright: metaCopyright.Text,
-                MetaComment: metaComment.Text), useInOut));
+                MetaComment: metaComment.Text,
+                Mode: SelectedMode()), useInOut));
         };
         cancel.Click += (_, _) => dialog.Close((Result?)null);
 
@@ -1326,7 +1368,8 @@ internal static class ExportSettingsDialog
                     Crf: crf,
                     VideoBitRate: bitRate,
                     MaxBitRate: maxRate,
-                    Acceleration: encodingBox.SelectedIndex == 1 ? ExportAcceleration.Hardware : ExportAcceleration.Software);
+                    Acceleration: SelectedAcceleration(),
+                    Mode: SelectedMode());
 
             var user = UserExportPresets.Load()
                 .Where(p => !string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))

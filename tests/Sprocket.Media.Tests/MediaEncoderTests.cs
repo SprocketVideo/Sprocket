@@ -65,6 +65,91 @@ public class MediaEncoderTests
         }
     }
 
+    [Fact]
+    public void ConverterPath_EncodesByteIdentically_ToRawPixelPath()
+    {
+        // Export-speed phase 3 moves the RGBA → yuv conversion onto the render workers via EncoderVideoConverter /
+        // EncoderVideoFrame. It must produce exactly what WriteVideoFrame(nint, …) does, including a source row
+        // stride wider than the frame and a frame ring reused across writes.
+        const int w = 96, h = 64, rowBytes = w * 4 + 32;
+        byte[][] frames = new byte[6][];
+        for (int f = 0; f < frames.Length; f++)
+        {
+            frames[f] = new byte[rowBytes * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    int o = y * rowBytes + x * 4;
+                    frames[f][o] = (byte)(x * 2 + f * 20);
+                    frames[f][o + 1] = (byte)(y * 3 + f * 7);
+                    frames[f][o + 2] = (byte)((x ^ y) + f);
+                    frames[f][o + 3] = 255;
+                }
+        }
+
+        string raw = Encode(useConverter: false);
+        string converted = Encode(useConverter: true);
+        try
+        {
+            Assert.Equal(File.ReadAllBytes(raw), File.ReadAllBytes(converted));
+        }
+        finally
+        {
+            try { File.Delete(raw); File.Delete(converted); } catch { /* best-effort */ }
+        }
+
+        string Encode(bool useConverter)
+        {
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"sprocket-conv-{System.Guid.NewGuid():N}.mp4");
+            using MediaEncoder encoder = MediaEncoder.Create(path, new VideoEncoderSettings(w, h, Fps));
+            using EncoderVideoConverter converter = encoder.CreateVideoConverter();
+            using EncoderVideoFrame a = encoder.CreateVideoFrame();
+            using EncoderVideoFrame b = encoder.CreateVideoFrame();
+            for (int f = 0; f < frames.Length; f++)
+            {
+                GCHandle pin = GCHandle.Alloc(frames[f], GCHandleType.Pinned);
+                try
+                {
+                    nint pixels = pin.AddrOfPinnedObject();
+                    if (useConverter)
+                    {
+                        EncoderVideoFrame target = f % 2 == 0 ? a : b;
+                        converter.Convert(pixels, rowBytes, target);
+                        encoder.WriteVideoFrame(target, f);
+                    }
+                    else
+                    {
+                        encoder.WriteVideoFrame(pixels, rowBytes, f);
+                    }
+                }
+                finally { pin.Free(); }
+            }
+            encoder.Finish();
+            return path;
+        }
+    }
+
+    [Fact]
+    public void ConverterPath_RejectsAFrameFromAnotherEncoder()
+    {
+        string p1 = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"sprocket-own-{System.Guid.NewGuid():N}.mp4");
+        string p2 = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"sprocket-own-{System.Guid.NewGuid():N}.mp4");
+        try
+        {
+            using MediaEncoder first = MediaEncoder.Create(p1, new VideoEncoderSettings(64, 48, Fps));
+            using MediaEncoder second = MediaEncoder.Create(p2, new VideoEncoderSettings(64, 48, Fps));
+            using EncoderVideoFrame foreign = second.CreateVideoFrame();
+            using EncoderVideoConverter converter = first.CreateVideoConverter();
+
+            Assert.Throws<ArgumentException>(() => first.WriteVideoFrame(foreign, 0));
+            Assert.Throws<ArgumentException>(() => converter.Convert(1, 64 * 4, foreign));
+        }
+        finally
+        {
+            try { File.Delete(p1); File.Delete(p2); } catch { /* best-effort */ }
+        }
+    }
+
     /// <summary>Reads the container-level metadata tags from <paramref name="path"/> with the <c>ffprobe</c> CLI
     /// (alongside <c>ffmpeg</c> on PATH, per the test prerequisites).</summary>
     private static string ProbeFormatTags(string path)

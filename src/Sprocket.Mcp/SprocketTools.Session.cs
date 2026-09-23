@@ -101,7 +101,8 @@ public sealed partial class SprocketTools
         [Description("Constant-quality CRF 1–51 for quality mode (lower = better); omit for the default (18).")] int? crf = null,
         [Description("Target bit rate in Mbps for bitrate mode; omit for a resolution-scaled default (≈40 for 4K, 16 for 1080p).")] double? bitrateMbps = null,
         [Description("Optional VBR ceiling in Mbps for bitrate mode; must be ≥ bitrateMbps.")] double? maxBitrateMbps = null,
-        [Description("Encode on the GPU when available, falling back to software (default false = deterministic software).")] bool hardware = false) =>
+        [Description("Encode on the GPU when available, falling back to software (default false = deterministic software).")] bool hardware = false,
+        [Description("Fast Export: encode on the GPU when available, otherwise with a faster software preset, for a quicker review/draft file; output can be slightly larger and differ between machines. Default false = Final Export (deterministic reference output).")] bool fast = false) =>
         _session.OnModelThreadAsync(api =>
         {
             if (string.IsNullOrWhiteSpace(outputPath) || !Path.IsPathRooted(outputPath))
@@ -126,7 +127,7 @@ public sealed partial class SprocketTools
                 throw new McpException("maxBitrateMbps applies to bitrate mode — pass rateControl: bitrate.");
             McpResult<bool> result = api.StartExport(
                 outputPath, videoOnly, rangeInTicks, rangeOutTicks,
-                bitrateMode ? "bitrate" : "quality", crf, bitrateMbps, maxBitrateMbps, hardware);
+                bitrateMode ? "bitrate" : "quality", crf, bitrateMbps, maxBitrateMbps, hardware, fast);
             if (!result.Ok)
                 throw new McpException(result.Error ?? "export could not start.");
             return StateFormatter.ExportStatus(api.ExportStatus);

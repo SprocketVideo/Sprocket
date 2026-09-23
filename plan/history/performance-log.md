@@ -101,3 +101,27 @@
     coalesce their posts, and clip decoration loops are clipped to the viewport.
   - **Proxies and teardown:** proxy ffmpeg also passes `-threads` before `-i`, and old-session proxy and
     stabilization teardown runs on a background thread. Not yet measured in the interactive app.
+
+- **Export speed phase 3 — Fast Export and the encode-conversion bottleneck (recorded 2026-09-23).** Synthetic
+  sources (`testsrc2`): 20 s 1080p30 H.264 and 8 s 4K30 HEVC, one clip, no effects. RTX 3060, 24 cores, 4 render
+  workers at 1080p and 2 at 4K, a throwaway console harness outside the solution. The first Fast Export build (GPU
+  decode + NVENC) was *slower* than Final at 1080p (75 vs 92 fps) and only about 4% faster at 4K HEVC (24.5 vs 23.5):
+  1. **The mux thread capped both modes.** It copied each RGBA frame and ran a single-threaded `sws_scale`
+     RGBA→YUV before the encoder saw it (~35–38 ms per frame at 4K, whichever encoder ran). **Fix:**
+     `EncoderVideoConverter` / `EncoderVideoFrame` in Media. Each render worker converts its own surface into a ring
+     of encoder-format frames, so the mux thread only sends them. The conversion math and buffer geometry are
+     unchanged, so Final output stays byte-identical to the pre-change build (20 s 1080p + effect + audio, SHA-256
+     match).
+  2. **GPU decode lost in every configuration.** d3d11va cost ~10.5 ms per frame at 1080p and ~40 ms at 4K HEVC,
+     vs ~1.8 / ~6.7 ms for multi-threaded software decode, even with a single worker. With N workers it is worse:
+     each worker decodes the whole long-GOP stream, so every frame decodes N times on the one NVDEC engine, then
+     copies back to the CPU. CUDA-first was only slightly better (1080p 83 fps). So Fast decodes in software, and GPU
+     decode is an opt-in (`SPROCKET_EXPORT_GPU_DECODE=1`) for measuring other hardware.
+
+  | Source | Final (before) | Final (after) | Fast (after: NVENC + software decode) |
+  |---|---|---|---|
+  | 1080p H.264, 20 s | 92 fps | ~115 fps | **147 fps** |
+  | 4K HEVC, 8 s | 23.5 fps | ~32.5 fps | **38.8 fps** |
+
+  Final run-to-run varied about ±3%. Still open: the N× duplicated software decode across workers is wasted CPU; a
+  shared per-source decoder is the phase-3b candidate, along with the GPU render surface.

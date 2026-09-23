@@ -50,6 +50,24 @@ public enum ExportAcceleration
     Hardware,
 }
 
+/// <summary>
+/// Which export pipeline runs (export-speed phase 3) — the reference-vs-speed split leading editors draw between a
+/// final render and a fast draft / review output. Orthogonal to the codec and container.
+/// </summary>
+public enum ExportMode
+{
+    /// <summary>The reference output (the default): software decode of the full-resolution originals, a deterministic
+    /// raster render, and the encoder the options choose — reproducible run to run and golden-frame testable.</summary>
+    Final,
+
+    /// <summary>Speed first: the video encodes on a GPU encoder when one opens, else on the software encoder with its
+    /// speed-first preset (x264 <c>veryfast</c>) — reported in the <see cref="ExportRunSummary"/>. Sources decode in
+    /// software unless the <see cref="ExportGpuDecode"/> opt-in asks for GPU decode. Output can differ slightly between
+    /// machines and drivers and is a little larger or softer, so it is meant for review and draft deliveries rather
+    /// than the final master.</summary>
+    Fast,
+}
+
 /// <summary>Static metadata for one container: its FFmpeg muxer name, file extension, MIME type, and label.</summary>
 /// <param name="Container">The enum value this describes.</param>
 /// <param name="MuxerName">The FFmpeg muxer name passed to <c>avformat_alloc_output_context2</c>.</param>
@@ -67,8 +85,12 @@ public readonly record struct ContainerInfo(
 /// <param name="DefaultPreset">The <c>preset</c> option value to pass, or <see langword="null"/> when the encoder
 /// has none / would reject a named preset (e.g. SVT-AV1 wants a number).</param>
 /// <param name="DisplayName">A human label for the UI.</param>
+/// <param name="FastPreset">The speed-first <c>preset</c> Fast Export (export-speed phase 3) gives the software encoder
+/// when no GPU encoder opens, or <see langword="null"/> to keep <paramref name="DefaultPreset"/> (the encoder has no
+/// usable speed preset).</param>
 public readonly record struct VideoCodecInfo(
-    ExportVideoCodec Codec, string EncoderName, string? PixelFormat, bool SupportsCrf, string? DefaultPreset, string DisplayName);
+    ExportVideoCodec Codec, string EncoderName, string? PixelFormat, bool SupportsCrf, string? DefaultPreset, string DisplayName,
+    string? FastPreset = null);
 
 /// <summary>Static metadata for one audio codec: the FFmpeg encoder to use.</summary>
 /// <param name="Codec">The enum value this describes.</param>
@@ -137,6 +159,8 @@ public readonly record struct ExportFormat(
 /// <param name="MaxBitRate">An optional VBR ceiling in bits/s, or <c>0</c> for none (bitrate mode only).</param>
 /// <param name="Acceleration">Software or hardware (if available) video encoding. Software — the deterministic
 /// delivery default — for the built-ins; a user preset records the dialog's Encoding choice.</param>
+/// <param name="Mode">Final (the default for the built-ins) or Fast Export (export-speed phase 3); a user preset
+/// records the dialog's Mode choice.</param>
 public readonly record struct ExportPreset(
     string Name,
     ExportFormat Format,
@@ -148,7 +172,8 @@ public readonly record struct ExportPreset(
     int Crf = 0,
     long VideoBitRate = 0,
     long MaxBitRate = 0,
-    ExportAcceleration Acceleration = ExportAcceleration.Software)
+    ExportAcceleration Acceleration = ExportAcceleration.Software,
+    ExportMode Mode = ExportMode.Final)
 {
     /// <summary>Whether this is an audio-only delivery preset (PLAN.md step 44).</summary>
     public bool IsAudioOnly => AudioFormat is not null;
@@ -162,7 +187,7 @@ public readonly record struct ExportPreset(
         : new ExportOptions(
             Format: Format, Quality: Quality, Resolution: Resolution, FrameRate: FrameRate,
             RateControl: RateControl, Crf: Crf, VideoBitRate: VideoBitRate, MaxBitRate: MaxBitRate,
-            Acceleration: Acceleration);
+            Acceleration: Acceleration, Mode: Mode);
 }
 
 /// <summary>
@@ -184,9 +209,11 @@ public static class ExportCodecs
 
     private static readonly VideoCodecInfo[] VideoCodecs =
     [
-        new(ExportVideoCodec.H264,   "libx264",     null,           SupportsCrf: true,  DefaultPreset: "medium", "H.264 / AVC"),
-        new(ExportVideoCodec.Hevc,   "libx265",     null,           SupportsCrf: true,  DefaultPreset: "medium", "H.265 / HEVC"),
-        new(ExportVideoCodec.Av1,    "libsvtav1",   null,           SupportsCrf: true,  DefaultPreset: "8",      "AV1"),
+        // Fast presets follow the encoders' own speed ladders: x264/x265 "veryfast" (what HandBrake's "Very Fast"
+        // presets use), SVT-AV1 10 (the fast end, short of the lowest-quality 11–13).
+        new(ExportVideoCodec.H264,   "libx264",     null,           SupportsCrf: true,  DefaultPreset: "medium", "H.264 / AVC",  FastPreset: "veryfast"),
+        new(ExportVideoCodec.Hevc,   "libx265",     null,           SupportsCrf: true,  DefaultPreset: "medium", "H.265 / HEVC", FastPreset: "veryfast"),
+        new(ExportVideoCodec.Av1,    "libsvtav1",   null,           SupportsCrf: true,  DefaultPreset: "8",      "AV1",          FastPreset: "10"),
         new(ExportVideoCodec.Vp9,    "libvpx-vp9",  null,           SupportsCrf: true,  DefaultPreset: null,     "VP9"),
         new(ExportVideoCodec.Mpeg2,  "mpeg2video",  null,           SupportsCrf: false, DefaultPreset: null,     "MPEG-2"),
         new(ExportVideoCodec.ProRes, "prores_ks",   "yuv422p10le",  SupportsCrf: false, DefaultPreset: null,     "Apple ProRes 422"),

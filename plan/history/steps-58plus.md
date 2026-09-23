@@ -524,3 +524,60 @@ file is **byte-identical** to the sequential schedule; only when work runs chang
   Glow + DirectionalBlur + ColorWheels 1.85× (worker count kept as-is).
 - **`Psycho.json` (interactive, NVENC):** 56.8 s → 15.3 s (14.4 → 53.4 fps, 3.7×). The Export Complete
   `ConfirmDialog` was a fixed 400×170 and clipped the diagnostics lines; it now sizes to content (`3355fc6`).
+
+## Export speed — phase 3 (unscheduled feature, 2026-09-23) ✅ DONE
+
+Fast Export mode from [plan/features/export-speed.md](../features/export-speed.md). Measurements on the reference
+desktop changed the plan partway through: the GPU render surface was deferred to phase 3b before work started, and
+GPU decode was found to be slower than software, so it moved behind an opt-in. Numbers are in
+[performance-log.md](performance-log.md).
+
+- **Mode** — `ExportMode { Final, Fast }` on `ExportOptions.Mode`, on `ExportPreset` (with an additive
+  `Mode?` preset-DTO field that is omitted for Final, so older preset files are unchanged), on `ExportRunSummary.Mode`,
+  and on the MCP `export_video` `fast` flag (additive through `IEditorSession.StartExport`). Final Export's behavior
+  is unchanged.
+- **Fast semantics** — always probes the GPU encoders (effective `RequestedAcceleration = Hardware`). If none opens,
+  the software encoder gets `VideoCodecInfo.FastPreset` (x264/x265 `veryfast`, SVT-AV1 `10`), reported in
+  `ExportRunSummary.SoftwarePreset`. Sources decode in software. GPU decode is an opt-in: set
+  `SPROCKET_EXPORT_GPU_DECODE=1` (read by `ExportGpuDecode`), or pass the internal `gpuDecodeOverride` in tests.
+  Stills always open in software.
+- **Conversion off the mux thread** — Media gained `EncoderVideoConverter` / `EncoderVideoFrame`, created by
+  `MediaEncoder.CreateVideoConverter()` / `CreateVideoFrame()`, and `WriteVideoFrame(EncoderVideoFrame, long)`. They
+  share one `ConvertRgba` helper (same staging copy, `sws_scale` flags and alignments) with the raw-pixel
+  `WriteVideoFrame`. A frame from another encoder, a disposed frame / converter, or a stride narrower than one RGBA
+  row is rejected. The new surface is `internal`, reached by Sprocket.Export through `InternalsVisibleTo`, so no raw-
+  pointer conversion is added to Media's public API. Each `RenderWorker` now owns one surface, one
+  converter and a ring of `FramesPerWorker = 2` encoder frames (replacing two RGBA surfaces), and converts on its own
+  thread. The mux thread only sends frames. `VideoEncode` time is now worker conversion plus the mux send. Final
+  output is byte-identical to the pre-change build.
+- **GPU-decode fallback** — `ExportFrameProvider` applies the preview decode rings' one-shot rule. When a GPU
+  decoder fails mid-export during a seek, decode or GOP-window refill, it reopens in software
+  (`MediaSource.ReopenInSoftware`, internal via `InternalsVisibleTo`) and retries. The forward walk resumes after the
+  last frame it produced, using provider-tracked `_walkSeekTarget` / `_walkLastPts` because the source's
+  `LastDecodedPts` can predate a seek. Every reopen drops the `GopFrameWindow` over the failed source, and the next
+  reverse request (or the failed refill) rebuilds it. The swap never happens inside an exception filter. It runs on
+  whichever thread holds the source, including the prefetch task, which every other operation waits out. A software
+  source's faults still propagate.
+- **Reporting** — `ExportDecodeSummary` (requested, hardware / software / fallback source counts, device,
+  `DisabledByUser` for `SPROCKET_HWACCEL`). `VideoExporter.DecodeFacts` merges each worker's provider by media, so a
+  source counts once: as hardware only if every instance decoded on the GPU, and as a fallback if any instance fell
+  back. Stills are excluded.
+- **App** — the Export Settings dialog has a **Mode** row (Final Export / Fast Export) with a one-line explanation
+  under it. While Fast is selected, Encoding is locked to hardware and the user's choice is restored on switching
+  back; saved presets record that underlying choice. The Encoding option now reads "Hardware encoder (if available)".
+  `ExportSummaryText` shows "Fast export with …", names the speed preset on a software fallback, adds the
+  "Mode" / "Decode" lines, and appends a compact GPU-decode note only when GPU decode was opted into. Queued Export
+  Queue rows show "· Fast Export".
+- **Tests** — Export `FastExportTests`:
+  - real Fast / Final / audio-only exports report consistently, without asserting a GPU;
+  - the GPU-decode opt-in counts a source opened by two workers once;
+  - an exhaustive fault sweep fails every seek / decode / refill operation of a forward + backward-cut + reverse
+    walk, with and without prefetch, and must serve the identical frames;
+  - a software fault propagates;
+  - `DecodeFacts` merging.
+
+  Also: Export `ExportPresetTests` (Mode round-trip, older-file default); Media `MediaEncoderTests` (the converter
+  path is byte-identical to raw pixels with a wide stride and a reused ring, and a foreign frame is rejected); App
+  `ExportSummaryTextTests` (Fast cases); Mcp (`fast` passes through). Full solution `dotnet test` green.
+- **Deferred** — phase 3b: a GPU render surface, and a shared per-source decoder to end the N× duplicated decode
+  across render workers.

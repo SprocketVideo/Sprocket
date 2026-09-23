@@ -81,6 +81,22 @@ public sealed class ExportPresetTests
         """;
 
         Assert.Equal(ExportAcceleration.Software, ExportPresetStore.Deserialize(json)[0].Acceleration);
+        Assert.Equal(ExportMode.Final, ExportPresetStore.Deserialize(json)[0].Mode);
+    }
+
+    [Fact]
+    public void Mode_RoundTripsThroughJson_AndReachesTheOptions()
+    {
+        ExportPreset fast = FormatOnly with { Name = "Review draft", Mode = ExportMode.Fast };
+
+        string json = ExportPresetStore.Serialize([FormatOnly, fast]);
+        IReadOnlyList<ExportPreset> restored = ExportPresetStore.Deserialize(json);
+
+        Assert.Equal(ExportMode.Final, restored[0].Mode);
+        Assert.Equal(ExportMode.Fast, restored[1].Mode);
+        Assert.Equal(ExportMode.Fast, restored[1].ToOptions().Mode);
+        // Final is the default and stays out of the file, so a pre-existing preset's JSON is unchanged.
+        Assert.Equal(1, json.Split("\"Mode\"").Length - 1);
     }
 
     [Fact]

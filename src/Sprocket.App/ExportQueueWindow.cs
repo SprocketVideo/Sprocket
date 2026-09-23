@@ -197,7 +197,8 @@ internal sealed class ExportQueueWindow : Window
             };
             var subtitle = new TextBlock
             {
-                Text = FormatLabel(job.Options.Format),
+                // A Fast Export job says so while still queued (export-speed phase 3), not only once its summary lands.
+                Text = FormatLabel(job.Options.Format) + (job.Options.Mode == ExportMode.Fast ? " · Fast Export" : ""),
                 Foreground = Palette.FaintTextBrush,
                 FontSize = Typography.Caption,
             };

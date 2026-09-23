@@ -120,12 +120,13 @@ public interface IEditorApi
     /// constant-quality value (<see langword="null"/> = the app's High default); <paramref name="bitrateMbps"/>/
     /// <paramref name="maxBitrateMbps"/> are the bitrate-mode target and optional ceiling in Mbps
     /// (<see langword="null"/> = resolution-scaled default / uncapped); <paramref name="hardware"/> prefers the
-    /// GPU encoder with automatic software fallback.
+    /// GPU encoder with automatic software fallback; <paramref name="fast"/> selects Fast Export (a GPU encoder, else
+    /// a speed-first software preset — export-speed phase 3) instead of the deterministic Final Export.
     /// </summary>
     McpResult<bool> StartExport(
         string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks,
         string? rateControl = null, int? crf = null, double? bitrateMbps = null, double? maxBitrateMbps = null,
-        bool hardware = false);
+        bool hardware = false, bool fast = false);
 
     /// <summary>
     /// Starts a background <b>audio-only</b> export of the active sequence's master mix to

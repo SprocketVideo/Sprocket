@@ -50,7 +50,8 @@ namespace Sprocket.Export;
 /// at the new frame instants (frames duplicated / dropped as needed) — the standard NLE resample-on-export.</param>
 /// <param name="Acceleration">Whether to encode with the deterministic software encoder (the default) or a platform
 /// GPU encoder with automatic software fallback (PLAN.md step 29). <see cref="ExportAcceleration.Hardware"/> is a
-/// speed option for review/intermediate outputs; final delivery keeps the software default for reproducibility.</param>
+/// speed option for review/intermediate outputs; final delivery keeps the software default for reproducibility.
+/// Fast Export (<see cref="Mode"/>) always probes the GPU encoders, overriding this.</param>
 /// <param name="Preset">An explicit software-encoder speed/quality preset (x264: <c>"ultrafast"</c>…<c>"veryslow"</c>),
 /// or <see langword="null"/> for the codec's default. Used by the render cache's speed-first intermediates
 /// (PLAN.md step 32); hardware encoders ignore it.</param>
@@ -71,6 +72,9 @@ namespace Sprocket.Export;
 /// (<see cref="Format"/>'s codecs, <see cref="Resolution"/>, <see cref="FrameRate"/>, <see cref="BurnIns"/>,
 /// <see cref="Acceleration"/>, <see cref="VideoOnly"/>) are ignored; <see langword="null"/> keeps the normal
 /// A/V (or <see cref="VideoOnly"/>) export. Additive — <c>default(ExportOptions)</c> is unchanged (MP4/H.264/AAC).</param>
+/// <param name="Mode">Final Export (the default — deterministic output) or Fast Export (export-speed phase 3): a GPU
+/// encoder regardless of <see cref="Acceleration"/>, else the software encoder's speed-first preset, reported in the
+/// <see cref="ExportRunSummary"/> (see <see cref="ExportMode.Fast"/>). Ignored for audio-only exports.</param>
 public readonly record struct ExportOptions(
     ExportFormat Format = default,
     ExportQuality Quality = ExportQuality.High,
@@ -94,7 +98,8 @@ public readonly record struct ExportOptions(
     string? MetaAuthor = null,
     string? MetaCopyright = null,
     string? MetaComment = null,
-    ExportAudioFormat? AudioFormat = null);
+    ExportAudioFormat? AudioFormat = null,
+    ExportMode Mode = ExportMode.Final);
 
 /// <summary>
 /// Renders a <see cref="Project"/> offline to a full-resolution movie in the chosen container/codec matrix
@@ -166,10 +171,11 @@ public static class VideoExporter
         IMotionTrackProvider? motionTracks = null)
         => ExportCore(project, outputPath, options, sequenceId, range, progress, cancellationToken, motionTracks, pipelined: true);
 
-    /// <summary>Output surfaces per render worker (export-speed phase 2): one being rendered while one waits for or
-    /// is being encoded. Each is a full-size raster surface allocated once per export (~8 MB at 1080p, ~33 MB at 4K),
-    /// so the steady state allocates no pixel memory.</summary>
-    internal const int SurfacesPerWorker = 2;
+    /// <summary>Encoder-format frames per render worker (export-speed phases 2–3): one being converted into while one
+    /// waits for or is being encoded. Each worker renders into a single full-size raster surface and converts it to
+    /// the encoder's pixel format on its own thread (yuv420p is ~3 MB at 1080p, ~12 MB at 4K); every buffer is
+    /// allocated once per export, so the steady state allocates no pixel memory.</summary>
+    internal const int FramesPerWorker = 2;
 
     /// <summary>Upper bound on concurrent render workers (see <see cref="RenderWorkerCount"/>).</summary>
     internal const int MaxRenderWorkers = 4;
@@ -185,6 +191,8 @@ public static class VideoExporter
     /// </summary>
     /// <param name="renderWorkers">Forces the render worker count (tests), or 0 for the automatic
     /// <see cref="RenderWorkerCount"/>. A project with a CPU plugin effect always renders on one worker.</param>
+    /// <param name="gpuDecodeOverride">Forces Fast Export's GPU-decode opt-in on or off (tests), or
+    /// <see langword="null"/> for <see cref="ExportGpuDecode.OptedIn"/>. No effect on Final Export.</param>
     internal static ExportRunSummary ExportCore(
         Project project,
         string outputPath,
@@ -195,7 +203,8 @@ public static class VideoExporter
         CancellationToken cancellationToken,
         IMotionTrackProvider? motionTracks,
         bool pipelined,
-        int renderWorkers = 0)
+        int renderWorkers = 0,
+        bool? gpuDecodeOverride = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentException.ThrowIfNullOrEmpty(outputPath);
@@ -275,11 +284,21 @@ public static class VideoExporter
         // Muted-only / solo-excluded timelines skip audio mixing + encoding entirely (planner-matched audibility).
         bool wantAudio = !options.VideoOnly && RenderGraph.HasAudibleAudio(project, sequence);
 
+        // Fast Export (export-speed phase 3) always probes the GPU encoders and, if none opens, gives the software
+        // encoder its speed-first preset. It decodes in software like Final Export: measured on a 24-core desktop,
+        // GPU decode was slower in every configuration (each render worker decodes the whole long-GOP stream, and a
+        // GPU decode + readback costs more per frame than multi-threaded software decode), so GPU decode is an opt-in
+        // (SPROCKET_EXPORT_GPU_DECODE) for measuring other hardware. Final Export keeps the encoder the options chose.
+        bool fast = options.Mode == ExportMode.Fast;
+        bool gpuDecode = fast && (gpuDecodeOverride ?? ExportGpuDecode.OptedIn);
+        ExportAcceleration acceleration = fast ? ExportAcceleration.Hardware : options.Acceleration;
+        HardwareAccelMode decodeMode = gpuDecode ? HardwareAccelMode.Auto : HardwareAccelMode.Disabled;
+
         VideoCodecInfo videoCodec = ExportCodecs.Video(format.VideoCodec);
         // Hardware acceleration (PLAN.md step 29): probe the platform GPU encoders for this codec before the
         // software encoder, which stays the guaranteed fallback (MediaEncoder engages the first that opens). The
         // software `CodecName` is unchanged, so a machine with no usable GPU produces the identical software output.
-        IReadOnlyList<string>? hwCandidates = options.Acceleration == ExportAcceleration.Hardware
+        IReadOnlyList<string>? hwCandidates = acceleration == ExportAcceleration.Hardware
             ? ExportCodecs.HardwareEncoderCandidates(format.VideoCodec)
             : null;
         // Rate control: the mode decides which knob drives the encoder. Quality mode resolves a CRF (an explicit
@@ -300,15 +319,15 @@ public static class VideoExporter
             GopSize: options.GopSize,
             Crf: crf,
             MaxBitRate: bitrateMode ? options.MaxBitRate : 0,
-            Preset: options.Preset ?? videoCodec.DefaultPreset,
+            Preset: options.Preset ?? (fast ? videoCodec.FastPreset : null) ?? videoCodec.DefaultPreset,
             HardwareCandidates: hwCandidates);
 
         AudioEncoderSettings? audio = wantAudio
             ? new AudioEncoderSettings(sampleRate, channels, ExportCodecs.Audio(format.AudioCodec).EncoderName, options.AudioBitRate)
             : null;
 
-        // Render workers (export-speed phase 2): each owns its own effect pipeline, decoders, and surface ring, and
-        // renders every Nth frame. Built-in rendering is a pure function of (project, t), so any worker produces the
+        // Render workers (export-speed phases 2–3): each owns its own effect pipeline, decoders, surface, encoder
+        // converter, and ring of encoder frames, and renders + converts every Nth frame. Built-in rendering is a pure function of (project, t), so any worker produces the
         // same pixels for a frame; CPU (frei0r) plugins keep native state across frames, so a timeline using one
         // renders on a single worker to keep its frame history intact.
         int workerCount = !pipelined ? 1
@@ -327,7 +346,7 @@ public static class VideoExporter
 
             var info = new SKImageInfo(outWidth, outHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
             for (int w = 0; w < workers.Length; w++)
-                workers[w] = new RenderWorker(info, pipelined ? SurfacesPerWorker : 1, prefetch: pipelined, motionTracks);
+                workers[w] = new RenderWorker(enc, info, pipelined ? FramesPerWorker : 1, prefetch: pipelined, decodeMode, motionTracks);
             var fullRect = SKRect.Create(0, 0, outWidth, outHeight);
 
             if (encoder.HasAudio)
@@ -342,21 +361,27 @@ public static class VideoExporter
             long nextSample = 0;
             var muxTimer = new StageTimer(); // written by the mux stage only (render time lives on each worker)
 
-            // Render stage: plan + composite output frame `index` into `target` with one worker's pipeline/decoders.
-            // Render time is the call's elapsed time minus the decode it actually blocked on (background prefetch that
-            // overlapped is not render time).
-            void RenderInto(RenderWorker worker, long index, SKSurface target)
+            // Render stage: plan + composite output frame `index` into the worker's surface with its own pipeline /
+            // decoders, then convert the pixels into the encoder-format `target` on this same thread (export-speed
+            // phase 3 — the conversion used to serialize on the mux thread). Render time is the composite's elapsed
+            // time minus the decode it actually blocked on (background prefetch that overlapped is not render time);
+            // the conversion counts as encode time.
+            void RenderInto(RenderWorker worker, long index, EncoderVideoFrame target)
             {
                 TimeSpan blockedBefore = worker.Providers.BlockingDecodeElapsed;
                 long t0 = Stopwatch.GetTimestamp();
-                RenderVideoFrame(project, sequence, rangeIn, index, fps, target, worker.Effects, fullRect, worker.Providers, burnIns, options.BakeColorTransform);
-                worker.RenderTime += Stopwatch.GetElapsedTime(t0) - (worker.Providers.BlockingDecodeElapsed - blockedBefore);
+                RenderVideoFrame(project, sequence, rangeIn, index, fps, worker.Surface, worker.Effects, fullRect, worker.Providers, burnIns, options.BakeColorTransform);
+                long t1 = Stopwatch.GetTimestamp();
+                using (SKPixmap pixels = worker.Surface.PeekPixels())
+                    worker.Converter.Convert(pixels.GetPixels(), pixels.RowBytes, target);
+                worker.RenderTime += Stopwatch.GetElapsedTime(t0, t1) - (worker.Providers.BlockingDecodeElapsed - blockedBefore);
+                worker.ConvertTime += Stopwatch.GetElapsedTime(t1);
             }
 
             // Mux stage: the one owner of the encoder. Emits whichever stream's next packet sits earlier on the
-            // timeline, so the muxer interleaves cleanly; `acquire` yields the rendered surface for the next frame (in
-            // order) and `release` hands it back once its pixels are encoded.
-            void Mux(Func<long, SKSurface> acquire, Action release, CancellationToken token)
+            // timeline, so the muxer interleaves cleanly; `acquire` yields the converted frame for the next index (in
+            // order) and `release` hands it back once it is encoded.
+            void Mux(Func<long, EncoderVideoFrame> acquire, Action release, CancellationToken token)
             {
                 while (true)
                 {
@@ -372,10 +397,9 @@ public static class VideoExporter
 
                     if (!videoDone && (audioDone || videoTick <= audioTick))
                     {
-                        SKSurface frame = acquire(nextVideoIndex);
+                        EncoderVideoFrame frame = acquire(nextVideoIndex);
                         long t0 = Stopwatch.GetTimestamp();
-                        using (SKPixmap pixels = frame.PeekPixels())
-                            enc.WriteVideoFrame(pixels.GetPixels(), pixels.RowBytes, nextVideoIndex);
+                        enc.WriteVideoFrame(frame, nextVideoIndex);
                         muxTimer.VideoEncode += Stopwatch.GetElapsedTime(t0);
                         release();
                         nextVideoIndex++;
@@ -404,25 +428,29 @@ public static class VideoExporter
             else
             {
                 RenderWorker only = workers[0];
-                SKSurface surface = only.Surfaces[0];
-                Mux(index => { RenderInto(only, index, surface); return surface; }, static () => { }, cancellationToken);
+                EncoderVideoFrame frame = only.Frames[0];
+                Mux(index => { RenderInto(only, index, frame); return frame; }, static () => { }, cancellationToken);
             }
 
             // Every frame is rendered: retire the decoders (waiting out any trailing prefetch) so the totals are final.
-            TimeSpan decode = TimeSpan.Zero, render = TimeSpan.Zero;
+            TimeSpan decode = TimeSpan.Zero, render = TimeSpan.Zero, convert = TimeSpan.Zero;
+            var decodeFacts = new DecodeFacts();
             foreach (RenderWorker worker in workers)
             {
                 worker.Providers.Dispose();
                 decode += worker.Providers.DecodeElapsed;
                 render += worker.RenderTime;
+                convert += worker.ConvertTime;
+                worker.Providers.AddDecodeFacts(decodeFacts);
             }
             encoder.Finish();
             ExportStageTimings timings = new(
-                decode, render, muxTimer.VideoEncode, muxTimer.AudioMix, muxTimer.AudioEncode,
+                decode, render, convert + muxTimer.VideoEncode, muxTimer.AudioMix, muxTimer.AudioEncode,
                 Stopwatch.GetElapsedTime(totalStart));
             summary = new ExportRunSummary(
-                options.Acceleration, videoCodec.EncoderName, encoder.VideoEncoderName, encoder.IsHardwareVideo,
-                nextVideoIndex, nextSample, timings);
+                acceleration, videoCodec.EncoderName, encoder.VideoEncoderName, encoder.IsHardwareVideo,
+                nextVideoIndex, nextSample, timings, options.Mode, decodeFacts.ToSummary(requested: gpuDecode),
+                SoftwarePreset: encoder.IsHardwareVideo ? null : video.Preset);
             progress?.Report(1.0);
             completed = true;
         }
@@ -466,7 +494,7 @@ public static class VideoExporter
     /// <summary>
     /// How many render workers to run: roughly one per two cores (the encoder and decoders run their own threads),
     /// at most <see cref="MaxRenderWorkers"/>, halved above 1440p to bound memory (each worker holds
-    /// <see cref="SurfacesPerWorker"/> output surfaces plus its decoders' frames), and exactly one when the project
+    /// an output surface, <see cref="FramesPerWorker"/> encoder frames, and its decoders' frames), and exactly one when the project
     /// uses a CPU plugin effect — those keep native per-instance state across frames (a temporal frei0r filter's
     /// history), so splitting frames across instances would change their output.
     /// </summary>
@@ -494,19 +522,20 @@ public static class VideoExporter
 
     /// <summary>
     /// Runs the render and mux stages concurrently (export-speed phase 2). Worker <c>w</c> of N renders frames
-    /// <c>w, w+N, w+2N…</c> in order, each into a free surface of its own ring, on its own thread; the calling thread
-    /// is the mux stage, taking frame <c>i</c> from worker <c>i mod N</c>'s FIFO — so frames reach the encoder in
-    /// exact timeline order with no reorder buffer. Every queue is bounded by the worker's surface count, so a worker
-    /// that gets ahead simply waits for the encoder (and the encoder waits for a slow frame).
+    /// <c>w, w+N, w+2N…</c> in order, each converted into a free encoder-format frame of its own ring, on its own
+    /// thread; the calling thread is the mux stage, taking frame <c>i</c> from worker <c>i mod N</c>'s FIFO — so
+    /// frames reach the encoder in exact timeline order with no reorder buffer. Every queue is bounded by the
+    /// worker's frame count, so a worker that gets ahead simply waits for the encoder (and the encoder waits for a
+    /// slow frame).
     /// </summary>
     /// <remarks>A fault or cancellation anywhere cancels the shared token so every other stage unblocks; all workers
-    /// are joined before returning, so no worker touches a surface or decoder after this method exits. User
+    /// are joined before returning, so no worker touches a frame, surface, or decoder after this method exits. User
     /// cancellation surfaces as <see cref="OperationCanceledException"/>; otherwise the <em>originating</em> fault is
     /// rethrown, never the cancellation it induced in its peers.</remarks>
     private static void RunPipelined(
         RenderWorker[] workers, long totalFrames,
-        Action<RenderWorker, long, SKSurface> render,
-        Action<Func<long, SKSurface>, Action, CancellationToken> mux,
+        Action<RenderWorker, long, EncoderVideoFrame> render,
+        Action<Func<long, EncoderVideoFrame>, Action, CancellationToken> mux,
         CancellationToken cancellationToken)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -523,7 +552,7 @@ public static class VideoExporter
                     for (long index = first; index < totalFrames; index += count)
                     {
                         int slot = worker.Free.Take(stop.Token);
-                        render(worker, index, worker.Surfaces[slot]);
+                        render(worker, index, worker.Frames[slot]);
                         worker.Filled.Add(slot, stop.Token);
                     }
                 }
@@ -539,13 +568,13 @@ public static class VideoExporter
         try
         {
             RenderWorker? holder = null;
-            int held = -1; // the surface being encoded, and the worker it belongs to (mux thread only)
+            int held = -1; // the frame being encoded, and the worker it belongs to (mux thread only)
             mux(
                 index =>
                 {
                     holder = workers[index % count];
                     held = holder.Filled.Take(stop.Token);
-                    return holder.Surfaces[held];
+                    return holder.Frames[held];
                 },
                 () => holder!.Free.Add(held),
                 stop.Token);
@@ -578,25 +607,30 @@ public static class VideoExporter
 
     /// <summary>
     /// One render stage of the export pipeline: its own effect pipeline (compiled shaders, scratch surfaces, CPU
-    /// stage), its own decoders, and a ring of output surfaces with the free / filled queues that bound it. Used by
-    /// exactly one render thread at a time, so nothing inside needs locking; the queues are the only cross-thread
-    /// hand-off (the mux stage takes filled surfaces and returns them free).
+    /// stage), its own decoders, one output surface, its own RGBA → encoder-format converter, and a ring of encoder
+    /// frames with the free / filled queues that bound it. Used by exactly one render thread at a time, so nothing
+    /// inside needs locking; the queues are the only cross-thread hand-off (the mux stage takes filled frames and
+    /// returns them free).
     /// </summary>
     private sealed class RenderWorker : IDisposable
     {
-        public RenderWorker(SKImageInfo info, int surfaceCount, bool prefetch, IMotionTrackProvider? motionTracks)
+        public RenderWorker(
+            MediaEncoder encoder, SKImageInfo info, int frameCount, bool prefetch, HardwareAccelMode decodeMode,
+            IMotionTrackProvider? motionTracks)
         {
-            Providers = new FrameProviders(prefetch);
+            Providers = new FrameProviders(prefetch, decodeMode);
             Effects = new SkiaEffectPipeline { MotionTracks = motionTracks };
-            Surfaces = new SKSurface[surfaceCount];
-            Free = new BlockingCollection<int>(surfaceCount);
-            Filled = new BlockingCollection<int>(surfaceCount);
+            Frames = new EncoderVideoFrame[frameCount];
+            Free = new BlockingCollection<int>(frameCount);
+            Filled = new BlockingCollection<int>(frameCount);
             try
             {
-                for (int i = 0; i < surfaceCount; i++)
+                Surface = SKSurface.Create(info)
+                    ?? throw new InvalidOperationException("Failed to create the offscreen export surface.");
+                Converter = encoder.CreateVideoConverter();
+                for (int i = 0; i < frameCount; i++)
                 {
-                    Surfaces[i] = SKSurface.Create(info)
-                        ?? throw new InvalidOperationException("Failed to create the offscreen export surface.");
+                    Frames[i] = encoder.CreateVideoFrame();
                     Free.Add(i);
                 }
             }
@@ -609,19 +643,26 @@ public static class VideoExporter
 
         public FrameProviders Providers { get; }
         public SkiaEffectPipeline Effects { get; }
-        public SKSurface[] Surfaces { get; }
+        public SKSurface Surface { get; } = null!;
+        public EncoderVideoConverter Converter { get; } = null!;
+        public EncoderVideoFrame[] Frames { get; }
         public BlockingCollection<int> Free { get; }
         public BlockingCollection<int> Filled { get; }
 
         /// <summary>Render time accumulated by this worker's thread (decode it blocked on excluded).</summary>
         public TimeSpan RenderTime { get; set; }
 
+        /// <summary>RGBA → encoder-format conversion time accumulated by this worker's thread.</summary>
+        public TimeSpan ConvertTime { get; set; }
+
         public void Dispose()
         {
             Providers.Dispose();
             Effects.Dispose();
-            foreach (SKSurface? surface in Surfaces)
-                surface?.Dispose();
+            Surface?.Dispose();
+            Converter?.Dispose();
+            foreach (EncoderVideoFrame? frame in Frames)
+                frame?.Dispose();
             Free.Dispose();
             Filled.Dispose();
         }
@@ -630,9 +671,10 @@ public static class VideoExporter
     /// <summary>
     /// The export's full-resolution frame providers, one per source media, opened lazily and cached (a
     /// <see langword="null"/> entry is an offline / video-less source that renders black). Render-thread only; with
-    /// <c>prefetch</c> each provider decodes its next frame in the background (export-speed phase 2).
+    /// <c>prefetch</c> each provider decodes its next frame in the background (export-speed phase 2). Sources open with
+    /// <c>decodeMode</c>: software, or GPU-with-fallback for Fast Export with the GPU-decode opt-in (export-speed phase 3).
     /// </summary>
-    private sealed class FrameProviders(bool prefetch) : IDisposable
+    private sealed class FrameProviders(bool prefetch, HardwareAccelMode decodeMode) : IDisposable
     {
         private readonly Dictionary<MediaRefId, ExportFrameProvider?> _providers = new();
         private bool _disposed;
@@ -676,13 +718,16 @@ public static class VideoExporter
             {
                 try
                 {
-                    // Software decode for bit-deterministic, GPU-independent export output. Export always pulls the
-                    // full-resolution original — the request mapper routes an image sequence through the image2
-                    // demuxer, and a still is held as one frame across its span (PLAN.md step 42), so preview == export.
+                    // Software decode for bit-deterministic, GPU-independent output; Fast Export's GPU-decode opt-in
+                    // asks for GPU decode (MediaSource falls back to software per source when none opens). A still decodes
+                    // once, so it always opens in software. Export always pulls the full-resolution original — the
+                    // request mapper routes an image sequence through the image2 demuxer, and a still is held as one
+                    // frame across its span (PLAN.md step 42), so preview == export.
                     MediaOpenRequest request = MediaOpenRequest.FromMediaRef(media);
+                    bool isStill = media.Kind == MediaKind.Still;
                     provider = new ExportFrameProvider(
-                        MediaSource.Open(request, HardwareAccelMode.Disabled),
-                        isStill: media.Kind == MediaKind.Still, prefetch: prefetch);
+                        MediaSource.Open(request, isStill ? HardwareAccelMode.Disabled : decodeMode),
+                        isStill, prefetch: prefetch);
                 }
                 catch
                 {
@@ -694,6 +739,15 @@ public static class VideoExporter
             return provider;
         }
 
+        /// <summary>Folds each opened (non-still) provider's GPU-decode outcome into <paramref name="facts"/>, keyed
+        /// by media so a source opened by several workers counts once. Readable after <see cref="Dispose"/>.</summary>
+        public void AddDecodeFacts(DecodeFacts facts)
+        {
+            foreach ((MediaRefId id, ExportFrameProvider? provider) in _providers)
+                if (provider is { IsStill: false })
+                    facts.Add(id, provider.DecodedOnHardware, provider.FellBackToSoftware, provider.HardwareDevice);
+        }
+
         /// <summary>Disposes every provider (waiting out in-flight prefetches). Idempotent; the decode totals stay
         /// readable afterwards.</summary>
         public void Dispose()
@@ -703,6 +757,40 @@ public static class VideoExporter
             _disposed = true;
             foreach (ExportFrameProvider? provider in _providers.Values)
                 provider?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Aggregates per-provider GPU-decode outcomes into an <see cref="ExportDecodeSummary"/> (export-speed phase 3).
+    /// Each render worker opens its own provider per source, so outcomes are merged by media: a source is hardware
+    /// only if every instance decoded on the GPU to the end, and a fallback if any instance fell back mid-export.
+    /// </summary>
+    internal sealed class DecodeFacts
+    {
+        private readonly Dictionary<MediaRefId, (bool Hardware, bool FellBack)> _sources = new();
+        private string? _device;
+
+        public void Add(MediaRefId id, bool decodedOnHardware, bool fellBack, string? device)
+        {
+            _sources[id] = _sources.TryGetValue(id, out var seen)
+                ? (seen.Hardware && decodedOnHardware, seen.FellBack || fellBack)
+                : (decodedOnHardware, fellBack);
+            if (decodedOnHardware || fellBack) // a fallback source still names the GPU device that failed
+                _device ??= device;
+        }
+
+        public ExportDecodeSummary ToSummary(bool requested)
+        {
+            int hardware = 0, software = 0, fallback = 0;
+            foreach ((bool isHardware, bool fellBack) in _sources.Values)
+            {
+                if (isHardware) hardware++;
+                else software++;
+                if (fellBack) fallback++;
+            }
+            return new ExportDecodeSummary(
+                requested, hardware, software, fallback, hardware > 0 || fallback > 0 ? _device : null,
+                DisabledByUser: requested && HardwareAccelSettings.ForceSoftware);
         }
     }
 

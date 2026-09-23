@@ -242,7 +242,9 @@ verification-only items carry their checklist in the step's history entry.
   tiers: deterministic **Final Export** stays the reference path, while a speed-first **Fast Export** mode
   may use hardware decode/render and cache reuse; start with diagnostics + actual-encoder visibility,
   then overlap decode/render/encode before adding the opt-in fast path (phase 1 — diagnostics + actual-encoder
-  reporting + audio gating — ✅ 2026-09-22; phase 2 — deterministic pipelined Final Export — ✅ 2026-09-23) →
+  reporting + audio gating — ✅ 2026-09-22; phase 2 — deterministic pipelined Final Export — ✅ 2026-09-23; phase 3 —
+  Fast Export mode + RGBA→YUV conversion moved onto the render workers — ✅ 2026-09-23; GPU render surface deferred
+  to a phase 3b) →
   [plan/features/export-speed.md](plan/features/export-speed.md)
 - [ ] **Linux hardware-accel verification** — step 57 Phase 5: real VAAPI + NVENC encode/decode
   on physical Intel/AMD/NVIDIA boxes, probe-order + software-fallback confirmation

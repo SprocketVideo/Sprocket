@@ -462,8 +462,8 @@ public sealed unsafe class MediaEncoder : IDisposable
 
             // Allocate the staging frames BEFORE registering the stream, so an (unlikely) alloc failure on a
             // hardware retry never leaves an orphan stream in the muxer to double up on the next candidate.
-            rgba = AvFrameHandle.CreateVideo(v.Width, v.Height, AvConst.PixFmtRgba, align: 4);
-            enc = AvFrameHandle.CreateVideo(v.Width, v.Height, encFramePixFmt, align: 32);
+            rgba = AvFrameHandle.CreateVideo(v.Width, v.Height, AvConst.PixFmtRgba, align: RgbaStagingAlign);
+            enc = AvFrameHandle.CreateVideo(v.Width, v.Height, encFramePixFmt, align: EncFrameAlign);
             if (surfaceMode)
                 gpu = new AvFrameHandle(); // filled per-frame from the device pool
 
@@ -830,12 +830,79 @@ public sealed unsafe class MediaEncoder : IDisposable
         if (rgbaPixels == 0)
             throw new ArgumentNullException(nameof(rgbaPixels));
 
-        _rgbaFrame.MakeWritable();
-        CopyRgbaIntoFrame(rgbaPixels, rowBytes);
+        ConvertRgba(_converter, _rgbaFrame, _encFrame, rgbaPixels, rowBytes, _height);
+        SendVideoFrame(_encFrame, frameIndex);
+    }
 
-        _encFrame.MakeWritable();
-        _converter.Convert(_rgbaFrame, _encFrame); // RGBA → the encoder's CPU pixel format (yuv420p/nv12/…)
+    /// <summary>
+    /// Encodes a frame already converted to the encoder's input format by an <see cref="EncoderVideoConverter"/>
+    /// (export-speed phase 3) at presentation index <paramref name="frameIndex"/>. Produces exactly the output
+    /// <see cref="WriteVideoFrame(nint, int, long)"/> would for the same pixels; only where the conversion ran differs.
+    /// The frame may be converted into again once this returns.
+    /// </summary>
+    internal void WriteVideoFrame(EncoderVideoFrame frame, long frameIndex)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(frame);
+        if (_videoEncoder is null)
+            throw new InvalidOperationException("This encoder has no video stream.");
+        frame.ThrowIfDisposed(); // a freed frame would reach avcodec_send_frame as NULL — a silent flush
+        if (!ReferenceEquals(frame.Owner, this))
+            throw new ArgumentException("The frame belongs to a different encoder.", nameof(frame));
+        SendVideoFrame(frame.Frame, frameIndex);
+    }
 
+    /// <summary>Allocates a reusable frame in this encoder's input pixel format and size, for an
+    /// <see cref="EncoderVideoConverter"/> to fill and <see cref="WriteVideoFrame(EncoderVideoFrame, long)"/> to send.
+    /// The caller owns and disposes it.</summary>
+    internal EncoderVideoFrame CreateVideoFrame()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_encFrame is null)
+            throw new InvalidOperationException("This encoder has no video stream.");
+        return new EncoderVideoFrame(this, AvFrameHandle.CreateVideo(_width, _height, _encFrame.Format, EncFrameAlign));
+    }
+
+    /// <summary>Creates an RGBA → encoder-format converter for this encoder (its own scaler and staging buffer, so
+    /// several run concurrently on different threads). The caller owns and disposes it.</summary>
+    internal EncoderVideoConverter CreateVideoConverter()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_encFrame is null)
+            throw new InvalidOperationException("This encoder has no video stream.");
+        return new EncoderVideoConverter(this, _width, _height);
+    }
+
+    /// <summary>Row alignment of the RGBA staging frame and of the encoder-format frame. Shared by the encoder's own
+    /// path and <see cref="EncoderVideoConverter"/> so both convert with identical buffer geometry.</summary>
+    internal const int RgbaStagingAlign = 4;
+    internal const int EncFrameAlign = 32;
+
+    /// <summary>
+    /// The one RGBA → encoder-format conversion: copy the incoming pixels (which may have a wider stride) into the
+    /// staging frame row by row, then libswscale them into <paramref name="encFrame"/> (yuv420p/nv12/…). Native→native
+    /// only (§1). Each writable call is guarded by <c>av_frame_make_writable</c>, so a buffer an encoder still
+    /// references is never overwritten.
+    /// </summary>
+    internal static void ConvertRgba(
+        SwsScaler scaler, AvFrameHandle staging, AvFrameHandle encFrame, nint rgbaPixels, int rowBytes, int height)
+    {
+        staging.MakeWritable();
+        byte* dst = (byte*)staging.Data(0);
+        int dstStride = staging.Linesize(0);
+        var src = (byte*)rgbaPixels;
+        int copyBytes = Math.Min(rowBytes, dstStride);
+        for (int y = 0; y < height; y++)
+            Buffer.MemoryCopy(src + (long)y * rowBytes, dst + (long)y * dstStride, dstStride, copyBytes);
+
+        encFrame.MakeWritable();
+        scaler.Convert(staging, encFrame); // RGBA → the encoder's CPU pixel format
+    }
+
+    /// <summary>Sends one encoder-format CPU frame (uploading it to a device surface first for a surface-mode
+    /// encoder) and drains the resulting packets into the muxer.</summary>
+    private void SendVideoFrame(AvFrameHandle encFrame, long frameIndex)
+    {
         if (_gpuSurfaceMode)
         {
             // Device-surface encoder (VAAPI): draw a fresh GPU surface from the pool and upload the CPU frame into
@@ -843,31 +910,18 @@ public sealed unsafe class MediaEncoder : IDisposable
             // no managed pixel allocation (§1).
             _gpuFrame!.Unref();
             FFmpegError.Check(LibAv.av_hwframe_get_buffer(_hwFramesRef, _gpuFrame.Ptr, 0), "av_hwframe_get_buffer");
-            FFmpegError.Check(LibAv.av_hwframe_transfer_data(_gpuFrame.Ptr, _encFrame.Ptr, 0), "av_hwframe_transfer_data");
+            FFmpegError.Check(LibAv.av_hwframe_transfer_data(_gpuFrame.Ptr, encFrame.Ptr, 0), "av_hwframe_transfer_data");
             _gpuFrame.Pts = frameIndex;
-            _videoEncoder.SendFrame(_gpuFrame);
+            _videoEncoder!.SendFrame(_gpuFrame);
         }
         else
         {
             // Software encoder, or a hardware encoder that ingests system-memory frames (NVENC/QSV/AMF/VideoToolbox
             // upload internally): hand it the CPU frame directly.
-            _encFrame.Pts = frameIndex;
-            _videoEncoder.SendFrame(_encFrame);
+            encFrame.Pts = frameIndex;
+            _videoEncoder!.SendFrame(encFrame);
         }
         DrainPackets(_videoEncoder, _videoStream, _videoEncTimeBase);
-    }
-
-    /// <summary>Copies the incoming RGBA pixels (which may have a wider stride than the frame) into the staging
-    /// frame's native buffer row by row — a native→native copy, allowed on the throughput-bound export path.</summary>
-    private void CopyRgbaIntoFrame(nint rgbaPixels, int rowBytes)
-    {
-        // Only reached from WriteVideoFrame, which has already null-checked the video staging frame.
-        byte* dst = (byte*)_rgbaFrame!.Data(0);
-        int dstStride = _rgbaFrame.Linesize(0);
-        var src = (byte*)rgbaPixels;
-        int copyBytes = Math.Min(rowBytes, dstStride);
-        for (int y = 0; y < _height; y++)
-            Buffer.MemoryCopy(src + (long)y * rowBytes, dst + (long)y * dstStride, dstStride, copyBytes);
     }
 
     /// <summary>

@@ -1,6 +1,6 @@
 # Export speed / throughput
 
-🟡 **Phase 1 done (2026-09-22)**; phases 2–5 open. Improve export throughput in two deliberate tiers: keep a deterministic
+🟡 **Phases 1–3 done (2026-09-22 / 09-23)**; phases 3b, 4, 5 open. Improve export throughput in two deliberate tiers: keep a deterministic
 **Final Export** path for golden-frame parity, and add an explicitly speed-first **Fast Export**
 mode that may trade determinism for wall-clock speed. Tracked in [PLAN.md](../../PLAN.md) Open work.
 Relative links resolve from the repo root.
@@ -68,6 +68,7 @@ and keep the riskier behavior changes behind instrumentation.
 | 1 | Export diagnostics + actual encoder reporting + audio-gating cleanup | — | 1 session |
 | 2 | Deterministic Final Export pipeline overlap (decode/render/encode) | 1 | 1–1.5 |
 | 3 | Fast Export mode surface + hardware-decode/render path + fallback reporting | 1 | 1–1.5 |
+| 3b | GPU render surface + shared per-source decode (deferred from 3) | 3 | 1–2 |
 | 4 | Cache-aware Fast/Draft Export reuse | 2, 3 | 1 |
 | 5 | Per-effect cost attribution + docs / FEATURES / README close-out | 1–4 | 0.5–1 |
 
@@ -85,10 +86,18 @@ and keep the riskier behavior changes behind instrumentation.
   cancellation semantics. Start conservatively: one render worker, overlapped with prefetch/decode and encode,
   then widen only if measurements justify it. Acceptance: golden-frame parity with today's Final Export and a
   measurable wall-clock improvement on 1080p effect-heavy fixtures.
-- [ ] **Phase 3 — Fast Export mode.** Add a user-facing export mode selector in the export dialog and queue model:
-  `Final Export` vs `Fast Export`. Fast Export may use hardware decode and a GPU-backed render surface and may
-  produce small vendor-dependent differences, but it must report the actual path used and fall back cleanly when
-  hardware init fails. Acceptance: clear UI copy, no silent degradations, and tests that prove fallback behaves.
+- [x] **Phase 3 — Fast Export mode.** ✅ 2026-09-23 — DONE log in
+  [plan/history/steps-58plus.md](../history/steps-58plus.md#export-speed--phase-3-unscheduled-feature-2026-09-23--done).
+  `ExportMode` Final / Fast in the dialog, presets, queue, and MCP. Measurement reshaped the plan: the mux thread's
+  single-threaded RGBA→YUV conversion capped *both* modes, so it moved onto the render workers (Final output
+  byte-identical); GPU decode measured slower in every configuration (each worker decodes the whole long-GOP stream,
+  and a GPU decode + readback costs more than multi-threaded software decode), so Fast = GPU encoder, else a
+  software speed preset, with GPU decode an env opt-in (`SPROCKET_EXPORT_GPU_DECODE`) keeping its per-source
+  mid-export fallback and reporting.
+- [ ] **Phase 3b — GPU render surface / shared decode.** Deferred from phase 3: a headless Skia GPU context for
+  export (per-OS GL / Vulkan / D3D / Metal bootstrap — none exists outside Avalonia's render thread) and a shared
+  per-source decoder fanning frames out to the render workers (today each worker decodes every frame of each
+  source, N× the decode work — the reason GPU decode lost). Measure against the phase-3 numbers before committing.
 - [ ] **Phase 4 — Cache-aware draft delivery.** Teach Fast Export / Draft Export to consult
   `IVideoRenderCache` / `IAudioRenderCache` for exact-coverage ranges and splice cached ranges into the output.
   Final Export remains cache-blind. Acceptance: exact-coverage only, no stale partial reuse, and a clear user

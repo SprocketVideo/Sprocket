@@ -30,6 +30,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Sprocket.Media.Tests" />
+    <!-- The export pipeline's worker-side encode conversion + GPU-decode fallback (export-speed phase 3) use
+         internal Media surface (raw-pointer conversion, software reopen) kept off the public API. -->
+    <InternalsVisibleTo Include="Sprocket.Export" />
   </ItemGroup>
 
   <!-- No FFmpeg binding NuGet: the libav* surface is hand-rolled in Native/LibAv.cs and the FFmpeg 8

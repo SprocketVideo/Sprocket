@@ -80,6 +80,137 @@ public class ExportSummaryTextTests
         Assert.DoesNotContain("fps", ExportSummaryText.CompletionDetails(s));
     }
 
+    private static ExportRunSummary Fast(ExportDecodeSummary decode, string actual = "h264_nvenc", bool hardware = true) =>
+        Summary(ExportAcceleration.Hardware, actual, hardware) with { Mode = ExportMode.Fast, Decode = decode };
+
+    [Fact]
+    public void FastExport_AllSourcesOnGpu_SaysFastAndGpuDecode()
+    {
+        ExportRunSummary s = Fast(new ExportDecodeSummary(true, 2, 0, 0, "d3d11va"));
+
+        Assert.Equal("Fast export with h264_nvenc in 00:42 · GPU decode", ExportSummaryText.Compact(s));
+        Assert.StartsWith(
+            "Mode: Fast Export\n" +
+            "Decode: hardware (d3d11va) for 2 sources\n" +
+            "Encoder: h264_nvenc (hardware)\n",
+            ExportSummaryText.CompletionDetails(s));
+    }
+
+    [Fact]
+    public void FastExport_SomeSourcesInSoftware_NamesTheSplit()
+    {
+        ExportRunSummary s = Fast(new ExportDecodeSummary(true, 2, 1, 0, "cuda"));
+
+        Assert.Equal("Fast export with h264_nvenc in 00:42 · 1 of 3 sources decoded in software", ExportSummaryText.Compact(s));
+        Assert.Contains("Decode: hardware (cuda) for 2 of 3 sources, software for 1\n", ExportSummaryText.CompletionDetails(s));
+    }
+
+    [Fact]
+    public void FastExport_NoGpuDecoderOrEncoder_StatesBothFallbacks()
+    {
+        ExportRunSummary s = Fast(new ExportDecodeSummary(true, 0, 1, 0, null), actual: "libx264", hardware: false);
+
+        Assert.Equal(
+            "Fast export with libx264 (hardware unavailable) in 00:42 · 1 of 1 source decoded in software",
+            ExportSummaryText.Compact(s));
+        string details = ExportSummaryText.CompletionDetails(s);
+        Assert.Contains("Decode: software for 1 source — no GPU decoder was available\n", details);
+        Assert.Contains("Encoder: libx264 (software — hardware was requested but no GPU encoder opened)\n", details);
+    }
+
+    [Fact]
+    public void FastExport_MidExportFallback_IsStatedExplicitly()
+    {
+        ExportRunSummary s = Fast(new ExportDecodeSummary(true, 1, 1, 1, "cuda"));
+
+        Assert.Equal("Fast export with h264_nvenc in 00:42 · GPU decode failed for 1 source, finished in software",
+            ExportSummaryText.Compact(s));
+        Assert.Contains(
+            "Decode: hardware (cuda) for 1 of 2 sources, software for 1\n" +
+            "GPU decode failed during the export for 1 source — reopened in software at the same frame\n",
+            ExportSummaryText.CompletionDetails(s));
+    }
+
+    [Fact]
+    public void FastExport_EveryGpuSourceFellBack_DoesNotClaimNoDecoderWasAvailable()
+    {
+        ExportRunSummary s = Fast(new ExportDecodeSummary(true, 0, 1, 1, "cuda"));
+
+        string details = ExportSummaryText.CompletionDetails(s);
+        Assert.DoesNotContain("no GPU decoder was available", details);
+        Assert.Contains(
+            "Decode: software for 1 source\n" +
+            "GPU decode (cuda) failed during the export for 1 source — reopened in software at the same frame\n",
+            details);
+    }
+
+    [Fact]
+    public void FastExport_DisabledByEnvironment_SaysSo()
+    {
+        ExportRunSummary s = Fast(new ExportDecodeSummary(true, 0, 2, 0, null, DisabledByUser: true));
+
+        Assert.EndsWith(" · GPU decode off (SPROCKET_HWACCEL)", ExportSummaryText.Compact(s));
+        Assert.Contains("Decode: software for 2 sources — GPU decode disabled by SPROCKET_HWACCEL\n",
+            ExportSummaryText.CompletionDetails(s));
+    }
+
+    [Fact]
+    public void FastExport_NoVideoSources_OmitsTheCompactDecodeNote()
+    {
+        ExportRunSummary s = Fast(new ExportDecodeSummary(true, 0, 0, 0, null));
+
+        Assert.Equal("Fast export with h264_nvenc in 00:42", ExportSummaryText.Compact(s));
+        Assert.Contains("Decode: no video sources\n", ExportSummaryText.CompletionDetails(s));
+    }
+
+    [Fact]
+    public void FastExport_DefaultSoftwareDecode_AddsNoCompactNote()
+    {
+        ExportRunSummary s = Fast(new ExportDecodeSummary(false, 0, 2, 0, null));
+
+        Assert.Equal("Fast export with h264_nvenc in 00:42", ExportSummaryText.Compact(s));
+        Assert.StartsWith(
+            "Mode: Fast Export\n" +
+            "Decode: software for 2 sources\n" +
+            "Encoder: h264_nvenc (hardware)\n",
+            ExportSummaryText.CompletionDetails(s));
+    }
+
+    [Fact]
+    public void FastExport_SoftwareEncoderFallback_NamesTheSpeedPreset()
+    {
+        ExportRunSummary s = Fast(new ExportDecodeSummary(false, 0, 1, 0, null), actual: "libx264", hardware: false) with
+        {
+            SoftwarePreset = "veryfast",
+        };
+
+        Assert.Equal("Fast export with libx264 (veryfast — hardware unavailable) in 00:42", ExportSummaryText.Compact(s));
+        Assert.Contains(
+            "Encoder: libx264 (software, veryfast preset — hardware was requested but no GPU encoder opened)\n",
+            ExportSummaryText.CompletionDetails(s));
+    }
+
+    [Fact]
+    public void FinalExport_DoesNotMentionTheDefaultPreset()
+    {
+        ExportRunSummary s = Summary(ExportAcceleration.Software, "libx264", hardware: false) with { SoftwarePreset = "medium" };
+
+        Assert.Equal("Exported with libx264 in 00:42", ExportSummaryText.Compact(s));
+        Assert.StartsWith("Encoder: libx264 (software)\n", ExportSummaryText.CompletionDetails(s));
+    }
+
+    [Fact]
+    public void FinalExport_DetailsCarryNoModeOrDecodeLines()
+    {
+        ExportRunSummary s = Summary(ExportAcceleration.Software, "libx264", hardware: false) with
+        {
+            Decode = new ExportDecodeSummary(false, 0, 1, 0, null),
+        };
+        string details = ExportSummaryText.CompletionDetails(s);
+        Assert.DoesNotContain("Mode:", details);
+        Assert.DoesNotContain("Decode:", details);
+    }
+
     [Theory]
     [InlineData(0, "00:00")]
     [InlineData(59.9, "00:59")]

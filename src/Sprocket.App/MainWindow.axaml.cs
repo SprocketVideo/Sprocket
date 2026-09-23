@@ -4536,7 +4536,7 @@ public partial class MainWindow : Window
     internal string? McpStartExport(
         string outputPath, bool videoOnly, long? rangeInTicks, long? rangeOutTicks,
         string? rateControl = null, int? crf = null, double? bitrateMbps = null, double? maxBitrateMbps = null,
-        bool hardware = false)
+        bool hardware = false, bool fast = false)
     {
         if (!TryParseRateControl(rateControl, out ExportRateControl mode))
             return $"unknown rate control '{rateControl}' — use quality or bitrate.";
@@ -4546,7 +4546,8 @@ public partial class MainWindow : Window
             Crf: mode == ExportRateControl.Quality ? crf ?? 0 : 0,
             VideoBitRate: mode == ExportRateControl.Bitrate && bitrateMbps is { } t ? (long)Math.Round(t * 1_000_000) : 0,
             MaxBitRate: mode == ExportRateControl.Bitrate && maxBitrateMbps is { } m ? (long)Math.Round(m * 1_000_000) : 0,
-            Acceleration: hardware ? ExportAcceleration.Hardware : ExportAcceleration.Software);
+            Acceleration: hardware ? ExportAcceleration.Hardware : ExportAcceleration.Software,
+            Mode: fast ? ExportMode.Fast : ExportMode.Final);
         return McpStartExport(outputPath, options, rangeInTicks, rangeOutTicks);
     }
 
