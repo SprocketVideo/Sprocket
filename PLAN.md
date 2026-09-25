@@ -249,6 +249,15 @@ verification-only items carry their checklist in the step's history entry.
   Fast Export mode + RGBA→YUV conversion moved onto the render workers — ✅ 2026-09-23; GPU render surface deferred
   to a phase 3b) →
   [plan/features/export-speed.md](plan/features/export-speed.md)
+- [ ] **Toy cassette camera look** (unscheduled feature, planned 2026-09-25) — a one-apply look that
+  makes footage resemble the 1987 Fisher-Price PXL 2000 toy camcorder, which recorded B&W video to
+  audio cassettes: ~120×90 blocky pixels, ~15 fps stutter, thick black border, highlight smear, tape
+  noise/dropouts, plus hissy band-limited mono audio. Built from reusable primitives named as other
+  editors name them (**Mosaic**, **Posterize Time**) + a `builtin.toycam` stage + a Cassette audio
+  effect, stacked by a preset; generic name, brand only in the tooltip. Open design questions:
+  Posterize Time as a render-graph source-time quantization, and temporal smear in a stateless
+  pipeline (phase 8: an AE-style **Echo** effect over a new multi-frame "temporal footprint" in the
+  render plan, keeping frames a pure function of time) → [plan/features/toy-cassette-camera.md](plan/features/toy-cassette-camera.md)
 - [ ] **Linux hardware-accel verification** — step 57 Phase 5: real VAAPI + NVENC encode/decode
   on physical Intel/AMD/NVIDIA boxes, probe-order + software-fallback confirmation
   ([details](plan/history/steps-41-57.md#step-57))
