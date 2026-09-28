@@ -50,6 +50,7 @@ public static class StateFormatter
                 ["sample_rate"] = timeline.SampleRate,
             },
         };
+        root["marks"] = MarksObject(project.ActiveSequence.MarkIn, project.ActiveSequence.MarkOut);
         if (Wants("sequences"))
             root["sequences"] = new JsonArray(project.Sequences
                 .Select(s => (JsonNode)new JsonObject { ["id"] = s.Id.ToString(), ["name"] = s.Name })
@@ -344,8 +345,22 @@ public static class StateFormatter
                 ["duration"] = TimeString(m.Info.Duration.Ticks),
                 ["has_video"] = m.Info.HasVideo,
                 ["has_audio"] = m.Info.HasAudio,
+                ["source_marks"] = MarksObject(m.SourceMarkIn, m.SourceMarkOut),
             })
             .ToArray());
+
+    /// <summary>An in/out mark pair (sequence marks, or a media item's Source-monitor marks); unset marks are null.</summary>
+    private static JsonObject MarksObject(Timecode? markIn, Timecode? markOut) => new()
+    {
+        ["in_ticks"] = markIn?.Ticks,
+        ["out_ticks"] = markOut?.Ticks,
+    };
+
+    /// <summary>"0:01.000 – 0:04.500" for a mark pair, an unset end reading "unset"; "cleared" when neither is set.</summary>
+    public static string MarksText(Timecode? markIn, Timecode? markOut) =>
+        markIn is null && markOut is null
+            ? "cleared"
+            : $"set to {(markIn is { } i ? TimeString(i.Ticks) : "unset")} – {(markOut is { } o ? TimeString(o.Ticks) : "unset")}";
 
     private static JsonArray TracksArray(Timeline timeline) =>
         new(timeline.Tracks.Select(t => (JsonNode)TrackObject(t)).ToArray());

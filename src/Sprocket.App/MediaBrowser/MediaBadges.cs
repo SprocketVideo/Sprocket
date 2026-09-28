@@ -43,12 +43,26 @@ public static class MediaBadges
     {
         ArgumentNullException.ThrowIfNull(media);
         IReadOnlyList<string> baseBadges = Describe(media.Info, media.AbsolutePath);
-        return media.Kind switch
+        IReadOnlyList<string> badges = media.Kind switch
         {
             MediaKind.ImageSequence => [SequenceTag(media), .. baseBadges],
             MediaKind.Still => ["STILL", .. baseBadges],
             _ => baseBadges,
         };
+        return MarkedTag(media) is { } marked ? [.. badges, marked] : badges;
+    }
+
+    /// <summary>
+    /// The Source-monitor marks tag (PLAN.md step 61 phase 2), e.g. <c>[0:03]</c> — the length of the marked range
+    /// a drag from the bin places — or <see langword="null"/> when the media has no marks.
+    /// </summary>
+    public static string? MarkedTag(MediaRef media)
+    {
+        ArgumentNullException.ThrowIfNull(media);
+        if (media.SourceMarkIn is null && media.SourceMarkOut is null)
+            return null;
+        (Sprocket.Core.Timing.Timecode start, Sprocket.Core.Timing.Timecode end) = ClipPlacement.MarkedRange(media);
+        return $"[{Duration((end - start).ToSeconds())}]";
     }
 
     /// <summary>The image-sequence tag, e.g. <c>SEQ · 240 frames @ 12</c> (frame rate shown as fps).</summary>

@@ -3378,12 +3378,13 @@ public sealed class TimelineControl : Control
         bool primaryIsVideo = dropped is VideoTrack || (dropped is null && media.Info.HasVideo);
 
         long dropTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, _headerWidth);
-        long durationTicks = media.Info.Duration.Ticks;
+        (Timecode sourceIn, Timecode sourceOut) = ClipPlacement.MarkedRange(media); // the Source-monitor marks
+        long durationTicks = (sourceOut - sourceIn).Ticks;
         long start = ClipPlacement.SnapStart(
             dropTicks, durationTicks, DropSnapPoints(), Snapping, SnapTolerancePx, _pxPerSecond);
 
         ClipPlacement.PlacementResult? result = ClipPlacement.BuildPlaceCommand(
-            media, videoTarget, audioTarget, start, Linked, primaryIsVideo);
+            media, videoTarget, audioTarget, start, Linked, primaryIsVideo, (sourceIn, sourceOut));
         if (result is null)
             return;
 

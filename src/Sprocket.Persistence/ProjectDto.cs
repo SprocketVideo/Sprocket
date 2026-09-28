@@ -66,7 +66,11 @@ internal sealed record MediaRefDto(
     MediaKind? Kind = null,
     string? SequencePattern = null,
     int? SequenceStartNumber = null,
-    int? SequenceFrameCount = null);
+    int? SequenceFrameCount = null,
+    // Source-monitor marks (PLAN.md step 61 phase 2). Additive + nullable: unmarked media writes none
+    // (WhenWritingNull), so mark-free projects serialize byte-identically to pre-61 files.
+    long? SourceMarkInTicks = null,
+    long? SourceMarkOutTicks = null);
 
 /// <summary>
 /// The per-user media-link sidecar (PLAN.md step 28, ARCHITECTURE.md §12): the mapping from a source's stable

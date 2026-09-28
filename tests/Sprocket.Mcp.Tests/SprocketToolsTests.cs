@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using ModelContextProtocol;
 using Sprocket.Core.Model;
+using Sprocket.Core.Timing;
 using Sprocket.Mcp;
 using Xunit;
 
@@ -56,6 +57,8 @@ public class SprocketToolsTests
             "list_action_vfx_presets", "add_action_vfx",
             // One-tap preset stacks (toy-cassette-camera phase 5)
             "list_preset_stacks", "apply_preset_stack",
+            // Source / sequence marks (three-point editing phase 2)
+            "set_source_marks", "set_sequence_marks",
         ];
         Assert.Equal(expected.Length, names.Count);
         foreach (string name in expected)
@@ -320,6 +323,35 @@ public class SprocketToolsTests
 
         await tools.RemoveMarker(120000);
         Assert.Empty(session.Project.Timeline.Markers);
+    }
+
+    [Fact]
+    public async Task Mark_Tools_Set_Source_And_Sequence_Marks_Undoably_And_Show_In_State()
+    {
+        var session = new FakeEditorSession();
+        var tools = new SprocketTools(session);
+        string mediaId = (string)JsonNode.Parse(await tools.ImportMedia(@"C:\media\shot.mp4"))!["media_id"]!;
+        MediaRef media = session.Project.MediaPool.Items.Single();
+
+        await tools.SetSourceMarks(mediaId, inTicks: 48000, outTicks: 240000);
+        Assert.Equal(new Timecode(48000), media.SourceMarkIn);
+        Assert.Equal(new Timecode(240000), media.SourceMarkOut);
+        await Assert.ThrowsAsync<McpException>(() => tools.SetSourceMarks(mediaId, 240000, 48000)); // inverted
+        await Assert.ThrowsAsync<McpException>(() => tools.SetSourceMarks(mediaId, outTicks: 999999)); // past the 2s media
+        await Assert.ThrowsAsync<McpException>(() => tools.SetSourceMarks(Guid.NewGuid().ToString(), 0));
+
+        await tools.SetSequenceMarks(outTicks: 480000);
+        Assert.Null(session.Project.ActiveSequence.MarkIn);
+        Assert.Equal(new Timecode(480000), session.Project.ActiveSequence.MarkOut);
+
+        JsonNode state = JsonNode.Parse(await tools.GetProjectState())!;
+        Assert.Equal(480000, (long)state["marks"]!["out_ticks"]!);
+        Assert.Equal(48000, (long)state["media"]![0]!["source_marks"]!["in_ticks"]!);
+
+        await tools.Undo();
+        await tools.SetSourceMarks(mediaId); // omitting both clears
+        Assert.Null(media.SourceMarkIn);
+        Assert.Null(session.Project.ActiveSequence.MarkOut);
     }
 
     [Fact]

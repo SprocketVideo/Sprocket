@@ -92,6 +92,51 @@ public class ClipPlacementTests
     }
 
     [Fact]
+    public void MarkedRange_Uses_The_Source_Marks_With_Missing_Ends_Falling_Back_To_The_Media()
+    {
+        MediaRef media = Media(video: true, audio: true, durationSeconds: 10);
+        Assert.Equal((Timecode.Zero, Timecode.FromSeconds(10)), ClipPlacement.MarkedRange(media));
+
+        media.SourceMarkIn = Timecode.FromSeconds(2);
+        Assert.Equal((Timecode.FromSeconds(2), Timecode.FromSeconds(10)), ClipPlacement.MarkedRange(media));
+
+        media.SourceMarkOut = Timecode.FromSeconds(6);
+        Assert.Equal((Timecode.FromSeconds(2), Timecode.FromSeconds(6)), ClipPlacement.MarkedRange(media));
+
+        media.SourceMarkIn = null;
+        Assert.Equal((Timecode.Zero, Timecode.FromSeconds(6)), ClipPlacement.MarkedRange(media));
+    }
+
+    [Fact]
+    public void MarkedRange_Falls_Back_To_The_Whole_Media_When_A_Stale_Mark_Leaves_No_Range()
+    {
+        MediaRef media = Media(video: true, audio: false, durationSeconds: 4);
+        media.SourceMarkIn = Timecode.FromSeconds(8); // past a relinked, shorter source
+        Assert.Equal((Timecode.Zero, Timecode.FromSeconds(4)), ClipPlacement.MarkedRange(media));
+    }
+
+    [Fact]
+    public void BuildPlaceCommand_Places_The_Marked_Source_Range_On_Both_Streams()
+    {
+        MediaRef media = Media(video: true, audio: true, durationSeconds: 10);
+        media.SourceMarkIn = Timecode.FromSeconds(2);
+        media.SourceMarkOut = Timecode.FromSeconds(5);
+        var v = new VideoTrack();
+        var a = new AudioTrack();
+
+        ClipPlacement.PlacementResult result =
+            ClipPlacement.BuildPlaceCommand(media, v, a, 0, linked: true, primaryIsVideo: true)!.Value;
+        result.Command.Apply();
+
+        foreach (Clip clip in new[] { v.Clips.Single(), a.Clips.Single() })
+        {
+            Assert.Equal(Timecode.FromSeconds(2), clip.SourceIn);
+            Assert.Equal(Timecode.FromSeconds(5), clip.SourceOut);
+            Assert.Equal(Timecode.FromSeconds(3), clip.TimelineEnd);
+        }
+    }
+
+    [Fact]
     public void BuildPlaceCommand_AV_Source_Places_Linked_Pair()
     {
         MediaRef media = Media(video: true, audio: true);

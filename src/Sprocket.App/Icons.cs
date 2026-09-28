@@ -65,6 +65,13 @@ public static class Icons
     public static readonly Geometry FastForward = Geometry.Parse("M13,19 L22,12 L13,5 Z M2,19 L11,12 L2,5 Z");
     public static readonly Geometry SkipForward = Geometry.Parse("M5,4 L15,12 L5,20 Z M19,5 L19,19");
 
+    // Source-monitor mark / edit buttons (PLAN.md step 61): Premiere's bracket glyphs for Mark In / Mark Out, and an
+    // arrow dropping into a gap (Insert) or onto a solid bar (Overwrite).
+    public static readonly Geometry MarkIn = Geometry.Parse("M15,4 L9,4 L9,20 L15,20");
+    public static readonly Geometry MarkOut = Geometry.Parse("M9,4 L15,4 L15,20 L9,20");
+    public static readonly Geometry InsertEdit = Geometry.Parse("M12,3 L12,14 M8,10 L12,14 L16,10 M3,19 L9,19 M15,19 L21,19");
+    public static readonly Geometry OverwriteEdit = Geometry.Parse("M12,3 L12,14 M8,10 L12,14 L16,10 M3,19 L21,19");
+
     // Keyframe state (used for the Inspector's per-parameter toggle).
     public static readonly Geometry Diamond = Geometry.Parse("M13.06,4.58 L19.42,10.94 A1.5,1.5 0 0 1 19.42,13.06 L13.06,19.42 A1.5,1.5 0 0 1 10.94,19.42 L4.58,13.06 A1.5,1.5 0 0 1 4.58,10.94 L10.94,4.58 A1.5,1.5 0 0 1 13.06,4.58 Z");
 

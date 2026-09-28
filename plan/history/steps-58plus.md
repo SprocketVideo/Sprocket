@@ -739,3 +739,37 @@ Source-monitor marks + three-point editing — plan in [plan/features/three-poin
   locked tracks, `HasEditableTarget`, targeted Mark Clip, locked `ClipsLinkedTo`). Persistence: round trip,
   defaults not written, hash invariance. App `ClipEditsTests` +1 (locked members skipped). Mcp: `set_track_state`
   + locked refusal + undo.
+
+### Phase 2 — source marks on media items (2026-09-28) ✅ DONE
+
+- **Model** — `MediaRef.SourceMarkIn` / `SourceMarkOut` (`Timecode?`, media time, out exclusive), per bin item like
+  Premiere's master-clip marks. Set through the new `SetSourceMarksCommand` (RangeEdits.cs, beside
+  `SetSequenceMarksCommand`): one undo step, dirties the project, never touches the render graph.
+- **Persistence** — additive nullable `MediaRefDto.SourceMarkInTicks` / `SourceMarkOutTicks`, written in both the split
+  (collab) and inline forms since they're project content; unmarked media writes none, so mark-free projects are
+  byte-identical.
+- **Key routing (App)** — `I` / `O` / `Shift+I` / `Shift+O` / `Alt+I` / `Alt+O` / `Ctrl+Shift+X` / `Ctrl+Shift+Space`
+  go through `MarkKey`: when `SourceMarksFocused` (monitor area focused, Source tab showing, media loaded) they act on
+  the Source media at the Source playhead (`SetSourceMarkAtPlayhead` / `GoToSourceMark` / `ClearSourceMarks` /
+  `PlaySourceInToOut`); otherwise on the sequence as before. `X` and `/` stay sequence-only, and so do the
+  Sequence ▸ In / Out menu items (it's the Sequence menu).
+- **UI** — new `ScrubberMarks` overlay (drawn behind the transport slider, inset by the thumb half-width) shows the
+  active monitor's marks: the Source media's on the Source tab, **and the sequence marks on the Program tab**
+  (departure from the plan text, which only asked for the Source tab; Premiere shows marks in both monitors). A
+  Source-tab-only `SourceMarkBar` above the transport holds Mark In / Mark Out (bracket icons), Insert / Overwrite
+  (`Icons.InsertEdit` / `OverwriteEdit`, disabled until phase 3) and an `In … Out … Dur …` readout.
+  `UpdateMarkDisplay` refreshes both from `OnHistoryChanged` and `RefreshTransportForActive`. The Source monitor
+  still shows the whole media.
+- **Bin** — `ClipPlacement.MarkedRange(media)`: a missing mark falls back to that end of the media, and a stale, empty
+  range to the whole media. `BuildPlaceCommand` takes an optional `sourceRange` defaulting to it, so bin drops
+  (`TimelineControl.DropMedia`, whose snap uses the marked length) and MCP `add_clip_to_timeline` place the marked
+  range. Tiles show a `MediaBadges.MarkedTag` badge (`[0:05]`, the marked length); `RefreshBinIfSourceMarksChanged`
+  re-lists the bin when a fingerprint of all marks changes (edit, undo, redo).
+- **MCP** — `set_source_marks(mediaId, inTicks?, outTicks?)` and `set_sequence_marks(inTicks?, outTicks?)`: both marks
+  are set at once and an omitted one is cleared; validated non-negative, in < out, and source marks within the media
+  unless it's a still. State adds a top-level `marks` object and a per-media `source_marks`.
+- **Not covered** — audio-only media still can't open in the Source monitor (phase 3); no Source audio (phase 5).
+  Verified by build + tests only; the monitor bar and scrubber overlay still need a manual look in the running app.
+- **Tests** — Core: `SetSourceMarksCommand` apply/undo. Persistence: round trip, unmarked media writes nothing. App:
+  `MarkedRange` fallbacks (×2), `BuildPlaceCommand` places the marked range on both streams, marked-range badge.
+  Mcp: both tools, validation, state, undo, clear, and the tool-surface list.

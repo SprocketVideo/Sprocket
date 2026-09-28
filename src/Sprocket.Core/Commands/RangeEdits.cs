@@ -42,6 +42,44 @@ public sealed class SetSequenceMarksCommand : EditCommand
 }
 
 /// <summary>
+/// Sets a media item's Source-monitor in/out marks together, as one undo entry (PLAN.md step 61 phase 2) — the
+/// source-side twin of <see cref="SetSequenceMarksCommand"/>. The marks live on the <see cref="MediaRef"/> (the bin
+/// item), are undoable and dirty the project, and never touch the render graph.
+/// </summary>
+public sealed class SetSourceMarksCommand : EditCommand
+{
+    private readonly MediaRef _media;
+    private readonly Timecode? _oldIn, _oldOut;
+    private readonly Timecode? _newIn, _newOut;
+
+    /// <summary>Captures the media's current marks and the marks to set (<see langword="null"/> clears).</summary>
+    public SetSourceMarksCommand(MediaRef media, Timecode? markIn, Timecode? markOut, string label = "Set Source In/Out")
+        : base(label)
+    {
+        ArgumentNullException.ThrowIfNull(media);
+        _media = media;
+        _oldIn = media.SourceMarkIn;
+        _oldOut = media.SourceMarkOut;
+        _newIn = markIn;
+        _newOut = markOut;
+    }
+
+    /// <inheritdoc />
+    public override void Apply()
+    {
+        _media.SourceMarkIn = _newIn;
+        _media.SourceMarkOut = _newOut;
+    }
+
+    /// <inheritdoc />
+    public override void Revert()
+    {
+        _media.SourceMarkIn = _oldIn;
+        _media.SourceMarkOut = _oldOut;
+    }
+}
+
+/// <summary>
 /// The outcome of a <see cref="RangeEdits"/> Lift / Extract: the one undoable command, plus what the edit had to
 /// leave alone so the shell can say so — <see cref="SyncBreaks"/> sync-locked tracks that couldn't ripple because
 /// they hold material inside the range (they stay put, so they drift out of sync, as in leading editors) and

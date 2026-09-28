@@ -106,6 +106,26 @@ public class SequencePersistenceTests
     }
 
     [Fact]
+    public void Source_Marks_Round_Trip_On_The_Media_And_Unmarked_Media_Writes_None()
+    {
+        var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));
+        var info = new ProbedMediaInfo(Timecode.FromSeconds(10), true, new Rational(30, 1), 1920, 1080, true, 48000, 2);
+        var marked = new MediaRef(MediaRefId.New(), @"C:\media\a.mp4", info) { SourceMarkIn = Timecode.FromSeconds(2) };
+        var unmarked = new MediaRef(MediaRefId.New(), @"C:\media\b.mp4", info);
+        project.MediaPool.Add(marked);
+        project.MediaPool.Add(unmarked);
+
+        Project loaded = RoundTrip(project);
+
+        Assert.Equal(Timecode.FromSeconds(2), loaded.MediaPool.Get(marked.Id)!.SourceMarkIn);
+        Assert.Null(loaded.MediaPool.Get(marked.Id)!.SourceMarkOut);
+        Assert.Null(loaded.MediaPool.Get(unmarked.Id)!.SourceMarkIn);
+        string json = ProjectSerializer.Serialize(loaded);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(json, "\"sourceMarkInTicks\""));
+        Assert.DoesNotContain("\"sourceMarkOutTicks\"", json); // additive: null marks not written
+    }
+
+    [Fact]
     public void In_Out_Marks_Are_Per_Sequence_And_Unset_Marks_Stay_Unset()
     {
         Project project = ParentNestingChild(out SequenceId childId, out _);

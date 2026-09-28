@@ -48,23 +48,41 @@ public static class ClipPlacement
     }
 
     /// <summary>
+    /// The source range a placement of <paramref name="media"/> uses (PLAN.md step 61 phase 2): its Source-monitor
+    /// marks, each missing mark falling back to that end of the media — as Premiere does when a master clip with
+    /// marks is dragged from the bin. A range that isn't positive (a stale mark past a relinked, shorter source)
+    /// falls back to the whole media.
+    /// </summary>
+    public static (Timecode In, Timecode Out) MarkedRange(MediaRef media)
+    {
+        ArgumentNullException.ThrowIfNull(media);
+        Timecode length = media.Info.Duration;
+        Timecode sourceIn = media.SourceMarkIn ?? Timecode.Zero;
+        Timecode sourceOut = media.SourceMarkOut ?? length;
+        if (!media.HasUnboundedDuration && sourceOut > length)
+            sourceOut = length;
+        return sourceOut > sourceIn ? (sourceIn, sourceOut) : (Timecode.Zero, length);
+    }
+
+    /// <summary>
     /// Builds the command to place <paramref name="media"/> at <paramref name="startTicks"/>. A video clip is
     /// created on <paramref name="videoTrack"/> when the source has video and the track is non-null; an audio
     /// clip on <paramref name="audioTrack"/> when the source has audio and the track is non-null. When both are
     /// created and <paramref name="linked"/> is on they share a fresh link group (so they move/blade together,
     /// step 13) and are wrapped in one <see cref="CompositeCommand"/>; otherwise a single
     /// <see cref="AddClipCommand"/> is returned. <paramref name="primaryIsVideo"/> picks which clip to select.
+    /// The clips span <paramref name="sourceRange"/>, defaulting to the media's <see cref="MarkedRange"/>.
     /// Returns <see langword="null"/> when no compatible track is available for any of the source's streams.
     /// </summary>
     public static PlacementResult? BuildPlaceCommand(
         MediaRef media, VideoTrack? videoTrack, AudioTrack? audioTrack,
-        long startTicks, bool linked, bool primaryIsVideo)
+        long startTicks, bool linked, bool primaryIsVideo, (Timecode In, Timecode Out)? sourceRange = null)
     {
         ArgumentNullException.ThrowIfNull(media);
 
         long start = TimelineMath.ClampNonNegative(startTicks);
         Timecode timelineStart = new(start);
-        Timecode sourceOut = media.Info.Duration;
+        (Timecode sourceIn, Timecode sourceOut) = sourceRange ?? MarkedRange(media);
 
         bool wantVideo = media.Info.HasVideo && videoTrack is not null;
         bool wantAudio = media.Info.HasAudio && audioTrack is not null;
@@ -74,10 +92,10 @@ public static class ClipPlacement
         Guid? linkGroup = (linked && wantVideo && wantAudio) ? Guid.NewGuid() : null;
 
         Clip? videoClip = wantVideo
-            ? new Clip(media.Id, Timecode.Zero, sourceOut, timelineStart) { LinkGroupId = linkGroup }
+            ? new Clip(media.Id, sourceIn, sourceOut, timelineStart) { LinkGroupId = linkGroup }
             : null;
         Clip? audioClip = wantAudio
-            ? new Clip(media.Id, Timecode.Zero, sourceOut, timelineStart) { LinkGroupId = linkGroup }
+            ? new Clip(media.Id, sourceIn, sourceOut, timelineStart) { LinkGroupId = linkGroup }
             : null;
 
         if (videoClip is not null)

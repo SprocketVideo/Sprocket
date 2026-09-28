@@ -182,7 +182,8 @@ public sealed partial class SprocketTools(IEditorSession session)
 
     [McpServerTool(Name = "add_clip_to_timeline")]
     [Description("Places a media-pool item on the timeline at the given start (by default linked audio+video, " +
-                 "like dropping from the bin). Returns the new clip's clip_id, plus its linked partner's id " +
+                 "like dropping from the bin). The clip spans the media's Source-monitor marks when it has any " +
+                 "(see set_source_marks), else the whole media. Returns the new clip's clip_id, plus its linked partner's id " +
                  "when one was created. Use stream=\"video\" or \"audio\" for a single-stream placement.")]
     public Task<string> AddClipToTimeline(
         [Description("media_id from list_media / import_media.")] string mediaId,
@@ -566,6 +567,51 @@ public sealed partial class SprocketTools(IEditorSession session)
             api.History.Execute(new RemoveMarkerCommand(api.Project.Timeline.Markers, marker));
             return StateFormatter.HistoryState(api.History, "removed marker");
         });
+
+    [McpServerTool(Name = "set_source_marks")]
+    [Description("Sets a media-pool item's Source-monitor in/out marks (PLAN.md step 61), in the media's own time. " +
+                 "Both marks are set together: omit one to clear it, omit both to clear the marks. The marks are " +
+                 "the range add_clip_to_timeline (and a bin drag) places. Undoable.")]
+    public Task<string> SetSourceMarks(
+        [Description("media_id from list_media.")] string mediaId,
+        [Description("Source in point in ticks (media time); omit to clear.")] long? inTicks = null,
+        [Description("Source out point in ticks (exclusive, media time); omit to clear.")] long? outTicks = null) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            if (!Guid.TryParse(mediaId, out Guid guid) || api.Project.MediaPool.Get(new MediaRefId(guid)) is not { } media)
+                throw new McpException($"media '{mediaId}' is not in the pool — call list_media.");
+            long? limit = media.HasUnboundedDuration ? null : media.Info.Duration.Ticks;
+            (Timecode? markIn, Timecode? markOut) = ValidateMarks(inTicks, outTicks, limit, "the media's duration");
+            api.History.Execute(new SetSourceMarksCommand(media, markIn, markOut, "Set Source In/Out"));
+            return StateFormatter.HistoryState(api.History, $"source marks {StateFormatter.MarksText(markIn, markOut)}");
+        });
+
+    [McpServerTool(Name = "set_sequence_marks")]
+    [Description("Sets the active sequence's in/out marks (the I / O keys). Both marks are set together: omit one " +
+                 "to clear it, omit both to clear the marks. The marks scope Play / Render In to Out, export, and " +
+                 "Lift / Extract. Undoable.")]
+    public Task<string> SetSequenceMarks(
+        [Description("Sequence in point in ticks; omit to clear.")] long? inTicks = null,
+        [Description("Sequence out point in ticks; omit to clear.")] long? outTicks = null) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            (Timecode? markIn, Timecode? markOut) = ValidateMarks(inTicks, outTicks, null, null);
+            api.History.Execute(new SetSequenceMarksCommand(api.Project.ActiveSequence, markIn, markOut, "Set In/Out"));
+            return StateFormatter.HistoryState(api.History, $"sequence marks {StateFormatter.MarksText(markIn, markOut)}");
+        });
+
+    /// <summary>Validates an in/out pair: non-negative, in before out, and (when <paramref name="limitTicks"/> is
+    /// given) not past it.</summary>
+    private static (Timecode? In, Timecode? Out) ValidateMarks(long? inTicks, long? outTicks, long? limitTicks, string? limitName)
+    {
+        if (inTicks < 0 || outTicks < 0)
+            throw new McpException("marks must be non-negative tick positions.");
+        if (inTicks is { } i && outTicks is { } o && o <= i)
+            throw new McpException("the out mark must be after the in mark.");
+        if (limitTicks is { } limit && (inTicks >= limit || outTicks > limit))
+            throw new McpException($"marks must lie within {limitName} ({limit} ticks).");
+        return (inTicks is { } a ? new Timecode(a) : null, outTicks is { } b ? new Timecode(b) : null);
+    }
 
     // ── Shared resolution helpers ───────────────────────────────────────────────────────────────────
 

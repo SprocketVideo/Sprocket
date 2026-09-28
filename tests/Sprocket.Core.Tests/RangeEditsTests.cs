@@ -48,6 +48,23 @@ public class RangeEditsTests
     }
 
     [Fact]
+    public void SetSourceMarks_Applies_And_Reverts_Both_Marks_On_The_Media()
+    {
+        var media = new MediaRef(MediaRefId.New(), "/tmp/a.mp4", new ProbedMediaInfo(
+            S(10), HasVideo: true, new Rational(30, 1), 1920, 1080, HasAudio: true, 48000, 2))
+        { SourceMarkIn = S(1) };
+        var history = new EditHistory();
+
+        history.Execute(new SetSourceMarksCommand(media, S(2), S(5)));
+        Assert.Equal(S(2), media.SourceMarkIn);
+        Assert.Equal(S(5), media.SourceMarkOut);
+
+        history.Undo();
+        Assert.Equal(S(1), media.SourceMarkIn);
+        Assert.Null(media.SourceMarkOut);
+    }
+
+    [Fact]
     public void Lift_Removes_The_Range_And_Leaves_A_Gap()
     {
         var (seq, track, _, _, c) = ThreeClips();

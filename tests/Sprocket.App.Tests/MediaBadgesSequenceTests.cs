@@ -32,6 +32,18 @@ public class MediaBadgesSequenceTests
     }
 
     [Fact]
+    public void MarkedMediaShowsTheMarkedRangeLengthLast()
+    {
+        var media = new MediaRef(MediaRefId.New(), @"C:\media\a.mp4", VideoInfo(new Rational(30, 1), 20));
+        Assert.Null(MediaBadges.MarkedTag(media));
+
+        media.SourceMarkIn = Timecode.FromSeconds(4);
+        media.SourceMarkOut = Timecode.FromSeconds(9);
+
+        Assert.Equal("[0:05]", MediaBadges.Describe(media)[^1]);
+    }
+
+    [Fact]
     public void StillBadgeIsTagged()
     {
         var media = new MediaRef(MediaRefId.New(), @"C:\art\logo.png", VideoInfo(new Rational(25, 1), 5))

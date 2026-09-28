@@ -176,7 +176,8 @@ public static class ProjectSerializer
 
         if (!inlineMediaPaths || string.IsNullOrEmpty(media.AbsolutePath))
             return new MediaRefDto(media.Id.Value, info,
-                Kind: kind, SequencePattern: pattern, SequenceStartNumber: start, SequenceFrameCount: count);
+                Kind: kind, SequencePattern: pattern, SequenceStartNumber: start, SequenceFrameCount: count,
+                SourceMarkInTicks: media.SourceMarkIn?.Ticks, SourceMarkOutTicks: media.SourceMarkOut?.Ticks);
 
         string? relative = null;
         if (projectDir is not null)
@@ -187,7 +188,8 @@ public static class ProjectSerializer
             if (rel != media.AbsolutePath && !Path.IsPathRooted(rel))
                 relative = rel;
         }
-        return new MediaRefDto(media.Id.Value, info, media.AbsolutePath, relative, kind, pattern, start, count);
+        return new MediaRefDto(media.Id.Value, info, media.AbsolutePath, relative, kind, pattern, start, count,
+            media.SourceMarkIn?.Ticks, media.SourceMarkOut?.Ticks);
     }
 
     private static ProbedInfoDto ToDto(ProbedMediaInfo i) => new(
@@ -425,7 +427,12 @@ public static class ProjectSerializer
     {
         var id = new MediaRefId(m.Id);
         string path = ResolvePath(id, m, projectDir, links);
-        var media = new MediaRef(id, path, FromDto(m.Info)) { Kind = m.Kind ?? MediaKind.File };
+        var media = new MediaRef(id, path, FromDto(m.Info))
+        {
+            Kind = m.Kind ?? MediaKind.File,
+            SourceMarkIn = m.SourceMarkInTicks is { } markIn ? new Timecode(markIn) : null,
+            SourceMarkOut = m.SourceMarkOutTicks is { } markOut ? new Timecode(markOut) : null,
+        };
         if (media.Kind == MediaKind.ImageSequence)
         {
             media.SequenceStartNumber = m.SequenceStartNumber ?? 0;

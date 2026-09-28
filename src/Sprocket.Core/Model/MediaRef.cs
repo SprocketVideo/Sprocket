@@ -158,4 +158,16 @@ public sealed class MediaRef
     /// (PLAN.md step 42).
     /// </summary>
     public bool HasUnboundedDuration => Kind == MediaKind.Still;
+
+    /// <summary>
+    /// The Source-monitor in point, in the media's own time, or <see langword="null"/> when unset (PLAN.md step 61
+    /// phase 2). Marks belong to the bin item — like Premiere's master-clip marks — so every place that opens this
+    /// media sees the same range. Project content (it persists and is undoable) but never part of the render graph.
+    /// Set through <see cref="Commands.SetSourceMarksCommand"/>.
+    /// </summary>
+    public Timecode? SourceMarkIn { get; set; }
+
+    /// <summary>The Source-monitor out point (exclusive, like a clip's <c>SourceOut</c>), or <see langword="null"/>
+    /// when unset. See <see cref="SourceMarkIn"/>.</summary>
+    public Timecode? SourceMarkOut { get; set; }
 }

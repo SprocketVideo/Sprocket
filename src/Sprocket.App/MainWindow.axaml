@@ -517,6 +517,9 @@
                 <TextBlock x:Name="PositionText" Grid.Column="7" Margin="14,0,10,0" VerticalAlignment="Center"
                            FontFamily="{x:Static local:Typography.Mono}" FontSize="{x:Static local:Typography.Body}" Foreground="{DynamicResource Text}"
                            Text="0:00.00" />
+                <!-- The active monitor's in/out marks, drawn behind the scrubber's rail + thumb (PLAN.md step 61
+                     phase 2). Declared first so the slider paints over it. -->
+                <local:ScrubberMarks x:Name="ScrubberMarks" Grid.Column="8" />
                 <Slider x:Name="Scrubber" Grid.Column="8" Minimum="0" Maximum="1" Value="0" VerticalAlignment="Center">
                   <!-- Match the themed transport: accent-tint the played (value) portion, and let the thumb read
                        as the accent on interaction. Overrides the Fluent Slider theme brushes in the control's
@@ -533,6 +536,38 @@
                 <TextBlock x:Name="DurationText" Grid.Column="9" Margin="10,0,0,0" VerticalAlignment="Center"
                            FontFamily="{x:Static local:Typography.Mono}" FontSize="{x:Static local:Typography.Body}" Foreground="{DynamicResource MutedText}"
                            Text="0:00.00" />
+              </Grid>
+            </Border>
+
+            <!-- Source-monitor mark bar (PLAN.md step 61 phase 2), shown only on the Source tab: Mark In / Mark Out
+                 (Premiere's bracket buttons, same as I / O with the monitor focused), Insert / Overwrite (the
+                 three-point edits, wired in phase 3), and the marked range's In / Out / Duration readouts. -->
+            <Border x:Name="SourceMarkBar" DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Padding="10,4"
+                    BorderBrush="{DynamicResource Edge}" BorderThickness="0,1,0,0" IsVisible="False">
+              <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" VerticalAlignment="Center">
+                <Button x:Name="SourceMarkInButton" Grid.Column="0" Classes="transport"
+                        AutomationProperties.Name="Mark In" ToolTip.Tip="Mark In — press I (Alt+I clears, Shift+I goes to it)">
+                  <Path Data="{x:Static local:Icons.MarkIn}" Stroke="{DynamicResource Text}" StrokeThickness="1.9"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="6" Height="12" Stretch="Uniform" />
+                </Button>
+                <Button x:Name="SourceMarkOutButton" Grid.Column="1" Classes="transport" Margin="4,0,0,0"
+                        AutomationProperties.Name="Mark Out" ToolTip.Tip="Mark Out — press O (Alt+O clears, Shift+O goes to it)">
+                  <Path Data="{x:Static local:Icons.MarkOut}" Stroke="{DynamicResource Text}" StrokeThickness="1.9"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="6" Height="12" Stretch="Uniform" />
+                </Button>
+                <Button x:Name="SourceInsertButton" Grid.Column="2" Classes="transport" Margin="12,0,0,0" IsEnabled="False"
+                        AutomationProperties.Name="Insert" ToolTip.Tip="Insert the marked source range into the sequence — press ,">
+                  <Path Data="{x:Static local:Icons.InsertEdit}" Stroke="{DynamicResource Text}" StrokeThickness="1.9"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="12" Height="11" Stretch="Uniform" />
+                </Button>
+                <Button x:Name="SourceOverwriteButton" Grid.Column="3" Classes="transport" Margin="4,0,0,0" IsEnabled="False"
+                        AutomationProperties.Name="Overwrite" ToolTip.Tip="Overwrite the sequence with the marked source range — press .">
+                  <Path Data="{x:Static local:Icons.OverwriteEdit}" Stroke="{DynamicResource Text}" StrokeThickness="1.9"
+                        StrokeLineCap="Round" StrokeJoin="Round" Width="12" Height="11" Stretch="Uniform" />
+                </Button>
+                <TextBlock x:Name="SourceMarkText" Grid.Column="5" VerticalAlignment="Center"
+                           FontFamily="{x:Static local:Typography.Mono}" FontSize="{x:Static local:Typography.Body}"
+                           Foreground="{DynamicResource MutedText}" Text="In --  Out --  Dur --" />
               </Grid>
             </Border>
 

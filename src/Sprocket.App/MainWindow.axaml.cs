@@ -90,6 +90,10 @@ public partial class MainWindow : Window
     private Button? _prevKeyframeButton, _nextKeyframeButton;
     private Slider? _scrubber;
     private TextBlock? _positionText, _durationText;
+    private ScrubberMarks? _scrubberMarks;  // the active monitor's in/out marks over the scrubber (step 61)
+    private Border? _sourceMarkBar;         // the Source-tab-only Mark In / Out / Insert / Overwrite row
+    private TextBlock? _sourceMarkText;     // its In / Out / Duration readout
+    private int? _sourceMarksSignature;     // fingerprint of every media's source marks (RefreshBinIfSourceMarksChanged)
 
     private bool _suppressSeek;        // guards programmatic scrubber updates from re-triggering a seek
     private long _lastScrubberSeekFrame = -1; // last frame-snapped scrubber seek, so same-frame drags don't re-seek
@@ -996,7 +1000,11 @@ public partial class MainWindow : Window
             return;
 
         // Clear In and Out (Ctrl+Shift+X / ⌘⇧X, Premiere's key) — above Cut so the Shift variant isn't swallowed.
-        if (primary && shift && e.Key == Key.X) { ClearMarks(clearIn: true, clearOut: true); e.Handled = true; }
+        if (primary && shift && e.Key == Key.X)
+        {
+            MarkKey(() => ClearSourceMarks(clearIn: true, clearOut: true), () => ClearMarks(clearIn: true, clearOut: true));
+            e.Handled = true;
+        }
         else if (primary && e.Key == Key.X) { _timeline?.CutSelected(); e.Handled = true; }
         else if (primary && e.Key == Key.C) { _timeline?.CopySelected(); e.Handled = true; }
         else if (primary && e.Key == Key.V) { _timeline?.PasteAtPlayhead(); e.Handled = true; }
@@ -1062,20 +1070,22 @@ public partial class MainWindow : Window
         // Sequence in/out marks (PLAN.md step 32), all Premiere's keys: I / O set at the playhead, Shift+I / Shift+O
         // go to them, Alt+I / Alt+O clear one (Ctrl+Shift+X both, above), X marks the clip under the playhead and
         // / the selection. Ctrl+I (Import) and Ctrl+O (Open) are handled above the text guard and never reach here.
-        else if (alt && e.Key == Key.I) { ClearMarks(clearIn: true, clearOut: false); e.Handled = true; }
-        else if (alt && e.Key == Key.O) { ClearMarks(clearIn: false, clearOut: true); e.Handled = true; }
-        else if (shift && !primary && e.Key == Key.I) { GoToMark(inPoint: true); e.Handled = true; }
-        else if (shift && !primary && e.Key == Key.O) { GoToMark(inPoint: false); e.Handled = true; }
-        else if (!shift && !primary && e.Key == Key.I) { SetMarkAtPlayhead(inPoint: true); e.Handled = true; }
-        else if (!shift && !primary && e.Key == Key.O) { SetMarkAtPlayhead(inPoint: false); e.Handled = true; }
+        // Like Premiere, the mark keys follow the focused monitor (step 61 phase 2): with the monitor area focused
+        // on the Source tab they mark the Source media instead; X and / always act on the sequence.
+        else if (alt && e.Key == Key.I) { MarkKey(() => ClearSourceMarks(true, false), () => ClearMarks(true, false)); e.Handled = true; }
+        else if (alt && e.Key == Key.O) { MarkKey(() => ClearSourceMarks(false, true), () => ClearMarks(false, true)); e.Handled = true; }
+        else if (shift && !primary && e.Key == Key.I) { MarkKey(() => GoToSourceMark(true), () => GoToMark(true)); e.Handled = true; }
+        else if (shift && !primary && e.Key == Key.O) { MarkKey(() => GoToSourceMark(false), () => GoToMark(false)); e.Handled = true; }
+        else if (!shift && !primary && e.Key == Key.I) { MarkKey(() => SetSourceMarkAtPlayhead(true), () => SetMarkAtPlayhead(true)); e.Handled = true; }
+        else if (!shift && !primary && e.Key == Key.O) { MarkKey(() => SetSourceMarkAtPlayhead(false), () => SetMarkAtPlayhead(false)); e.Handled = true; }
         else if (!shift && !primary && !alt && e.Key == Key.X) { MarkClip(); e.Handled = true; }
         else if (!shift && !primary && !alt && (e.Key == Key.OemQuestion || e.Key == Key.Divide)) { MarkSelection(); e.Handled = true; }
         // Lift (;) and Extract (') over the marked range, Premiere's keys.
         else if (!shift && !primary && !alt && e.Key == Key.OemSemicolon) { LiftOrExtract(extract: false); e.Handled = true; }
         else if (!shift && !primary && !alt && e.Key == Key.OemQuotes) { LiftOrExtract(extract: true); e.Handled = true; }
         // Play In to Out (Ctrl+Shift+Space / ⌘⇧Space, the Premiere convention): plays only the marked range of the
-        // Program monitor. Sits above plain Space, which stays unconstrained by the marks.
-        else if (primary && shift && e.Key == Key.Space) { if (!_exporting) PlayInToOut(); e.Handled = true; }
+        // focused monitor. Sits above plain Space, which stays unconstrained by the marks.
+        else if (primary && shift && e.Key == Key.Space) { if (!_exporting) MarkKey(PlaySourceInToOut, PlayInToOut); e.Handled = true; }
         else if (e.Key == Key.Space) { if (!_exporting) _active?.TogglePlayPause(); e.Handled = true; }
         // Esc peels fullscreen modes one layer at a time: the preview overlay first, then window fullscreen
         // (unless the preview itself entered fullscreen, in which case exiting it restores everything at once).
@@ -2040,6 +2050,12 @@ public partial class MainWindow : Window
         _scrubber = this.FindControl<Slider>("Scrubber")!;
         _positionText = this.FindControl<TextBlock>("PositionText")!;
         _durationText = this.FindControl<TextBlock>("DurationText")!;
+        _scrubberMarks = this.FindControl<ScrubberMarks>("ScrubberMarks")!;
+        _scrubberMarks.Attach(_scrubber);
+        _sourceMarkBar = this.FindControl<Border>("SourceMarkBar")!;
+        _sourceMarkText = this.FindControl<TextBlock>("SourceMarkText")!;
+        this.FindControl<Button>("SourceMarkInButton")!.Click += (_, _) => SetSourceMarkAtPlayhead(inPoint: true);
+        this.FindControl<Button>("SourceMarkOutButton")!.Click += (_, _) => SetSourceMarkAtPlayhead(inPoint: false);
 
         // The Program monitor composites the timeline at the sequence resolution; the Source monitor previews a
         // single selected clip's source (built lazily when its tab is opened). Both present through the one shared
@@ -2590,6 +2606,7 @@ public partial class MainWindow : Window
         _durationText!.Text = FormatTime(m.Duration);
         SetPlayPauseGlyph(m.State == PlaybackState.Playing);
         UpdateEngineStatus();
+        UpdateMarkDisplay();
         // Follow the newly-active monitor's transport: poll while it's playing, otherwise stay event-driven.
         if (m.State == PlaybackState.Playing)
             StartTelemetryTimer();
@@ -3557,6 +3574,8 @@ public partial class MainWindow : Window
         bool dirty = IsDirty;
         _saveStateText!.Text = dirty ? "• unsaved changes" : "• all changes saved";
         UpdateTimelineHeader();
+        UpdateMarkDisplay(); // a mark edit (or its undo) redraws the scrubber ticks + Source readout
+        RefreshBinIfSourceMarksChanged();
         RefreshKeyframeNav(); // a keyframe just added/removed on the selection toggles the jump buttons
 
         // A timeline edit (placement, trim, delete) can change the overall duration, so re-point the scrubber
@@ -3879,6 +3898,137 @@ public partial class MainWindow : Window
         if (duration <= Timecode.Zero)
             return;
         _engine.PlayInToOut(_timeline?.MarkIn ?? Timecode.Zero, _timeline?.MarkOut ?? duration);
+    }
+
+    // ── Source-monitor marks (PLAN.md step 61 phase 2) ────────────────────────────────────────────────
+
+    /// <summary>Whether the mark keys act on the Source monitor: the monitor area is focused on the Source tab with
+    /// media loaded — Premiere's panel-focused routing. Otherwise they act on the Program sequence, as before.</summary>
+    private bool SourceMarksFocused =>
+        _activeArea == WorkArea.Monitor && _source is not null && ReferenceEquals(_active, _source) && _source.Media is not null;
+
+    /// <summary>Runs the Source-monitor or the sequence variant of a mark key, by <see cref="SourceMarksFocused"/>.</summary>
+    private void MarkKey(Action source, Action sequence)
+    {
+        if (SourceMarksFocused)
+            source();
+        else
+            sequence();
+    }
+
+    /// <summary>Sets the Source media's in (I) or out (O) mark at the Source playhead, dropping the other mark when it
+    /// would leave the range inverted — the same rule as <see cref="SetMarkAtPlayhead"/>. Marks belong to the bin
+    /// item, so they persist with the project and are undoable.</summary>
+    private void SetSourceMarkAtPlayhead(bool inPoint)
+    {
+        if (_source?.Media is not { } media)
+            return;
+        Timecode pos = _source.Position;
+        if (inPoint)
+        {
+            Timecode? markOut = media.SourceMarkOut is { } o && o <= pos ? null : media.SourceMarkOut;
+            _history.Execute(new SetSourceMarksCommand(media, pos, markOut, "Mark Source In"));
+            SetStatus($"Source in point set at {FormatTime(pos)}");
+        }
+        else
+        {
+            Timecode? markIn = media.SourceMarkIn is { } i && i >= pos ? null : media.SourceMarkIn;
+            _history.Execute(new SetSourceMarksCommand(media, markIn, pos, "Mark Source Out"));
+            SetStatus($"Source out point set at {FormatTime(pos)}");
+        }
+    }
+
+    /// <summary>Go to Source In / Out (Shift+I / Shift+O with the Source monitor focused) — navigation, not undoable.</summary>
+    private void GoToSourceMark(bool inPoint)
+    {
+        if (_source?.Media is not { } media)
+            return;
+        if ((inPoint ? media.SourceMarkIn : media.SourceMarkOut) is { } mark)
+            _source.SeekTo(mark);
+        else
+            SetStatus(inPoint ? "No source in point set." : "No source out point set.");
+    }
+
+    /// <summary>Clears the Source media's in (Alt+I) / out (Alt+O) mark, or both (Ctrl+Shift+X), as one undo entry.</summary>
+    private void ClearSourceMarks(bool clearIn, bool clearOut)
+    {
+        if (_source?.Media is not { } media)
+            return;
+        Timecode? markIn = clearIn ? null : media.SourceMarkIn, markOut = clearOut ? null : media.SourceMarkOut;
+        if (markIn == media.SourceMarkIn && markOut == media.SourceMarkOut)
+            return; // already clear — don't push an empty undo entry
+        string label = clearIn && clearOut ? "Clear Source In and Out" : clearIn ? "Clear Source In" : "Clear Source Out";
+        _history.Execute(new SetSourceMarksCommand(media, markIn, markOut, label));
+        SetStatus(clearIn && clearOut ? "Source in and out points cleared"
+            : clearIn ? "Source in point cleared" : "Source out point cleared");
+    }
+
+    /// <summary>Play In to Out on the Source monitor (Ctrl+Shift+Space with it focused): plays the marked source
+    /// range, falling back to the media's ends for a missing mark. The monitor itself always shows the whole media.</summary>
+    private void PlaySourceInToOut()
+    {
+        if (_source?.Media is not { } media || _source.CurrentEngine is not { } engine)
+            return;
+        Timecode duration = _source.Duration;
+        if (duration <= Timecode.Zero)
+            return;
+        engine.PlayInToOut(media.SourceMarkIn ?? Timecode.Zero, media.SourceMarkOut ?? duration);
+    }
+
+    /// <summary>
+    /// Redraws the mark ticks over the scrubber for the active monitor (the Source media's marks on the Source tab,
+    /// the sequence marks on the Program tab) and shows / fills the Source tab's mark bar.
+    /// </summary>
+    private void UpdateMarkDisplay()
+    {
+        if (_scrubberMarks is null || _scrubber is null || _sourceMarkBar is null || _sourceMarkText is null)
+            return;
+        bool sourceTab = _source is not null && ReferenceEquals(_active, _source);
+        _sourceMarkBar.IsVisible = sourceTab;
+        var scrubberSpan = new Timecode((long)_scrubber.Maximum);
+        if (sourceTab)
+        {
+            MediaRef? media = _source!.Media;
+            _scrubberMarks.SetMarks(media?.SourceMarkIn, media?.SourceMarkOut, scrubberSpan);
+            _sourceMarkBar.IsEnabled = media is not null;
+            _sourceMarkText.Text = media is null ? "In --  Out --  Dur --" : SourceMarkReadout(media);
+        }
+        else
+        {
+            Sequence? seq = _project?.ActiveSequence;
+            _scrubberMarks.SetMarks(seq?.MarkIn, seq?.MarkOut, scrubberSpan);
+        }
+    }
+
+    /// <summary>Re-lists the bin when any media's Source-monitor marks changed (a mark edit, or its undo / redo), so
+    /// the tiles' marked-range badge follows. A cheap fingerprint of every mark avoids rebuilding the bin on the
+    /// many history changes that don't touch marks.</summary>
+    private void RefreshBinIfSourceMarksChanged()
+    {
+        if (_project is null)
+            return;
+        var hash = new HashCode();
+        foreach (MediaRef media in _project.MediaPool.Items)
+        {
+            hash.Add(media.SourceMarkIn);
+            hash.Add(media.SourceMarkOut);
+        }
+        int signature = hash.ToHashCode();
+        if (signature == _sourceMarksSignature)
+            return;
+        _sourceMarksSignature = signature;
+        _mediaBrowser?.Refresh();
+    }
+
+    /// <summary>"In 0:01.00  Out 0:04.50  Dur 0:03.50" for a Source media — an unset mark reads "--", and the
+    /// duration is the range a three-point edit would take (a missing mark falls back to that end of the media).</summary>
+    private static string SourceMarkReadout(MediaRef media)
+    {
+        Timecode start = media.SourceMarkIn ?? Timecode.Zero;
+        Timecode end = media.SourceMarkOut ?? media.Info.Duration;
+        string inText = media.SourceMarkIn is { } i ? FormatTime(i) : "--";
+        string outText = media.SourceMarkOut is { } o ? FormatTime(o) : "--";
+        return $"In {inText}  Out {outText}  Dur {FormatTime(end - start)}";
     }
 
     /// <summary>Clears the in (Alt+I) or out (Alt+O) mark, or both (Ctrl+Shift+X), as one undo entry.</summary>

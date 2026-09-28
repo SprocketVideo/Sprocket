@@ -1,6 +1,6 @@
 # Source-monitor marks + three-point editing
 
-🟡 **Phase 1 ✅ (2026-09-28)** — targeting / sync lock / lock; phases 2–6 open (planned 2026-09-28). This covers: In/Out marks in the Source monitor for each media item; Insert (`,`) and
+🟡 **Phases 1–2 ✅ (2026-09-28)** — targeting / sync lock / lock, source marks; phases 3–6 open (planned 2026-09-28). This covers: In/Out marks in the Source monitor for each media item; Insert (`,`) and
 Overwrite (`.`) three-point edits using the Premiere rules; source patching; track targeting, sync lock, and track lock;
 drag from the Source monitor (whole clip, video only, or audio only) that uses the marked range; and changing drops onto
 the timeline to overwrite by default, with Ctrl held for insert. Tracked in [PLAN.md](../../PLAN.md) as step 61 and in
@@ -121,7 +121,7 @@ currently on Lift / Extract.
 6. **MCP.** Add `set_track_state(trackKind, index, targeted?, syncLocked?, locked?)`. `StateFormatter` lists the three
    flags on each track.
 
-### Phase 2: source marks on media items
+### Phase 2: source marks on media items — ✅ shipped 2026-09-28
 
 1. **Model.** Add `MediaRef.SourceMarkIn` / `SourceMarkOut` as `Timecode?` in the media's own time. They're per bin
    item, like Premiere's master-clip marks, so every place that uses that media sees them. They're set through a new
