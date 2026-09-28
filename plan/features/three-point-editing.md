@@ -202,7 +202,9 @@ currently on Lift / Extract.
    recordInTicks?, recordOutTicks?, videoTrackIndex?, audioTrackIndex?)`, with defaults from the stored marks, patch,
    and playhead. Also add `lift` / `extract` tools, which MCP doesn't have yet.
 
-### Phase 4: drag from the Source monitor + overwrite-on-drop
+### Phase 4: drag from the Source monitor + overwrite-on-drop — ✅ shipped 2026-09-28
+
+> Shipped as below. The companion stream goes to its patched track, or the first editable track of its kind when that's locked; an un-patched companion still comes along (patching steers the keyed edits, not drags). A drop uses the `Linked` toggle, keeps the sequence marks, and leaves the playhead put. DONE log: [steps-58plus.md § Step 61](../history/steps-58plus.md#step-61).
 
 1. **New drag format.** Add `DragFormats.SourceRange`, a small serialized payload: `mediaRefId`, `sourceIn`,
    `sourceOut`, and `streams` (both, video, or audio).

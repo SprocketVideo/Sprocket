@@ -245,6 +245,7 @@ public sealed class TimelineControl : Control
 
     // Drag-and-drop preview: the X of the drop indicator while a bin tile / effect hovers (PLAN.md step 16b).
     private double? _dropPreviewX;
+    private SourceDropPlan? _dropGhost; // a media / Source-range drag's landing spot, drawn as a ghost (step 61 phase 4)
 
     /// <summary>Raised when the primary selected clip changes (for the Inspector / header — the inherently
     /// single-clip surfaces track the multi-selection's primary, PLAN.md step 54). Null = nothing selected.</summary>
@@ -561,8 +562,8 @@ public sealed class TimelineControl : Control
             return;
         ClipboardOps.PasteResult? result = ClipboardOps.PasteAll(
             _clipboard, _playhead,
-            EditableTrack(_project.Timeline.VideoTracks),
-            EditableTrack(_project.Timeline.AudioTracks));
+            ClipPlacement.EditableTrack(_project.Timeline.VideoTracks),
+            ClipPlacement.EditableTrack(_project.Timeline.AudioTracks));
         if (result is not { } paste)
             return;
 
@@ -1402,10 +1403,47 @@ public sealed class TimelineControl : Control
     // A dashed accent line where a dragged bin tile would place a clip (PLAN.md step 16b).
     private void DrawDropPreview(DrawingContext ctx, Size size)
     {
+        DrawDropGhost(ctx, size);
         if (_dropPreviewX is not { } x || x < _headerWidth || x > size.Width)
             return;
         var pen = new Pen(Accent, 1.5) { DashStyle = new DashStyle([3, 3], 0) };
         ctx.DrawLine(pen, new Point(x, RulerHeight), new Point(x, size.Height));
+    }
+
+    // A media drag's landing spot (PLAN.md step 61 phase 4): a translucent block per destination lane spanning the
+    // range the drop would overwrite — or, during a Ctrl / Cmd insert drag, a right-pointing ripple arrow on every lane
+    // the insert pushes (the destinations and the unlocked sync-locked tracks), like Premiere's insert cursor.
+    private void DrawDropGhost(DrawingContext ctx, Size size)
+    {
+        if (_dropGhost is not { } ghost)
+            return;
+        List<(Track track, bool isVideo)> lanes = Lanes();
+        using var _ = ctx.PushClip(new Rect(_headerWidth, RulerHeight, size.Width - _headerWidth, size.Height - RulerHeight));
+        double x0 = TimelineMath.XAtTicks(ghost.Start, _pxPerSecond, _scrollX, _headerWidth);
+        double x1 = TimelineMath.XAtTicks(ghost.Start + ghost.Duration, _pxPerSecond, _scrollX, _headerWidth);
+        for (int i = 0; i < lanes.Count; i++)
+        {
+            Track track = lanes[i].track;
+            bool destination = ReferenceEquals(track, ghost.Video) || ReferenceEquals(track, ghost.Audio);
+            if (destination)
+            {
+                var rect = new Rect(x0, LaneTop(i) + 3, Math.Max(2, x1 - x0), TrackHeight - 6);
+                ctx.DrawRectangle(lanes[i].isVideo ? VideoGhostFill : AudioGhostFill, SelectPen, new RoundedRect(rect, 4));
+            }
+            if (ghost.Insert && (destination || (track.SyncLocked && !track.Locked)))
+            {
+                double midY = LaneTop(i) + TrackHeight / 2;
+                var arrow = new StreamGeometry();
+                using (StreamGeometryContext g = arrow.Open())
+                {
+                    g.BeginFigure(new Point(x0 + 2, midY - 6), true);
+                    g.LineTo(new Point(x0 + 10, midY));
+                    g.LineTo(new Point(x0 + 2, midY + 6));
+                    g.EndFigure(true);
+                }
+                ctx.DrawGeometry(Accent, null, arrow);
+            }
+        }
     }
 
     // The cross-track drag ghost (PLAN.md step 16e): highlights the target lane and draws a translucent block
@@ -3322,7 +3360,7 @@ public sealed class TimelineControl : Control
 
     private void OnDragOver(object? sender, DragEventArgs e)
     {
-        bool media = e.DataTransfer.Contains(DragFormats.MediaRefId);
+        bool media = e.DataTransfer.Contains(DragFormats.MediaRefId) || e.DataTransfer.Contains(DragFormats.SourceRange);
         bool effect = e.DataTransfer.Contains(DragFormats.EffectId)
             || e.DataTransfer.Contains(DragFormats.PresetStackName); // a one-tap stack spans both lane kinds
         bool transition = e.DataTransfer.Contains(DragFormats.TransitionId);
@@ -3330,7 +3368,9 @@ public sealed class TimelineControl : Control
         bool look = FindLook is not null && e.DataTransfer.Contains(DragFormats.LookId)
             && TrackAndKindAtY(e.GetPosition(this).Y).track is not AudioTrack;
         bool lockedLane = TrackAndKindAtY(e.GetPosition(this).Y).track is { Locked: true };
-        if ((!media && !effect && !transition && !look) || lockedLane)
+        Point pos = e.GetPosition(this);
+        SourceDropPlan? plan = media && !lockedLane ? PlanSourceDrop(e.DataTransfer, pos, e.KeyModifiers) : null;
+        if ((!media && !effect && !transition && !look) || lockedLane || (media && plan is null))
         {
             e.DragEffects = DragDropEffects.None;
             ClearDropPreview();
@@ -3338,9 +3378,11 @@ public sealed class TimelineControl : Control
         }
 
         e.DragEffects = DragDropEffects.Copy;
-        // Show the indicator at the snapped drop start (media), the nearest cut (transition), or just the cursor.
-        Point pos = e.GetPosition(this);
-        if (transition && TransitionDropPreviewX(pos) is { } cutX)
+        // Show a ghost of the clip(s) at the snapped drop start (media), the nearest cut (transition), or just the cursor.
+        _dropGhost = plan;
+        if (plan is { } ghost)
+            _dropPreviewX = TimelineMath.XAtTicks(ghost.Start, _pxPerSecond, _scrollX, _headerWidth);
+        else if (transition && TransitionDropPreviewX(pos) is { } cutX)
             _dropPreviewX = cutX;
         else
             _dropPreviewX = pos.X < _headerWidth ? null : pos.X;
@@ -3362,8 +3404,8 @@ public sealed class TimelineControl : Control
             return;
         }
 
-        if (e.DataTransfer.Contains(DragFormats.MediaRefId))
-            DropMedia(e.DataTransfer.TryGetValue(DragFormats.MediaRefId), p);
+        if (e.DataTransfer.Contains(DragFormats.SourceRange) || e.DataTransfer.Contains(DragFormats.MediaRefId))
+            DropSource(PlanSourceDrop(e.DataTransfer, p, e.KeyModifiers));
         else if (e.DataTransfer.Contains(DragFormats.EffectId))
             DropEffect(e.DataTransfer.TryGetValue(DragFormats.EffectId), e.DataTransfer.TryGetValue(DragFormats.EffectPresetName), p);
         else if (e.DataTransfer.Contains(DragFormats.PresetStackName))
@@ -3404,41 +3446,94 @@ public sealed class TimelineControl : Control
 
     private void ClearDropPreview()
     {
-        if (_dropPreviewX is null)
+        if (_dropPreviewX is null && _dropGhost is null)
             return;
         _dropPreviewX = null;
+        _dropGhost = null;
         InvalidateVisual();
     }
 
-    /// <summary>Places a clip for the dropped source on the lane under the cursor (with a linked companion on
-    /// the first track of the other kind when the source has both A/V), via <see cref="ClipPlacement"/>.</summary>
-    private void DropMedia(string? idText, Point p)
+    /// <summary>
+    /// Where a media drag — a bin tile (<see cref="DragFormats.MediaRefId"/>: its Source-monitor marked range, both
+    /// streams) or the Source monitor (<see cref="DragFormats.SourceRange"/>) — lands if dropped at <paramref name="p"/>
+    /// (PLAN.md step 61 phase 4): the tracks from <see cref="ClipPlacement.DropTargets"/>, the snapped start, and whether
+    /// it's an Insert (Ctrl / Cmd held) or an Overwrite. Null when the payload is stale or no stream has a track.
+    /// </summary>
+    private SourceDropPlan? PlanSourceDrop(IDataTransfer data, Point p, KeyModifiers modifiers)
     {
-        if (!Guid.TryParse(idText, out Guid guid))
-            return;
-        MediaRef? media = _project!.MediaPool.Get(new MediaRefId(guid));
-        if (media is null)
-            return;
+        if (_project is null || p.X < _headerWidth)
+            return null;
+        MediaRef? media;
+        Timecode sourceIn, sourceOut;
+        SourceStreams streams;
+        if (data.Contains(DragFormats.SourceRange))
+        {
+            if (SourceRangePayload.TryParse(data.TryGetValue(DragFormats.SourceRange)) is not { } payload
+                || _project.MediaPool.Get(payload.MediaRefId) is not { } m)
+                return null;
+            (media, sourceIn, sourceOut, streams) = (m, payload.SourceIn, payload.SourceOut, payload.Streams);
+        }
+        else
+        {
+            if (!Guid.TryParse(data.TryGetValue(DragFormats.MediaRefId), out Guid guid))
+                return null;
+            media = _project.MediaPool.Get(new MediaRefId(guid));
+            if (media is null)
+                return null;
+            (sourceIn, sourceOut) = ClipPlacement.MarkedRange(media); // the Source-monitor marks
+            streams = SourceStreams.Both;
+        }
 
-        (Track? dropped, bool isVideoLane) = TrackAndKindAtY(p.Y);
-        VideoTrack? videoTarget = dropped as VideoTrack ?? EditableTrack(_project.Timeline.VideoTracks);
-        AudioTrack? audioTarget = dropped as AudioTrack ?? EditableTrack(_project.Timeline.AudioTracks);
-        bool primaryIsVideo = dropped is VideoTrack || (dropped is null && media.Info.HasVideo);
+        Track? lane = TrackAndKindAtY(p.Y).track;
+        if (lane is { Locked: true })
+            return null;
+        (VideoTrack? video, AudioTrack? audio, bool primaryIsVideo) =
+            ClipPlacement.DropTargets(media, streams, lane, _project.ActiveSequence);
+        if (video is null && audio is null)
+            return null;
 
         long dropTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, _headerWidth);
-        (Timecode sourceIn, Timecode sourceOut) = ClipPlacement.MarkedRange(media); // the Source-monitor marks
-        long durationTicks = (sourceOut - sourceIn).Ticks;
         long start = ClipPlacement.SnapStart(
-            dropTicks, durationTicks, DropSnapPoints(), Snapping, SnapTolerancePx, _pxPerSecond);
+            dropTicks, (sourceOut - sourceIn).Ticks, DropSnapPoints(), Snapping, SnapTolerancePx, _pxPerSecond);
+        bool insert = (modifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
+        return new SourceDropPlan(media, sourceIn, sourceOut, video, audio, primaryIsVideo, start, insert);
+    }
 
-        ClipPlacement.PlacementResult? result = ClipPlacement.BuildPlaceCommand(
-            media, videoTarget, audioTarget, start, Linked, primaryIsVideo, (sourceIn, sourceOut));
-        if (result is null)
+    /// <summary>Drops a planned media drag (<see cref="PlanSourceDrop"/>): an Overwrite of the range at the drop point,
+    /// or an Insert that pushes the destination and sync-locked tracks right. It's the same <see cref="ThreePointEdits"/>
+    /// builder as the <c>.</c> / <c>,</c> keys, so a drop never stacks an overlap (Premiere's drag behavior); the
+    /// sequence marks aren't used or cleared, and the playhead stays put.</summary>
+    private void DropSource(SourceDropPlan? plan)
+    {
+        if (plan is not { } drop)
             return;
+        var range = new ThreePointRange(drop.SourceIn, drop.SourceOut, new Timecode(drop.Start), []);
+        ThreePointEditResult result = ThreePointEdits.Build(
+            drop.Insert ? ThreePointEditKind.Insert : ThreePointEditKind.Overwrite, _project!.ActiveSequence,
+            drop.Media, range, drop.Video, drop.Audio, usePatch: false, linked: Linked, clearSequenceMarks: false);
+        if (result.Command is null)
+        {
+            Status?.Invoke($"{result.Error}.");
+            return;
+        }
 
-        Execute(result.Value.Command);
-        Select(result.Value.PrimaryClip);
+        Execute(result.Command);
+        // Select the dropped lane's clip (the builder reports the video one when both were added).
+        Clip? primary = drop.PrimaryIsVideo || drop.Video is null ? result.PrimaryClip
+            : drop.Audio?.Clips.FirstOrDefault(c => c.TimelineStart == range.RecordIn && c.MediaRefId == drop.Media.Id);
+        Select(primary ?? result.PrimaryClip);
+        if (result.Notes.Count > 0)
+            Status?.Invoke(string.Join(" ", result.Notes.Select(n => $"{n}.")));
         ClipPlaced?.Invoke();
+    }
+
+    /// <summary>A planned media drop: the source range, the destination track per stream, the snapped start (ticks),
+    /// and Insert vs Overwrite.</summary>
+    private readonly record struct SourceDropPlan(
+        MediaRef Media, Timecode SourceIn, Timecode SourceOut, VideoTrack? Video, AudioTrack? Audio,
+        bool PrimaryIsVideo, long Start, bool Insert)
+    {
+        public long Duration => (SourceOut - SourceIn).Ticks;
     }
 
     /// <summary>Appends the dropped effect to the clip under the cursor (PLAN.md step 16b) — with
@@ -3489,23 +3584,6 @@ public sealed class TimelineControl : Control
         }
         Status?.Invoke(MediaBrowser.LooksBrowserModel.ApplyToClip(look, clip, _project!, _history!));
         Select(clip);
-    }
-
-    /// <summary>The default destination among <paramref name="tracks"/> for a paste or a drop's companion stream:
-    /// the first targeted unlocked track (leading editors paste to the targeted tracks), else the first unlocked
-    /// one, else <see langword="null"/> when every track of that kind is locked.</summary>
-    private static T? EditableTrack<T>(IEnumerable<T> tracks) where T : Track
-    {
-        T? fallback = null;
-        foreach (T track in tracks)
-        {
-            if (track.Locked)
-                continue;
-            if (track.Targeted)
-                return track;
-            fallback ??= track;
-        }
-        return fallback;
     }
 
     private (Track? track, bool isVideo) TrackAndKindAtY(double y)

@@ -824,3 +824,36 @@ Source-monitor marks + three-point editing — plan in [plan/features/three-poin
   through the marks + undo, lift/extract, tool-surface list.
 - **Not verified in the running app** — the header chips, the Source-bar buttons, and the audio-only Source view are
   build + test verified only; they need a manual look (with the still-pending phase-2 visual check).
+
+### Phase 4 — drag from the Source monitor + overwrite-on-drop (2026-09-28) ✅ DONE
+
+- **Core** — `ThreePointEdits.Build` gains `linked` (the new A/V pair's link group; drops pass the timeline's Linked
+  toggle) and `clearSequenceMarks` (the keyed edits clear the marks they consumed; a drop never reads them, so it
+  passes `false`).
+- **Drag format** — `DragFormats.SourceRange` carries a `SourceRangePayload` (`guid|inTicks|outTicks|streams`,
+  invariant culture; `TryParse` rejects malformed text, empty ranges, and undefined stream values). `SourceStreams`
+  is Both / Video / Audio.
+- **Drag sources** — `MainWindow.EnableSourceDrag` arms on a left press (only while the Source tab shows media) and
+  starts `DoDragDropAsync` past a 4 px threshold, so a click still focuses the monitor. The preview surface drags both
+  streams; two new transport-sized `Border.dragHandle` handles on the Source bar (Film / Music icons, Premiere's
+  "Drag Video Only" / "Drag Audio Only") drag one — Borders, since a Button's press would swallow the gesture. A
+  handle dims and disables when the media lacks its stream. The range is the media's `MarkedRange` at drag start.
+- **Drop** — `TimelineControl.PlanSourceDrop` handles both the bin's `MediaRefId` (marked range, both streams) and
+  `SourceRange`: `ClipPlacement.DropTargets` puts the lane's stream on the lane and the companion on its patched track
+  (first editable one when that's locked), the start snaps as before, and `Ctrl`/`Cmd` makes it an Insert.
+  `DropSource` runs `ThreePointEdits.Build` with explicit tracks (`usePatch: false`), so a bin drop now overwrites
+  instead of stacking an overlap — the shipped-behavior change phase 4 called for. It selects the dropped lane's clip
+  and puts any notes in the status bar. `EditableTrack` moved from `TimelineControl` to `ClipPlacement` (shared with
+  paste).
+- **Ghost** — `OnDragOver` plans the drop every move; `DrawDropGhost` draws a translucent block per destination lane
+  over the range it would overwrite, and during an insert drag an accent right-pointing arrow at the drop point on
+  every lane the insert pushes (destinations plus unlocked sync-locked tracks). A drag with no possible destination
+  shows the no-drop cursor.
+- **Docs / inventory** — FEATURES.md bin-drag row amended (overwrite / Ctrl-insert / ghost; the stale marked-range
+  note resolved) and a new ❌ row for dragging from the Source monitor; `sprocket-docs` `media/importing-media.md`
+  "Putting media on the timeline" rewritten for overwrite drops, Ctrl-drop insert, the companion track, and Source
+  drags.
+- **Tests** — Core: drop-mode `Build` keeps the sequence marks and honours `linked: false`. App: `DropTargets` (lane +
+  patched companion, locked-patch fallback + primary kind, streams the media or drag lacks) and the payload round
+  trip / rejections.
+- **Not verified in the running app** — drag gestures, the ghost, and the handles are build + test verified only.

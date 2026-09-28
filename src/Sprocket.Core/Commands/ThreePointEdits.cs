@@ -205,10 +205,14 @@ public static class ThreePointEdits
     /// <paramref name="usePatch"/> a null destination falls back to the sequence's patched track for that stream; without
     /// it a null destination leaves that stream out (a video-only or audio-only edit). A source stream with no
     /// destination is left out; if no stream has one, or a destination is locked, the edit is refused.
+    /// <paramref name="linked"/> gives the new A/V pair a shared link group. <paramref name="clearSequenceMarks"/> clears
+    /// the sequence marks as part of the edit — the keyed edits do (they consumed the marks); a timeline drop, which
+    /// never reads them, passes <see langword="false"/> (PLAN.md step 61 phase 4).
     /// </summary>
     public static ThreePointEditResult Build(
         ThreePointEditKind kind, Sequence sequence, MediaRef media, ThreePointRange range,
-        VideoTrack? videoTrack, AudioTrack? audioTrack, bool usePatch)
+        VideoTrack? videoTrack, AudioTrack? audioTrack, bool usePatch,
+        bool linked = true, bool clearSequenceMarks = true)
     {
         ArgumentNullException.ThrowIfNull(sequence);
         ArgumentNullException.ThrowIfNull(media);
@@ -277,12 +281,13 @@ public static class ThreePointEdits
         }
 
         (Clip? videoClip, Clip? audioClip) = SourceClips.Create(
-            media, range.SourceIn, range.SourceOut, recordIn, vDest is not null, aDest is not null);
+            media, range.SourceIn, range.SourceOut, recordIn, vDest is not null, aDest is not null, linked);
         if (videoClip is not null)
             commands.Add(new AddClipCommand(vDest!, videoClip));
         if (audioClip is not null)
             commands.Add(new AddClipCommand(aDest!, audioClip));
-        commands.Add(new SetSequenceMarksCommand(sequence, null, null, label));
+        if (clearSequenceMarks)
+            commands.Add(new SetSequenceMarksCommand(sequence, null, null, label));
 
         return new ThreePointEditResult(
             new CompositeCommand(label, commands), null, recordIn, recordOut, videoClip ?? audioClip, notes);

@@ -244,6 +244,21 @@
       <Setter Property="CornerRadius" Value="5" />
       <Setter Property="FontSize" Value="{x:Static app:Typography.Emphasis}" />
     </Style>
+    <!-- A drag handle sized and filled like a transport button (the Source monitor's drag-one-stream handles, PLAN.md
+         step 61 phase 4) — a Border, since a Button's press would swallow the drag gesture. -->
+    <Style Selector="Border.dragHandle">
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="Background" Value="{DynamicResource RaisedBg}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Border.dragHandle:pointerover">
+      <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+    </Style>
+
     <!-- Play/Pause is the primary transport control — carry the accent so it reads as primary. -->
     <Style Selector="Button.transport.play">
       <Setter Property="Background" Value="{DynamicResource Accent}" />

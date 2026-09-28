@@ -106,6 +106,47 @@ public static class ClipPlacement
         return new PlacementResult(command, primary);
     }
 
+    /// <summary>
+    /// Where a drop of <paramref name="media"/> onto <paramref name="lane"/> puts each stream (PLAN.md step 61 phase 4),
+    /// Premiere's rule: the stream matching the lane lands on it, and the other stream on its patched track — or, when
+    /// that's locked, the first editable track of its kind (<see cref="EditableTrack{T}"/>). A stream the source lacks
+    /// or <paramref name="streams"/> leaves out gets <see langword="null"/>; so does one whose only track is locked.
+    /// <c>PrimaryIsVideo</c> picks which new clip to select: the lane's, else whichever exists.
+    /// </summary>
+    public static (VideoTrack? Video, AudioTrack? Audio, bool PrimaryIsVideo) DropTargets(
+        MediaRef media, SourceStreams streams, Track? lane, Sequence sequence)
+    {
+        ArgumentNullException.ThrowIfNull(media);
+        ArgumentNullException.ThrowIfNull(sequence);
+        bool wantVideo = media.Info.HasVideo && streams != SourceStreams.Audio;
+        bool wantAudio = media.Info.HasAudio && streams != SourceStreams.Video;
+        (VideoTrack? patchedVideo, AudioTrack? patchedAudio) = sequence.ResolvePatch();
+
+        VideoTrack? video = !wantVideo ? null
+            : lane as VideoTrack ?? (patchedVideo is { Locked: false } ? patchedVideo : EditableTrack(sequence.Timeline.VideoTracks));
+        AudioTrack? audio = !wantAudio ? null
+            : lane as AudioTrack ?? (patchedAudio is { Locked: false } ? patchedAudio : EditableTrack(sequence.Timeline.AudioTracks));
+        bool primaryIsVideo = video is not null && (lane is VideoTrack || audio is null || lane is not AudioTrack);
+        return (video, audio, primaryIsVideo);
+    }
+
+    /// <summary>The default destination among <paramref name="tracks"/> for a paste or a drop's companion stream:
+    /// the first targeted unlocked track (leading editors paste to the targeted tracks), else the first unlocked
+    /// one, else <see langword="null"/> when every track of that kind is locked.</summary>
+    public static T? EditableTrack<T>(IEnumerable<T> tracks) where T : Track
+    {
+        T? fallback = null;
+        foreach (T track in tracks)
+        {
+            if (track.Locked)
+                continue;
+            if (track.Targeted)
+                return track;
+            fallback ??= track;
+        }
+        return fallback;
+    }
+
     /// <summary>Prepends the detected input color transform to a new video clip — see
     /// <see cref="SourceClips.PrependDetectedColorTransform"/>.</summary>
     public static void PrependDetectedColorTransform(Clip clip, ProbedMediaInfo info) =>

@@ -94,6 +94,7 @@ public partial class MainWindow : Window
     private Border? _sourceMarkBar;         // the Source-tab-only Mark In / Out / Insert / Overwrite row
     private TextBlock? _sourceMarkText;     // its In / Out / Duration readout
     private TextBlock? _audioOnlyLabel;     // "Audio only" over the blank frame of an audio-only Source media
+    private Border? _sourceDragVideo, _sourceDragAudio; // the Source bar's drag-one-stream handles (step 61 phase 4)
     private MenuItem? _insertEditMenuItem, _overwriteEditMenuItem; // Clip ▸ Insert / Overwrite Edit
     private int? _sourceMarksSignature;     // fingerprint of every media's source marks (RefreshBinIfSourceMarksChanged)
 
@@ -2068,11 +2069,16 @@ public partial class MainWindow : Window
         this.FindControl<Button>("SourceInsertButton")!.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Insert);
         this.FindControl<Button>("SourceOverwriteButton")!.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Overwrite);
         _audioOnlyLabel = this.FindControl<TextBlock>("AudioOnlyLabel")!;
+        _sourceDragVideo = this.FindControl<Border>("SourceDragVideoHandle")!;
+        _sourceDragAudio = this.FindControl<Border>("SourceDragAudioHandle")!;
+        EnableSourceDrag(_sourceDragVideo, SourceStreams.Video);
+        EnableSourceDrag(_sourceDragAudio, SourceStreams.Audio);
 
         // The Program monitor composites the timeline at the sequence resolution; the Source monitor previews a
         // single selected clip's source (built lazily when its tab is opened). Both present through the one shared
         // surface; the active tab decides which engine is attached to it.
         _preview = this.FindControl<PreviewSurface>("Preview")!;
+        EnableSourceDrag(_preview, SourceStreams.Both); // drag the Source picture onto a lane (step 61 phase 4)
         _preview.MotionTracks = _stab; // stabilized layers pull their motion track through the analysis service
         (int seqW, int seqH) = (_project!.Timeline.Resolution.Width, _project.Timeline.Resolution.Height);
         _program = new ProgramMonitor(_engine!, seqW, seqH);
@@ -3932,6 +3938,57 @@ public partial class MainWindow : Window
         SetStatus(status);
     }
 
+    // Pending Source-monitor drag: a press arms it, and it starts once the pointer moves past a small threshold so a
+    // plain click (focusing the monitor) still works. DoDragDropAsync needs the originating press args.
+    private PointerPressedEventArgs? _sourceDragPress;
+    private Control? _sourceDragControl;
+    private Point _sourceDragStart;
+
+    /// <summary>
+    /// Makes <paramref name="source"/> drag the Source monitor's marked range onto the timeline (PLAN.md step 61
+    /// phase 4) — the picture carries both streams, Premiere's "Drag Video Only" / "Drag Audio Only" handles one. Only
+    /// while the Source tab is showing media that has the stream; the drop overwrites (Ctrl / Cmd: inserts) there.
+    /// </summary>
+    private void EnableSourceDrag(Control source, SourceStreams streams)
+    {
+        source.PointerPressed += (_, e) =>
+        {
+            bool sourceShowing = _source?.Media is not null && ReferenceEquals(_active, _source);
+            if (sourceShowing && e.GetCurrentPoint(source).Properties.IsLeftButtonPressed)
+            {
+                _sourceDragPress = e;
+                _sourceDragControl = source;
+                _sourceDragStart = e.GetPosition(this);
+            }
+        };
+        source.PointerMoved += (_, e) =>
+        {
+            if (_sourceDragPress is not { } pressed || !ReferenceEquals(_sourceDragControl, source)
+                || !e.GetCurrentPoint(source).Properties.IsLeftButtonPressed)
+                return;
+            Point p = e.GetPosition(this);
+            if (Math.Abs(p.X - _sourceDragStart.X) < 4 && Math.Abs(p.Y - _sourceDragStart.Y) < 4)
+                return;
+            _sourceDragPress = null;
+            if (_source?.Media is not { } media)
+                return;
+            bool hasStream = streams switch
+            {
+                SourceStreams.Video => media.Info.HasVideo,
+                SourceStreams.Audio => media.Info.HasAudio,
+                _ => true,
+            };
+            if (!hasStream)
+                return;
+            (Timecode sourceIn, Timecode sourceOut) = ClipPlacement.MarkedRange(media);
+            var data = new DataTransfer();
+            data.Add(DataTransferItem.Create(DragFormats.SourceRange,
+                new SourceRangePayload(media.Id, sourceIn, sourceOut, streams).Format()));
+            _ = DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Copy); // fire-and-forget; the drop target acts
+        };
+        source.PointerReleased += (_, _) => _sourceDragPress = null;
+    }
+
     /// <summary>
     /// Play In to Out (Ctrl+Shift+Space / the Sequence menu): plays the Program monitor from the in mark and stops
     /// at the out mark — the dedicated ranged-play transport command of leading editors (Premiere's
@@ -4046,6 +4103,13 @@ public partial class MainWindow : Window
             MediaRef? media = _source!.Media;
             _scrubberMarks.SetMarks(media?.SourceMarkIn, media?.SourceMarkOut, scrubberSpan);
             _sourceMarkBar.IsEnabled = media is not null;
+            if (_sourceDragVideo is not null && _sourceDragAudio is not null)
+            {
+                _sourceDragVideo.IsEnabled = media?.Info.HasVideo == true;
+                _sourceDragAudio.IsEnabled = media?.Info.HasAudio == true;
+                _sourceDragVideo.Opacity = _sourceDragVideo.IsEnabled ? 1 : 0.4;
+                _sourceDragAudio.Opacity = _sourceDragAudio.IsEnabled ? 1 : 0.4;
+            }
             _sourceMarkText.Text = media is null ? "In --  Out --  Dur --" : SourceMarkReadout(media);
         }
         else

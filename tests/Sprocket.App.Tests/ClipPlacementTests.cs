@@ -228,4 +228,65 @@ public class ClipPlacementTests
         Assert.Null(ClipPlacement.CompatibleTrack(audio, video));
         Assert.Null(ClipPlacement.CompatibleTrack(video, null)); // no lane under the cursor → keep source
     }
+
+    // ── Timeline drops (PLAN.md step 61 phase 4) ─────────────────────────────────────────────────
+
+    private static (Sequence Seq, VideoTrack V1, VideoTrack V2, AudioTrack A1, AudioTrack A2) Sequence4()
+    {
+        var timeline = new Sprocket.Core.Model.Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var v1 = new VideoTrack { Name = "V1" };
+        var v2 = new VideoTrack { Name = "V2" };
+        var a1 = new AudioTrack { Name = "A1" };
+        var a2 = new AudioTrack { Name = "A2" };
+        timeline.Tracks.AddRange([v1, v2, a1, a2]);
+        return (new Sequence(SequenceId.New(), "Seq", timeline), v1, v2, a1, a2);
+    }
+
+    [Fact]
+    public void DropTargets_Puts_The_Lane_Stream_On_The_Lane_And_The_Companion_On_Its_Patched_Track()
+    {
+        var (seq, _, v2, _, a2) = Sequence4();
+        seq.SourcePatch = new SourcePatch(Audio: a2);
+
+        Assert.Equal((v2, a2, true), ClipPlacement.DropTargets(Media(true, true), SourceStreams.Both, v2, seq));
+        Assert.Equal(((VideoTrack?)null, a2, false), ClipPlacement.DropTargets(Media(true, true), SourceStreams.Audio, v2, seq));
+    }
+
+    [Fact]
+    public void DropTargets_Skips_A_Locked_Patched_Companion_And_Selects_The_Lane_Kind()
+    {
+        var (seq, v1, v2, a1, a2) = Sequence4();
+        v1.Locked = true;           // the default video patch
+        a1.Locked = true;
+
+        (VideoTrack? v, AudioTrack? a, bool primaryIsVideo) =
+            ClipPlacement.DropTargets(Media(true, true), SourceStreams.Both, a2, seq);
+
+        Assert.Same(v2, v);         // first editable video track
+        Assert.Same(a2, a);
+        Assert.False(primaryIsVideo);
+    }
+
+    [Fact]
+    public void DropTargets_Leaves_Out_Streams_The_Media_Or_Drag_Lacks()
+    {
+        var (seq, v1, _, a1, _) = Sequence4();
+
+        Assert.Equal((v1, (AudioTrack?)null, true), ClipPlacement.DropTargets(Media(true, false), SourceStreams.Both, a1, seq));
+        Assert.Equal(((VideoTrack?)null, a1, false), ClipPlacement.DropTargets(Media(false, true), SourceStreams.Both, v1, seq));
+        Assert.Equal((v1, (AudioTrack?)null, true), ClipPlacement.DropTargets(Media(true, true), SourceStreams.Video, a1, seq));
+    }
+
+    [Fact]
+    public void SourceRangePayload_Round_Trips_And_Rejects_Malformed_Text()
+    {
+        var payload = new SourceRangePayload(MediaRefId.New(), Timecode.FromSeconds(1), Timecode.FromSeconds(3), SourceStreams.Audio);
+
+        Assert.Equal(payload, SourceRangePayload.TryParse(payload.Format()));
+        Assert.Null(SourceRangePayload.TryParse(null));
+        Assert.Null(SourceRangePayload.TryParse("not-a-guid|0|10|Both"));
+        Assert.Null(SourceRangePayload.TryParse($"{Guid.NewGuid()}|10|10|Both"));   // empty range
+        Assert.Null(SourceRangePayload.TryParse($"{Guid.NewGuid()}|0|10|Sideways"));
+        Assert.Null(SourceRangePayload.TryParse($"{Guid.NewGuid()}|0|10|7"));       // numeric, undefined
+    }
 }

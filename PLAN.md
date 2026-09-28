@@ -132,7 +132,7 @@ shipped step append to its history entry directly.
 | 58 | Plugin Manager (user-facing plugin management UI) | ✅ | [history](plan/history/steps-58plus.md#step-58) |
 | 59 | Open plugin standards (frei0r / LADSPA / LV2) | ✅ | [history](plan/history/steps-58plus.md#step-59) |
 | 60 | Preview allocation churn (per-frame metadata / wrapper Gen0 — measure + remediate) | ❌ → [plan](plan/features/preview-allocation-churn.md) | — |
-| 61 | Source-monitor marks + three-point editing (Insert / Overwrite, patching, targeting) | 🟡 phase 1 (targeting / sync lock / lock) ✅, phase 2 (source marks) ✅, phase 3 (patching + Insert / Overwrite) ✅; phases 4–6 open → [plan](plan/features/three-point-editing.md) | [history](plan/history/steps-58plus.md#step-61) |
+| 61 | Source-monitor marks + three-point editing (Insert / Overwrite, patching, targeting) | 🟡 phase 1 (targeting / sync lock / lock) ✅, phase 2 (source marks) ✅, phase 3 (patching + Insert / Overwrite) ✅, phase 4 (Source-monitor drag + overwrite-on-drop) ✅; phases 5–6 open → [plan](plan/features/three-point-editing.md) | [history](plan/history/steps-58plus.md#step-61) |
 
 ## Open work
 

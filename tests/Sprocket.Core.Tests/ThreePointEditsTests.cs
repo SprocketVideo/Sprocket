@@ -121,6 +121,28 @@ public class ThreePointEditsTests
     }
 
     [Fact]
+    public void A_Drop_Build_Keeps_The_Sequence_Marks_And_Can_Leave_The_Pair_Unlinked()
+    {
+        var (seq, v1, v2, a1, _) = Fixture();
+        seq.MarkIn = S(1);
+        seq.MarkOut = S(3);
+        MediaRef media = Media();
+
+        // A timeline drop (step 61 phase 4): explicit tracks, no patch, marks untouched, the Linked toggle off.
+        ThreePointEditResult r = ThreePointEdits.Build(ThreePointEditKind.Overwrite, seq, media, Range(0, 2, 6),
+            v2, a1, usePatch: false, linked: false, clearSequenceMarks: false);
+        r.Command!.Apply();
+
+        Assert.Equal((S(1), S(3)), (seq.MarkIn!.Value, seq.MarkOut!.Value));
+        Assert.Equal([(S(6), S(8))], Spans(v2));
+        Assert.Equal([(S(0), S(4)), (S(4), S(8))], Spans(v1));   // v1 isn't a destination: untouched
+        Assert.Equal([(S(0), S(4)), (S(4), S(6)), (S(6), S(8))], Spans(a1)); // A1 carved and overwritten
+        Clip audio = a1.Clips.Single(c => c.MediaRefId == media.Id);
+        Assert.Null(audio.LinkGroupId);
+        Assert.Null(v2.Clips.Single().LinkGroupId);
+    }
+
+    [Fact]
     public void Insert_Splits_Shifts_Patched_And_SyncLocked_Tracks()
     {
         var (seq, v1, v2, a1, a2) = Fixture();

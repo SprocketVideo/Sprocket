@@ -15,6 +15,11 @@ internal static class DragFormats
     public static readonly DataFormat<string> MediaRefId =
         DataFormat.CreateStringApplicationFormat("sprocket-media-ref-id");
 
+    /// <summary>Payload: a <see cref="SourceRangePayload"/> — drag the Source monitor's picture (or its video-only /
+    /// audio-only handle) onto a lane to overwrite (Ctrl: insert) the marked range there (PLAN.md step 61 phase 4).</summary>
+    public static readonly DataFormat<string> SourceRange =
+        DataFormat.CreateStringApplicationFormat("sprocket-source-range");
+
     /// <summary>Payload: an effect type id string — drag an Effects-browser row onto a clip to append it.</summary>
     public static readonly DataFormat<string> EffectId =
         DataFormat.CreateStringApplicationFormat("sprocket-effect-id");
