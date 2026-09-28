@@ -918,4 +918,40 @@ public class SprocketToolsExtendedTests
         await Assert.ThrowsAsync<McpException>(() => tools.AddEffect(clipId, EffectTypeIds.DayForNight, preset: "Noon"));
         await Assert.ThrowsAsync<McpException>(() => tools.AddEffect(clipId, EffectTypeIds.Brightness, preset: "Standard"));
     }
+
+    [Fact]
+    public async Task Preset_Stack_Tools_List_Apply_To_A_Linked_Pair_And_Undo()
+    {
+        (FakeEditorSession session, SprocketTools tools, Clip video, Clip audio) = await LinkedPair();
+        int videoBefore = video.Effects.Count, audioBefore = audio.Effects.Count;
+        int undoDepth = session.History.UndoCount;
+
+        JsonNode list = JsonNode.Parse(await tools.ListPresetStacks())!;
+        JsonArray stacks = list["preset_stacks"]!.AsArray();
+        Assert.Equal(ToyCassetteCameraStacks.All.Select(s => s.Name), stacks.Select(s => (string)s!["name"]!));
+        JsonNode worn = stacks.Single(s => (string)s!["name"]! == "Worn Tape")!;
+        Assert.Equal(EffectTypeIds.AudioCassette, (string)worn["audio_entries"]!.AsArray().Single()!["type_id"]!);
+
+        // Target the audio half: both halves get their entries, as one undo entry.
+        JsonNode applied = JsonNode.Parse(await tools.ApplyPresetStack(RuntimeIds.IdOf(audio), "worn tape"))!;
+        Assert.Equal("Toy Cassette Camera ▸ Worn Tape", (string)applied["stack"]!);
+        Assert.Equal(4, applied["applied"]!.AsArray().Count); // Posterize Time + Echo + Toy Cassette Camera + Cassette
+        Assert.Empty(applied["skipped"]!.AsArray());
+        Assert.All(applied["applied"]!.AsArray(), a => Assert.False(string.IsNullOrEmpty((string?)a!["effect_tag"])));
+        Assert.Equal(videoBefore + 3, video.Effects.Count);
+        Assert.Equal(audioBefore + 1, audio.Effects.Count);
+        Assert.Equal(undoDepth + 1, session.History.UndoCount);
+
+        // Re-applying swaps in place rather than stacking.
+        JsonNode again = JsonNode.Parse(await tools.ApplyPresetStack(RuntimeIds.IdOf(video), "Toy Cassette Camera ▸ Clean"))!;
+        Assert.Equal(4, (int)again["replaced"]!);
+        Assert.Equal(videoBefore + 3, video.Effects.Count);
+
+        await tools.Undo();
+        await tools.Undo();
+        Assert.Equal(videoBefore, video.Effects.Count);
+        Assert.Equal(audioBefore, audio.Effects.Count);
+
+        await Assert.ThrowsAsync<McpException>(() => tools.ApplyPresetStack(RuntimeIds.IdOf(video), "Nope"));
+    }
 }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Sprocket.Core.Timing;
 using Sprocket.Media;
+using Sprocket.Render;
 
 namespace Sprocket.Export;
 
@@ -30,6 +31,16 @@ namespace Sprocket.Export;
 /// the last frame it produced — the same one-shot fallback the preview decode rings apply (ARCHITECTURE.md §11).
 /// <see cref="FellBackToSoftware"/> records it for the export summary. A software source's faults propagate as
 /// before.</para>
+/// <para><b>Temporal effects</b> (Echo, plan/features/toy-cassette-camera.md phase 6): <see cref="GetFrames"/> serves a
+/// layer's frame <em>and</em> its prior frames in one call. Forward, the frames the walk has already passed are kept
+/// in a small history (pooled native frames — no copies, ARCHITECTURE.md §1) instead of being recycled, so each
+/// frame's <c>t − kΔ</c> requests hit it rather than re-seeking: a clip's echoes cost one seek at its start, then the
+/// same single sequential decode as without them. The history holds only what the next request can still need
+/// (frames at or after the earliest prior time) and is capped at the <see cref="GopFrameWindow"/> byte budget; past
+/// the cap the oldest frames drop and a miss falls back to a (correct, slower) re-seek. Reversed, the prior frames lie
+/// <em>above</em> the frame being shown, so each temporal request turns the GOP walk around and refills the window —
+/// correct, at about one GOP decode per frame. Every frame handed out by one call stays valid until the next call,
+/// even if the walk inside the call drops it (it is retired, not recycled, until then).</para>
 /// </remarks>
 internal sealed class ExportFrameProvider : IDisposable
 {
@@ -53,6 +64,18 @@ internal sealed class ExportFrameProvider : IDisposable
     // modes never hold frames at the same time — switching direction resets the other side.
     private GopFrameWindow? _window;
     private bool _inReverse;
+
+    // Temporal fetch state (phase 6): the forward history (frames decoded before _current since the last seek,
+    // ascending), whether the walk keeps it, and the frames the fetch in progress has handed out (a frame dropped
+    // while leased is retired — released at the next call — instead of recycled under the caller).
+    private readonly List<VideoFrame> _history = new();
+    private readonly int _historyCapacity;
+    private bool _keepHistory;
+    private readonly List<VideoFrame> _leased = new();
+    private readonly List<VideoFrame> _retired = new();
+    private bool _fetching;
+    private Timecode? _reverseKnownTop; // reverse: the window answers only requests at/below this (frames above were shed)
+    private int _seekCount;
 
     private bool _disposed;
 
@@ -85,6 +108,7 @@ internal sealed class ExportFrameProvider : IDisposable
         _prefetch = prefetch && !isStill; // a still decodes once — nothing to prefetch
         _pool = new VideoFramePool(source.Info.Width, source.Info.Height);
         _hardwareDevice = source.HardwareDeviceName;
+        _historyCapacity = GopFrameWindow.DefaultCapacityFor(source.Info.Width, source.Info.Height);
     }
 
     /// <summary>The GPU device the source opened on (e.g. <c>d3d11va</c>), or <see langword="null"/> when it opened in
@@ -123,6 +147,17 @@ internal sealed class ExportFrameProvider : IDisposable
     /// <summary>Number of seek / decode / GOP-refill operations performed so far.</summary>
     internal long DecodeOperations => Interlocked.Read(ref _decodeOperations);
 
+    /// <summary>Number of times the decoder was repositioned — forward seeks plus reverse GOP-window refills. A forward
+    /// clip with echoes should cost one per clip (the temporal history serves every <c>t − kΔ</c> request).</summary>
+    internal int SeekCount => _seekCount;
+
+    /// <summary>Frames currently held in the forward temporal history (not counting the current frame).</summary>
+    internal int HistoryCount => _history.Count;
+
+    /// <summary>The most frames the forward temporal history holds — the <see cref="GopFrameWindow"/> byte budget for
+    /// the source's frame size.</summary>
+    internal int HistoryCapacity => _historyCapacity;
+
     /// <summary>Source frame width in pixels.</summary>
     public int Width => _source.Info.Width;
 
@@ -139,6 +174,14 @@ internal sealed class ExportFrameProvider : IDisposable
     public VideoFrame? GetFrame(Timecode sourceTime, bool reverse = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ReleaseRetired();
+
+        // A plain (non-temporal) request: the walk no longer needs its history.
+        if (_keepHistory)
+        {
+            _keepHistory = false;
+            ClearHistory();
+        }
 
         // A still has one frame at (about) time zero; every timeline time inside the clip maps to it, so pin the
         // request to zero instead of seeking to the mapped source time (which would run off the single frame).
@@ -149,6 +192,141 @@ internal sealed class ExportFrameProvider : IDisposable
         }
 
         return reverse ? GetReverse(sourceTime) : GetForward(sourceTime);
+    }
+
+    /// <summary>
+    /// Returns the frame to display at <paramref name="sourceTime"/> (as <see cref="GetFrame"/>) and appends to
+    /// <paramref name="priorFrames"/> the frame each of <paramref name="priorTimes"/> resolves to (a layer's
+    /// <see cref="Core.Rendering.VideoLayer.PriorSourceTimes"/>, ascending), keyed by the requested time — the
+    /// temporal-effect fetch (plan/features/toy-cassette-camera.md phase 6). Requests run in source order (ascending
+    /// forward, descending reversed) so the walk never backs up; forward, the frames passed are kept in the history for
+    /// the next frame's echoes. A time that yields no frame is simply left out. Every returned frame stays valid until
+    /// the next call on this provider.
+    /// </summary>
+    public VideoFrame? GetFrames(Timecode sourceTime, bool reverse, IReadOnlyList<Timecode> priorTimes, List<PriorFrame> priorFrames)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(priorTimes);
+        ArgumentNullException.ThrowIfNull(priorFrames);
+        ReleaseRetired();
+
+        if (_isStill)
+        {
+            // A still's one frame answers every time (GetFrame pins the request to zero).
+            VideoFrame? still = GetFrame(sourceTime);
+            if (still is not null)
+                for (int i = 0; i < priorTimes.Count; i++)
+                    priorFrames.Add(ToPrior(priorTimes[i], still));
+            return still;
+        }
+
+        _fetching = true;
+        try
+        {
+            if (!reverse)
+            {
+                _keepHistory = true;
+                // Frames older than the best match for the earliest time asked for can no longer be needed (the walk
+                // only moves forward from here), so drop them before walking.
+                Timecode horizon = priorTimes.Count > 0 && priorTimes[0] < sourceTime ? priorTimes[0] : sourceTime;
+                if (!_inReverse && _current is not null)
+                    PruneHistory(horizon);
+                for (int i = 0; i < priorTimes.Count; i++) // index loop: no enumerator allocation per frame
+                    AddPrior(priorTimes[i], GetForward(priorTimes[i]), priorFrames);
+                return Lease(GetForward(sourceTime));
+            }
+
+            if (_keepHistory)
+            {
+                _keepHistory = false;
+                ClearHistory();
+            }
+            for (int i = priorTimes.Count - 1; i >= 0; i--)
+                AddPrior(priorTimes[i], GetReverse(priorTimes[i]), priorFrames);
+            return Lease(GetReverse(sourceTime));
+        }
+        finally
+        {
+            _fetching = false;
+        }
+    }
+
+    private void AddPrior(Timecode requested, VideoFrame? frame, List<PriorFrame> priorFrames)
+    {
+        if (Lease(frame) is { } f)
+            priorFrames.Add(ToPrior(requested, f));
+    }
+
+    private static PriorFrame ToPrior(Timecode requested, VideoFrame frame) =>
+        new(requested, frame.Pixels, frame.RowBytes, frame.Width, frame.Height, frame.HasAlpha);
+
+    /// <summary>Marks <paramref name="frame"/> as handed out by the fetch in progress (see <see cref="Release"/>).</summary>
+    private VideoFrame? Lease(VideoFrame? frame)
+    {
+        if (frame is not null && _fetching && !_leased.Contains(frame))
+            _leased.Add(frame);
+        return frame;
+    }
+
+    /// <summary>Lets go of a frame the walk no longer holds: recycled to the pool — unless the temporal fetch in progress
+    /// has handed it out, in which case it is retired until the next call so the caller's draw can still read it.</summary>
+    private void Release(VideoFrame frame)
+    {
+        if (_fetching && _leased.Contains(frame))
+            _retired.Add(frame);
+        else
+            frame.Dispose();
+    }
+
+    /// <summary>Recycles the frames the previous fetch retired (its caller has drawn them by now) and forgets its leases.</summary>
+    private void ReleaseRetired()
+    {
+        foreach (VideoFrame frame in _retired)
+            frame.Dispose();
+        _retired.Clear();
+        _leased.Clear();
+    }
+
+    /// <summary>Keeps the frame the walk just stepped past for later prior-frame requests, trimming to the budget.</summary>
+    private void AddHistory(VideoFrame frame)
+    {
+        _history.Add(frame);
+        while (_history.Count > _historyCapacity)
+        {
+            Release(_history[0]);
+            _history.RemoveAt(0);
+        }
+    }
+
+    /// <summary>Drops history frames that cannot answer any request at or after <paramref name="horizon"/>: those whose
+    /// successor (the next history frame, or the current frame) is already at or before it.</summary>
+    private void PruneHistory(Timecode horizon)
+    {
+        while (_history.Count > 0)
+        {
+            Timecode next = _history.Count > 1 ? _history[1].Pts : _current!.Pts;
+            if (next.Ticks > horizon.Ticks + MatchToleranceTicks)
+                break;
+            Release(_history[0]);
+            _history.RemoveAt(0);
+        }
+    }
+
+    private void ClearHistory()
+    {
+        foreach (VideoFrame frame in _history)
+            Release(frame);
+        _history.Clear();
+    }
+
+    /// <summary>The latest history frame at or before <paramref name="sourceTime"/> — the frame a sequential walk showed
+    /// for it, since the history is every frame decoded between the last seek and the current frame — or null.</summary>
+    private VideoFrame? FindInHistory(Timecode sourceTime)
+    {
+        for (int i = _history.Count - 1; i >= 0; i--)
+            if (_history[i].Pts.Ticks <= sourceTime.Ticks + MatchToleranceTicks)
+                return _history[i];
+        return null;
     }
 
     private VideoFrame? GetForward(Timecode sourceTime)
@@ -169,6 +347,10 @@ internal sealed class ExportFrameProvider : IDisposable
         }
         else if (_current is not null && sourceTime.Ticks < _current.Pts.Ticks - MatchToleranceTicks)
         {
+            // An earlier frame a temporal effect asks for is still in the history: serve it without moving the walk.
+            if (_keepHistory && FindInHistory(sourceTime) is { } kept)
+                return kept;
+
             // The request moved backwards (a cut to an earlier in-point); re-seek and rebuild the look-ahead.
             Reset();
             Seek(sourceTime);
@@ -187,7 +369,13 @@ internal sealed class ExportFrameProvider : IDisposable
             // Promote the look-ahead to current while it is still at or before the requested time.
             if (_pending is not null && _pending.Pts.Ticks <= sourceTime.Ticks + MatchToleranceTicks)
             {
-                _current?.Dispose();
+                if (_current is { } passed)
+                {
+                    if (_keepHistory)
+                        AddHistory(passed); // a later request's echo may still need it
+                    else
+                        Release(passed);
+                }
                 _current = _pending;
                 _pending = null;
                 continue;
@@ -227,7 +415,7 @@ internal sealed class ExportFrameProvider : IDisposable
             return;
         _prefetchTask = null;
         long start = Stopwatch.GetTimestamp();
-        try { task.GetAwaiter().GetResult()?.Dispose(); }
+        try { task.GetAwaiter().GetResult()?.Dispose(); } // never handed out, so never leased
         catch { /* the discarded frame was never needed; a persistent decode fault resurfaces on the next decode */ }
         _blockingDecodeTimestampTicks += Stopwatch.GetTimestamp() - start;
     }
@@ -240,17 +428,23 @@ internal sealed class ExportFrameProvider : IDisposable
             Reset();
             _started = false;
             _inReverse = true;
+            _reverseKnownTop = null;
         }
-        _window ??= new GopFrameWindow(_source, _pool);
+        _window ??= new GopFrameWindow(_source, _pool, release: Release);
 
-        // Serve from the window while the walk stays inside it; refill below it when it runs dry. (A request that
-        // turns around — later than the window's top — also refills, since PeekBelow can only shed frames.)
-        VideoFrame? hit = _window.Count > 0 && (_window.LastPts is { } top && top.Ticks < exclusiveEnd.Ticks - MatchToleranceTicks
-                                                 || _window.FirstPts is { } first && first.Ticks < exclusiveEnd.Ticks)
+        // Serve from the window while the walk stays inside it; refill below it when it runs dry. A request that turns
+        // around — above the highest bound the window still answers for, because PeekBelow sheds the frames above each
+        // request (a reversed clip's prior frames, phase 6) — also refills rather than serve a frame from below the gap.
+        bool inside = _reverseKnownTop is { } known && exclusiveEnd.Ticks <= known.Ticks + MatchToleranceTicks;
+        VideoFrame? hit = inside && _window.Count > 0
+                          && (_window.LastPts is { } top && top.Ticks < exclusiveEnd.Ticks - MatchToleranceTicks
+                              || _window.FirstPts is { } first && first.Ticks < exclusiveEnd.Ticks)
             ? _window.PeekBelow(exclusiveEnd)
             : null;
         if (hit is null && FillWindowBelow(exclusiveEnd) > 0)
             hit = _window.PeekBelow(exclusiveEnd);
+        if (hit is not null)
+            _reverseKnownTop = _reverseKnownTop is { } k && k < exclusiveEnd ? k : exclusiveEnd;
         return hit;
     }
 
@@ -275,6 +469,7 @@ internal sealed class ExportFrameProvider : IDisposable
                 throw;
             _source.SeekTo(target); // a fresh decoder: redo the seek from scratch
         }
+        _seekCount++;
         _walkSeekTarget = target;
         _walkLastPts = null;
         EndDecode(start, blocking: true);
@@ -331,9 +526,11 @@ internal sealed class ExportFrameProvider : IDisposable
                 throw;
             // The reopen dropped the window over the failed source: rebuild it over the software one and refill
             // (each fill re-seeks).
-            _window = new GopFrameWindow(_source, _pool);
+            _window = new GopFrameWindow(_source, _pool, release: Release);
             held = _window.FillBelow(exclusiveEnd);
         }
+        _seekCount++;
+        _reverseKnownTop = exclusiveEnd; // the fill holds every frame below the bound it was asked for
         EndDecode(start, blocking: true);
         return held;
     }
@@ -381,10 +578,13 @@ internal sealed class ExportFrameProvider : IDisposable
     private void Reset()
     {
         DiscardPrefetch();
-        _current?.Dispose();
+        if (_current is not null)
+            Release(_current);
         _current = null;
-        _pending?.Dispose();
+        if (_pending is not null)
+            Release(_pending);
         _pending = null;
+        ClearHistory();
         _eof = false;
     }
 
@@ -395,9 +595,16 @@ internal sealed class ExportFrameProvider : IDisposable
         _disposed = true;
 
         DiscardPrefetch(); // the background decode must finish before the source it reads is freed
+        _fetching = false;
         _current?.Dispose();
         _pending?.Dispose();
+        foreach (VideoFrame frame in _history)
+            frame.Dispose();
+        _history.Clear();
         _window?.Dispose();
+        foreach (VideoFrame frame in _retired)
+            frame.Dispose();
+        _retired.Clear();
         _pool.Dispose();
         _source.Dispose();
     }

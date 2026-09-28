@@ -24,6 +24,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sprocket.Playback\Sprocket.Playback.csproj" />
+    <!-- Echo preview-vs-export pixel agreement (toy-cassette-camera phase 6) renders the export side too. -->
+    <ProjectReference Include="..\..\src\Sprocket.Export\Sprocket.Export.csproj" />
   </ItemGroup>
 
 </Project>

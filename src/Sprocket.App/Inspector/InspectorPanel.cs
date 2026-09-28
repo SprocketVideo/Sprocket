@@ -1629,7 +1629,10 @@ public sealed class InspectorPanel : UserControl
                 p,
                 () => ParamValue(effect, p),
                 (next, coalescing) => ExecuteParam(effect, p.Name, next, coalescing),
-                compact);
+                compact,
+                // A time modifier's parameters are static (Posterize Time's rate, plan/features/toy-cassette-camera.md
+                // phase 2): no keyframe control.
+                keyframeable: !EffectCatalog.IsTimeModifier(effect.EffectTypeId));
 
     /// <summary>
     /// A <see cref="ParameterKind.Asset"/> row (PLAN.md step 49): the referenced file's name (or "None"), a
@@ -1783,17 +1786,19 @@ public sealed class InspectorPanel : UserControl
     /// through the command stack (coalescing mid-drag). <paramref name="compact"/> stacks the label above the
     /// value instead of sharing one row with it — needed when the row is squeezed into a third-width column
     /// (the Color Wheels master/channel rows, <see cref="BuildWheelGroup"/>), where the ordinary label+box
-    /// DockPanel needs more horizontal room than the column has and clips the numeric box.
+    /// DockPanel needs more horizontal room than the column has and clips the numeric box. <paramref
+    /// name="keyframeable"/> false hides the keyframe toggle and commits every edit as a constant — a
+    /// time-modifier effect's static parameters (<see cref="EffectDescriptor.IsTimeModifier"/>).
     /// </summary>
     private Control BuildAnimatableRow(
         EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute,
-        bool compact = false)
+        bool compact = false, bool keyframeable = true)
     {
         if (p.Kind == ParameterKind.Toggle)
-            return BuildToggleRow(p, get, execute);
+            return BuildToggleRow(p, get, execute, keyframeable);
         if (p.Kind == ParameterKind.Dropdown)
             return BuildDropdownRow(p, get, execute);
-        return BuildSliderRow(p, get, execute, compact);
+        return BuildSliderRow(p, get, execute, compact, keyframeable);
     }
 
     /// <summary>
@@ -1805,7 +1810,7 @@ public sealed class InspectorPanel : UserControl
     /// </summary>
     private Control BuildSliderRow(
         EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute,
-        bool compact = false)
+        bool compact = false, bool keyframeable = true)
     {
         bool integer = p.Kind == ParameterKind.Integer;
         Interpolation newKeyMode = AnimatableEditing.DefaultInterpolation(p.Kind);
@@ -1869,6 +1874,7 @@ public sealed class InspectorPanel : UserControl
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
+            IsVisible = keyframeable,
         };
         ToolTip.SetTip(keyButton, "Toggle keyframing at the playhead");
 
@@ -1898,9 +1904,13 @@ public sealed class InspectorPanel : UserControl
             ToolTip.SetTip(label, description);
 
         // Slider drag → coalesced edits (one undo entry); numeric box → a single discrete edit.
-        void Commit(double value, bool coalescing) =>
-            execute(AnimatableEditing.SetValueAt(
-                get(), _playhead(), integer ? Math.Round(value) : value, newKeyMode), coalescing);
+        void Commit(double value, bool coalescing)
+        {
+            double v = integer ? Math.Round(value) : value;
+            execute(keyframeable
+                ? AnimatableEditing.SetValueAt(get(), _playhead(), v, newKeyMode)
+                : AnimatableValue.Constant(v), coalescing);
+        }
         void CommitBox()
         {
             if (_suppress)
@@ -2037,7 +2047,8 @@ public sealed class InspectorPanel : UserControl
     /// interpolating through the threshold. No slider, numeric box, or velocity-graph button.
     /// </summary>
     private Control BuildToggleRow(
-        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute)
+        EffectParameterDescriptor p, Func<AnimatableValue> get, Action<AnimatableValue, bool> execute,
+        bool keyframeable = true)
     {
         var keyGlyph = new ShapesPath
         {
@@ -2060,6 +2071,7 @@ public sealed class InspectorPanel : UserControl
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
+            IsVisible = keyframeable,
         };
         ToolTip.SetTip(keyButton, "Toggle keyframing at the playhead");
 
@@ -2072,8 +2084,10 @@ public sealed class InspectorPanel : UserControl
         {
             if (_suppress)
                 return;
-            execute(AnimatableEditing.SetValueAt(
-                get(), _playhead(), check.IsChecked == true ? 1.0 : 0.0, Interpolation.Hold), false);
+            double v = check.IsChecked == true ? 1.0 : 0.0;
+            execute(keyframeable
+                ? AnimatableEditing.SetValueAt(get(), _playhead(), v, Interpolation.Hold)
+                : AnimatableValue.Constant(v), false);
         };
 
         keyButton.Click += (_, _) =>

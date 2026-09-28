@@ -10,20 +10,18 @@ namespace Sprocket.Audio.Effects;
 /// fixed gentle low-pass in the feedback path so the tail darkens like successive tape generations, and
 /// wow &amp; flutter: the read tap swings on two deterministic sine LFOs (a slow "wow" at
 /// <see cref="EffectParamNames.WowFlutterRateHz"/> and a smaller, faster "flutter" at a fixed multiple above
-/// it). The LFOs are plain functions of a sample counter — no per-instance RNG — so renders are reproducible
-/// run-to-run and export matches preview. <see cref="EffectParamNames.Mix"/> = 0 is an exact pass-through.
+/// it; the shared <see cref="TapeWowFlutter"/> helper). The LFOs are plain functions of a sample counter — no
+/// per-instance RNG — so renders are reproducible run-to-run and export matches preview. <see cref="EffectParamNames.Mix"/> = 0 is an exact pass-through.
 /// </summary>
 public sealed class TapeDelayEffect : IAudioEffect
 {
     private const double MaxDelaySeconds = DigitalDelayEffect.MaxDelaySeconds;
     private const double RepeatLowPassHz = 5000.0;  // fixed darkening per generation
     private const double MaxWowMs = 4.0;            // wow excursion at full depth
-    private const double FlutterRateMultiple = 6.3; // flutter sits well above the wow rate
-    private const double FlutterDepthRatio = 0.125; // flutter is a small fraction of the wow swing
 
     private DelayLine[] _lines = [];
     private float[] _lowPassStates = [];
-    private long _sample; // deterministic LFO clock (advances once per frame, shared by all channels)
+    private TapeWowFlutter _wowFlutter; // deterministic LFO (one clock shared by all channels)
     private int _rate, _channels;
 
     /// <inheritdoc />
@@ -41,11 +39,8 @@ public sealed class TapeDelayEffect : IAudioEffect
         float feedback = Math.Min(
             (float)Math.Clamp(parameters.Get(EffectParamNames.Feedback, 0.4), 0, 1), DigitalDelayEffect.MaxFeedback);
         double depth = Math.Clamp(parameters.Get(EffectParamNames.WowFlutterDepth, 0.25), 0, 1);
-        double wowSwing = depth * MaxWowMs / 1000.0 * sampleRate;
-        double flutterSwing = wowSwing * FlutterDepthRatio;
         double wowRate = Math.Clamp(parameters.Get(EffectParamNames.WowFlutterRateHz, 1.0), 0.05, 20);
-        double wowStep = 2 * Math.PI * wowRate / sampleRate;
-        double flutterStep = wowStep * FlutterRateMultiple;
+        _wowFlutter.Configure(depth, MaxWowMs, wowRate, sampleRate);
         double drive = Math.Clamp(parameters.Get(EffectParamNames.Drive, 0.3), 0, 1);
         var k = (float)(1 + drive * 4); // tanh(kx)/k: unity small-signal gain, softer knees as drive rises
         var pole = (float)(1 - Math.Exp(-2 * Math.PI * RepeatLowPassHz / sampleRate));
@@ -55,10 +50,7 @@ public sealed class TapeDelayEffect : IAudioEffect
         for (int f = 0; f < frames; f++)
         {
             // One tape transport: both channels share the same instantaneous speed (delay) modulation.
-            double lfo = wowSwing * (0.5 + 0.5 * Math.Sin(_sample * wowStep))
-                       + flutterSwing * (0.5 + 0.5 * Math.Sin(_sample * flutterStep));
-            double tap = Math.Max(1.0, delaySamples - lfo);
-            _sample++;
+            double tap = Math.Max(1.0, delaySamples - _wowFlutter.Next());
 
             int baseIndex = f * channels;
             for (int ch = 0; ch < channels; ch++)
@@ -84,7 +76,7 @@ public sealed class TapeDelayEffect : IAudioEffect
         foreach (DelayLine line in _lines)
             line.Clear();
         _lowPassStates.AsSpan().Clear();
-        _sample = 0;
+        _wowFlutter.Reset();
     }
 
     private void Allocate(int sampleRate, int channels)
@@ -98,6 +90,6 @@ public sealed class TapeDelayEffect : IAudioEffect
         for (int ch = 0; ch < channels; ch++)
             _lines[ch] = new DelayLine(capacity);
         _lowPassStates = new float[channels];
-        _sample = 0;
+        _wowFlutter.Reset();
     }
 }

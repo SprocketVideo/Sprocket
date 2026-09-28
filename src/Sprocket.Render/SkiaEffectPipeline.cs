@@ -313,6 +313,12 @@ half4 main(float2 coord) {
         RegisterEffect(new Effects.ChromaticAberrationEffect());
         RegisterEffect(new Effects.ImpactShakeEffect());
         RegisterEffect(new Effects.FlickerEffect());
+        // Toy cassette camera (plan/features/toy-cassette-camera.md) — Mosaic (phase 1) and the Toy Cassette
+        // Camera stage (phase 3).
+        RegisterEffect(new Effects.MosaicEffect());
+        RegisterEffect(new Effects.ToyCamEffect());
+        // Echo (phase 6) — the temporal primitive: prior frames arrive as extra `echoK` shader children.
+        RegisterEffect(new Effects.EchoEffect());
     }
 
     /// <summary>
@@ -394,7 +400,8 @@ half4 main(float2 coord) {
     private const string TimeUniformName = "sprocket_time";
     private const string BoundsUniformName = "sprocket_bounds";
 
-    private sealed record CachedRegisteredEffect(IVideoEffect Source, SKRuntimeEffect Compiled, bool HasTime, bool HasBounds);
+    private sealed record CachedRegisteredEffect(
+        IVideoEffect Source, SKRuntimeEffect Compiled, bool HasTime, bool HasBounds, bool HasEchoChildren);
 
     // Per-instance compiled cache for registered effects, keyed by effect type id. Entries are invalidated
     // by reference-comparing the registered IVideoEffect, so a re-registered (reloaded) plugin recompiles.
@@ -416,6 +423,14 @@ half4 main(float2 coord) {
     private readonly List<SKShader> _scratch = new(); // shaders built for the current draw, disposed after it
     private readonly List<SKImage> _scratchImages = new(); // CPU-stage outputs wrapped for the current draw
     private readonly CpuEffectStage _cpuStage = new();
+
+    // Temporal-effect inputs (Echo, plan/features/toy-cassette-camera.md phase 6), staged by BuildChainShader for the
+    // one effect being built: each echo child's shader (null = the prior frame is unavailable) and the validity masks
+    // bound to the reserved sprocket_echo_valid0/1 uniforms. Reused per draw — no per-frame arrays.
+    private readonly SKShader?[] _echoChildren = new SKShader?[TemporalFootprint.MaxPriorFrames];
+    private int _echoChildCount;
+    private readonly float[] _echoValidLow = new float[4];
+    private readonly float[] _echoValidHigh = new float[4];
     private readonly StabilizationSolveCache _stabCache = new();
     private bool _disposed;
 
@@ -515,6 +530,10 @@ half4 main(float2 coord) {
     /// source-over the layers beneath, revealing them through transparent pixels. When clear (the default) the buffer
     /// is <see cref="SKAlphaType.Opaque"/>: the alpha bytes are ignored and the layer fully replaces what is under it,
     /// keeping the opaque hot path exactly as measured.</para>
+    /// <para><paramref name="priorFrames"/> supplies the earlier source frames a temporal effect in the chain reads
+    /// (Echo — plan/features/toy-cassette-camera.md phase 6), keyed by the source time the plan asked for
+    /// (<see cref="TemporalInput.SourceTime"/>). They are wrapped like the layer's own frame (no copy, §1) and must stay
+    /// valid for the call; an echo whose frame is absent from the list contributes nothing.</para>
     /// </summary>
     public void DrawLayer(
         SKCanvas canvas,
@@ -526,7 +545,8 @@ half4 main(float2 coord) {
         IReadOnlyList<ResolvedEffect> effects,
         double opacity = 1.0,
         SKBlendMode blend = SKBlendMode.SrcOver,
-        bool hasAlpha = false)
+        bool hasAlpha = false,
+        IReadOnlyList<PriorFrame>? priorFrames = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(canvas);
@@ -537,7 +557,7 @@ half4 main(float2 coord) {
         SKAlphaType alphaType = hasAlpha ? SKAlphaType.Unpremul : SKAlphaType.Opaque;
         var info = new SKImageInfo(width, height, SKColorType.Rgba8888, alphaType);
         using SKImage image = SKImage.FromPixels(info, pixels, rowBytes);
-        DrawImageLayer(canvas, dest, image, effects, opacity, blend);
+        DrawImageLayer(canvas, dest, image, effects, opacity, blend, priorFrames);
     }
 
     /// <summary>
@@ -545,7 +565,7 @@ half4 main(float2 coord) {
     /// chain, compositing onto the canvas with <paramref name="opacity"/> and <paramref name="blend"/> (no clear).
     /// The shared per-layer primitive: <see cref="DrawLayer"/> wraps decoded native pixels and calls it, while
     /// <see cref="DrawGenerator"/> and the adjustment-layer path build their <see cref="SKImage"/> first. The
-    /// image must remain valid for the call.
+    /// image must remain valid for the call. <paramref name="priorFrames"/> as for <see cref="DrawLayer"/>.
     /// </summary>
     public void DrawImageLayer(
         SKCanvas canvas,
@@ -553,7 +573,8 @@ half4 main(float2 coord) {
         SKImage image,
         IReadOnlyList<ResolvedEffect> effects,
         double opacity = 1.0,
-        SKBlendMode blend = SKBlendMode.SrcOver)
+        SKBlendMode blend = SKBlendMode.SrcOver,
+        IReadOnlyList<PriorFrame>? priorFrames = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(canvas);
@@ -575,7 +596,7 @@ half4 main(float2 coord) {
         }
 
         _scratch.Clear();
-        SKShader shader = BuildChainShader(image, dest, effects, canvas.Context);
+        SKShader shader = BuildChainShader(image, dest, effects, canvas.Context, priorFrames: priorFrames);
 
         _paint.Shader = shader;
         _paint.Color = SKColors.White.WithAlpha(alpha); // paint alpha modulates the shader output
@@ -646,7 +667,9 @@ half4 main(float2 coord) {
     /// frame, so Decal tiling reads that as transparent; <paramref name="forceDecal"/> forces the same for a
     /// transition side so a letterboxed frame's surround stays transparent instead of edge-clamping.
     /// </summary>
-    private SKShader BuildChainShader(SKImage image, SKRect dest, IReadOnlyList<ResolvedEffect>? effects, GRRecordingContext? context, bool forceDecal = false)
+    private SKShader BuildChainShader(
+        SKImage image, SKRect dest, IReadOnlyList<ResolvedEffect>? effects, GRRecordingContext? context,
+        bool forceDecal = false, IReadOnlyList<PriorFrame>? priorFrames = null)
     {
         float scale = dest.Width / image.Width;
         SKMatrix localMatrix = SKMatrix.CreateScaleTranslation(scale, scale, dest.Left, dest.Top);
@@ -674,7 +697,12 @@ half4 main(float2 coord) {
                     continue;
                 }
 
+                // A temporal effect (Echo) gets its prior frames as extra children, each folded through the effects
+                // below it as resolved for that frame (phase 6). Staged for exactly this one effect, then cleared.
+                if (effect.TemporalInputs is { Count: > 0 } inputs)
+                    StageEchoChildren(inputs, priorFrames, dest, tile);
                 SKShader? next = BuildEffectShader(effect, shader, dest, image.Width, image.Height);
+                ClearEchoChildren();
                 if (next is null)
                 {
                     _cpuStage.Forget(effect.EffectTypeId); // in case it was a CPU effect that has since been unregistered
@@ -685,6 +713,81 @@ half4 main(float2 coord) {
             }
         }
         return shader;
+    }
+
+    /// <summary>
+    /// Builds the per-echo child shaders for a temporal effect (plan/features/toy-cassette-camera.md phase 6): for each
+    /// <see cref="TemporalInput"/> (echo order), the matching prior native frame from <paramref name="priorFrames"/> is
+    /// wrapped as an <see cref="SKImage"/> (no pixel copy, §1), mapped into the same layer rectangle as the current
+    /// frame, and folded through the input's <see cref="TemporalInput.Upstream"/> effects — the effects below the
+    /// temporal one, as resolved for that prior frame. CPU (readback) effects are skipped in this replay (their
+    /// native state is per-frame, not per-echo). A missing frame leaves the child unbound and its validity 0.
+    /// Everything built is scratch, disposed with the draw.
+    /// </summary>
+    private void StageEchoChildren(
+        IReadOnlyList<TemporalInput> inputs, IReadOnlyList<PriorFrame>? priorFrames, SKRect dest, SKShaderTileMode tile)
+    {
+        ClearEchoChildren();
+        int count = Math.Min(inputs.Count, _echoChildren.Length);
+        for (int k = 0; k < count; k++)
+        {
+            if (!TryFindPrior(priorFrames, inputs[k].SourceTime, out PriorFrame prior)
+                || prior.Pixels == 0 || prior.Width <= 0 || prior.Height <= 0)
+                continue;
+
+            var info = new SKImageInfo(prior.Width, prior.Height, SKColorType.Rgba8888,
+                prior.HasAlpha ? SKAlphaType.Unpremul : SKAlphaType.Opaque);
+            SKImage? image = SKImage.FromPixels(info, prior.Pixels, prior.RowBytes);
+            if (image is null)
+                continue;
+            _scratchImages.Add(image);
+
+            float scale = dest.Width / prior.Width;
+            SKMatrix localMatrix = SKMatrix.CreateScaleTranslation(scale, scale, dest.Left, dest.Top);
+            SKShader shader = image.ToShader(tile, tile, Sampling, localMatrix);
+            _scratch.Add(shader);
+            foreach (ResolvedEffect upstream in inputs[k].Upstream)
+            {
+                if (FindRegisteredCpu(upstream.EffectTypeId) is not null)
+                    continue;
+                SKShader? next = BuildEffectShader(upstream, shader, dest, prior.Width, prior.Height);
+                if (next is null)
+                    continue;
+                shader = next;
+                _scratch.Add(shader);
+            }
+
+            _echoChildren[k] = shader;
+            (k < 4 ? _echoValidLow : _echoValidHigh)[k % 4] = 1f;
+        }
+        _echoChildCount = count;
+    }
+
+    private void ClearEchoChildren()
+    {
+        Array.Clear(_echoChildren);
+        Array.Clear(_echoValidLow);
+        Array.Clear(_echoValidHigh);
+        _echoChildCount = 0;
+    }
+
+    /// <summary>The prior frame answering the requested source time <paramref name="sourceTime"/> (exact key match —
+    /// callers key each frame by the time the plan asked for). No allocation.</summary>
+    private static bool TryFindPrior(IReadOnlyList<PriorFrame>? frames, Timecode sourceTime, out PriorFrame frame)
+    {
+        if (frames is not null)
+        {
+            for (int i = 0; i < frames.Count; i++)
+            {
+                if (frames[i].SourceTime == sourceTime)
+                {
+                    frame = frames[i];
+                    return true;
+                }
+            }
+        }
+        frame = default;
+        return false;
     }
 
     /// <summary>Builds the two-input shader combining <paramref name="from"/>/<paramref name="to"/> for a transition
@@ -918,6 +1021,12 @@ half4 main(float2 coord) {
             case EffectTypeIds.CreativeLut:
                 return BuildCreativeLutShader(effect, src);
 
+            case EffectTypeIds.PosterizeTime:
+                // A time modifier (plan/features/toy-cassette-camera.md phase 2) is consumed by the clip's video
+                // time map and dropped from the resolved list by the planner; belt-and-braces, it is a
+                // pass-through if one ever reaches the pipeline.
+                return null;
+
             default:
                 return BuildRegisteredEffectShader(effect, src, dest);
         }
@@ -947,13 +1056,14 @@ half4 main(float2 coord) {
                 SKRuntimeEffect compiled = CompileRegistered(registered);
                 // Scan the declared uniform names once per compile — the reserved auto-bound uniforms cost
                 // nothing for effects that don't declare them.
-                bool hasTime = false, hasBounds = false;
+                bool hasTime = false, hasBounds = false, hasEcho = false;
                 foreach (string name in compiled.Uniforms)
                 {
                     if (name == TimeUniformName) hasTime = true;
                     else if (name == BoundsUniformName) hasBounds = true;
+                    else if (name == Effects.EchoEffect.ValidUniformLow) hasEcho = true;
                 }
-                cached = new CachedRegisteredEffect(registered, compiled, hasTime, hasBounds);
+                cached = new CachedRegisteredEffect(registered, compiled, hasTime, hasBounds, hasEcho);
                 _registeredCache[effect.EffectTypeId] = cached;
             }
 
@@ -966,12 +1076,28 @@ half4 main(float2 coord) {
             if (cached.HasBounds)
                 uniforms[BoundsUniformName] = new[] { dest.Left, dest.Top, dest.Width, dest.Height };
             var children = new SKRuntimeEffectChildren(cached.Compiled) { ["src"] = src };
+            if (cached.HasEchoChildren)
+                BindEchoChildren(uniforms, children, src);
             return cached.Compiled.ToShader(uniforms, children);
         }
         catch
         {
             return null; // a faulting effect passes through rather than killing the frame
         }
+    }
+
+    /// <summary>
+    /// Binds a temporal effect's staged echo children (<see cref="StageEchoChildren"/>) and their validity masks. An
+    /// unavailable echo is bound to <paramref name="src"/> only so the child slot is never null; its validity is 0, so
+    /// the shader never reads it.
+    /// </summary>
+    private void BindEchoChildren(SKRuntimeEffectUniforms uniforms, SKRuntimeEffectChildren children, SKShader src)
+    {
+        IReadOnlyList<string> names = Effects.EchoEffect.EchoChildNames;
+        for (int k = 0; k < names.Count; k++)
+            children[names[k]] = k < _echoChildCount ? _echoChildren[k] ?? src : src;
+        uniforms[Effects.EchoEffect.ValidUniformLow] = _echoValidLow;
+        uniforms[Effects.EchoEffect.ValidUniformHigh] = _echoValidHigh;
     }
 
     /// <summary>

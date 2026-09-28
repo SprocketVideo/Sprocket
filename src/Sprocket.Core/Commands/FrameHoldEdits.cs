@@ -38,7 +38,8 @@ public static class FrameHoldEdits
         if (at < clip.TimelineStart || at >= clip.TimelineEnd)
             throw new ArgumentException("The time must lie inside the clip.", nameof(at));
 
-        Timecode sourceT = clip.MapToSource(at);
+        // The displayed frame (the video map — a posterized clip shows its step's frame, not the one under `at`).
+        Timecode sourceT = clip.MapToSourceVideo(at);
         long frame = sourceT.ToFrameIndex(frameRate);
         Timecode s0 = Timecode.FromFrames(frame, frameRate);
         Timecode s1 = Timecode.FromFrames(frame + 1, frameRate);
@@ -60,7 +61,9 @@ public static class FrameHoldEdits
     {
         ArgumentNullException.ThrowIfNull(track);
         ArgumentNullException.ThrowIfNull(clip);
-        Timecode holdAt = clip.MapToSource(at);
+        // Freeze the frame the user actually sees at the playhead — the video map, so a posterized clip holds
+        // its current Posterize Time step's frame (plan/features/toy-cassette-camera.md phase 2).
+        Timecode holdAt = clip.MapToSourceVideo(at);
         Timecode holdDuration = clip.TimelineEnd - at;
 
         var split = new SplitClipCommand(track, clip, at, rightLinkGroup);
@@ -90,7 +93,7 @@ public static class FrameHoldEdits
         if (at < clip.TimelineStart || at >= clip.TimelineEnd)
             throw new ArgumentException("The insertion point must lie inside the clip.", nameof(at));
 
-        return InsertFreeze(track, clip, at, clip.MapToSource(at), holdDuration, downstream, rightLinkGroup,
+        return InsertFreeze(track, clip, at, clip.MapToSourceVideo(at), holdDuration, downstream, rightLinkGroup,
             "Insert frame hold segment");
     }
 

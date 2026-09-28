@@ -830,11 +830,15 @@ public sealed class TimelineControl : Control
 
     /// <summary>The source time under the playhead in the selected clip via the <em>unheld</em> speed map (the
     /// Frame Hold Options "Playhead" choice must retarget a held clip, whose live map is constant), or
-    /// <see langword="null"/> when the playhead is outside the clip.</summary>
+    /// <see langword="null"/> when the playhead is outside the clip. The playhead is first snapped to the clip's
+    /// Posterize Time step (<see cref="Clip.EffectEvalTime"/>) so the hold captures the frame actually displayed.</summary>
     public Timecode? SelectedClipSourceAtPlayhead =>
         _selected is { } clip && clip.Contains(_playhead)
-            ? clip.Reverse ? clip.SourceOut - clip.SourceOffset(_playhead) : clip.SourceIn + clip.SourceOffset(_playhead)
+            ? UnheldSourceAt(clip, clip.EffectEvalTime(_playhead))
             : null;
+
+    private static Timecode UnheldSourceAt(Clip clip, Timecode t) =>
+        clip.Reverse ? clip.SourceOut - clip.SourceOffset(t) : clip.SourceIn + clip.SourceOffset(t);
 
     /// <summary>Freezes the whole selected clip at source time <paramref name="holdAt"/> (Clip ▸ Frame Hold
     /// Options): its timeline span is kept, so nothing downstream moves. One undo entry.</summary>
@@ -870,7 +874,7 @@ public sealed class TimelineControl : Control
             return;
         if (at == clip.TimelineStart)
         {
-            Execute(new SetClipHoldCommand(clip, clip.MapToSource(at), clip.Duration, "Add frame hold"));
+            Execute(new SetClipHoldCommand(clip, clip.MapToSourceVideo(at), clip.Duration, "Add frame hold"));
             return;
         }
 
@@ -3168,7 +3172,8 @@ public sealed class TimelineControl : Control
     private void OnDragOver(object? sender, DragEventArgs e)
     {
         bool media = e.DataTransfer.Contains(DragFormats.MediaRefId);
-        bool effect = e.DataTransfer.Contains(DragFormats.EffectId);
+        bool effect = e.DataTransfer.Contains(DragFormats.EffectId)
+            || e.DataTransfer.Contains(DragFormats.PresetStackName); // a one-tap stack spans both lane kinds
         bool transition = e.DataTransfer.Contains(DragFormats.TransitionId);
         // A look only grades video, so an audio lane refuses it up front (DropLook reports the same on a drop).
         bool look = FindLook is not null && e.DataTransfer.Contains(DragFormats.LookId)
@@ -3204,6 +3209,8 @@ public sealed class TimelineControl : Control
             DropMedia(e.DataTransfer.TryGetValue(DragFormats.MediaRefId), p);
         else if (e.DataTransfer.Contains(DragFormats.EffectId))
             DropEffect(e.DataTransfer.TryGetValue(DragFormats.EffectId), e.DataTransfer.TryGetValue(DragFormats.EffectPresetName), p);
+        else if (e.DataTransfer.Contains(DragFormats.PresetStackName))
+            DropPresetStack(e.DataTransfer.TryGetValue(DragFormats.PresetStackName), p);
         else if (e.DataTransfer.Contains(DragFormats.TransitionId))
             DropTransition(e.DataTransfer.TryGetValue(DragFormats.TransitionId), p);
         else if (e.DataTransfer.Contains(DragFormats.LookId))
@@ -3291,6 +3298,23 @@ public sealed class TimelineControl : Control
             : presetName is not null && descriptor.FindPreset(presetName) is { } preset ? descriptor.CreateInstance(preset)
             : descriptor.CreateInstance();
         Execute(new AddEffectCommand(clip, instance));
+        Select(clip);
+    }
+
+    /// <summary>Applies the dropped one-tap preset stack (the TOY CASSETTE CAMERA group, plan/features/toy-cassette-camera.md
+    /// phase 5) to the clip under the cursor and its linked companion — the same one-undo-step
+    /// <see cref="MediaBrowser.PresetStackBrowserModel.ApplyToClip"/> path double-clicking the row takes for the selected
+    /// clip. Works on either half of a linked pair; an unlinked clip gets the entries of its lane kind.</summary>
+    private void DropPresetStack(string? stackName, Point p)
+    {
+        if (PresetStackCatalog.Find(stackName) is not { } stack)
+            return;
+        if (!TryHitClip(p, out Clip? clip, out _) || clip is null)
+        {
+            Status?.Invoke($"Drop {stack.Title} onto a clip to apply it.");
+            return;
+        }
+        Status?.Invoke(MediaBrowser.PresetStackBrowserModel.ApplyToClip(stack, clip, _project!, _history!));
         Select(clip);
     }
 

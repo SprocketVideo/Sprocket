@@ -299,6 +299,59 @@ public sealed partial class SprocketTools
             }.ToJsonString();
         });
 
+    // ── One-tap preset stacks (plan/features/toy-cassette-camera.md, phase 5) ─────────────────────────
+
+    [McpServerTool(Name = "list_preset_stacks", ReadOnly = true, Idempotent = true)]
+    [Description("The catalog of one-tap preset stacks (e.g. the Toy Cassette Camera looks Clean, Worn Tape, Low " +
+                 "Light) that apply_preset_stack accepts: each stack's video entries (added to video-track clips) " +
+                 "and audio entries (added to linked audio-track clips), as effect type id + factory preset.")]
+    public Task<string> ListPresetStacks() =>
+        _session.OnModelThreadAsync(_ => StateFormatter.PresetStacks());
+
+    [McpServerTool(Name = "apply_preset_stack")]
+    [Description("Applies a preset stack (see list_preset_stacks) to a clip and every clip linked to it, as one undo " +
+                 "entry: video entries go on the video-track clips, audio entries on the audio-track clips — so either " +
+                 "half of a linked A/V pair gets both halves; an unlinked clip gets only its track kind's entries " +
+                 "(the rest are reported as skipped). Re-applying replaces the stack's existing effects in place " +
+                 "(same position and effect_tag, keeping parameters the preset does not set, like a seed or mix) " +
+                 "instead of duplicating them. Every entry is an ordinary effect afterwards (set_effect_parameter, " +
+                 "remove_effect).")]
+    public Task<string> ApplyPresetStack(
+        [Description("clip_id of the target clip (either half of a linked pair).")] int clipId,
+        [Description("Stack name, e.g. \"Worn Tape\", or its full title \"Toy Cassette Camera ▸ Worn Tape\" (case-insensitive).")] string name) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            (Clip clip, Track _) = ResolveClip(api, clipId);
+            PresetStack stack = PresetStackCatalog.Find(name)
+                ?? throw new McpException($"unknown preset stack '{name}' — one of: {string.Join(", ", PresetStackCatalog.All.Select(s => s.Name))}.");
+            PresetStackApplyResult result = PresetStackApplication.Build(api.Project.Timeline, clip, stack);
+            if (result.Command is null)
+                throw new McpException($"nothing to apply: {string.Join("; ", result.Skipped.Select(s => $"{s.EffectTypeId} ({s.Reason})"))}.");
+            api.History.Execute(result.Command);
+            EffectTags.EnsureAssigned(api.Project); // settle new instances' reference tags before reporting them
+            api.RefreshPreview();
+            var applied = new JsonArray();
+            foreach ((Clip target, EffectInstance effect) in result.Applied)
+                applied.Add(new JsonObject
+                {
+                    ["clip_id"] = RuntimeIds.IdOf(target),
+                    ["type_id"] = effect.EffectTypeId,
+                    ["effect_index"] = target.Effects.IndexOf(effect),
+                    ["effect_tag"] = effect.Tag,
+                });
+            var skipped = new JsonArray();
+            foreach (PresetStackSkip skip in result.Skipped)
+                skipped.Add(new JsonObject { ["type_id"] = skip.EffectTypeId, ["reason"] = skip.Reason });
+            return new JsonObject
+            {
+                ["stack"] = stack.Title,
+                ["applied"] = applied,
+                ["replaced"] = result.Replaced,
+                ["skipped"] = skipped,
+                ["history"] = StateFormatter.HistoryObject(api.History, $"applied {stack.Title}"),
+            }.ToJsonString();
+        });
+
     [McpServerTool(Name = "set_generator_text")]
     [Description("Sets a string attribute of a generator clip (its text, colors as #AARRGGBB hex, font " +
                  "family, alignment, scroll mode, …). See list_generator_types / get_clip for names. An " +

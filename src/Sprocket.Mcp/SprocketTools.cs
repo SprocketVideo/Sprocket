@@ -61,7 +61,8 @@ public sealed partial class SprocketTools(IEditorSession session)
 
     [McpServerTool(Name = "list_effect_types", ReadOnly = true, Idempotent = true)]
     [Description("The catalog of effect types that add_effect accepts, with each type's parameters and ranges. " +
-                 "Filter by category and/or a name substring to keep the payload small.")]
+                 "Filter by category and/or a name substring to keep the payload small. Multi-effect one-tap looks " +
+                 "spanning picture and linked sound are listed by list_preset_stacks.")]
     public Task<string> ListEffectTypes(
         [Description("Restrict to one category: Video, Color, or Audio.")] string? category = null,
         [Description("Restrict to types whose id or display name contains this text.")] string? nameQuery = null) =>

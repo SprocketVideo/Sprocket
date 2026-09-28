@@ -614,3 +614,61 @@ carries the tier-1 `builtin.colortransform`.
   `LooksBrowserModelTests` (badge, search, grouping, LUT import, apply/undo, status text) and `LooksLibraryTests`
   (persist, reload, unique names, read-only built-ins, garbage file).
 - **Deferred** — per-look thumbnail swatches, an MCP `apply_look` tool, and a Save Look entry point in the Inspector.
+
+## Toy cassette camera look (unscheduled feature — all 6 phases, 2026-09-27) ✅ DONE
+
+Plan: [plan/features/toy-cassette-camera.md](../features/toy-cassette-camera.md). A PXL 2000–style look built from
+reusable primitives named as other editors name them, stacked by a one-tap preset. Brand only in descriptions;
+`EffectCatalogTests` brand guards cover the toycam / Cassette names, presets and stack names.
+
+- **Phase 1 — Mosaic (`builtin.mosaic`, "MO")**: AE naming and defaults (Horizontal / Vertical Blocks 10×10, Sharp
+  Colors off = averaged ≤ 4×4 taps per block) plus Edge Softness (smoothstep blend across block borders; worst case
+  64 upstream taps inside soft zones only). Grid over `sprocket_bounds`. New internal `SkslSnippets` (`CellHash`,
+  `Rec709Luma`, `BlockGrid`) for new effects; existing effects keep their inline copies.
+- **Phase 2 — Posterize Time (`builtin.posterizetime`, "PT")**: Frame Rate (default 12 = AE, 1–60). A new descriptor
+  flag `IsTimeModifier` (not keyframeable, dropped from resolved effects, pipeline no-op). `Clip.PosterizeInterval`,
+  `Clip.MapToSourceVideo` (floor timeline time to the grid anchored at sequence 0, clamped to ≥ `TimelineStart`,
+  then the existing hold ▸ ramp ▸ speed ▸ reverse map) and `Clip.EffectEvalTime` (effects + keyframes step too).
+  Video callers switched (RenderGraph layers / effects / generators / nested / multicam / transitions,
+  `PlaybackEngine`, `VideoTrackPlayer`, `FrameHoldEdits`, TimelineControl frame-hold sites); audio, split and MCP
+  `trim_clip` stay on `MapToSource`. MCP refuses keyframing a time modifier; `list_effect_types` flags it.
+  Known trade-offs: after an off-grid blade split the right half's first partial step shows the split frame; on an
+  adjustment layer only its own effects step.
+- **Phase 3 — Toy Cassette Camera (`builtin.toycam`, "TC")**: one ordered SkSL stage — pixel grid (120×90) → IR-ish
+  mono luma (0.30/0.60/0.10) + tone/crush/shoulder → bloom → spatial right-trailing max smear (≤ 8 px) → row
+  value-noise lines + seeded dropouts → grain → largest centred 4:3 window scaled into a feathered black border
+  (never crops). Hashes key on (row, `sprocket_time`, Seed) so they step with Posterize Time. Worst case 88 upstream
+  taps per pixel (48 at defaults). `ToyCamPresets` Clean / Worn Tape / Low Light (Seed deliberately unset).
+- **Phase 4 — Cassette (`builtin.audio.cassette`, "CS")**: mono fold → AGC (target −16 dBFS, +24/−30 dB) →
+  `tanh` saturation → deterministic counter-hashed hiss (RMS exact after band-limit) → 24 dB/oct HP/LP
+  (new `BiquadBand.ConfigureHighPass/LowPass`) → wow/flutter through `DelayLine.TapFrac` with a small level wobble →
+  Mix. Zero fixed latency (no `IAudioEffectTail`). Tape Delay's LFO extracted to `TapeWowFlutter` (bit-exact hash
+  before/after). `CassettePresets` share the video preset names.
+- **Phase 5 — One-tap look**: `PresetStack` / `PresetStackApplication.Build` / `PresetStackCatalog`,
+  `ToyCassetteCameraStacks` Clean / Worn Tape / Low Light. One `CompositeCommand` over the clip + linked companions
+  (video entries → video tracks, audio → audio tracks; skips reported); idempotent re-apply replaces entries in place
+  (keeps tag, Seed, Mix). Effects browser **TOY CASSETTE CAMERA** group (double-click / drag via
+  `DragFormats.PresetStackName` → `TimelineControl.DropPresetStack`). MCP `list_preset_stacks` +
+  `apply_preset_stack(clipId, name)` (undoable).
+- **Phase 6 — Echo (`builtin.echo`, "EC") + temporal footprint**: AE naming (Echo Time −1..0 s, default −0.033;
+  Number of Echoes 0–8; Starting Intensity; Decay; Echo Operator ×7) plus Highlight Key (10 % soft knee).
+  `EffectDescriptor.TemporalFootprint` → `ResolvedEffect.TemporalInputs` / `VideoLayer.PriorSourceTimes` (distinct,
+  ≤ 8, through `MapToSourceVideo`, clamped to media bounds so handles are used where present); effects below Echo are
+  re-resolved at `EffectEvalTime(t + kΔ)` and re-applied per prior frame. Render binds prior native frames
+  (`SKImage.FromPixels`, no copies) as `echo0..7` children. Frame lifetime via leases: `ExportFrameProvider.GetFrames`
+  keeps a forward-walk history (retired frames released next call; `GopFrameWindow` release callback);
+  `VideoTrackPlayer` keeps a source-time-keyed history, seeks start early enough to fill the trail, and
+  `PresentedVideoLayer.PriorFrames` reaches `PreviewSurface`. History budget 256 MB (32 frames 1080p / 8 at 4K).
+  Stacks now = Posterize 15 → Echo (Maximum, −1/15 s, key 0.8, 3–4 echoes) → toycam with Smear Length 0.
+  Also fixed a latent reverse-window bug (a request turning back up could get the window's top frame) and a
+  phase-5 front-placement ordering case. No echoes on generator / adjustment / nested / transition layers, on CPU
+  (frei0r) effects below Echo, or for reversed clips on forward-only fixed feeds.
+- **Tests** — Core `PosterizeTimeTests`, `PresetStackTests`, `EchoTemporalFootprintTests` + catalog / parameter-kind
+  updates; Render `MosaicEffectTests`, `ToyCamEffectTests`, `EchoEffectTests` (incl. managed-alloc check);
+  Audio `CassetteEffectTests`; Persistence `PosterizeTimePersistenceTests` + Cassette round-trip; Playback posterize
+  holds + `EchoPreviewTests` (preview ≡ export within 1 LSB); Export posterize runs + `EchoExportTests` (one seek per
+  forward clip); App `PresetStackBrowserModelTests`; MCP stack tools. Full suite 2834 green, 0 warnings.
+- **Deferred** — 4K60 Low Light exceeds the history budget (preview drops oldest echoes; export re-seeks per frame;
+  fix = keep only the frames each echo needs); future (positive) Echo Time; echoes on nested / adjustment /
+  generator layers; ARCHITECTURE.md section for the temporal footprint; a manual app pass (look/sound by eye/ear)
+  and an allocation-profiler run.

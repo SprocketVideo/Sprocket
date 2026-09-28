@@ -564,6 +564,71 @@ public sealed class MediaBrowserPanel : UserControl
             foreach (EffectPreset look in dayForNight.Presets)
                 _effectsList.Children.Add(EffectPresetRow(dayForNight, look));
         }
+
+        // One-tap preset stacks (plan/features/toy-cassette-camera.md, phase 5) — each adds several ordinary effects
+        // across the picture and the linked sound in one undo step; applying again swaps the look in place.
+        foreach ((string header, IReadOnlyList<PresetStack> stacks) in PresetStackBrowserModel.Groups(PresetStackCatalog.All))
+        {
+            _effectsList.Children.Add(new TextBlock
+            {
+                Text = header,
+                FontSize = Typography.Micro,
+                Foreground = MutedText,
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Avalonia.Thickness(0, 10, 0, 0),
+            });
+            _effectsList.Children.Add(new TextBlock
+            {
+                Text = "Double-click to apply to the selected clip and its linked audio, or drag onto a clip. Each part stays editable in the Inspector.",
+                FontSize = Typography.Caption,
+                Foreground = FaintText,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Avalonia.Thickness(0, 0, 0, 4),
+            });
+            foreach (PresetStack stack in stacks)
+                _effectsList.Children.Add(PresetStackRow(stack));
+        }
+    }
+
+    private Control PresetStackRow(PresetStack stack)
+    {
+        var title = new TextBlock { Text = stack.Name, FontSize = Typography.Body, Foreground = TextBrush, FontWeight = FontWeight.SemiBold };
+        var badge = new TextBlock { Text = PresetStackBrowserModel.Badge(stack), FontSize = Typography.Micro, Foreground = Accent };
+        var header = new DockPanel();
+        DockPanel.SetDock(badge, Dock.Right);
+        header.Children.Add(badge);
+        header.Children.Add(title);
+
+        var desc = new TextBlock
+        {
+            Text = stack.Description,
+            FontSize = Typography.Caption,
+            Foreground = MutedText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Avalonia.Thickness(0, 2, 0, 0),
+        };
+
+        var row = new Border
+        {
+            Background = RaisedBg,
+            CornerRadius = new Avalonia.CornerRadius(5),
+            Padding = new Avalonia.Thickness(8, 6),
+            Child = new StackPanel { Children = { header, desc } },
+        };
+        row.DoubleTapped += (_, _) => ApplyPresetStack(stack);
+        EnableDrag(row, DragFormats.PresetStackName, () => PresetStackBrowserModel.DragPayload(stack));
+        ToolTip.SetTip(row, PresetStackBrowserModel.Tooltip(stack));
+        return row;
+    }
+
+    private void ApplyPresetStack(PresetStack stack)
+    {
+        if (_selectedClip is null || _history is null || _project is null)
+        {
+            Status?.Invoke($"Select a clip in the timeline to apply {stack.Title}.");
+            return;
+        }
+        Status?.Invoke(PresetStackBrowserModel.ApplyToClip(stack, _selectedClip, _project, _history));
     }
 
     private Control EffectPresetRow(EffectDescriptor effect, EffectPreset preset)

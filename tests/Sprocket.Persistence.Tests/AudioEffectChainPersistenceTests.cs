@@ -228,6 +228,34 @@ public class AudioEffectChainPersistenceTests
     }
 
     [Fact]
+    public void Cassette_Round_Trips()
+    {
+        // plan/features/toy-cassette-camera.md phase 4: the Cassette id serializes via the existing EffectInstance
+        // JSON — additive, no schema bump.
+        var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);
+        var project = new Project(timeline);
+        var track = new AudioTrack { Name = "A1" };
+        track.Effects.Add(new EffectInstance(EffectTypeIds.AudioCassette)
+            .Set(EffectParamNames.Mono, 0.0)
+            .Set(EffectParamNames.LowCutHz, 160.0)
+            .Set(EffectParamNames.HighCutHz, 3600.0)
+            .Set(EffectParamNames.HissDb, -34.0)
+            .Set(EffectParamNames.AgcAmount, 0.95)
+            .Set(EffectParamNames.ReleaseMs, 300.0));
+        timeline.Tracks.Add(track);
+
+        AudioTrack loaded = Assert.IsType<AudioTrack>(RoundTrip(project).Timeline.Tracks[0]);
+        EffectInstance cassette = Assert.Single(loaded.Effects);
+        Assert.Equal(EffectTypeIds.AudioCassette, cassette.EffectTypeId);
+        Assert.Equal(0.0, cassette.Parameters[EffectParamNames.Mono].Evaluate(Timecode.Zero));
+        Assert.Equal(160.0, cassette.Parameters[EffectParamNames.LowCutHz].Evaluate(Timecode.Zero));
+        Assert.Equal(3600.0, cassette.Parameters[EffectParamNames.HighCutHz].Evaluate(Timecode.Zero));
+        Assert.Equal(-34.0, cassette.Parameters[EffectParamNames.HissDb].Evaluate(Timecode.Zero));
+        Assert.Equal(0.95, cassette.Parameters[EffectParamNames.AgcAmount].Evaluate(Timecode.Zero));
+        Assert.Equal(300.0, cassette.Parameters[EffectParamNames.ReleaseMs].Evaluate(Timecode.Zero));
+    }
+
+    [Fact]
     public void Chainless_Project_Omits_The_Chain_Fields_In_Json()
     {
         var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));

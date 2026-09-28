@@ -679,6 +679,10 @@ public static class VideoExporter
         private readonly Dictionary<MediaRefId, ExportFrameProvider?> _providers = new();
         private bool _disposed;
 
+        /// <summary>Reused per layer for a temporal effect's prior frames (plan/features/toy-cassette-camera.md
+        /// phase 6), so the fetch allocates nothing per frame. One per worker, like the providers.</summary>
+        public List<PriorFrame> PriorScratch { get; } = new(TemporalFootprint.MaxPriorFrames);
+
         /// <summary>Total decode time across every opened provider, background prefetch included.</summary>
         public TimeSpan DecodeElapsed
         {
@@ -973,6 +977,26 @@ public static class VideoExporter
         surface.Canvas.Flush();
     }
 
+    /// <summary>
+    /// Test seam: composites the single frame at timeline time <paramref name="t"/> of <paramref name="sequence"/> exactly
+    /// as an export renders it — the same plan, frame providers (software decode, full resolution) and effect pipeline
+    /// — into a new <paramref name="width"/>×<paramref name="height"/> raster bitmap over black. Lets tests compare the
+    /// export pixels of one frame with the live preview's (plan/features/toy-cassette-camera.md phase 6).
+    /// </summary>
+    internal static SKBitmap RenderFrameForTests(Project project, Sequence sequence, Timecode t, int width, int height)
+    {
+        using var providers = new FrameProviders(prefetch: false, HardwareAccelMode.Disabled);
+        using var pipeline = new SkiaEffectPipeline();
+        var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using SKSurface surface = SKSurface.Create(info);
+        surface.Canvas.Clear(SKColors.Black);
+        CompositePlan(project, RenderGraph.PlanVideoFrame(project, sequence, t), surface, pipeline,
+            SKRect.Create(0, 0, width, height), providers);
+        surface.Canvas.Flush();
+        using SKImage image = surface.Snapshot();
+        return SKBitmap.FromImage(image);
+    }
+
     /// <summary>Resolves each burn-in to its display string at timeline time <paramref name="t"/> (Core) and draws
     /// the non-empty lines over the frame (Render). Kept off the preview path — export only.</summary>
     private static void DrawBurnIns(
@@ -1074,7 +1098,21 @@ public static class VideoExporter
                 default:
                 {
                     ExportFrameProvider? provider = providers.Resolve(project, layer.MediaRefId);
-                    VideoFrame? frame = provider?.GetFrame(layer.SourceTime, layer.Reverse);
+                    // A temporal effect (Echo, plan/features/toy-cassette-camera.md phase 6) also needs the layer's prior
+                    // frames: fetched in the same call, from the provider's history of frames the walk already passed,
+                    // so they cost no extra decode. All stay valid until this provider's next request (after the draw).
+                    List<PriorFrame>? priors = null;
+                    VideoFrame? frame;
+                    if (layer.PriorSourceTimes is { Count: > 0 } priorTimes && provider is not null)
+                    {
+                        priors = providers.PriorScratch;
+                        priors.Clear();
+                        frame = provider.GetFrames(layer.SourceTime, layer.Reverse, priorTimes, priors);
+                    }
+                    else
+                    {
+                        frame = provider?.GetFrame(layer.SourceTime, layer.Reverse);
+                    }
                     if (frame is null)
                         continue;
 
@@ -1083,7 +1121,7 @@ public static class VideoExporter
                     if (clip) { canvas.Save(); canvas.ClipRect(bounds); }
                     pipeline.DrawLayer(
                         canvas, dest, frame.Pixels, frame.RowBytes, frame.Width, frame.Height,
-                        layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode), frame.HasAlpha);
+                        layer.Effects, layer.Opacity, ToBlendMode(layer.BlendMode), frame.HasAlpha, priors);
                     if (clip) canvas.Restore();
                     break;
                 }

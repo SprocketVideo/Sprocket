@@ -23,9 +23,11 @@ public sealed class ParameterKindTests
         [
             $"{EffectTypeIds.HslQualifier}.{EffectParamNames.ShowMask}",
             $"{EffectTypeIds.BlackWhite}.{EffectParamNames.GrainSeedLock}",
+            $"{EffectTypeIds.Mosaic}.{EffectParamNames.SharpColors}",
             $"{EffectTypeIds.AudioDelayStereo}.{EffectParamNames.PingPong}",
             $"{EffectTypeIds.AudioShelvingEq}.{EffectParamNames.LowEnable}",
             $"{EffectTypeIds.AudioShelvingEq}.{EffectParamNames.HighEnable}",
+            $"{EffectTypeIds.AudioCassette}.{EffectParamNames.Mono}",
             $"{EffectTypeIds.Stabilization}.{EffectParamNames.LockRotation}",
             $"{EffectTypeIds.Stabilization}.{EffectParamNames.Zoom}",
             $"{EffectTypeIds.Stabilization}.{EffectParamNames.DetailedAnalysis}",
@@ -62,6 +64,18 @@ public sealed class ParameterKindTests
     }
 
     [Fact]
+    public void Echo_Operator_Is_A_Dropdown_Over_After_Effects_Operators()
+    {
+        EffectParameterDescriptor p = EffectCatalog.Find(EffectTypeIds.Echo)!
+            .Parameters.Single(x => x.Name == EffectParamNames.EchoOperator);
+        Assert.Equal(ParameterKind.Dropdown, p.Kind);
+        Assert.Same(EchoOperators.Names, p.Choices);
+        Assert.Equal(
+            ["Add", "Maximum", "Minimum", "Screen", "Composite in Back", "Composite in Front", "Blend"],
+            p.Choices);
+    }
+
+    [Fact]
     public void Dropdowns_Carry_Choices_Matching_Their_Range()
     {
         foreach ((EffectDescriptor _, EffectParameterDescriptor p) in
@@ -75,12 +89,36 @@ public sealed class ParameterKindTests
     }
 
     [Fact]
-    public void ShimmerInterval_Is_The_Only_Integer()
+    public void Exactly_The_Expected_Descriptors_Are_Integers()
     {
-        (EffectDescriptor effect, EffectParameterDescriptor p) = Assert.Single(
-            AllBuiltInParams(), x => x.Param.Kind == ParameterKind.Integer);
-        Assert.Equal(EffectTypeIds.AudioShimmerReverb, effect.Id);
-        Assert.Equal(EffectParamNames.ShimmerInterval, p.Name);
+        string[] expected =
+        [
+            $"{EffectTypeIds.AudioShimmerReverb}.{EffectParamNames.ShimmerInterval}",
+            $"{EffectTypeIds.Mosaic}.{EffectParamNames.HorizontalBlocks}",
+            $"{EffectTypeIds.Mosaic}.{EffectParamNames.VerticalBlocks}",
+            $"{EffectTypeIds.ToyCam}.{EffectParamNames.HorizontalPixels}",
+            $"{EffectTypeIds.ToyCam}.{EffectParamNames.VerticalPixels}",
+            $"{EffectTypeIds.ToyCam}.{EffectParamNames.Seed}",
+            $"{EffectTypeIds.Echo}.{EffectParamNames.EchoCount}",
+        ];
+        string[] actual = [.. AllBuiltInParams()
+            .Where(x => x.Param.Kind == ParameterKind.Integer)
+            .Select(x => $"{x.Effect.Id}.{x.Param.Name}")];
+        Assert.Equal(expected.Order(), actual.Order());
+    }
+
+    [Fact]
+    public void Integers_Have_Whole_Number_Defaults_Ranges_And_Unit_Step()
+    {
+        foreach ((EffectDescriptor _, EffectParameterDescriptor p) in
+                 AllBuiltInParams().Where(x => x.Param.Kind == ParameterKind.Integer))
+        {
+            Assert.Equal(1.0, p.Step);
+            Assert.Equal(Math.Round(p.Default), p.Default);
+            Assert.Equal(Math.Round(p.Min), p.Min);
+            Assert.Equal(Math.Round(p.Max), p.Max);
+            Assert.Null(p.Choices);
+        }
     }
 
     [Fact]
@@ -92,10 +130,12 @@ public sealed class ParameterKindTests
         Assert.Equal(ParameterKind.Continuous, rotation.Kind);
 
         int discrete = AllBuiltInParams().Count(x => x.Param.Kind != ParameterKind.Continuous);
-        // 18 toggles (ShowMask, B&W Static Grain, PingPong, Low/HighEnable, 8 tap enables, + Stabilization's
-        // LockRotation/Zoom/DetailedAnalysis/ShowTrackPoints/HideBanner) + 5 dropdowns (SourceProfile +
-        // Stabilization's StabMode/StabMethod/ScaleMode/ScaleLockRef) + 1 integer + 2 assets (IR, creative LUT).
-        Assert.Equal(26, discrete);
+        // 20 toggles (ShowMask, B&W Static Grain, Mosaic Sharp Colors, PingPong, Low/HighEnable, Cassette Mono, 8 tap enables,
+        // + Stabilization's LockRotation/Zoom/DetailedAnalysis/ShowTrackPoints/HideBanner) + 6 dropdowns
+        // (SourceProfile + Stabilization's StabMode/StabMethod/ScaleMode/ScaleLockRef + Echo Operator) + 7 integers
+        // (Shimmer Interval, Mosaic Horizontal/Vertical Blocks, Toy Cassette Camera Horizontal/Vertical Pixels + Seed,
+        // Echo's Number of Echoes) + 2 assets (IR, creative LUT).
+        Assert.Equal(35, discrete);
     }
 
     [Fact]

@@ -31,6 +31,12 @@ internal static class DragFormats
     public static readonly DataFormat<string> LookId =
         DataFormat.CreateStringApplicationFormat("sprocket-look-id");
 
+    /// <summary>Payload: a <see cref="Core.Model.PresetStack"/>'s <see cref="Core.Model.PresetStack.Title"/> — drag an
+    /// Effects-browser one-tap look row (the TOY CASSETTE CAMERA group, plan/features/toy-cassette-camera.md phase 5)
+    /// onto a clip to apply the whole stack to it and its linked companion, exactly as double-clicking the row does.</summary>
+    public static readonly DataFormat<string> PresetStackName =
+        DataFormat.CreateStringApplicationFormat("sprocket-preset-stack-name");
+
     /// <summary>Payload: a transition type id string — drag a Transitions-browser row onto a cut between two
     /// clips to apply it (PLAN.md step 25).</summary>
     public static readonly DataFormat<string> TransitionId =

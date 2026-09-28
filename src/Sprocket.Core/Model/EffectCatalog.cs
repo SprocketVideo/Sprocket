@@ -1,4 +1,5 @@
 using Sprocket.Core.Stabilization;
+using Sprocket.Core.Timing;
 
 namespace Sprocket.Core.Model;
 
@@ -147,6 +148,25 @@ public sealed record EffectDescriptor(
     /// from its display name (<see cref="EffectTags.DeriveShortCode"/>).
     /// </summary>
     public string? ShortCode { get; init; }
+
+    /// <summary>
+    /// Whether this effect modifies the clip's <em>time</em> rather than its pixels (plan/features/toy-cassette-camera.md
+    /// phase 2 — <see cref="EffectTypeIds.PosterizeTime"/>): it is read by the clip's video time map
+    /// (<see cref="Clip.MapToSourceVideo"/> / <see cref="Clip.EffectEvalTime"/>), dropped from the resolved effect
+    /// list the shader pipeline sees (and skipped there if one reaches it), and its parameters are static — the
+    /// Inspector hides their keyframe control and MCP refuses keyframes for them.
+    /// </summary>
+    public bool IsTimeModifier { get; init; }
+
+    /// <summary>
+    /// For a <em>temporal</em> effect (plan/features/toy-cassette-camera.md phase 6 — <see cref="EffectTypeIds.Echo"/>):
+    /// computes, from the effect's resolved parameter values, how many earlier frames of its clip it reads and how
+    /// far apart (<see cref="Model.TemporalFootprint"/>). The render planner maps those prior times through the
+    /// clip's video time map and attaches them to the resolved effect as data, so the renderer can bind the prior
+    /// frames as extra shader inputs while every frame stays a pure function of (project, time).
+    /// <see langword="null"/> (the default) for every ordinary, single-frame effect. Must be pure and cheap.
+    /// </summary>
+    public Func<IReadOnlyDictionary<string, double>, TemporalFootprint>? TemporalFootprint { get; init; }
 
     /// <summary>
     /// Builds a fresh <see cref="EffectInstance"/> of this type with every numeric parameter set to its
@@ -401,6 +421,130 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.Randomness, "Randomness", 0.5, 0.0, 1.0, 0.05, "%",
                     "Blends from a steady pulse (0%) to irregular, firelight-like flicker (100%).") { DisplayScale = 100 },
             ]) { ShortCode = "FL" },
+
+        // ── Mosaic (plan/features/toy-cassette-camera.md, phase 1) — the After Effects / Premiere primitive,
+        // with its naming and 10×10 defaults; Edge Softness is our addition (soft-edged pixels, the look of a
+        // low-res sensor shown on a TV). The grid spans the layer rect, so it follows the layer's transform
+        // and crop rather than the canvas. ──
+        new EffectDescriptor(
+            EffectTypeIds.Mosaic,
+            "Mosaic",
+            EffectCategory.Video,
+            "Breaks the image into a grid of solid-colour blocks — pixelation, censoring, low-res retro looks.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.HorizontalBlocks, "Horizontal Blocks", 10.0, 1.0, 1920.0, 1.0,
+                    Description: "How many blocks fit across the layer (more = smaller blocks).",
+                    Kind: ParameterKind.Integer),
+                new EffectParameterDescriptor(EffectParamNames.VerticalBlocks, "Vertical Blocks", 10.0, 1.0, 1080.0, 1.0,
+                    Description: "How many blocks fit down the layer (more = smaller blocks).",
+                    Kind: ParameterKind.Integer),
+                new EffectParameterDescriptor(EffectParamNames.SharpColors, "Sharp Colors", 0.0, 0.0, 1.0, 1.0,
+                    Description: "Fills each block with the colour at its centre instead of the block's average — crisper, more contrasty blocks.",
+                    Kind: ParameterKind.Toggle),
+                new EffectParameterDescriptor(EffectParamNames.EdgeSoftness, "Edge Softness", 0.0, 0.0, 1.0, 0.05, "%",
+                    "Blends smoothly across block borders instead of hard edges (0% = crisp blocks).") { DisplayScale = 100 },
+            ]) { ShortCode = "MO" },
+
+        // ── Posterize Time (plan/features/toy-cassette-camera.md, phase 2) — the After Effects / Premiere primitive
+        // with its naming and 12 fps default. A time modifier: the clip's video time map reads it (the picture
+        // steps at the rate, on a grid anchored to sequence time), the shader pipeline skips it, and its rate is
+        // static. Audio is never chopped. ──
+        new EffectDescriptor(
+            EffectTypeIds.PosterizeTime,
+            "Posterize Time",
+            EffectCategory.Video,
+            "Updates the picture at a lower frame rate, holding each frame — stuttery, low-frame-rate motion. Audio is unaffected.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.PosterizeFrameRate, "Frame Rate", 12.0, 1.0, 60.0, 0.001, "fps",
+                    "How many times per second the picture updates (lower = choppier). Not keyframeable."),
+            ]) { ShortCode = "PT", IsTimeModifier = true },
+
+        // ── Toy Cassette Camera (plan/features/toy-cassette-camera.md, phase 3) — the picture side of the
+        // late-1980s toy cassette camcorder look in one ordered stage (pixel grid → low-range mono → bloom →
+        // smear → tape noise → grain → 4:3 border), cheaper than chaining Mosaic + Black & White + noise since
+        // each chained tap re-evaluates upstream. The name is generic; the brand lives only in the description
+        // (the B&W film-preset trademark rule). The defaults are the camera's typical look; the presets are the
+        // three looks the phase-5 one-tap stacks build on. Pair with Posterize Time at 15 fps for the stutter. ──
+        new EffectDescriptor(
+            EffectTypeIds.ToyCam,
+            "Toy Cassette Camera",
+            EffectCategory.Video,
+            "Inspired by the Fisher-Price PXL 2000 (1987): chunky black-and-white pixels, blooming smeared highlights, tape noise and a thick black border. Add Posterize Time at 15 fps for its stutter.",
+            [
+                // Picture (pixel grid)
+                new EffectParameterDescriptor(EffectParamNames.HorizontalPixels, "Horizontal Pixels", 120.0, 8.0, 640.0, 1.0,
+                    Description: "How many picture pixels fit across the 4:3 window (the camera recorded about 120).",
+                    Kind: ParameterKind.Integer),
+                new EffectParameterDescriptor(EffectParamNames.VerticalPixels, "Vertical Pixels", 90.0, 6.0, 480.0, 1.0,
+                    Description: "How many picture pixels fit down the 4:3 window (the camera recorded about 90).",
+                    Kind: ParameterKind.Integer),
+                new EffectParameterDescriptor(EffectParamNames.PixelSoftness, "Pixel Softness", 0.15, 0.0, 1.0, 0.05, "%",
+                    "Blurs the borders between picture pixels — most along each line, like a low-res sensor seen on a TV (0% = hard blocks).") { DisplayScale = 100 },
+                // Tone
+                new EffectParameterDescriptor(EffectParamNames.Contrast, "Contrast", 1.15, 0.0, 2.0, 0.05,
+                    Description: "Steepens or flattens the tones around mid-grey (1.0 = unchanged)."),
+                new EffectParameterDescriptor(EffectParamNames.BlackCrush, "Black Crush", 0.08, 0.0, 0.6, 0.01, "%",
+                    "How much of the shadow range collapses to solid black — the camera's narrow dynamic range.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.HighlightBloom, "Highlight Bloom", 0.5, 0.0, 1.0, 0.05, "%",
+                    "Bright areas blow out and glow into the pixels beside them.") { DisplayScale = 100 },
+                // Smear
+                new EffectParameterDescriptor(EffectParamNames.SmearLength, "Smear Length", 0.35, 0.0, 1.0, 0.05, "%",
+                    "Length of the comet-like trail bright areas leave to their right (0% = no smear; 100% = eight pixels).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.SmearThreshold, "Smear Threshold", 0.78, 0.0, 1.0, 0.01, "%",
+                    "How bright a pixel must be before it smears (lower = more of the picture trails).") { DisplayScale = 100 },
+                // Tape
+                new EffectParameterDescriptor(EffectParamNames.NoiseLines, "Noise Lines", 0.2, 0.0, 1.0, 0.05, "%",
+                    "Horizontal streaks of tape noise that flicker across random rows each frame.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.Dropouts, "Dropouts", 0.15, 0.0, 1.0, 0.05, "%",
+                    "Occasional white flashes where the tape signal drops out for part of a row.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.GrainAmount, "Grain", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Streaky shimmer that changes every frame, like analog sensor and tape noise.") { DisplayScale = 100 },
+                // Border
+                new EffectParameterDescriptor(EffectParamNames.BorderSize, "Border Size", 0.25, 0.0, 0.5, 0.01, "%",
+                    "Thickness of the black border — the whole 4:3 picture shrinks inside it (0% = it fills the largest 4:3 area).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.BorderSoftness, "Border Softness", 0.2, 0.0, 1.0, 0.05, "%",
+                    "Feathers the picture's edge into the border and rounds its corners, like a TV screen (0% = a hard, square edge).") { DisplayScale = 100 },
+                // Variation
+                new EffectParameterDescriptor(EffectParamNames.Seed, "Seed", 0.0, 0.0, 999.0, 1.0,
+                    Description: "Picks a different pattern of noise lines, dropouts and grain.",
+                    Kind: ParameterKind.Integer),
+            ])
+        {
+            ShortCode = "TC",
+            Presets = ToyCamPresets.All,
+        },
+
+        // ── Echo (plan/features/toy-cassette-camera.md, phase 6) — the After Effects primitive with its naming,
+        // operator list and defaults (one echo, −0.033 s, full intensity, no decay, Add). A temporal effect: the
+        // footprint below tells the planner which earlier frames to resolve. Deliberate departures: Echo Time is
+        // limited to the past (−1 s…0) — future echoes would need look-ahead decode in the live preview — and
+        // Highlight Key is our addition (only bright pixels echo — the toy cassette camera's highlight lag;
+        // 0 = AE behaviour). ──
+        new EffectDescriptor(
+            EffectTypeIds.Echo,
+            "Echo",
+            EffectCategory.Video,
+            "Combines each frame with earlier frames of the clip — motion trails, ghosting and strobe stacks.",
+            [
+                new EffectParameterDescriptor(EffectParamNames.EchoTime, "Echo Time", -0.033, -1.0, 0.0, 0.001, "s",
+                    "Time between echoes (negative = earlier frames; −0.033 s is one frame at 30 fps)."),
+                new EffectParameterDescriptor(EffectParamNames.EchoCount, "Number of Echoes", 1.0, 0.0, TemporalFootprint.MaxPriorFrames, 1.0,
+                    Description: "How many earlier frames are combined with the current one (0 = no echoes).",
+                    Kind: ParameterKind.Integer),
+                new EffectParameterDescriptor(EffectParamNames.StartingIntensity, "Starting Intensity", 1.0, 0.0, 1.0, 0.01,
+                    Description: "Opacity of the first image in the sequence — the current frame."),
+                new EffectParameterDescriptor(EffectParamNames.Decay, "Decay", 1.0, 0.0, 1.0, 0.01,
+                    Description: "How much fainter each echo is than the one before it (1.0 = no fade, 0.5 = each echo half as strong)."),
+                new EffectParameterDescriptor(EffectParamNames.EchoOperator, "Echo Operator", EchoOperators.Add, 0.0, EchoOperators.Names.Count - 1, 1.0,
+                    Description: "How the echoes combine: Add, Maximum (bright trails), Minimum, Screen, Composite in Back/Front, or Blend (average).",
+                    Kind: ParameterKind.Dropdown, Choices: EchoOperators.Names),
+                new EffectParameterDescriptor(EffectParamNames.HighlightKey, "Highlight Key", 0.0, 0.0, 1.0, 0.01, "%",
+                    "Only echo pixels brighter than this leave a trail (0% = everything echoes; higher = only highlights).") { DisplayScale = 100 },
+            ])
+        {
+            ShortCode = "EC",
+            TemporalFootprint = EchoFootprint,
+        },
 
         new EffectDescriptor(
             EffectTypeIds.Color,
@@ -1062,6 +1206,44 @@ public static class EffectCatalog
                 new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 0.3, 0.0, 1.0, 0.05, "%",
                     "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 },
             ]) { ShortCode = "IR" },
+
+        // ── Cassette (plan/features/toy-cassette-camera.md, phase 4) — the "recorded on cassette" sound as one
+        // stage, and the audio half of the Toy Cassette Camera look. The defaults are a cheap camcorder's mono
+        // cassette track; the presets share the video look's names so the phase-5 stacks pair them. ──
+        new EffectDescriptor(
+            EffectTypeIds.AudioCassette,
+            "Cassette",
+            EffectCategory.Audio,
+            "Cheap cassette recorder sound: mono, narrow band, tape hiss, wow & flutter, saturation and pumping automatic gain.",
+            [
+                // Recording
+                new EffectParameterDescriptor(EffectParamNames.Mono, "Mono", 1.0, 0.0, 1.0, 1.0,
+                    Description: "Folds the sound to one channel, like a single-microphone recorder.",
+                    Kind: ParameterKind.Toggle),
+                new EffectParameterDescriptor(EffectParamNames.AgcAmount, "AGC Amount", 0.5, 0.0, 1.0, 0.05, "%",
+                    "Automatic gain control: quiet sounds are turned up and loud ones down, so the level pumps (0% = off).") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.ReleaseMs, "AGC Release", 600.0, 50.0, 3000.0, 10.0, "ms",
+                    "How slowly the automatic gain recovers after a loud sound — shorter pumps faster."),
+                new EffectParameterDescriptor(EffectParamNames.Drive, "Saturation", 0.3, 0.0, 1.0, 0.05, "%",
+                    "Tape drive — loud sounds round off and gain grit.") { DisplayScale = 100 },
+                // Tape
+                new EffectParameterDescriptor(EffectParamNames.LowCutHz, "Low Cut", 100.0, 20.0, 1000.0, 5.0, "Hz",
+                    "Removes bass below this frequency (24 dB/oct) — a tiny speaker and microphone."),
+                new EffectParameterDescriptor(EffectParamNames.HighCutHz, "High Cut", 5000.0, 1000.0, 20000.0, 100.0, "Hz",
+                    "Removes treble above this frequency (24 dB/oct) — lower = duller tape."),
+                new EffectParameterDescriptor(EffectParamNames.HissDb, "Hiss", -42.0, -90.0, -20.0, 1.0, "dB",
+                    "Level of the tape hiss under the sound (−90 dB = off)."),
+                new EffectParameterDescriptor(EffectParamNames.WowFlutterDepth, "Wow / Flutter", 0.25, 0.0, 1.0, 0.05, "%",
+                    "Amount of tape-speed pitch wobble, with a slight level waver.") { DisplayScale = 100 },
+                new EffectParameterDescriptor(EffectParamNames.WowFlutterRateHz, "Wow Rate", 0.9, 0.1, 10.0, 0.1, "Hz",
+                    "Speed of the pitch wobble."),
+                new EffectParameterDescriptor(EffectParamNames.Mix, "Mix", 1.0, 0.0, 1.0, 0.05, "%",
+                    "Wet/dry balance (0% = dry only, 100% = effect only).") { DisplayScale = 100 },
+            ])
+        {
+            ShortCode = "CS",
+            Presets = CassettePresets.All,
+        },
     ];
 
     /// <summary>
@@ -1153,6 +1335,28 @@ public static class EffectCatalog
             if (d.Id == effectTypeId)
                 return d;
         return null;
+    }
+
+    /// <summary>Whether <paramref name="effectTypeId"/> names a registered time-modifier effect
+    /// (<see cref="EffectDescriptor.IsTimeModifier"/>).</summary>
+    public static bool IsTimeModifier(string effectTypeId) => Find(effectTypeId)?.IsTimeModifier == true;
+
+    /// <summary>Whether <paramref name="effectTypeId"/> names a registered temporal effect — one whose descriptor
+    /// supplies a <see cref="EffectDescriptor.TemporalFootprint"/> (plan/features/toy-cassette-camera.md phase 6).</summary>
+    public static bool IsTemporal(string effectTypeId) => Find(effectTypeId)?.TemporalFootprint is not null;
+
+    /// <summary>
+    /// Echo's temporal footprint (<see cref="EffectDescriptor.TemporalFootprint"/>): Number of Echoes prior frames
+    /// (whole, 0–8), Echo Time apart. A hand-edited non-finite / out-of-range value reads as the descriptor's clamp,
+    /// so the footprint is always bounded; a zero Echo Time reads no prior frame (every echo would be the current one).
+    /// </summary>
+    private static TemporalFootprint EchoFootprint(IReadOnlyDictionary<string, double> values)
+    {
+        double count = values.TryGetValue(EffectParamNames.EchoCount, out double c) && double.IsFinite(c) ? c : 1.0;
+        double seconds = values.TryGetValue(EffectParamNames.EchoTime, out double s) && double.IsFinite(s) ? s : -0.033;
+        int k = (int)Math.Clamp(Math.Round(count), 0, TemporalFootprint.MaxPriorFrames);
+        long spacing = (long)Math.Round(Math.Clamp(seconds, -1.0, 0.0) * Timecode.TicksPerSecond);
+        return spacing == 0 || k == 0 ? TemporalFootprint.None : new TemporalFootprint(k, new Timecode(spacing));
     }
 
     /// <summary>A friendly display name for an effect type id, falling back to the id itself for unknown (plugin) ids.</summary>

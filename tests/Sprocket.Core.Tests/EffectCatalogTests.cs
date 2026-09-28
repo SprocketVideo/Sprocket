@@ -409,6 +409,150 @@ public class EffectCatalogTests
     }
 
     [Fact]
+    public void Mosaic_Is_A_Video_Effect_With_After_Effects_Naming_And_Defaults()
+    {
+        // plan/features/toy-cassette-camera.md phase 1: AE's Mosaic controls and 10×10 default grid, plus our
+        // Edge Softness (defaulting off, so a fresh Mosaic reads exactly like AE's).
+        EffectDescriptor? mosaic = EffectCatalog.Find(EffectTypeIds.Mosaic);
+        Assert.NotNull(mosaic);
+        Assert.Equal("Mosaic", mosaic!.DisplayName);
+        Assert.Equal(EffectCategory.Video, mosaic.Category);
+        Assert.False(EffectTypeIds.IsAudio(EffectTypeIds.Mosaic));
+        Assert.Equal("MO", mosaic.ShortCode);
+        Assert.Empty(mosaic.Presets);
+
+        Assert.Equal(
+            new[]
+            {
+                (EffectParamNames.HorizontalBlocks, "Horizontal Blocks", 10.0, ParameterKind.Integer),
+                (EffectParamNames.VerticalBlocks, "Vertical Blocks", 10.0, ParameterKind.Integer),
+                (EffectParamNames.SharpColors, "Sharp Colors", 0.0, ParameterKind.Toggle),
+                (EffectParamNames.EdgeSoftness, "Edge Softness", 0.0, ParameterKind.Continuous),
+            },
+            mosaic.Parameters.Select(p => (p.Name, p.DisplayName, p.Default, p.Kind)));
+        Assert.Equal((1.0, 1920.0), Range(EffectParamNames.HorizontalBlocks));
+        Assert.Equal((1.0, 1080.0), Range(EffectParamNames.VerticalBlocks));
+
+        (double, double) Range(string name)
+        {
+            EffectParameterDescriptor p = mosaic.Parameters.Single(x => x.Name == name);
+            return (p.Min, p.Max);
+        }
+    }
+
+    [Fact]
+    public void Posterize_Time_Is_A_Video_Time_Modifier_With_After_Effects_Naming_And_Defaults()
+    {
+        // plan/features/toy-cassette-camera.md phase 2: AE's single Frame Rate control, 12 fps default, fine
+        // enough a step for 23.976; a time modifier (read by the clip's video map, not a shader, not keyframeable).
+        EffectDescriptor? posterize = EffectCatalog.Find(EffectTypeIds.PosterizeTime);
+        Assert.NotNull(posterize);
+        Assert.Equal("Posterize Time", posterize!.DisplayName);
+        Assert.Equal(EffectCategory.Video, posterize.Category);
+        Assert.False(EffectTypeIds.IsAudio(EffectTypeIds.PosterizeTime));
+        Assert.Equal("PT", posterize.ShortCode);
+        Assert.True(posterize.IsTimeModifier);
+        Assert.Empty(posterize.Presets);
+
+        EffectParameterDescriptor rate = Assert.Single(posterize.Parameters);
+        Assert.Equal(
+            (EffectParamNames.PosterizeFrameRate, "Frame Rate", 12.0, 1.0, 60.0, 0.001, "fps", ParameterKind.Continuous),
+            (rate.Name, rate.DisplayName, rate.Default, rate.Min, rate.Max, rate.Step, rate.Unit, rate.Kind));
+    }
+
+    [Fact]
+    public void Toy_Cassette_Camera_Is_A_Video_Effect_With_Its_Parameters_And_Presets()
+    {
+        // plan/features/toy-cassette-camera.md phase 3: one ordered stage, a generic name (the brand lives only in
+        // the description), 120×90 picture pixels by default, and the Clean / Worn Tape / Low Light looks.
+        EffectDescriptor? toy = EffectCatalog.Find(EffectTypeIds.ToyCam);
+        Assert.NotNull(toy);
+        Assert.Equal("Toy Cassette Camera", toy!.DisplayName);
+        Assert.Equal(EffectCategory.Video, toy.Category);
+        Assert.False(EffectTypeIds.IsAudio(EffectTypeIds.ToyCam));
+        Assert.False(toy.IsTimeModifier);
+        Assert.Equal("TC", toy.ShortCode);
+        Assert.StartsWith("Inspired by the Fisher-Price PXL 2000", toy.Description);
+
+        Assert.Equal(
+            new[]
+            {
+                (EffectParamNames.HorizontalPixels, "Horizontal Pixels", 120.0, ParameterKind.Integer),
+                (EffectParamNames.VerticalPixels, "Vertical Pixels", 90.0, ParameterKind.Integer),
+                (EffectParamNames.PixelSoftness, "Pixel Softness", 0.15, ParameterKind.Continuous),
+                (EffectParamNames.Contrast, "Contrast", 1.15, ParameterKind.Continuous),
+                (EffectParamNames.BlackCrush, "Black Crush", 0.08, ParameterKind.Continuous),
+                (EffectParamNames.HighlightBloom, "Highlight Bloom", 0.5, ParameterKind.Continuous),
+                (EffectParamNames.SmearLength, "Smear Length", 0.35, ParameterKind.Continuous),
+                (EffectParamNames.SmearThreshold, "Smear Threshold", 0.78, ParameterKind.Continuous),
+                (EffectParamNames.NoiseLines, "Noise Lines", 0.2, ParameterKind.Continuous),
+                (EffectParamNames.Dropouts, "Dropouts", 0.15, ParameterKind.Continuous),
+                (EffectParamNames.GrainAmount, "Grain", 0.3, ParameterKind.Continuous),
+                (EffectParamNames.BorderSize, "Border Size", 0.25, ParameterKind.Continuous),
+                (EffectParamNames.BorderSoftness, "Border Softness", 0.2, ParameterKind.Continuous),
+                (EffectParamNames.Seed, "Seed", 0.0, ParameterKind.Integer),
+            },
+            toy.Parameters.Select(p => (p.Name, p.DisplayName, p.Default, p.Kind)));
+        EffectParameterDescriptor seed = toy.Parameters.Single(p => p.Name == EffectParamNames.Seed);
+        Assert.Equal((0.0, 999.0), (seed.Min, seed.Max));
+
+        Assert.Equal(new[] { "Clean", "Worn Tape", "Low Light" }, toy.Presets.Select(p => p.Name));
+        Assert.Same(ToyCamPresets.WornTape, toy.FindPreset("Worn Tape"));
+        // Complete looks: every picture parameter is set, and the user's Seed survives a change of look.
+        string[] look = [.. toy.Parameters.Select(p => p.Name).Where(n => n != EffectParamNames.Seed)];
+        foreach (EffectPreset preset in toy.Presets)
+        {
+            Assert.Equal(look.Order(), preset.Values.Keys.Order());
+            Assert.False(string.IsNullOrWhiteSpace(preset.Description));
+        }
+    }
+
+    [Fact]
+    public void Cassette_Is_An_Audio_Effect_With_Its_Parameters_And_Presets()
+    {
+        // plan/features/toy-cassette-camera.md phase 4: the audio half of the toy-camera look, reusing the existing
+        // tape parameter names, with presets named after the video looks so the phase-5 stacks pair them.
+        EffectDescriptor? cassette = EffectCatalog.Find(EffectTypeIds.AudioCassette);
+        Assert.NotNull(cassette);
+        Assert.Equal("Cassette", cassette!.DisplayName);
+        Assert.Equal(EffectCategory.Audio, cassette.Category);
+        Assert.True(EffectTypeIds.IsAudio(EffectTypeIds.AudioCassette)); // routes to the mixer, not the shaders
+        Assert.Equal("CS", cassette.ShortCode);
+
+        Assert.Equal(
+            new[]
+            {
+                (EffectParamNames.Mono, "Mono", 1.0, ParameterKind.Toggle),
+                (EffectParamNames.AgcAmount, "AGC Amount", 0.5, ParameterKind.Continuous),
+                (EffectParamNames.ReleaseMs, "AGC Release", 600.0, ParameterKind.Continuous),
+                (EffectParamNames.Drive, "Saturation", 0.3, ParameterKind.Continuous),
+                (EffectParamNames.LowCutHz, "Low Cut", 100.0, ParameterKind.Continuous),
+                (EffectParamNames.HighCutHz, "High Cut", 5000.0, ParameterKind.Continuous),
+                (EffectParamNames.HissDb, "Hiss", -42.0, ParameterKind.Continuous),
+                (EffectParamNames.WowFlutterDepth, "Wow / Flutter", 0.25, ParameterKind.Continuous),
+                (EffectParamNames.WowFlutterRateHz, "Wow Rate", 0.9, ParameterKind.Continuous),
+                (EffectParamNames.Mix, "Mix", 1.0, ParameterKind.Continuous),
+            },
+            cassette.Parameters.Select(p => (p.Name, p.DisplayName, p.Default, p.Kind)));
+
+        Assert.Equal(new[] { "Clean", "Worn Tape", "Low Light" }, cassette.Presets.Select(p => p.Name));
+        Assert.Equal(ToyCamPresets.All.Select(p => p.Name), cassette.Presets.Select(p => p.Name)); // pairs by name
+        Assert.Same(CassettePresets.LowLight, cassette.FindPreset("Low Light"));
+        // Complete characters: every tone parameter is set, and the user's Mix survives (the Studio Reverb rule).
+        string[] tone = [.. cassette.Parameters.Select(p => p.Name).Where(n => n != EffectParamNames.Mix)];
+        foreach (EffectPreset preset in cassette.Presets)
+        {
+            Assert.Equal(tone.Order(), preset.Values.Keys.Order());
+            Assert.False(string.IsNullOrWhiteSpace(preset.Description));
+        }
+        // Low Light is the pumping one: the strongest AGC with the fastest release.
+        Assert.Equal(cassette.Presets.Max(p => p.Values[EffectParamNames.AgcAmount]),
+            CassettePresets.LowLight.Values[EffectParamNames.AgcAmount]);
+        Assert.Equal(cassette.Presets.Min(p => p.Values[EffectParamNames.ReleaseMs]),
+            CassettePresets.LowLight.Values[EffectParamNames.ReleaseMs]);
+    }
+
+    [Fact]
     public void BlackWhite_Exposes_Its_Conversion_Film_And_Finishing_Parameters()
     {
         string[] names = EffectCatalog.Find(EffectTypeIds.BlackWhite)!.Parameters.Select(p => p.Name).ToArray();
@@ -544,6 +688,29 @@ public class EffectCatalogTests
             foreach (string token in tokens)
                 Assert.False(p.Name.Contains(token, StringComparison.OrdinalIgnoreCase),
                     $"film preset name '{p.Name}' leaks the stock token '{token}' — it belongs only in Description");
+    }
+
+    [Fact]
+    public void Toy_Cassette_Camera_Names_Carry_No_Brand_Token()
+    {
+        // The same rule for the toy-camera look (plan/features/toy-cassette-camera.md): the descriptor's display
+        // name and its preset names are generic; only the description may name the camera.
+        string[] tokens = ["Fisher-Price", "Fisher Price", "PXL", "PixelVision", "Pixel Vision"];
+        EffectDescriptor toy = EffectCatalog.Find(EffectTypeIds.ToyCam)!;
+        EffectDescriptor cassette = EffectCatalog.Find(EffectTypeIds.AudioCassette)!; // phase 4's audio half
+        string[] names =
+        [
+            toy.DisplayName, .. toy.Presets.Select(p => p.Name),
+            cassette.DisplayName, .. cassette.Presets.Select(p => p.Name),
+            // phase 5's one-tap stacks: the variant names and their browser group
+            .. ToyCassetteCameraStacks.All.SelectMany(s => new[] { s.Name, s.Group, s.Title }),
+        ];
+        foreach (string name in names)
+            foreach (string token in tokens)
+                Assert.False(name.Contains(token, StringComparison.OrdinalIgnoreCase),
+                    $"toy camera name '{name}' leaks the brand token '{token}' — it belongs only in Description");
+        Assert.Contains("PXL", toy.Description); // …which is where the reference does live
+        Assert.All(ToyCassetteCameraStacks.All, s => Assert.StartsWith("Inspired by the Fisher-Price PXL 2000", s.Description));
     }
 
     [Fact]

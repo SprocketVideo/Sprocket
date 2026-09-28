@@ -285,7 +285,8 @@ public sealed class PreviewSurface : Control
                                 if (crop) { canvas.Save(); canvas.ClipRect(frameRect); }
                                 _pipeline.DrawLayer(
                                     canvas, mediaDest, l.Pixels, l.RowBytes, l.Width, l.Height,
-                                    l.Effects, l.Opacity, ToBlendMode(l.BlendMode), l.HasAlpha);
+                                    l.Effects, l.Opacity, ToBlendMode(l.BlendMode), l.HasAlpha,
+                                    l.PriorFrames); // Echo's prior frames (phase 6), native like the frame itself
                                 if (crop) canvas.Restore();
                                 break;
                             }

@@ -27,6 +27,13 @@ namespace Sprocket.Core.Rendering;
 /// references to this span, so a jolt in footage the clip has trimmed away doesn't cost the kept footage zoom or
 /// lock strength. <see langword="null"/> when there is no clip context (the whole analysed range is used).</param>
 /// <param name="SourceOut">The end of the used source range (see <paramref name="SourceIn"/>).</param>
+/// <param name="TemporalInputs">For a temporal effect (<see cref="EffectDescriptor.TemporalFootprint"/>, e.g.
+/// <see cref="EffectTypeIds.Echo"/>): the earlier frames of the clip it combines, in echo order (k = 1, 2, …) — each
+/// the source time to sample plus the clip's effects <em>below</em> this one re-resolved at that frame's own
+/// evaluation time, so a prior frame looks exactly as the chain up to here made it look when it was current
+/// (plan/features/toy-cassette-camera.md phase 6). Pure data, like the rest of the plan. <see langword="null"/> for
+/// every ordinary effect, and for a temporal effect on a layer with no source frames to reach back into
+/// (generators, adjustment layers, nested sequences) — it then renders with no echoes.</param>
 public sealed record ResolvedEffect(
     string EffectTypeId,
     IReadOnlyDictionary<string, double> Parameters,
@@ -35,7 +42,8 @@ public sealed record ResolvedEffect(
     Timecode SourceTime = default,
     MediaRefId? MediaRefId = null,
     Timecode? SourceIn = null,
-    Timecode? SourceOut = null)
+    Timecode? SourceOut = null,
+    IReadOnlyList<TemporalInput>? TemporalInputs = null)
 {
     /// <summary>Gets a parameter value, or <paramref name="fallback"/> if it is not set <em>or not finite</em>.</summary>
     /// <remarks>A NaN or ±Infinity — from a hand-edited project file or keyframe math overflowing — reads as unset, so
@@ -49,6 +57,20 @@ public sealed record ResolvedEffect(
     public string GetAsset(string name, string fallback = "") =>
         Assets is not null && Assets.TryGetValue(name, out string? value) ? value : fallback;
 }
+
+/// <summary>
+/// One earlier frame a temporal effect reads (<see cref="ResolvedEffect.TemporalInputs"/>, plan/features/toy-cassette-camera.md
+/// phase 6): the source time the prior timeline time <c>t + k·spacing</c> maps to through the clip's video time map
+/// (<see cref="Clip.MapToSourceVideo"/> — so speed, ramps, reverse, holds and Posterize Time all apply), and the
+/// clip's effects below the temporal one, resolved at that prior time's <see cref="Clip.EffectEvalTime"/>. The frame
+/// providers fetch the source frame by <see cref="SourceTime"/> — listed once per layer in
+/// <see cref="VideoLayer.PriorSourceTimes"/> — and the renderer folds <see cref="Upstream"/> over it.
+/// </summary>
+/// <param name="SourceTime">The source time of the prior frame (same lookup rule as <see cref="VideoLayer.SourceTime"/>,
+/// including a reversed layer's exclusive upper bound).</param>
+/// <param name="Upstream">The clip's effects below the temporal effect, evaluated for this prior frame (empty when
+/// the temporal effect is first in the chain — the cheap case).</param>
+public sealed record TemporalInput(Timecode SourceTime, IReadOnlyList<ResolvedEffect> Upstream);
 
 /// <summary>
 /// A generator's parameters already evaluated to concrete values at a specific time (PLAN.md step 19). The
@@ -130,6 +152,12 @@ public enum LayerKind
 /// from <see cref="Clip.ConformMode"/>; the render layer applies it against the content's <em>actual</em>
 /// dimensions when it computes the layer's destination rectangle — the plan stays pure data with no knowledge
 /// of frame sizes (proxies and relinked media can differ from probed dimensions).</param>
+/// <param name="PriorSourceTimes">The distinct source times of the earlier frames this layer's temporal effects read
+/// (plan/features/toy-cassette-camera.md phase 6), ascending — the union of every
+/// <see cref="ResolvedEffect.TemporalInputs"/> entry on <see cref="Effects"/>, at most
+/// <see cref="TemporalFootprint.MaxPriorFrames"/>. A frame provider fetches these alongside <see cref="SourceTime"/>
+/// (same media, same lookup rule) so the renderer can bind them. <see langword="null"/> when the layer has no
+/// temporal effect (the common case).</param>
 public sealed record VideoLayer(
     MediaRefId MediaRefId,
     Timecode SourceTime,
@@ -141,7 +169,8 @@ public sealed record VideoLayer(
     VideoFramePlan? NestedPlan = null,
     ResolvedTransition? Transition = null,
     ClipConformMode ConformMode = ClipConformMode.Fit,
-    bool Reverse = false);
+    bool Reverse = false,
+    IReadOnlyList<Timecode>? PriorSourceTimes = null);
 
 /// <summary>
 /// A transition resolved at a frame's time (PLAN.md step 25): which two clips to blend (<see cref="From"/> outgoing,

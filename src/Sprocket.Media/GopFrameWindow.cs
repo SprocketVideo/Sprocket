@@ -43,6 +43,7 @@ public sealed class GopFrameWindow : IDisposable
 
     private readonly MediaSource _source;
     private readonly VideoFramePool _pool;
+    private readonly Action<VideoFrame>? _release;     // how a dropped frame is let go (null = dispose it)
     private readonly List<VideoFrame> _frames = new(); // ascending PTS
     private bool _disposed;
 
@@ -50,7 +51,10 @@ public sealed class GopFrameWindow : IDisposable
     /// <param name="pool">The frame pool to rent into. Not owned.</param>
     /// <param name="capacity">Maximum frames retained per fill; 0 (the default) sizes the window to the byte budget
     /// for the source's frame size (<see cref="DefaultCapacityFor"/>).</param>
-    public GopFrameWindow(MediaSource source, VideoFramePool pool, int capacity = 0)
+    /// <param name="release">How the window lets go of a frame it drops (shed, trimmed or cleared); <see langword="null"/>
+    /// (the default) disposes it. The export frame provider passes a lease-aware release so a frame it has handed out
+    /// for the draw in progress (a temporal effect's prior frame) stays valid until the draw is done.</param>
+    public GopFrameWindow(MediaSource source, VideoFramePool pool, int capacity = 0, Action<VideoFrame>? release = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(pool);
@@ -58,6 +62,7 @@ public sealed class GopFrameWindow : IDisposable
             throw new ArgumentOutOfRangeException(nameof(capacity), "Capacity must be non-negative.");
         _source = source;
         _pool = pool;
+        _release = release;
         Capacity = capacity == 0 ? DefaultCapacityFor(source.Info.Width, source.Info.Height) : capacity;
     }
 
@@ -116,7 +121,7 @@ public sealed class GopFrameWindow : IDisposable
             _frames.Add(frame);
             if (_frames.Count > Capacity)
             {
-                _frames[0].Dispose();
+                Release(_frames[0]);
                 _frames.RemoveAt(0);
             }
         }
@@ -143,7 +148,7 @@ public sealed class GopFrameWindow : IDisposable
     {
         while (_frames.Count > 0 && _frames[^1].Pts.Ticks > target.Ticks + MatchToleranceTicks)
         {
-            _frames[^1].Dispose();
+            Release(_frames[^1]);
             _frames.RemoveAt(_frames.Count - 1);
         }
         return _frames.Count > 0 ? _frames[^1] : null;
@@ -153,8 +158,16 @@ public sealed class GopFrameWindow : IDisposable
     public void Clear()
     {
         foreach (VideoFrame f in _frames)
-            f.Dispose();
+            Release(f);
         _frames.Clear();
+    }
+
+    private void Release(VideoFrame frame)
+    {
+        if (_release is { } release)
+            release(frame);
+        else
+            frame.Dispose();
     }
 
     // The earliest source time this fill should retain: Capacity frames before the target at the source's frame

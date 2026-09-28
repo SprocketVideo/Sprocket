@@ -372,6 +372,73 @@ public sealed class Clip
     }
 
     /// <summary>
+    /// The step of the clip's Posterize Time grid (plan/features/toy-cassette-camera.md phase 2), or
+    /// <see langword="null"/> when the clip is not posterized: derived from the effect chain — the <em>first
+    /// enabled</em> <see cref="EffectTypeIds.PosterizeTime"/> entry wins — as <c>round(TicksPerSecond / fps)</c>
+    /// ticks, which is exact for 12/15/24/30/60 fps and lands 23.976 on the NTSC 1001 grid. The rate is static
+    /// (the descriptor is a time modifier, so it is never keyframed through the UI); a hand-edited keyframed or
+    /// out-of-range value reads its value at <see cref="TimelineStart"/>, clamped to the descriptor's 1–60 fps.
+    /// Allocation-free (a scan of <see cref="Effects"/>), so the per-frame video map can call it.
+    /// </summary>
+    public Timecode? PosterizeInterval
+    {
+        get
+        {
+            foreach (EffectInstance effect in Effects)
+            {
+                if (!effect.Enabled || effect.EffectTypeId != EffectTypeIds.PosterizeTime)
+                    continue;
+                double fps = effect.Parameters.TryGetValue(EffectParamNames.PosterizeFrameRate, out AnimatableValue? rate)
+                    ? rate.Evaluate(TimelineStart)
+                    : DefaultPosterizeFps;
+                fps = double.IsFinite(fps) ? Math.Clamp(fps, MinPosterizeFps, MaxPosterizeFps) : DefaultPosterizeFps;
+                return new Timecode(Math.Max(1L, (long)Math.Round(Timecode.TicksPerSecond / fps)));
+            }
+            return null;
+        }
+    }
+
+    // Posterize Time's descriptor default and range (EffectCatalog), repeated here as the model-side guard for a
+    // missing / hand-edited rate so the grid step is always finite and positive.
+    private const double DefaultPosterizeFps = 12.0;
+    private const double MinPosterizeFps = 1.0;
+    private const double MaxPosterizeFps = 60.0;
+
+    /// <summary>
+    /// The timeline time the clip's picture — its displayed source frame, its effects' <c>FrameTime</c> and
+    /// keyframes, a generator's parameters — is evaluated at for timeline time <paramref name="t"/>: <paramref
+    /// name="t"/> itself for an ordinary clip; for a posterized clip (<see cref="PosterizeInterval"/> = Δ) the start
+    /// of the Posterize Time step containing it. The grid is anchored to <em>sequence</em> time (floor to multiples
+    /// of Δ from 0 — After Effects' composition-time behaviour), so a blade split never shifts its phase, and is
+    /// clamped to ≥ <see cref="TimelineStart"/> inside the clip so the first step shows the clip's first frame
+    /// rather than reaching into the head handle. Times before the clip (a transition reaching into handles) keep
+    /// the plain floor.
+    /// </summary>
+    public Timecode EffectEvalTime(Timecode t)
+    {
+        if (PosterizeInterval is not { } interval)
+            return t;
+        long step = interval.Ticks;
+        long ticks = t.Ticks;
+        long quantized = ticks - ((ticks % step) + step) % step; // floor to the grid, correct for negative times
+        if (ticks >= TimelineStart.Ticks && quantized < TimelineStart.Ticks)
+            quantized = TimelineStart.Ticks;
+        return new Timecode(quantized);
+    }
+
+    /// <summary>
+    /// The <em>video</em> time map: the source time of the frame the clip displays at timeline time
+    /// <paramref name="t"/> — <see cref="MapToSource"/> of the Posterize-Time-quantized time
+    /// (<see cref="EffectEvalTime"/>), so posterization composes with speed, ramps, reverse, multicam and nested
+    /// sequences, and a frame hold still short-circuits (Frame Hold wins). Identical to <see cref="MapToSource"/>
+    /// for a clip without an enabled Posterize Time entry. Video consumers (the render planner, the live preview
+    /// decode target, frame-hold capture) use this; the audio planner and structural edits (trim/split) keep the
+    /// plain <see cref="MapToSource"/> — Posterize Time never chops audio.
+    /// </summary>
+    public Timecode MapToSourceVideo(Timecode t) =>
+        _holdFrameAt is { } held ? held : MapToSource(EffectEvalTime(t));
+
+    /// <summary>
     /// A new clip of the same <see cref="Kind"/> and content (media id / cloned generator) over the given span and
     /// placement, <em>without</em> effects or link group. The blade split uses this for the right-hand half, and
     /// duplicate/paste paths use it as the content base, so the new clip keeps a media/generator/adjustment clip's

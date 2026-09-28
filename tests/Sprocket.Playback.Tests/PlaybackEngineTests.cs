@@ -223,6 +223,52 @@ public class PlaybackEngineTests
     }
 
     [Fact]
+    public async Task Posterized_Clip_Holds_Are_Delivered_Not_Dropped()
+    {
+        // Posterize Time at 15 fps on the 30 fps clip (plan/features/toy-cassette-camera.md phase 2): the video
+        // map's target stays constant across each two-frame step, so the pump holds the presented frame on the
+        // in-between timeline frame — delivered on schedule, not a drop storm — and promotes a new source frame
+        // only every other timeline frame, exactly like ½× slow motion.
+        using var cts = new CancellationTokenSource(Timeout);
+        var elapsed = TimeSpan.Zero;
+        (Project project, RingVideoFrameFeed feed) = BuildSession();
+        EffectInstance posterize = EffectCatalog.Find(EffectTypeIds.PosterizeTime)!.CreateInstance();
+        posterize.Set(EffectParamNames.PosterizeFrameRate, 15.0);
+        project.Timeline.VideoTracks.First().Clips[0].Effects.Add(posterize);
+        var clock = new SoftwareClock(() => elapsed);
+        await using var engine = new PlaybackEngine(project, feed, clock);
+
+        feed.Start();
+        engine.SeekTo(Timecode.Zero);
+        await engine.PumpOnceAsync(forcePresent: true, cts.Token); // present source frame 0 at timeline frame 0
+
+        clock.Start();
+        long ptsChanges = 0, lastPts = CurrentPts(engine);
+        var shown = new List<long> { lastPts };
+        const int ticks = 8;
+        for (int k = 1; k <= ticks; k++)
+        {
+            elapsed = TimeSpan.FromSeconds((k + 0.5) / TestVideo.Fps);
+            await engine.PumpOnceAsync(forcePresent: false, cts.Token);
+            long pts = CurrentPts(engine);
+            if (pts != lastPts)
+                ptsChanges++;
+            lastPts = pts;
+            shown.Add(pts);
+        }
+
+        PlaybackStatistics stats = engine.GetStatistics();
+        Assert.Equal(0, stats.FramesDropped);            // posterize holds are not drops
+        Assert.Equal(1 + ticks, stats.FramesDelivered);
+        Assert.Equal(ticks / 2, ptsChanges);             // a new source frame only on each 15 fps step
+        Assert.Equal(1 + ticks / 2, stats.FramesPresented);
+        // Unlike slow motion, the stepped frames skip source: each step shows the even source frame 2k.
+        long frameTicks = Timecode.TicksPerSecond / TestVideo.Fps;
+        for (int k = 0; k <= ticks; k++)
+            Assert.Equal(k / 2 * 2 * frameTicks, shown[k]);
+    }
+
+    [Fact]
     public async Task Slow_Motion_Clip_Still_Counts_Genuine_Drops()
     {
         using var cts = new CancellationTokenSource(Timeout);

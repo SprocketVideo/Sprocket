@@ -54,6 +54,8 @@ public class SprocketToolsTests
             "stabilization_status", "stabilization_analyze",
             // Action VFX presets (special-effects phase 3)
             "list_action_vfx_presets", "add_action_vfx",
+            // One-tap preset stacks (toy-cassette-camera phase 5)
+            "list_preset_stacks", "apply_preset_stack",
         ];
         Assert.Equal(expected.Length, names.Count);
         foreach (string name in expected)

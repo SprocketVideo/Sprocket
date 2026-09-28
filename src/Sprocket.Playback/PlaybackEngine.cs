@@ -3,6 +3,7 @@ using Sprocket.Core.Model;
 using Sprocket.Core.Rendering;
 using Sprocket.Core.Timing;
 using Sprocket.Media;
+using Sprocket.Render;
 
 namespace Sprocket.Playback;
 
@@ -41,6 +42,10 @@ public enum PlaybackState
 /// <param name="ConformMode">The clip's framing policy for a frame/canvas aspect mismatch (Fit letterboxes,
 /// Fill centre-crops) — the preview picks the layer's destination rectangle with it, mirroring the export path.
 /// Meaningful only for <see cref="LayerKind.Media"/> (synthetic layers render at sequence size).</param>
+/// <param name="PriorFrames">For a media layer whose chain carries a temporal effect (Echo, plan/features/toy-cassette-camera.md
+/// phase 6): the earlier decoded frames its echoes read, from the track player's history — native buffers keyed by the
+/// source time the plan asked for, valid (like <see cref="Pixels"/>) only during the callback. Pass them to
+/// <see cref="SkiaEffectPipeline.DrawLayer"/>. <see langword="null"/> otherwise.</param>
 public readonly record struct PresentedVideoLayer(
     nint Pixels,
     int RowBytes,
@@ -53,7 +58,8 @@ public readonly record struct PresentedVideoLayer(
     LayerKind Kind = LayerKind.Media,
     ResolvedGenerator? Generator = null,
     bool HasAlpha = false,
-    ClipConformMode ConformMode = ClipConformMode.Fit);
+    ClipConformMode ConformMode = ClipConformMode.Fit,
+    IReadOnlyList<PriorFrame>? PriorFrames = null);
 
 /// <summary>
 /// A snapshot of the single (top-most) presented frame — the back-compatible view for a one-layer consumer.
@@ -197,7 +203,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
         VideoTrack? track = project.Timeline.VideoTracks.FirstOrDefault(t => t.Enabled)
                             ?? project.Timeline.VideoTracks.FirstOrDefault();
         if (track is not null)
-            _players.Add(new VideoTrackPlayer(track, feed, _frameGate));
+            _players.Add(new VideoTrackPlayer(track, feed, _frameGate) { SourceDuration = SourceDurationOf });
         else
             _ = feed.DisposeAsync(); // no video track to drive; don't leak the feed
     }
@@ -587,12 +593,12 @@ public sealed class PlaybackEngine : IAsyncDisposable
                 if (ActiveVideoClip(track, pos) is not { } clip)
                     continue;
 
-                IReadOnlyList<ResolvedEffect> effects = RenderGraph.ResolveEffects(clip, pos);
+                IReadOnlyList<ResolvedEffect> effects = RenderGraph.ResolveEffects(clip, pos, SourceDurationOf(clip.MediaRefId));
                 switch (clip.Kind)
                 {
                     case ClipKind.Generator:
                         layers.Add(new PresentedVideoLayer(
-                            0, 0, res.Width, res.Height, clip.MapToSource(pos), effects, track.Opacity, track.BlendMode,
+                            0, 0, res.Width, res.Height, clip.MapToSourceVideo(pos), effects, track.Opacity, track.BlendMode,
                             LayerKind.Generator, RenderGraph.ResolveGenerator(clip, pos)));
                         break;
 
@@ -608,16 +614,16 @@ public sealed class PlaybackEngine : IAsyncDisposable
                         // so the clip reads as present (its full composite renders on export and when the child is
                         // opened). No decoder, so it is treated as a synthetic clip for repaint purposes.
                         layers.Add(new PresentedVideoLayer(
-                            0, 0, res.Width, res.Height, clip.MapToSource(pos), effects, track.Opacity, track.BlendMode,
+                            0, 0, res.Width, res.Height, clip.MapToSourceVideo(pos), effects, track.Opacity, track.BlendMode,
                             LayerKind.Sequence));
                         break;
 
                     default:
-                        if (FindPlayer(track)?.Current is { } frame)
+                        if (FindPlayer(track) is { Current: { } frame } player)
                             layers.Add(new PresentedVideoLayer(
                                 frame.Pixels, frame.RowBytes, frame.Width, frame.Height, frame.Pts,
                                 effects, track.Opacity, track.BlendMode, HasAlpha: frame.HasAlpha,
-                                ConformMode: clip.ConformMode));
+                                ConformMode: clip.ConformMode, PriorFrames: CollectPriorFrames(player, effects)));
                         break;
                 }
             }
@@ -654,6 +660,44 @@ public sealed class PlaybackEngine : IAsyncDisposable
                 top = new PresentedFrame(frame.Pixels, frame.RowBytes, frame.Width, frame.Height, frame.Pts, effects, frame.HasAlpha);
             }
             use(top);
+        }
+    }
+
+    /// <summary>The source duration of <paramref name="id"/> (the planner's clamp for a temporal effect's prior
+    /// times), or null when the media is unknown.</summary>
+    private Timecode? SourceDurationOf(MediaRefId id) => _project.MediaPool.Get(id)?.Info.Duration;
+
+    /// <summary>
+    /// The prior frames a media layer's temporal effects (Echo, plan/features/toy-cassette-camera.md phase 6) read, from
+    /// the track player's history — keyed by the source time each <see cref="TemporalInput"/> asks for, so the pipeline
+    /// binds exactly the frames export would. An echo the history can't answer yet is left out (it renders without that
+    /// echo rather than with a wrong frame). Null — no allocation — when no effect is temporal. Caller holds the gate.
+    /// </summary>
+    private static List<PriorFrame>? CollectPriorFrames(VideoTrackPlayer player, IReadOnlyList<ResolvedEffect> effects)
+    {
+        List<PriorFrame>? priors = null;
+        for (int i = 0; i < effects.Count; i++)
+        {
+            if (effects[i].TemporalInputs is not { } inputs)
+                continue;
+            for (int k = 0; k < inputs.Count; k++)
+            {
+                Timecode wanted = inputs[k].SourceTime;
+                if (priors is not null && Contains(priors, wanted))
+                    continue;
+                if (player.TryGetPriorFrame(wanted, out VideoFrame? prior))
+                    (priors ??= new List<PriorFrame>(TemporalFootprint.MaxPriorFrames)).Add(new PriorFrame(
+                        wanted, prior.Pixels, prior.RowBytes, prior.Width, prior.Height, prior.HasAlpha));
+            }
+        }
+        return priors;
+
+        static bool Contains(List<PriorFrame> list, Timecode time)
+        {
+            foreach (PriorFrame p in list)
+                if (p.SourceTime == time)
+                    return true;
+            return false;
         }
     }
 
@@ -1112,7 +1156,7 @@ public sealed class PlaybackEngine : IAsyncDisposable
         foreach (VideoTrack track in _project.Timeline.VideoTracks)
         {
             if (FindPlayer(track) is null)
-                _players.Add(new VideoTrackPlayer(track, _feedFactory!, _frameGate));
+                _players.Add(new VideoTrackPlayer(track, _feedFactory!, _frameGate) { SourceDuration = SourceDurationOf });
         }
     }
 

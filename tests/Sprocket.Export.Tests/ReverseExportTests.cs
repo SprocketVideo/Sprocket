@@ -80,6 +80,45 @@ public sealed class ReverseExportTests
     }
 
     [Fact]
+    public void Posterized_Clip_Exports_Frames_In_Runs_Of_Project_Rate_Over_Posterize_Rate()
+    {
+        // Posterize Time at 15 fps on the 30 fps fixture (plan/features/toy-cassette-camera.md phase 2): the
+        // export plan steps through the same video time map, so frames repeat in runs of 30 / 15 = 2 — exported
+        // frames 2j and 2j+1 are both source frame 2j, and the picture changes only at each run boundary.
+        Project project = ExportFixture.BuildProject(withAudio: false);
+        Clip clip = project.Timeline.VideoTracks.First().Clips[0];
+        EffectInstance posterize = EffectCatalog.Find(EffectTypeIds.PosterizeTime)!.CreateInstance();
+        posterize.Set(EffectParamNames.PosterizeFrameRate, 15.0);
+        clip.Effects.Add(posterize);
+        const int run = ExportFixture.Fps / 15;
+
+        using var output = new TempFile();
+        VideoExporter.Export(project, output.Path);
+
+        List<byte[]> source = DecodeAllFrames(ExportFixture.SourcePath);
+        List<byte[]> exported = DecodeAllFrames(output.Path);
+        Assert.InRange(exported.Count, source.Count - 2, source.Count + 2); // duration is untouched
+
+        for (int j = 0; (j + 1) * run < Math.Min(exported.Count, source.Count) - 1; j++)
+        {
+            int first = j * run;
+            for (int k = first + 1; k < first + run; k++)
+            {
+                // Inside a run: a repeat of the run's first frame (only encode noise), and that frame is the
+                // step's source frame rather than the source frame under k.
+                double repeat = MeanAbsDiff(exported[k], exported[first]);
+                double change = MeanAbsDiff(exported[first + run], exported[first]);
+                Assert.True(repeat < change * 0.5,
+                    $"frame {k}: expected a repeat of frame {first} (diff {repeat:0.00}) vs the next run (diff {change:0.00})");
+                double stepped = MeanAbsDiff(exported[k], source[first]);
+                double live = MeanAbsDiff(exported[k], source[k]);
+                Assert.True(stepped < live * 0.5,
+                    $"frame {k}: expected source frame {first} (diff {stepped:0.00}) rather than {k} (diff {live:0.00})");
+            }
+        }
+    }
+
+    [Fact]
     public void Ramped_Clip_Exports_Its_Integrated_Duration()
     {
         Project project = ExportFixture.BuildProject(withAudio: false);

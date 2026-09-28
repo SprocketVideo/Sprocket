@@ -232,6 +232,11 @@ public sealed partial class SprocketTools
             EffectInstance effect = ResolveEffect(clip, effectIndex, effectTag);
             if (keyframes is null || keyframes.Length == 0)
                 throw new McpException("pass at least one keyframe.");
+            // A time modifier's parameters are static (Posterize Time's rate — plan/features/toy-cassette-camera.md
+            // phase 2), matching the Inspector, which offers no keyframe control for them.
+            if (EffectCatalog.IsTimeModifier(effect.EffectTypeId))
+                throw new McpException(
+                    $"{effect.EffectTypeId} is a time modifier; its parameters are not keyframeable — use set_effect_parameter.");
 
             // Discrete kinds keep their keyframes honest: values snap, and toggles/dropdowns are always
             // Hold (Linear/eased would interpolate a boolean through the DSP's ≥ 0.5 threshold); integers

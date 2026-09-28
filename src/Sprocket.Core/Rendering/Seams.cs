@@ -40,6 +40,15 @@ public interface IVideoCompositor<TImage>
     TImage ApplyEffect(TImage frame, ResolvedEffect effect);
 
     /// <summary>
+    /// Applies a <em>temporal</em> effect (one carrying <see cref="ResolvedEffect.TemporalInputs"/>, e.g. Echo —
+    /// plan/features/toy-cassette-camera.md phase 6) to <paramref name="frame"/>, given its prior frames in echo order,
+    /// each already folded through that input's <see cref="TemporalInput.Upstream"/> effects. The default ignores the
+    /// priors and applies the effect as a single-frame stage, so existing compositors keep working unchanged.
+    /// </summary>
+    TImage ApplyTemporalEffect(TImage frame, ResolvedEffect effect, IReadOnlyList<TImage> priors) =>
+        ApplyEffect(frame, effect);
+
+    /// <summary>
     /// Blends two clips' frames into one per a transition (PLAN.md step 25): <paramref name="from"/> (the outgoing
     /// clip) and <paramref name="to"/> (the incoming clip), each already folded through its own effect chain, mixed
     /// per <paramref name="transition"/>'s type and progress. The result is composited like any other layer.

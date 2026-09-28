@@ -64,7 +64,9 @@ frames never touch the managed heap per frame.
   presets (muzzle flash, fire burst, ground explosion, aftermath, burning edge, dust hit, aftershock)
   that stack them with the atmospheric generators as ordinary, editable layers, and a guided
   day-for-night grade (sky, highlights, moonlight tint, practical lights and skin protection) with
-  one-click looks.
+  one-click looks, and a one-tap toy cassette camera look (chunky black-and-white pixels, 15 fps
+  stutter, trailing highlights, tape noise and hissy cassette sound) built from reusable Mosaic,
+  Posterize Time, Echo, toy-camera and Cassette audio effects.
 - **Stabilization** — background motion analysis (cached per source) feeding a deterministic solve:
   adaptive intent-preserving smoothing, per-channel control, a cropping-budget auto-zoom, and a
   Scale Lock that fixes focus breathing — with a camera-path graph to see what was tracked.

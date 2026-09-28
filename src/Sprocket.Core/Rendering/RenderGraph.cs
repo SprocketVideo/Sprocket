@@ -88,25 +88,30 @@ public static class RenderGraph
         if (!clip.Enabled)
             return null;
 
-        Timecode sourceT = clip.MapToSource(t);
+        // The clip's picture is evaluated at its Posterize Time step (plan/features/toy-cassette-camera.md phase 2):
+        // the displayed source frame comes from the video time map, and effects / keyframes / generator parameters
+        // at the same quantized time, so the whole layer updates at the posterized rate. Both are the identity for
+        // an ordinary clip. The audio planner keeps the plain map — Posterize Time never chops audio.
+        Timecode evalT = clip.EffectEvalTime(t);
+        Timecode sourceT = clip.MapToSourceVideo(t);
         switch (clip.Kind)
         {
             case ClipKind.Generator:
                 // A generator has no source media, so a source-referenced stage (Stabilization) has nothing to bind.
                 return new VideoLayer(
-                    default, sourceT, ResolveEffectsCore(clip, t, sourceT, null, null, null), opacity, blend,
-                    LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, t, LocalProgress(clip, t), sourceT.ToSeconds()));
+                    default, sourceT, ResolveEffectsCore(clip, evalT, sourceT, null, null, null), opacity, blend,
+                    LayerKind.Generator, ResolveGeneratorCore(clip.Generator!, evalT, LocalProgress(clip, evalT), sourceT.ToSeconds()));
 
             case ClipKind.Adjustment:
                 // An adjustment layer applies to the composite beneath it — again, no source media to reference.
-                return new VideoLayer(default, sourceT, ResolveEffectsCore(clip, t, sourceT, null, null, null), opacity, blend,
+                return new VideoLayer(default, sourceT, ResolveEffectsCore(clip, evalT, sourceT, null, null, null), opacity, blend,
                     LayerKind.Adjustment);
 
             case ClipKind.Sequence:
                 // A valid, in-bounds, non-cyclic nested sequence carries its resolved child plan; a missing /
                 // cyclic / too-deep reference contributes nothing (renders as empty, like an offline source §15).
                 return PlanNestedVideo(project, clip, sourceT, path, depth) is { } nested
-                    ? new VideoLayer(default, sourceT, ResolveEffectsCore(clip, t, sourceT, null, null, null), opacity, blend,
+                    ? new VideoLayer(default, sourceT, ResolveEffectsCore(clip, evalT, sourceT, null, null, null), opacity, blend,
                         LayerKind.Sequence, NestedPlan: nested, ConformMode: clip.ConformMode)
                     : null;
 
@@ -118,20 +123,120 @@ public static class RenderGraph
                 if (ResolveMulticamAngle(project, clip) is { } angle)
                 {
                     Timecode angleSourceT = ClipSync.AngleSourceTime(angle, sourceT);
+                    ResolvedEffect[] angleEffects = ResolveEffectsCore(clip, evalT, angleSourceT, angle.MediaRefId,
+                        ClipSync.AngleSourceTime(angle, clip.SourceIn), ClipSync.AngleSourceTime(angle, clip.SourceOut),
+                        new PriorContext(t, angle, project.MediaPool.Get(angle.MediaRefId)?.Info.Duration));
                     return new VideoLayer(
-                        angle.MediaRefId, angleSourceT,
-                        ResolveEffectsCore(clip, t, angleSourceT, angle.MediaRefId,
-                            ClipSync.AngleSourceTime(angle, clip.SourceIn), ClipSync.AngleSourceTime(angle, clip.SourceOut)),
-                        opacity, blend, ConformMode: clip.ConformMode, Reverse: clip.Reverse);
+                        angle.MediaRefId, angleSourceT, angleEffects,
+                        opacity, blend, ConformMode: clip.ConformMode, Reverse: clip.Reverse,
+                        PriorSourceTimes: CollectPriorSourceTimes(angleEffects));
                 }
                 return null;
 
             default:
+            {
+                // A temporal effect (Echo, plan/features/toy-cassette-camera.md phase 6) reaches back into earlier
+                // frames of this clip's source: the prior times are resolved here, as data, and listed on the layer.
+                ResolvedEffect[] effects = ResolveEffectsCore(clip, evalT, sourceT, clip.MediaRefId, clip.SourceIn, clip.SourceOut,
+                    new PriorContext(t, null, project.MediaPool.Get(clip.MediaRefId)?.Info.Duration));
                 return new VideoLayer(
-                    clip.MediaRefId, sourceT,
-                    ResolveEffectsCore(clip, t, sourceT, clip.MediaRefId, clip.SourceIn, clip.SourceOut), opacity, blend,
-                    ConformMode: clip.ConformMode, Reverse: clip.Reverse);
+                    clip.MediaRefId, sourceT, effects, opacity, blend,
+                    ConformMode: clip.ConformMode, Reverse: clip.Reverse,
+                    PriorSourceTimes: CollectPriorSourceTimes(effects));
+            }
         }
+    }
+
+    /// <summary>
+    /// The context a temporal effect needs to resolve its prior frames (plan/features/toy-cassette-camera.md phase 6):
+    /// the frame's <em>unquantized</em> timeline time (each prior time is <c>TimelineTime + k·spacing</c>, then goes
+    /// through the clip's video time map), the multicam angle whose media the layer samples (its sync offset applies),
+    /// and that media's duration, the upper clamp for a prior time that falls past the source's end.
+    /// </summary>
+    private readonly record struct PriorContext(Timecode TimelineTime, MulticamAngle? Angle, Timecode? MediaDuration);
+
+    /// <summary>
+    /// The source time of the prior frame at timeline time <paramref name="priorT"/>: the clip's video time map
+    /// (<see cref="Clip.MapToSourceVideo"/> — speed, ramp, reverse, hold and Posterize Time all apply), then the angle's
+    /// sync offset for a multicam clip. Before the clip's start the unclamped map reaches into the head handle when the
+    /// source has one; where it runs off the media (before its first frame, or — reversed — past its end) it clamps to
+    /// the media's first (last) frame, so an echo at the very start of the source repeats the first frame rather than
+    /// reading nothing.
+    /// </summary>
+    private static Timecode PriorSourceTime(Clip clip, Timecode priorT, in PriorContext context)
+    {
+        Timecode source = clip.MapToSourceVideo(priorT);
+        if (context.Angle is { } angle)
+            source = ClipSync.AngleSourceTime(angle, source);
+        long ticks = Math.Max(0, source.Ticks);
+        if (context.MediaDuration is { Ticks: > 0 } duration)
+            ticks = Math.Min(ticks, duration.Ticks);
+        return new Timecode(ticks);
+    }
+
+    /// <summary>The distinct source times every temporal effect in <paramref name="effects"/> reads, ascending, or
+    /// <see langword="null"/> when there are none (<see cref="VideoLayer.PriorSourceTimes"/>).</summary>
+    private static Timecode[]? CollectPriorSourceTimes(ResolvedEffect[] effects)
+    {
+        List<Timecode>? times = null;
+        foreach (ResolvedEffect effect in effects)
+        {
+            if (effect.TemporalInputs is not { } inputs)
+                continue;
+            foreach (TemporalInput input in inputs)
+            {
+                times ??= [];
+                if (!times.Contains(input.SourceTime))
+                    times.Add(input.SourceTime);
+            }
+        }
+        if (times is null)
+            return null;
+        times.Sort();
+        return [.. times];
+    }
+
+    /// <summary>
+    /// The distinct source times the temporal effects on <paramref name="clip"/> read at timeline time
+    /// <paramref name="t"/> (plan/features/toy-cassette-camera.md phase 6), ascending — the same prior times
+    /// <see cref="PlanVideoFrame(Project, Timecode)"/> lists in <see cref="VideoLayer.PriorSourceTimes"/>, without
+    /// resolving the rest of the chain. The live preview's decode player uses it to decide which recent frames to keep
+    /// and how far back to seek. <paramref name="mediaDuration"/> (the source's duration, when known) is the upper
+    /// clamp the planner applies. Returns an empty list — without allocating — for a clip with no temporal effect.
+    /// </summary>
+    public static IReadOnlyList<Timecode> ResolvePriorSourceTimes(Clip clip, Timecode t, Timecode? mediaDuration = null)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        List<Timecode>? times = null;
+        int budget = TemporalFootprint.MaxPriorFrames;
+        var context = new PriorContext(t, null, mediaDuration);
+        foreach (EffectInstance effect in clip.Effects)
+        {
+            if (!effect.Enabled || budget <= 0 || EffectCatalog.Find(effect.EffectTypeId)?.TemporalFootprint is not { } footprintOf)
+                continue;
+            TemporalFootprint footprint = footprintOf(EvaluateParameters(effect, clip.EffectEvalTime(t)));
+            int count = footprint.IsEmpty ? 0 : Math.Min(footprint.Count, budget);
+            budget -= count;
+            for (int k = 1; k <= count; k++)
+            {
+                Timecode source = PriorSourceTime(clip, t + new Timecode(footprint.Spacing.Ticks * k), context);
+                times ??= [];
+                if (!times.Contains(source))
+                    times.Add(source);
+            }
+        }
+        if (times is null)
+            return [];
+        times.Sort();
+        return times;
+    }
+
+    private static Dictionary<string, double> EvaluateParameters(EffectInstance effect, Timecode t)
+    {
+        var values = new Dictionary<string, double>(effect.Parameters.Count);
+        foreach ((string name, AnimatableValue value) in effect.Parameters)
+            values[name] = value.Evaluate(t);
+        return values;
     }
 
     /// <summary>
@@ -472,8 +577,25 @@ public static class RenderGraph
                 _ => frameSource.GetFrame(l.MediaRefId, l.SourceTime),
             };
             foreach (ResolvedEffect effect in l.Effects)
-                f = compositor.ApplyEffect(f, effect);
+                f = effect.TemporalInputs is { Count: > 0 } inputs && l.Kind == LayerKind.Media
+                    ? compositor.ApplyTemporalEffect(f, effect, PriorFrames(l, inputs))
+                    : compositor.ApplyEffect(f, effect);
             return f;
+        }
+
+        // A temporal effect's prior frames (phase 6): each fetched from the layer's media at its source time and folded
+        // through the effects below the temporal one, as resolved for that prior frame.
+        TImage[] PriorFrames(VideoLayer l, IReadOnlyList<TemporalInput> inputs)
+        {
+            var priors = new TImage[inputs.Count];
+            for (int k = 0; k < inputs.Count; k++)
+            {
+                TImage p = frameSource.GetFrame(l.MediaRefId, inputs[k].SourceTime);
+                foreach (ResolvedEffect upstream in inputs[k].Upstream)
+                    p = compositor.ApplyEffect(p, upstream);
+                priors[k] = p;
+            }
+            return priors;
         }
 
         foreach (VideoLayer layer in plan.Layers)
@@ -504,18 +626,28 @@ public static class RenderGraph
     /// preview can resolve effects for the live frame off the same code path the planner uses (§5, §7).
     /// Returns an empty list for a clip with no effects (no allocation).
     /// </summary>
-    public static IReadOnlyList<ResolvedEffect> ResolveEffects(Clip clip, Timecode t)
+    public static IReadOnlyList<ResolvedEffect> ResolveEffects(Clip clip, Timecode t) => ResolveEffects(clip, t, null);
+
+    /// <summary>
+    /// As <see cref="ResolveEffects(Clip, Timecode)"/>, with the clip's source duration (when known) so a temporal
+    /// effect's prior frames clamp exactly as the planner clamps them (<see cref="ResolvePriorSourceTimes"/>) — the
+    /// live preview passes it so its echoes sample the same frames export does.
+    /// </summary>
+    public static IReadOnlyList<ResolvedEffect> ResolveEffects(Clip clip, Timecode t, Timecode? mediaDuration)
     {
         ArgumentNullException.ThrowIfNull(clip);
         // Carry the same source-frame context the planner does so a source-referenced stage (Stabilization)
         // resolves identically in the live preview. Media clips reference their own source; layers with no source
-        // media (generators, adjustment layers) pass a null media id.
-        Timecode sourceT = clip.MapToSource(t);
+        // media (generators, adjustment layers) pass a null media id. Like the planner, a posterized clip's effects
+        // evaluate at its Posterize Time step and sample the video map's source frame; a media clip's temporal
+        // effects (Echo) resolve their prior frames the same way too.
+        Timecode sourceT = clip.MapToSourceVideo(t);
         bool sourceless = clip.Kind is ClipKind.Generator or ClipKind.Adjustment or ClipKind.Sequence;
-        return ResolveEffectsCore(clip, t, sourceT,
+        return ResolveEffectsCore(clip, clip.EffectEvalTime(t), sourceT,
             sourceless ? null : clip.MediaRefId,
             sourceless ? null : clip.SourceIn,
-            sourceless ? null : clip.SourceOut);
+            sourceless ? null : clip.SourceOut,
+            sourceless ? null : new PriorContext(t, null, mediaDuration));
     }
 
     /// <summary>
@@ -586,14 +718,16 @@ public static class RenderGraph
     /// local progress (0 at the clip's start, 1 at its end) so duration-relative content — a rolling/crawling
     /// title (PLAN.md step 40) — stays a pure, deterministic function of (project, t) with the clip's duration
     /// setting the speed, plus the clip's local time in seconds for rate-driven content (the phase-2
-    /// atmospherics). Throws when the clip is not a generator clip.
+    /// atmospherics). A posterized generator (Posterize Time) resolves at its quantized step, so its content
+    /// stutters like media does. Throws when the clip is not a generator clip.
     /// </summary>
     public static ResolvedGenerator ResolveGenerator(Clip clip, Timecode t)
     {
         ArgumentNullException.ThrowIfNull(clip);
         if (clip.Generator is null)
             throw new ArgumentException("Clip is not a generator clip.", nameof(clip));
-        return ResolveGeneratorCore(clip.Generator, t, LocalProgress(clip, t), clip.MapToSource(t).ToSeconds());
+        Timecode evalT = clip.EffectEvalTime(t);
+        return ResolveGeneratorCore(clip.Generator, evalT, LocalProgress(clip, evalT), clip.MapToSourceVideo(t).ToSeconds());
     }
 
     /// <summary>The clip's normalised local progress at <paramref name="t"/>: 0 at <see cref="Clip.TimelineStart"/>,
@@ -623,22 +757,60 @@ public static class RenderGraph
     /// the media it draws from), carried onto each <see cref="ResolvedEffect"/> so a source-referenced pipeline
     /// stage such as Stabilization can pick the analysed motion sample for this frame; both are the angle's values
     /// for a multicam clip, and <paramref name="mediaRefId"/> is <see langword="null"/> for layers with no source
-    /// media (generators, adjustment layers).
+    /// media (generators, adjustment layers). <paramref name="t"/> is the clip's effect evaluation time
+    /// (<see cref="Clip.EffectEvalTime"/> — the Posterize Time step for a posterized clip). Time-modifier entries
+    /// (<see cref="EffectDescriptor.IsTimeModifier"/>, e.g. Posterize Time) are consumed by the clip's time map and
+    /// dropped here, so the Render layer never sees them.
     /// </summary>
+    /// <remarks>
+    /// <para><b>Temporal effects</b> (plan/features/toy-cassette-camera.md phase 6). When <paramref name="prior"/> is
+    /// given (media layers — the only ones with earlier source frames to reach back into), an effect whose descriptor
+    /// supplies a <see cref="EffectDescriptor.TemporalFootprint"/> gets its <see cref="ResolvedEffect.TemporalInputs"/>:
+    /// for k = 1…Count, the prior timeline time <c>T + k·Spacing</c> (T unquantized) mapped to its source frame
+    /// (<see cref="PriorSourceTime"/>), plus the effects <em>below</em> it (the first <paramref name="limit"/> entries
+    /// of the chain for the recursion) re-resolved at that prior time's own <see cref="Clip.EffectEvalTime"/> and
+    /// source time — so a prior frame looks exactly as it did when it was current. The layer's total is capped at
+    /// <see cref="TemporalFootprint.MaxPriorFrames"/>; the upstream re-resolution never resolves temporal inputs of its
+    /// own (an Echo below an Echo re-applies without echoes).</para>
+    /// </remarks>
     private static ResolvedEffect[] ResolveEffectsCore(
-        Clip clip, Timecode t, Timecode sourceTime, MediaRefId? mediaRefId, Timecode? sourceIn, Timecode? sourceOut)
+        Clip clip, Timecode t, Timecode sourceTime, MediaRefId? mediaRefId, Timecode? sourceIn, Timecode? sourceOut,
+        PriorContext? prior = null, int limit = int.MaxValue)
     {
-        if (clip.Effects.Count == 0)
+        if (clip.Effects.Count == 0 || limit <= 0)
             return [];
 
         List<ResolvedEffect>? resolved = null;
-        foreach (EffectInstance effect in clip.Effects)
+        int priorBudget = TemporalFootprint.MaxPriorFrames;
+        for (int index = 0; index < clip.Effects.Count && index < limit; index++)
         {
+            EffectInstance effect = clip.Effects[index];
             if (!effect.Enabled)
                 continue;
-            var values = new Dictionary<string, double>(effect.Parameters.Count);
-            foreach ((string name, AnimatableValue value) in effect.Parameters)
-                values[name] = value.Evaluate(t);
+            EffectDescriptor? descriptor = EffectCatalog.Find(effect.EffectTypeId);
+            if (descriptor?.IsTimeModifier == true)
+                continue;
+            Dictionary<string, double> values = EvaluateParameters(effect, t);
+
+            TemporalInput[]? temporalInputs = null;
+            if (prior is { } context && descriptor?.TemporalFootprint is { } footprintOf && priorBudget > 0)
+            {
+                TemporalFootprint footprint = footprintOf(values);
+                int count = footprint.IsEmpty ? 0 : Math.Min(footprint.Count, priorBudget);
+                if (count > 0)
+                {
+                    priorBudget -= count;
+                    temporalInputs = new TemporalInput[count];
+                    for (int k = 1; k <= count; k++)
+                    {
+                        Timecode priorT = context.TimelineTime + new Timecode(footprint.Spacing.Ticks * k);
+                        Timecode priorSource = PriorSourceTime(clip, priorT, context);
+                        ResolvedEffect[] upstream = ResolveEffectsCore(clip, clip.EffectEvalTime(priorT), priorSource,
+                            mediaRefId, sourceIn, sourceOut, prior: null, limit: index);
+                        temporalInputs[k - 1] = new TemporalInput(priorSource, upstream);
+                    }
+                }
+            }
             // Asset references (the Creative LUT's .cube path) are copied, like the audio plan does, so the
             // resolved effect is an immutable snapshot a render/export worker can read while the UI thread runs a
             // SetEffectAssetCommand; most effects have none, so this is usually null. FrameTime is the
@@ -651,7 +823,7 @@ public static class RenderGraph
                 effect.EffectTypeId, values,
                 Assets: effect.Assets.Count > 0 ? new Dictionary<string, string>(effect.Assets) : null,
                 FrameTime: t.Ticks, SourceTime: sourceTime, MediaRefId: mediaRefId,
-                SourceIn: sourceIn, SourceOut: sourceOut));
+                SourceIn: sourceIn, SourceOut: sourceOut, TemporalInputs: temporalInputs));
         }
         return resolved?.ToArray() ?? [];
     }

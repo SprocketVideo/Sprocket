@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Sprocket.Export.Tests" />
+    <!-- The Echo preview-vs-export pixel test (toy-cassette-camera phase 6) renders a frame through the export path. -->
+    <InternalsVisibleTo Include="Sprocket.Playback.Tests" />
   </ItemGroup>
 
   <ItemGroup>

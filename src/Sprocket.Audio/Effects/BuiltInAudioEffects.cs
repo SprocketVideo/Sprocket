@@ -31,6 +31,7 @@ public static class BuiltInAudioEffects
         EffectTypeIds.AudioShelvingEq => new ShelvingEqEffect(),
         EffectTypeIds.AudioShimmerReverb => new ShimmerReverbEffect(),
         EffectTypeIds.AudioConvolutionReverb => new ConvolutionReverbEffect(),
+        EffectTypeIds.AudioCassette => new CassetteEffect(),
         _ => null,
     };
 }

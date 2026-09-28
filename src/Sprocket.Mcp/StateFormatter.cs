@@ -130,6 +130,10 @@ public static class StateFormatter
             };
             if (descriptor.Presets.Count > 0)
                 entry["presets"] = new JsonArray([.. descriptor.Presets.Select(p => (JsonNode?)p.Name)]);
+            // A time modifier (Posterize Time) retimes the clip's picture rather than filtering it; its
+            // parameters are static (set_effect_parameter_keyframes refuses them).
+            if (descriptor.IsTimeModifier)
+                entry["time_modifier"] = true;
             effects.Add(entry);
         }
         return new JsonObject { ["effect_types"] = effects }.ToJsonString(Indented);
@@ -183,6 +187,40 @@ public static class StateFormatter
             ["default_duration_ticks"] = GeneratorCatalog.DefaultDuration.Ticks,
             ["generator_types"] = generators,
         }.ToJsonString(Indented);
+    }
+
+    /// <summary>The one-tap preset-stack catalog — the <c>list_preset_stacks</c> payload
+    /// (plan/features/toy-cassette-camera.md, phase 5): each stack's name, group and the effect entries (type id,
+    /// factory preset, value overrides) it puts on the target's video and audio clips.</summary>
+    public static string PresetStacks()
+    {
+        var stacks = new JsonArray();
+        foreach (PresetStack stack in PresetStackCatalog.All)
+        {
+            stacks.Add(new JsonObject
+            {
+                ["name"] = stack.Name,
+                ["group"] = stack.Group,
+                ["title"] = stack.Title,
+                ["description"] = stack.Description,
+                ["video_entries"] = PresetStackEntries(stack.VideoEntries),
+                ["audio_entries"] = PresetStackEntries(stack.AudioEntries),
+            });
+        }
+        return new JsonObject { ["preset_stacks"] = stacks }.ToJsonString(Indented);
+    }
+
+    private static JsonArray PresetStackEntries(IReadOnlyList<PresetStackEntry> entries)
+    {
+        var array = new JsonArray();
+        foreach (PresetStackEntry entry in entries)
+        {
+            var obj = new JsonObject { ["type_id"] = entry.EffectTypeId, ["preset"] = entry.PresetName };
+            if (entry.Values is { Count: > 0 } values)
+                obj["values"] = new JsonObject(values.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value)));
+            array.Add(obj);
+        }
+        return array;
     }
 
     /// <summary>The action-VFX preset catalog — the <c>list_action_vfx_presets</c> payload. Layers are listed

@@ -222,6 +222,55 @@ public static class EffectTypeIds
     public const string Flicker = "builtin.flicker";
 
     /// <summary>
+    /// Mosaic (plan/features/toy-cassette-camera.md, phase 1): the After Effects / Premiere primitive — divides
+    /// the layer rect into a grid of solid blocks, each filled with its averaged colour (or its centre sample
+    /// with <see cref="EffectParamNames.SharpColors"/> on), with an optional soft blend across block borders.
+    /// Parameters: <see cref="EffectParamNames.HorizontalBlocks"/>, <see cref="EffectParamNames.VerticalBlocks"/>,
+    /// <see cref="EffectParamNames.SharpColors"/>, <see cref="EffectParamNames.EdgeSoftness"/>.
+    /// </summary>
+    public const string Mosaic = "builtin.mosaic";
+
+    /// <summary>
+    /// Posterize Time (plan/features/toy-cassette-camera.md, phase 2): the After Effects / Premiere primitive —
+    /// the clip's picture updates only at <see cref="EffectParamNames.PosterizeFrameRate"/> frames per second,
+    /// holding each frame in between (a stepped, low-frame-rate stutter). A <em>time modifier</em>
+    /// (<see cref="EffectDescriptor.IsTimeModifier"/>): it is read by the clip's video time map
+    /// (<see cref="Clip.MapToSourceVideo"/>) rather than rendered as a shader, never touches the clip's audio, and
+    /// its rate is static (not keyframeable). Parameter: <see cref="EffectParamNames.PosterizeFrameRate"/>.
+    /// </summary>
+    public const string PosterizeTime = "builtin.posterizetime";
+
+    /// <summary>
+    /// Toy Cassette Camera (plan/features/toy-cassette-camera.md, phase 3): one ordered stage that turns footage
+    /// into the look of a late-1980s toy camcorder recording black-and-white video onto an audio cassette —
+    /// chunky soft pixels, crushed low-range monochrome, blooming and smeared highlights, tape noise lines and
+    /// dropouts, grain shimmer, and a thick black border around a 4:3 picture. Pair with
+    /// <see cref="PosterizeTime"/> at 15 fps for the stutter. Parameters: <see cref="EffectParamNames.HorizontalPixels"/>,
+    /// <see cref="EffectParamNames.VerticalPixels"/>, <see cref="EffectParamNames.PixelSoftness"/>,
+    /// <see cref="EffectParamNames.Contrast"/>, <see cref="EffectParamNames.BlackCrush"/>,
+    /// <see cref="EffectParamNames.HighlightBloom"/>, <see cref="EffectParamNames.SmearLength"/>,
+    /// <see cref="EffectParamNames.SmearThreshold"/>, <see cref="EffectParamNames.NoiseLines"/>,
+    /// <see cref="EffectParamNames.Dropouts"/>, <see cref="EffectParamNames.GrainAmount"/>,
+    /// <see cref="EffectParamNames.BorderSize"/>, <see cref="EffectParamNames.BorderSoftness"/>,
+    /// <see cref="EffectParamNames.Seed"/>.
+    /// </summary>
+    public const string ToyCam = "builtin.toycam";
+
+    /// <summary>
+    /// Echo (plan/features/toy-cassette-camera.md, phase 6): the After Effects primitive — combines the clip's current
+    /// frame with up to eight of its <em>earlier</em> frames, <see cref="EffectParamNames.EchoTime"/> apart, each
+    /// fainter by <see cref="EffectParamNames.Decay"/>, via the chosen <see cref="EffectParamNames.EchoOperator"/>
+    /// (motion trails, ghosting, strobe stacks). A <em>temporal</em> effect: its descriptor supplies a
+    /// <see cref="EffectDescriptor.TemporalFootprint"/>, so the planner resolves the earlier frames' source times
+    /// through the clip's video time map and the frame stays a pure function of (project, time) — no feedback buffer.
+    /// <see cref="EffectParamNames.HighlightKey"/> (our addition) limits the echoes to bright pixels — the toy cassette
+    /// camera's highlight lag. Parameters: <see cref="EffectParamNames.EchoTime"/>, <see cref="EffectParamNames.EchoCount"/>,
+    /// <see cref="EffectParamNames.StartingIntensity"/>, <see cref="EffectParamNames.Decay"/>,
+    /// <see cref="EffectParamNames.EchoOperator"/>, <see cref="EffectParamNames.HighlightKey"/>.
+    /// </summary>
+    public const string Echo = "builtin.echo";
+
+    /// <summary>
     /// Audio gain/pan (PLAN.md step 31): a static per-chain-stage gain (<see cref="EffectParamNames.GainDb"/>)
     /// and stereo balance (<see cref="EffectParamNames.Pan"/>), the simplest audio DSP stage.
     /// </summary>
@@ -345,6 +394,19 @@ public static class EffectTypeIds
     /// is chosen and loaded.
     /// </summary>
     public const string AudioConvolutionReverb = "builtin.audio.reverb.convolution";
+
+    /// <summary>
+    /// Cassette (plan/features/toy-cassette-camera.md, phase 4): the sound of a cheap cassette recorder — or the
+    /// late-1980s toy camcorder that recorded onto one — as one stage: mono fold-down, camera-style automatic gain
+    /// control that pumps, soft tape saturation, band-limiting to a narrow 24 dB/oct window, tape hiss, and
+    /// wow &amp; flutter pitch wobble. Useful on its own for any "recorded on cassette" sound; the audio half of the
+    /// Toy Cassette Camera look. Parameters: <see cref="EffectParamNames.Mono"/>, <see cref="EffectParamNames.LowCutHz"/>,
+    /// <see cref="EffectParamNames.HighCutHz"/>, <see cref="EffectParamNames.HissDb"/>,
+    /// <see cref="EffectParamNames.WowFlutterDepth"/>/<see cref="EffectParamNames.WowFlutterRateHz"/>,
+    /// <see cref="EffectParamNames.Drive"/>, <see cref="EffectParamNames.AgcAmount"/>,
+    /// <see cref="EffectParamNames.ReleaseMs"/> (the AGC release), <see cref="EffectParamNames.Mix"/>.
+    /// </summary>
+    public const string AudioCassette = "builtin.audio.cassette";
 
     /// <summary>
     /// Whether an effect type id names an <b>audio</b> chain stage (PLAN.md step 31). The render graph uses
@@ -692,6 +754,100 @@ public static class EffectParamNames
     /// <summary>Blend in [0, 1] from a clean periodic waveform (0) to hashed noise (1) — <see cref="EffectTypeIds.Flicker"/>.</summary>
     public const string Randomness = "randomness";
 
+    // ── Mosaic (plan/features/toy-cassette-camera.md, phase 1) ──────────────────────────────────────
+
+    /// <summary>Number of mosaic blocks across the layer rect (whole number ≥ 1) — <see cref="EffectTypeIds.Mosaic"/>.</summary>
+    public const string HorizontalBlocks = "horizontalBlocks";
+
+    /// <summary>Number of mosaic blocks down the layer rect (whole number ≥ 1) — <see cref="EffectTypeIds.Mosaic"/>.</summary>
+    public const string VerticalBlocks = "verticalBlocks";
+
+    /// <summary>On/off (≥ 0.5 = on): fill each block with its centre sample instead of its averaged colour —
+    /// <see cref="EffectTypeIds.Mosaic"/>.</summary>
+    public const string SharpColors = "sharpColors";
+
+    /// <summary>Width in [0, 1] of the smooth blend across block borders (0 = hard-edged blocks) —
+    /// <see cref="EffectTypeIds.Mosaic"/>.</summary>
+    public const string EdgeSoftness = "edgeSoftness";
+
+    // ── Posterize Time (plan/features/toy-cassette-camera.md, phase 2) ──────────────────────────────
+
+    /// <summary>The rate, in frames per second (1–60), at which a posterized clip's picture updates —
+    /// <see cref="EffectTypeIds.PosterizeTime"/>. Static (not keyframeable).</summary>
+    public const string PosterizeFrameRate = "frameRate";
+
+    // ── Toy Cassette Camera (plan/features/toy-cassette-camera.md, phase 3) ─────────────────────────
+    // The stage also reuses Contrast (around mid-grey, 1 = unchanged) and GrainAmount.
+
+    /// <summary>Number of picture pixels across the 4:3 window (whole number ≥ 1) — <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string HorizontalPixels = "horizontalPixels";
+
+    /// <summary>Number of picture pixels down the 4:3 window (whole number ≥ 1) — <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string VerticalPixels = "verticalPixels";
+
+    /// <summary>Width in [0, 1] of the smooth blend between neighbouring picture pixels (0 = hard blocks) —
+    /// <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string PixelSoftness = "pixelSoftness";
+
+    /// <summary>Fraction in [0, 1] of the tone range crushed to black — <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string BlackCrush = "blackCrush";
+
+    /// <summary>Strength in [0, 1] of the glow bright pixels bleed into themselves and their neighbours —
+    /// <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string HighlightBloom = "highlightBloom";
+
+    /// <summary>Length in [0, 1] of the trail bright pixels leave (1 = eight picture pixels; 0 = off) —
+    /// <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string SmearLength = "smearLength";
+
+    /// <summary>Brightness in [0, 1] above which a picture pixel leaves a smear trail — <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string SmearThreshold = "smearThreshold";
+
+    /// <summary>Amount in [0, 1] of horizontal tape-noise lines (how many rows streak each frame) —
+    /// <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string NoiseLines = "noiseLines";
+
+    /// <summary>Amount in [0, 1] of tape dropouts (white horizontal flashes where the signal drops) —
+    /// <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string Dropouts = "dropouts";
+
+    /// <summary>How far, in [0, 0.5], the 4:3 picture shrinks inside the largest 4:3 rect that fits the layer, as a
+    /// fraction of that rect's size; everything outside the shrunken window is black border —
+    /// <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string BorderSize = "borderSize";
+
+    /// <summary>Feather and corner rounding in [0, 1] of the picture window's edge against the border (0 = a hard,
+    /// square edge) —
+    /// <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string BorderSoftness = "borderSoftness";
+
+    /// <summary>Whole-number variation seed (0–999) for the procedural noise pattern, like the generators' seed —
+    /// <see cref="EffectTypeIds.ToyCam"/>.</summary>
+    public const string Seed = "seed";
+
+    // ── Echo (plan/features/toy-cassette-camera.md, phase 6) ────────────────────────────────────────
+    // The stage also reuses Decay (here: the intensity ratio between successive echoes).
+
+    /// <summary>Signed spacing in seconds between successive echoes (negative = earlier frames; AE's default is
+    /// −0.033, one frame at 30 fps) — <see cref="EffectTypeIds.Echo"/>.</summary>
+    public const string EchoTime = "echoTime";
+
+    /// <summary>How many earlier frames are combined with the current one (whole number 0–8; 0 = no echoes) —
+    /// <see cref="EffectTypeIds.Echo"/>.</summary>
+    public const string EchoCount = "numberOfEchoes";
+
+    /// <summary>Opacity in [0, 1] of the first image of the echo sequence (the current frame); each later echo is
+    /// <see cref="Decay"/> times the one before it — <see cref="EffectTypeIds.Echo"/>.</summary>
+    public const string StartingIntensity = "startingIntensity";
+
+    /// <summary>How the echoes combine, as an index into <see cref="EchoOperators.Names"/> (Add, Maximum, Minimum,
+    /// Screen, Composite in Back, Composite in Front, Blend) — <see cref="EffectTypeIds.Echo"/>.</summary>
+    public const string EchoOperator = "echoOperator";
+
+    /// <summary>Brightness key in [0, 1]: only echo pixels brighter than it contribute (0 = every pixel echoes, the
+    /// After Effects behaviour; 1 = none do) — <see cref="EffectTypeIds.Echo"/>.</summary>
+    public const string HighlightKey = "highlightKey";
+
     // ── Day for Night (plan/features/special-effects.md, phase 4) ────────────────────────────────────
     // The toolkit also reuses Exposure, Saturation (the fraction of colour kept, [0, 1]) and VignetteAmount.
 
@@ -764,8 +920,9 @@ public static class EffectParamNames
     /// <see cref="EffectTypeIds.AudioNoiseGate"/> (gain-opening ramp).</summary>
     public const string AttackMs = "attackMs";
 
-    /// <summary>Release time in milliseconds — <see cref="EffectTypeIds.AudioCompressor"/> and
-    /// <see cref="EffectTypeIds.AudioNoiseGate"/> (gain-closing ramp).</summary>
+    /// <summary>Release time in milliseconds — <see cref="EffectTypeIds.AudioCompressor"/>,
+    /// <see cref="EffectTypeIds.AudioNoiseGate"/> (gain-closing ramp), and <see cref="EffectTypeIds.AudioCassette"/>
+    /// (how slowly the automatic gain control recovers after a loud sound).</summary>
     public const string ReleaseMs = "releaseMs";
 
     /// <summary>Compressor make-up gain in dB — <see cref="EffectTypeIds.AudioCompressor"/>.</summary>
@@ -828,19 +985,20 @@ public static class EffectParamNames
     public const string Feedback = "feedback";
 
     /// <summary>Feedback-path high-cut corner in Hz (repeats darken with each pass; at the 20 kHz ceiling the
-    /// filter is bypassed for a bit-clean repeat) — <see cref="EffectTypeIds.AudioDelayDigital"/>.</summary>
+    /// filter is bypassed for a bit-clean repeat) — <see cref="EffectTypeIds.AudioDelayDigital"/>; also the
+    /// <see cref="EffectTypeIds.AudioCassette"/> band-limit's 24 dB/oct low-pass corner (always active there).</summary>
     public const string HighCutHz = "highCutHz";
 
     /// <summary>Wow &amp; flutter depth in [0, 1] (delay-time modulation; deterministic LFOs, no RNG) —
-    /// <see cref="EffectTypeIds.AudioDelayTape"/>.</summary>
+    /// <see cref="EffectTypeIds.AudioDelayTape"/> and <see cref="EffectTypeIds.AudioCassette"/>.</summary>
     public const string WowFlutterDepth = "wowFlutterDepth";
 
     /// <summary>Wow rate in Hz (flutter runs at a fixed multiple above it) —
-    /// <see cref="EffectTypeIds.AudioDelayTape"/>.</summary>
+    /// <see cref="EffectTypeIds.AudioDelayTape"/> and <see cref="EffectTypeIds.AudioCassette"/>.</summary>
     public const string WowFlutterRateHz = "wowFlutterRateHz";
 
     /// <summary>Tape saturation amount in [0, 1] (soft-clip drive in the feedback path) —
-    /// <see cref="EffectTypeIds.AudioDelayTape"/>.</summary>
+    /// <see cref="EffectTypeIds.AudioDelayTape"/>; the record-head soft clip of <see cref="EffectTypeIds.AudioCassette"/>.</summary>
     public const string Drive = "drive";
 
     /// <summary>Left-channel delay time in milliseconds — <see cref="EffectTypeIds.AudioDelayStereo"/>.</summary>
@@ -898,6 +1056,24 @@ public static class EffectParamNames
     /// <summary>Shimmer pitch interval in semitones (+12 = the canonical octave; +7 = the fifth variant) —
     /// <see cref="EffectTypeIds.AudioShimmerReverb"/>.</summary>
     public const string ShimmerInterval = "shimmerInterval";
+
+    // ── Cassette (plan/features/toy-cassette-camera.md, phase 4). ──
+    // The stage also reuses HighCutHz, WowFlutterDepth/WowFlutterRateHz, Drive, ReleaseMs (AGC release) and Mix.
+
+    /// <summary>Mono toggle (≥ 0.5 = on): fold the channels to their average, process once, and write the result
+    /// to every channel — <see cref="EffectTypeIds.AudioCassette"/>.</summary>
+    public const string Mono = "mono";
+
+    /// <summary>Band-limit high-pass corner in Hz (24 dB/oct) — <see cref="EffectTypeIds.AudioCassette"/>.</summary>
+    public const string LowCutHz = "lowCutHz";
+
+    /// <summary>Tape-hiss level in dBFS RMS after the band-limit (the −90 dB minimum = off) —
+    /// <see cref="EffectTypeIds.AudioCassette"/>.</summary>
+    public const string HissDb = "hissDb";
+
+    /// <summary>Automatic gain control strength in [0, 1] (0 = off; 1 = levels everything toward the target,
+    /// pumping hardest) — <see cref="EffectTypeIds.AudioCassette"/>.</summary>
+    public const string AgcAmount = "agcAmount";
 
     // ── Convolution Reverb (PLAN.md step 49). ──
     /// <summary>The impulse-response <em>asset</em> key (an absolute WAV path in

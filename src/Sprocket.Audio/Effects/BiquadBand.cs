@@ -6,6 +6,7 @@ namespace Sprocket.Audio.Effects;
 /// entirely when <see cref="Active"/> is false so a bypassed band is an exact pass-through that costs
 /// nothing. Extracted from <see cref="ParametricEqEffect"/> so the step-48 Shelving EQ reuses the same
 /// shelf derivation (generalized from the fixed slope S = 1 to a caller-supplied S) instead of re-deriving it.
+/// The Cassette effect (plan/features/toy-cassette-camera.md, phase 4) adds the cookbook high-/low-pass pair.
 /// </summary>
 internal struct BiquadBand
 {
@@ -73,6 +74,64 @@ internal struct BiquadBand
         double a1 = -2 * cos;
         double a2 = 1 - alpha / a;
         Normalize(b0, b1, b2, a0, a1, a2);
+    }
+
+    /// <summary>
+    /// RBJ cookbook 2nd-order high-pass (12 dB/oct) with resonance <paramref name="q"/>. Cascade two bands with
+    /// <see cref="ButterworthQ1"/> / <see cref="ButterworthQ2"/> for a 4th-order (24 dB/oct) Butterworth
+    /// response — maximally flat, −3 dB at <paramref name="freq"/> (plan/features/toy-cassette-camera.md, phase 4).
+    /// </summary>
+    public void ConfigureHighPass(double freq, double q, int sampleRate)
+    {
+        double w0 = 2 * Math.PI * ClampFreq(freq, sampleRate) / sampleRate;
+        double cos = Math.Cos(w0);
+        double alpha = Math.Sin(w0) / (2 * q);
+
+        double b0 = (1 + cos) / 2;
+        double b1 = -(1 + cos);
+        double b2 = (1 + cos) / 2;
+        double a0 = 1 + alpha;
+        double a1 = -2 * cos;
+        double a2 = 1 - alpha;
+        Normalize(b0, b1, b2, a0, a1, a2);
+    }
+
+    /// <summary>RBJ cookbook 2nd-order low-pass (12 dB/oct) with resonance <paramref name="q"/>; cascade two
+    /// (<see cref="ButterworthQ1"/>, <see cref="ButterworthQ2"/>) for 24 dB/oct, as with
+    /// <see cref="ConfigureHighPass"/>.</summary>
+    public void ConfigureLowPass(double freq, double q, int sampleRate)
+    {
+        double w0 = 2 * Math.PI * ClampFreq(freq, sampleRate) / sampleRate;
+        double cos = Math.Cos(w0);
+        double alpha = Math.Sin(w0) / (2 * q);
+
+        double b0 = (1 - cos) / 2;
+        double b1 = 1 - cos;
+        double b2 = (1 - cos) / 2;
+        double a0 = 1 + alpha;
+        double a1 = -2 * cos;
+        double a2 = 1 - alpha;
+        Normalize(b0, b1, b2, a0, a1, a2);
+    }
+
+    /// <summary>The first-section Q of a 4th-order Butterworth cascade (1 / (2 cos(π/8))).</summary>
+    public const double ButterworthQ1 = 0.54119610014619701;
+
+    /// <summary>The second-section Q of a 4th-order Butterworth cascade (1 / (2 cos(3π/8))).</summary>
+    public const double ButterworthQ2 = 1.3065629648763766;
+
+    /// <summary>
+    /// Filters one sample of <paramref name="channel"/> (same TDF-II step as <see cref="Run"/>, for owners that
+    /// process frame by frame — e.g. a mono sum run once and fanned out to every channel). Unlike
+    /// <see cref="Run"/> it ignores <see cref="Active"/>: the caller decides whether to call it.
+    /// </summary>
+    public float Step(float x, int channel)
+    {
+        float z1 = _z1![channel];
+        float y = _b0 * x + z1;
+        _z1[channel] = _b1 * x - _a1 * y + _z2![channel];
+        _z2[channel] = _b2 * x - _a2 * y;
+        return y;
     }
 
     /// <summary>Runs the band in place over an interleaved buffer; a no-op when inactive.</summary>
