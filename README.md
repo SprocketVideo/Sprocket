@@ -44,7 +44,8 @@ frames never touch the managed heap per frame.
   source media is never rewritten.
 - **Full editing toolset** — multi-track timeline (filmstrips, waveforms, snapping, zoom) with
   Select / Blade / Slip / Hand / Zoom tools, ripple & roll trims, multi-clip selection (marquee,
-  Select All, batch edits), linked A/V (link & unlink), markers, retime (constant speed, reverse, and
+  Select All, batch edits), linked A/V (link & unlink), markers, three-point editing (Source-monitor
+  marks, Insert / Overwrite, source patching, track targeting / sync lock / lock, Lift / Extract), retime (constant speed, reverse, and
   keyframed speed ramps), freeze frames & stop-motion frame edits (frame hold, duplicate/remove frame),
   nested sequences, and multicam.
 - **Any sequence format, incl. portrait/social** — editable sequence frame size with presets

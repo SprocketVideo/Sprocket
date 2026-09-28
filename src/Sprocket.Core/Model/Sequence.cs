@@ -55,4 +55,44 @@ public sealed class Sequence
 
     /// <summary>The sequence out point (the O key), or <see langword="null"/> when unset. See <see cref="MarkIn"/>.</summary>
     public Timecode? MarkOut { get; set; }
+
+    /// <summary>
+    /// Source patching (PLAN.md step 61 phase 3): which tracks a Source-monitor Insert / Overwrite lands on — the
+    /// <c>V1</c>/<c>A1</c> source indicators of leading editors. <see langword="null"/> means the default patch
+    /// (see <see cref="ResolvePatch"/>). Per sequence, persisted with the project, kept out of the render graph.
+    /// Set through <see cref="Commands.SetSourcePatchCommand"/>.
+    /// </summary>
+    public SourcePatch? SourcePatch { get; set; }
+
+    /// <summary>
+    /// The tracks the source streams are patched to right now. An unset patch — or a stream patched to a track no
+    /// longer in the timeline (a deleted track; undoing the delete re-inserts the same track, so the patch comes
+    /// back with it) — falls back to the default: the bottom video track and the first audio track. A stream
+    /// explicitly un-patched resolves to <see langword="null"/>.
+    /// </summary>
+    public (VideoTrack? Video, AudioTrack? Audio) ResolvePatch()
+    {
+        SourcePatch patch = SourcePatch ?? Model.SourcePatch.Default;
+        VideoTrack? video = patch.VideoUnpatched ? null
+            : patch.Video is { } v && Timeline.Tracks.Contains(v) ? v : Timeline.VideoTracks.FirstOrDefault();
+        AudioTrack? audio = patch.AudioUnpatched ? null
+            : patch.Audio is { } a && Timeline.Tracks.Contains(a) ? a : Timeline.AudioTracks.FirstOrDefault();
+        return (video, audio);
+    }
+}
+
+/// <summary>
+/// A sequence's source patch (PLAN.md step 61 phase 3): per stream, a specific track, the default track
+/// (<see langword="null"/> track, not un-patched), or un-patched. Tracks are held by reference, so adding or
+/// removing other tracks never re-points the patch.
+/// </summary>
+/// <param name="Video">The patched video track, or <see langword="null"/> for the default.</param>
+/// <param name="Audio">The patched audio track, or <see langword="null"/> for the default.</param>
+/// <param name="VideoUnpatched">Whether the video stream is un-patched (a source's video isn't edited in).</param>
+/// <param name="AudioUnpatched">Whether the audio stream is un-patched.</param>
+public sealed record SourcePatch(
+    VideoTrack? Video = null, AudioTrack? Audio = null, bool VideoUnpatched = false, bool AudioUnpatched = false)
+{
+    /// <summary>The default patch: both streams on their default tracks.</summary>
+    public static SourcePatch Default { get; } = new();
 }

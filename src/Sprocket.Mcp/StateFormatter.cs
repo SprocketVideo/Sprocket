@@ -51,6 +51,12 @@ public static class StateFormatter
             },
         };
         root["marks"] = MarksObject(project.ActiveSequence.MarkIn, project.ActiveSequence.MarkOut);
+        (VideoTrack? patchedVideo, AudioTrack? patchedAudio) = project.ActiveSequence.ResolvePatch();
+        root["source_patch"] = new JsonObject // where insert_edit / overwrite_edit land (null = un-patched)
+        {
+            ["video_track_id"] = patchedVideo is null ? null : RuntimeIds.IdOf(patchedVideo),
+            ["audio_track_id"] = patchedAudio is null ? null : RuntimeIds.IdOf(patchedAudio),
+        };
         if (Wants("sequences"))
             root["sequences"] = new JsonArray(project.Sequences
                 .Select(s => (JsonNode)new JsonObject { ["id"] = s.Id.ToString(), ["name"] = s.Name })

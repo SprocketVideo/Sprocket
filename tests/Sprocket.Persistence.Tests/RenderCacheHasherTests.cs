@@ -68,6 +68,15 @@ public class RenderCacheHasherTests
     }
 
     [Fact]
+    public void Source_Patch_Does_Not_Change_The_Hash()
+    {
+        Project p = BuildProject();
+        string before = VideoHash(p);
+        p.ActiveSequence.SourcePatch = new SourcePatch(VideoUnpatched: true, AudioUnpatched: true);
+        Assert.Equal(before, VideoHash(p));
+    }
+
+    [Fact]
     public void Identical_Models_Hash_Identically()
     {
         Project a = BuildProject();

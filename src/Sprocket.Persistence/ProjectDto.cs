@@ -137,7 +137,13 @@ internal sealed record TimelineDto(
     // path (ProjectSerializer.ToDto(Sequence)) so the render-cache hash, which serializes the bare timeline, never
     // changes when a mark moves.
     long? MarkInTicks = null,
-    long? MarkOutTicks = null);
+    long? MarkOutTicks = null,
+    // Source patching (three-point editing phase 3): the video / audio track a Source-monitor Insert / Overwrite lands
+    // on, as an index among the tracks of that kind (video bottom-up), -1 for an un-patched stream. Additive +
+    // nullable: the default patch writes null, so older files load with it and untouched sequences serialize
+    // byte-identically. Written only via the sequence path, like the marks, so it stays out of the render-cache hash.
+    int? SourcePatchVideo = null,
+    int? SourcePatchAudio = null);
 
 /// <summary>A track in z-order. <see cref="Kind"/> discriminates video vs audio; the unused fields for the
 /// other kind are simply ignored (kept flat for a simple, robust format).</summary>

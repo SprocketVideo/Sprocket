@@ -162,6 +162,24 @@ public class SequencePersistenceTests
     }
 
     [Fact]
+    public void Source_Patch_Round_Trips_And_The_Default_Patch_Is_Not_Written()
+    {
+        var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));
+        var v1 = new VideoTrack { Name = "V1" };
+        var v2 = new VideoTrack { Name = "V2" };
+        var a1 = new AudioTrack { Name = "A1" };
+        project.Timeline.Tracks.AddRange([v1, v2, a1]);
+        Assert.DoesNotContain("\"sourcePatchVideo\"", ProjectSerializer.Serialize(project));
+
+        project.ActiveSequence.SourcePatch = new SourcePatch(Video: v2, AudioUnpatched: true);
+        Sequence loaded = RoundTrip(project).ActiveSequence;
+
+        (VideoTrack? video, AudioTrack? audio) = loaded.ResolvePatch();
+        Assert.Equal("V2", video!.Name);
+        Assert.Null(audio);
+    }
+
+    [Fact]
     public void Default_Track_Editing_State_Is_Not_Written()
     {
         var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));

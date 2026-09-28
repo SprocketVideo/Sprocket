@@ -59,6 +59,8 @@ public class SprocketToolsTests
             "list_preset_stacks", "apply_preset_stack",
             // Source / sequence marks (three-point editing phase 2)
             "set_source_marks", "set_sequence_marks",
+            // Three-point edits + range edits (three-point editing phase 3)
+            "insert_edit", "overwrite_edit", "lift", "extract",
         ];
         Assert.Equal(expected.Length, names.Count);
         foreach (string name in expected)
@@ -352,6 +354,53 @@ public class SprocketToolsTests
         await tools.SetSourceMarks(mediaId); // omitting both clears
         Assert.Null(media.SourceMarkIn);
         Assert.Null(session.Project.ActiveSequence.MarkOut);
+    }
+
+    [Fact]
+    public async Task Insert_And_Overwrite_Edits_Follow_The_Marks_And_Undo()
+    {
+        var session = new FakeEditorSession();
+        var tools = new SprocketTools(session);
+        string mediaId = (string)JsonNode.Parse(await tools.ImportMedia(@"C:\media\shot.mp4"))!["media_id"]!;
+        await tools.AddClipToTimeline(mediaId, startTicks: 0); // a 2s linked A/V clip at 0
+        await tools.SetSourceMarks(mediaId, inTicks: 0, outTicks: 240000); // 1s
+
+        // Insert at a record in of 1s: the placed clip is bladed there and its tail pushed right by 1s.
+        JsonNode inserted = JsonNode.Parse(await tools.InsertEdit(mediaId, recordInTicks: 240000))!;
+        Assert.Equal(480000, (long)inserted["record_out_ticks"]!);
+        Assert.Equal(2, inserted["clip_ids"]!.AsArray().Count); // linked video + audio
+        Assert.Equal(480000, session.PlayheadTicks);            // parked at the edit's end
+        Track v1 = session.Project.Timeline.Tracks[0];
+        Assert.Equal(3, v1.Clips.Count);
+        Assert.Equal(720000, v1.Clips.Max(c => c.TimelineEnd.Ticks));
+
+        // Overwrite, video only, over the start: nothing moves, the duration stays.
+        await tools.OverwriteEdit(mediaId, recordInTicks: 0, stream: "video");
+        Assert.Equal(720000, v1.Clips.Max(c => c.TimelineEnd.Ticks));
+
+        await tools.Undo();
+        await tools.Undo();
+        Assert.Single(v1.Clips);
+        Assert.Equal(480000, v1.Clips.Single().TimelineEnd.Ticks);
+        await Assert.ThrowsAsync<McpException>(() => tools.InsertEdit(mediaId, stream: "subtitles"));
+    }
+
+    [Fact]
+    public async Task Lift_And_Extract_Use_The_Marks_Or_Arguments()
+    {
+        (FakeEditorSession session, SprocketTools tools, int _, Clip clip) = await PlacedClip(); // [1s, 3s)
+        await Assert.ThrowsAsync<McpException>(() => tools.Lift()); // no marks, no range
+
+        await tools.Extract(inTicks: 0, outTicks: 240000); // close the 1s gap before the clip
+        Assert.Equal(0, clip.TimelineStart.Ticks);
+
+        await tools.SetSequenceMarks(inTicks: 0, outTicks: 240000);
+        await tools.Lift();
+        Assert.Equal(240000, session.Project.Timeline.Tracks[0].Clips.Single().TimelineStart.Ticks);
+        Assert.Null(session.Project.ActiveSequence.MarkIn); // cleared
+
+        await tools.Undo();
+        Assert.Equal(0, session.Project.Timeline.Tracks[0].Clips.Single().TimelineStart.Ticks);
     }
 
     [Fact]

@@ -600,6 +600,142 @@ public sealed partial class SprocketTools(IEditorSession session)
             return StateFormatter.HistoryState(api.History, $"sequence marks {StateFormatter.MarksText(markIn, markOut)}");
         });
 
+    [McpServerTool(Name = "insert_edit")]
+    [Description("Three-point Insert (the , key, PLAN.md step 61): cuts a media item's source range into the active " +
+                 "sequence and pushes everything at and after the record in right to make room, on the destination " +
+                 "tracks and every sync-locked track. Premiere's rules: the source range defaults to the media's " +
+                 "source marks (else the whole media); the record in defaults to the sequence in mark, else the " +
+                 "playhead; with a record out too the edit fills that range (a 4-point edit ignores the source out); " +
+                 "with only a record out it is backtimed to end there. Lands on the source-patched tracks unless track " +
+                 "indices are given. Clears the sequence marks and parks the playhead at the edit's end. Undoable.")]
+    public Task<string> InsertEdit(
+        [Description("media_id from list_media.")] string mediaId,
+        [Description("Source in point in ticks (media time); omit for the source in mark.")] long? sourceInTicks = null,
+        [Description("Source out point in ticks (media time, exclusive); omit for the source out mark.")] long? sourceOutTicks = null,
+        [Description("Record in (sequence) in ticks; omit for the sequence in mark, else the playhead.")] long? recordInTicks = null,
+        [Description("Record out (sequence, exclusive) in ticks; omit for the sequence out mark.")] long? recordOutTicks = null,
+        [Description("Destination video track index (bottom-up); omit for the source patch.")] int? videoTrackIndex = null,
+        [Description("Destination audio track index; omit for the source patch.")] int? audioTrackIndex = null,
+        [Description("Which of the source's streams to edit in: \"both\" (default), \"video\", or \"audio\".")] string stream = "both") =>
+        ThreePointEditAsync(ThreePointEditKind.Insert, mediaId, sourceInTicks, sourceOutTicks, recordInTicks,
+            recordOutTicks, videoTrackIndex, audioTrackIndex, stream);
+
+    [McpServerTool(Name = "overwrite_edit")]
+    [Description("Three-point Overwrite (the . key, PLAN.md step 61): cuts a media item's source range into the " +
+                 "active sequence, replacing whatever the destination tracks hold in the record range — nothing else " +
+                 "moves. Resolves the range exactly as insert_edit does. Undoable.")]
+    public Task<string> OverwriteEdit(
+        [Description("media_id from list_media.")] string mediaId,
+        [Description("Source in point in ticks (media time); omit for the source in mark.")] long? sourceInTicks = null,
+        [Description("Source out point in ticks (media time, exclusive); omit for the source out mark.")] long? sourceOutTicks = null,
+        [Description("Record in (sequence) in ticks; omit for the sequence in mark, else the playhead.")] long? recordInTicks = null,
+        [Description("Record out (sequence, exclusive) in ticks; omit for the sequence out mark.")] long? recordOutTicks = null,
+        [Description("Destination video track index (bottom-up); omit for the source patch.")] int? videoTrackIndex = null,
+        [Description("Destination audio track index; omit for the source patch.")] int? audioTrackIndex = null,
+        [Description("Which of the source's streams to edit in: \"both\" (default), \"video\", or \"audio\".")] string stream = "both") =>
+        ThreePointEditAsync(ThreePointEditKind.Overwrite, mediaId, sourceInTicks, sourceOutTicks, recordInTicks,
+            recordOutTicks, videoTrackIndex, audioTrackIndex, stream);
+
+    private Task<string> ThreePointEditAsync(
+        ThreePointEditKind kind, string mediaId, long? sourceInTicks, long? sourceOutTicks, long? recordInTicks,
+        long? recordOutTicks, int? videoTrackIndex, int? audioTrackIndex, string stream) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            if (!Guid.TryParse(mediaId, out Guid guid) || api.Project.MediaPool.Get(new MediaRefId(guid)) is not { } media)
+                throw new McpException($"media '{mediaId}' is not in the pool — call list_media.");
+            (bool includeVideo, bool includeAudio) = stream.ToLowerInvariant() switch
+            {
+                "both" => (true, true),
+                "video" => (true, false),
+                "audio" => (false, true),
+                _ => throw new McpException("stream must be \"both\", \"video\", or \"audio\"."),
+            };
+            long? limit = media.HasUnboundedDuration ? null : media.Info.Duration.Ticks;
+            (Timecode? srcIn, Timecode? srcOut) = ValidateMarks(sourceInTicks, sourceOutTicks, limit, "the media's duration");
+            (Timecode? recIn, Timecode? recOut) = ValidateMarks(recordInTicks, recordOutTicks, null, null);
+
+            Sequence seq = api.Project.ActiveSequence;
+            ThreePointRange range = ThreePointResolver.Resolve(
+                    srcIn ?? media.SourceMarkIn, srcOut ?? media.SourceMarkOut, media.Info.Duration,
+                    media.HasUnboundedDuration, recIn ?? seq.MarkIn, recOut ?? seq.MarkOut, new Timecode(api.PlayheadTicks))
+                ?? throw new McpException("the source range is empty.");
+
+            (VideoTrack? patchedVideo, AudioTrack? patchedAudio) = seq.ResolvePatch();
+            VideoTrack? video = !includeVideo ? null
+                : videoTrackIndex is { } vi
+                    ? seq.Timeline.VideoTracks.ElementAtOrDefault(vi)
+                        ?? throw new McpException($"there is no video track at index {vi}.")
+                    : patchedVideo;
+            AudioTrack? audio = !includeAudio ? null
+                : audioTrackIndex is { } ai
+                    ? seq.Timeline.AudioTracks.ElementAtOrDefault(ai)
+                        ?? throw new McpException($"there is no audio track at index {ai}.")
+                    : patchedAudio;
+            ThreePointEditResult result = ThreePointEdits.Build(kind, seq, media, range, video, audio, usePatch: false);
+            if (result.Command is null)
+                throw new McpException($"{result.Error}.");
+
+            api.History.Execute(result.Command);
+            api.Seek(result.RecordOut.Ticks);
+            api.RefreshPreview();
+            Clip? primary = result.PrimaryClip;
+            var payload = new JsonObject
+            {
+                ["record_in_ticks"] = result.RecordIn.Ticks,
+                ["record_out_ticks"] = result.RecordOut.Ticks,
+                ["source_in_ticks"] = range.SourceIn.Ticks,
+                ["source_out_ticks"] = range.SourceOut.Ticks,
+                ["clip_ids"] = new JsonArray(seq.Timeline.Tracks.SelectMany(t => t.Clips)
+                    .Where(c => ReferenceEquals(c, primary) || (primary?.LinkGroupId is { } g && c.LinkGroupId == g))
+                    .Select(c => (JsonNode)RuntimeIds.IdOf(c)).ToArray()),
+                ["notes"] = new JsonArray(result.Notes.Select(n => (JsonNode)n).ToArray()),
+                ["history"] = StateFormatter.HistoryObject(api.History),
+            };
+            return payload.ToJsonString();
+        });
+
+    [McpServerTool(Name = "lift")]
+    [Description("Lift (the ; key): removes everything in [in, out) on the targeted, unlocked tracks and leaves a gap. " +
+                 "The range defaults to the sequence in/out marks (a missing one falls back to the sequence start / " +
+                 "end); at least one mark or argument must be set. Clears the marks. Undoable.")]
+    public Task<string> Lift(
+        [Description("Range start in ticks; omit for the sequence in mark.")] long? inTicks = null,
+        [Description("Range end (exclusive) in ticks; omit for the sequence out mark.")] long? outTicks = null) =>
+        RangeEditAsync(extract: false, inTicks, outTicks);
+
+    [McpServerTool(Name = "extract")]
+    [Description("Extract (the ' key): removes everything in [in, out) on the targeted, unlocked tracks and ripples the " +
+                 "rest of the sequence left to close the gap, on those and every sync-locked track. The range defaults " +
+                 "as for lift. Clears the marks. Undoable.")]
+    public Task<string> Extract(
+        [Description("Range start in ticks; omit for the sequence in mark.")] long? inTicks = null,
+        [Description("Range end (exclusive) in ticks; omit for the sequence out mark.")] long? outTicks = null) =>
+        RangeEditAsync(extract: true, inTicks, outTicks);
+
+    private Task<string> RangeEditAsync(bool extract, long? inTicks, long? outTicks) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            (Timecode? argIn, Timecode? argOut) = ValidateMarks(inTicks, outTicks, null, null);
+            Sequence seq = api.Project.ActiveSequence;
+            Timecode? markIn = argIn ?? seq.MarkIn, markOut = argOut ?? seq.MarkOut;
+            if (markIn is null && markOut is null)
+                throw new McpException("set the sequence in/out marks (set_sequence_marks) or pass in_ticks / out_ticks.");
+            if (!RangeEdits.HasEditableTarget(seq.Timeline))
+                throw new McpException("no unlocked track is targeted — target one with set_track_state.");
+            Timecode from = markIn ?? Timecode.Zero, to = markOut ?? seq.Timeline.Duration;
+            RangeEditResult result = (extract ? RangeEdits.Extract(seq, from, to) : RangeEdits.Lift(seq, from, to))
+                ?? throw new McpException($"nothing to {(extract ? "extract" : "lift")} in that range.");
+            api.History.Execute(result.Command);
+            api.Seek(from.Ticks);
+            api.RefreshPreview();
+            string performed = $"{(extract ? "extracted" : "lifted")} {StateFormatter.MarksText(from, to)}";
+            if (result.LockedTracksInRange > 0)
+                performed += $"; {result.LockedTracksInRange} locked track(s) kept";
+            if (result.SyncBreaks > 0)
+                performed += $"; {result.SyncBreaks} sync-locked track(s) couldn't ripple";
+            return StateFormatter.HistoryState(api.History, performed);
+        });
+
     /// <summary>Validates an in/out pair: non-negative, in before out, and (when <paramref name="limitTicks"/> is
     /// given) not past it.</summary>
     private static (Timecode? In, Timecode? Out) ValidateMarks(long? inTicks, long? outTicks, long? limitTicks, string? limitName)

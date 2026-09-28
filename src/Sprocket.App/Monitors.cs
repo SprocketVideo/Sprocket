@@ -108,7 +108,9 @@ internal sealed class ProgramMonitor : IMonitor
 /// project that spans the whole source (the same render graph as the Program monitor, ARCHITECTURE.md §5). The
 /// engine is built only while the Source tab is <see cref="Activate">active</see> so a decoder is opened lazily and
 /// freed when the user looks away; the preview is video-only on a <see cref="SoftwareClock"/> (source-audio scrub
-/// is a later refinement). Decode/playback is device/IO-bound, so this rests on manual verification.
+/// is a later refinement). Audio-only media (PLAN.md step 61 phase 3) runs the same engine with no video feed over
+/// a blank frame, so its marks, duration, and transport still work for three-point editing. Decode/playback is
+/// device/IO-bound, so this rests on manual verification.
 /// </summary>
 internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
 {
@@ -122,8 +124,15 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
     /// <summary>The source the shell last asked to preview (persisted per project, see <see cref="ProjectLayout"/>).</summary>
     public MediaRef? Media => _desired;
 
-    public int FrameWidth => _shown?.Info.Width ?? 0;
-    public int FrameHeight => _shown?.Info.Height ?? 0;
+    public int FrameWidth => _shown is { } m ? m.Info.HasVideo ? m.Info.Width : AudioOnlyFrame.Width : 0;
+    public int FrameHeight => _shown is { } m ? m.Info.HasVideo ? m.Info.Height : AudioOnlyFrame.Height : 0;
+
+    /// <summary>Whether the previewed source has no video — the shell labels the blank frame "Audio only".</summary>
+    public bool IsAudioOnly => _desired is { Info: { HasVideo: false, HasAudio: true } };
+
+    // The blank canvas an audio-only source presents (a 16:9 black frame), and the frame rate its transport steps at.
+    private static readonly Resolution AudioOnlyFrame = new(1280, 720);
+    private static readonly Rational AudioOnlyFrameRate = new(30, 1);
     public Timecode Position => _engine?.Position ?? Timecode.Zero;
     public Timecode Duration => _engine?.Duration ?? Timecode.Zero;
     public PlaybackState State => _engine?.State ?? PlaybackState.Stopped;
@@ -167,13 +176,21 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
             return;
         Teardown();
 
-        if (_desired is not { Info.HasVideo: true } media)
+        if (_desired is not { } media || !(media.Info.HasVideo || media.Info.HasAudio))
             return;
-        IVideoFrameFeed? feed = MediaBootstrap.OpenVideoFeed(media);
-        if (feed is null)
-            return;
-
-        var engine = new PlaybackEngine(BuildSourceProject(media), feed); // default SoftwareClock, video-only
+        PlaybackEngine engine;
+        if (media.Info.HasVideo)
+        {
+            IVideoFrameFeed? feed = MediaBootstrap.OpenVideoFeed(media);
+            if (feed is null)
+                return;
+            engine = new PlaybackEngine(BuildSourceProject(media), feed); // default SoftwareClock, video-only
+        }
+        else
+        {
+            // No picture to decode: the engine only runs the clock over the source's span (audio is phase 5).
+            engine = new PlaybackEngine(BuildSourceProject(media), (_, _) => null);
+        }
         engine.PositionChanged += OnEnginePosition;
         engine.StateChanged += OnEngineState;
         engine.Start();
@@ -203,17 +220,20 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
     private void OnEnginePosition(Timecode t) => PositionChanged?.Invoke(t);
     private void OnEngineState(PlaybackState s) => StateChanged?.Invoke(s);
 
-    /// <summary>A throwaway project: one video track holding one clip that spans the whole source, raw (no
-    /// effects). The single-feed engine drives that track from the supplied feed.</summary>
+    /// <summary>A throwaway project: one track holding one clip that spans the whole source, raw (no effects) — a
+    /// video track the single-feed engine drives from the supplied feed, or for audio-only media an audio track that
+    /// just gives the engine its duration.</summary>
     private static Project BuildSourceProject(MediaRef media)
     {
         ProbedMediaInfo info = media.Info;
         int sampleRate = info.SampleRate > 0 ? info.SampleRate : 48000;
-        var timeline = new Timeline(info.FrameRate, new Resolution(info.Width, info.Height), sampleRate);
+        var timeline = info.HasVideo
+            ? new Timeline(info.FrameRate, new Resolution(info.Width, info.Height), sampleRate)
+            : new Timeline(AudioOnlyFrameRate, AudioOnlyFrame, sampleRate);
         var project = new Project(timeline);
         project.MediaPool.Add(media);
 
-        var track = new VideoTrack { Name = "Source" };
+        Track track = info.HasVideo ? new VideoTrack { Name = "Source" } : new AudioTrack { Name = "Source" };
         track.Clips.Add(new Clip(media.Id, Timecode.Zero, info.Duration, Timecode.Zero));
         timeline.Tracks.Add(track);
         return project;

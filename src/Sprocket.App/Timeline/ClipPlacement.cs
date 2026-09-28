@@ -89,17 +89,8 @@ public static class ClipPlacement
         if (!wantVideo && !wantAudio)
             return null;
 
-        Guid? linkGroup = (linked && wantVideo && wantAudio) ? Guid.NewGuid() : null;
-
-        Clip? videoClip = wantVideo
-            ? new Clip(media.Id, sourceIn, sourceOut, timelineStart) { LinkGroupId = linkGroup }
-            : null;
-        Clip? audioClip = wantAudio
-            ? new Clip(media.Id, sourceIn, sourceOut, timelineStart) { LinkGroupId = linkGroup }
-            : null;
-
-        if (videoClip is not null)
-            PrependDetectedColorTransform(videoClip, media.Info);
+        (Clip? videoClip, Clip? audioClip) = SourceClips.Create(
+            media, sourceIn, sourceOut, timelineStart, wantVideo, wantAudio, linked);
 
         var commands = new List<IEditCommand>();
         if (videoClip is not null)
@@ -115,24 +106,10 @@ public static class ClipPlacement
         return new PlacementResult(command, primary);
     }
 
-    /// <summary>
-    /// Prepends the input color transform (PLAN.md step 37) to a <b>new, not-yet-placed</b> video clip when
-    /// the source's import probe detected a log profile (e.g. DJI D-Log), so log footage previews correctly
-    /// the moment it lands on the timeline. The effect is built into the clip before its
-    /// <see cref="AddClipCommand"/> runs, so undo removes clip and transform together; the user can still
-    /// disable/remove or re-profile the effect in the Inspector (the manual-tag fallback).
-    /// </summary>
-    public static void PrependDetectedColorTransform(Clip clip, ProbedMediaInfo info)
-    {
-        ArgumentNullException.ThrowIfNull(clip);
-        ArgumentNullException.ThrowIfNull(info);
-        int profile = ColorProfiles.IndexOf(info.DetectedColorProfile);
-        if (profile < 0)
-            return;
-        EffectInstance transform = new EffectInstance(EffectTypeIds.ColorTransform)
-            .Set(EffectParamNames.SourceProfile, profile);
-        clip.Effects.Insert(0, transform);
-    }
+    /// <summary>Prepends the detected input color transform to a new video clip — see
+    /// <see cref="SourceClips.PrependDetectedColorTransform"/>.</summary>
+    public static void PrependDetectedColorTransform(Clip clip, ProbedMediaInfo info) =>
+        SourceClips.PrependDetectedColorTransform(clip, info);
 
     /// <summary>
     /// The track a clip may move to for a cross-track drag (PLAN.md step 16e): returns

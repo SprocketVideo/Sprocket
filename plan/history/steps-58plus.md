@@ -773,3 +773,54 @@ Source-monitor marks + three-point editing — plan in [plan/features/three-poin
 - **Tests** — Core: `SetSourceMarksCommand` apply/undo. Persistence: round trip, unmarked media writes nothing. App:
   `MarkedRange` fallbacks (×2), `BuildPlaceCommand` places the marked range on both streams, marked-range badge.
   Mcp: both tools, validation, state, undo, clear, and the tool-surface list.
+
+### Phase 3 — source patching + Insert / Overwrite (2026-09-28) ✅ DONE
+
+- **Patch model** — `Sequence.SourcePatch` (`SourcePatch` record: per stream a track, the default, or un-patched) and
+  `Sequence.ResolvePatch()`, which falls back to the bottom video / first audio track. **Departure from the plan:** the
+  patch holds track *references*, not indices, so adding or reordering other tracks never re-points it, and
+  `RemoveTrackCommand` needed no change — a patch to a removed track resolves to the default, and undoing the delete
+  re-inserts the same track object so the patch comes back. Set through `SetSourcePatchCommand` (one undo step).
+- **Persistence** — additive nullable `TimelineDto.SourcePatchVideo` / `SourcePatchAudio` (index among that kind's
+  tracks, video bottom-up; `-1` = un-patched; null = default), written only via `ToDto(Sequence)` so the render-cache
+  hash is unaffected (guard test added).
+- **Resolver (pure Core)** — `ThreePointResolver.Resolve(...)` with Premiere's precedence: sequence In + Out fill the
+  range (backtimed from a lone source Out; otherwise from the source In, and a full 4-point edit notes the ignored
+  source Out), a lone sequence Out backtimes (trimming the source head if it would start before 0), no sequence marks
+  use the playhead. A short source is clamped with a note; stills (`HasUnboundedDuration`) are never clamped; stale or
+  inverted source marks fall back to the whole media, an inverted sequence range to the In alone.
+- **Edits (Core)** — `ThreePointEdits.Insert` / `Overwrite` / `Build(kind, …, usePatch)`, each one
+  `CompositeCommand`. Overwrite carves the record range out of the destination tracks via the per-track carve now
+  factored out of `RangeEdits.Build` (`RangeEdits.CarveTrack`, shared with Lift / Extract). Insert (`RippleOpen`)
+  blades every destination + sync-locked unlocked track at the record In (right halves get a fresh shared link
+  group), shifts clips at/after it, removes transitions whose cut is the point **or whose window spans it** (a
+  slight widening of the plan, so a split can't land inside a transition), shifts later transition cuts, and moves
+  sequence markers at/after the point. Locked sync-locked tracks stay put and are noted as out of sync; a locked or
+  missing destination refuses the edit. Both clear the sequence marks in the same undo step. Clip construction
+  moved into Core `SourceClips.Create` / `PrependDetectedColorTransform`, which `ClipPlacement.BuildPlaceCommand`
+  now delegates to, so bin drops, MCP, and three-point edits build clips identically.
+- **App** — `,` / `.` (either monitor, no `InputGesture` for the Oem-name reason) and new Clip ▸ **Insert Edit (,)** /
+  **Overwrite Edit (.)** items (Clip ▸ Insert already names the generators submenu), plus the phase-2 Source-bar
+  buttons, now live — all through `MainWindow.ThreePointEdit`, which seeks the Program playhead to the edit's end and
+  puts the notes in the status bar. The items enable while the Source monitor has media.
+- **Header** — a 28 px source-patch column at the far left of the track headers (divider line; `NameLeft` shifted
+  right, default header width 168 → 196, min 72 → 96 so the three editing toggles still fit). While the Source
+  monitor holds media, the patched lanes show an accent `V1` / `A1` chip for each stream the media has; clicking a
+  lane's column moves the patch there, clicking the chip un-patches the stream (`HandleSourcePatchClick`). The shell
+  pushes the media's streams with `TimelineControl.SetSourceStreams` from `UpdateMarkDisplay`.
+- **Audio-only Source** — `ShowInSourceMonitor` / layout restore accept audio-only media. `SourceMonitor.Rebuild` runs
+  the engine with a null-feed factory over an audio-track project (30 fps, 1280×720 blank frame) so the transport,
+  marks, and duration work; an "Audio only" label (ZIndex over the surface, survives the fullscreen reparent) shows
+  on the Source tab. Still silent — phase 5.
+- **MCP** — `insert_edit` / `overwrite_edit` (`mediaId`, source in/out, record in/out, video/audio track index,
+  `stream`), defaulting to the stored marks, the playhead, and the patch; return the record/source range, the new
+  clip ids, notes, and history. `lift` / `extract` (range defaults to the sequence marks, falling back to the sequence
+  ends like the UI). State adds `source_patch`.
+- **Tests** — Core: `ThreePointResolverTests` (10-row precedence table, 4-point note, short-source clamp both ways,
+  stills, stale/inverted marks, backtime past 0) and `ThreePointEditsTests` (default patch, patch command + undo,
+  removed-track fallback + undo, overwrite scope, linked new clips, insert on patched/sync-locked/non-sync tracks with
+  tail link groups, marker + transition ripple, locked sync break, refusals, audio-only media, exact undo/redo for
+  both kinds). Persistence: patch round trip + default writes nothing; hash invariance. Mcp: insert/overwrite
+  through the marks + undo, lift/extract, tool-surface list.
+- **Not verified in the running app** — the header chips, the Source-bar buttons, and the audio-only Source view are
+  build + test verified only; they need a manual look (with the still-pending phase-2 visual check).

@@ -1,6 +1,6 @@
 # Source-monitor marks + three-point editing
 
-🟡 **Phases 1–2 ✅ (2026-09-28)** — targeting / sync lock / lock, source marks; phases 3–6 open (planned 2026-09-28). This covers: In/Out marks in the Source monitor for each media item; Insert (`,`) and
+🟡 **Phases 1–3 ✅ (2026-09-28)** — targeting / sync lock / lock, source marks, patching + Insert / Overwrite; phases 4–6 open (planned 2026-09-28). This covers: In/Out marks in the Source monitor for each media item; Insert (`,`) and
 Overwrite (`.`) three-point edits using the Premiere rules; source patching; track targeting, sync lock, and track lock;
 drag from the Source monitor (whole clip, video only, or audio only) that uses the marked range; and changing drops onto
 the timeline to overwrite by default, with Ctrl held for insert. Tracked in [PLAN.md](../../PLAN.md) as step 61 and in
@@ -147,7 +147,9 @@ currently on Lift / Extract.
 6. **MCP.** Add `set_source_marks(mediaRefId, inTicks?, outTicks?)` and `set_sequence_marks(inTicks?, outTicks?)`, and
    expose both kinds of marks in state.
 
-### Phase 3: source patching + Insert / Overwrite
+### Phase 3: source patching + Insert / Overwrite — ✅ shipped 2026-09-28
+
+> Shipped as below, except: the patch holds track references (not indices), so removing a track needs no command change — a patch to a track that's gone resolves to the default, and undoing the delete brings it back. Clip ▸ Insert already names the generators submenu, so the menu items are "Insert Edit" / "Overwrite Edit". DONE log: [steps-58plus.md § Step 61](../history/steps-58plus.md#step-61).
 
 1. **Patch model.** Add `Sequence.SourcePatch` as a small record: `VideoTrackIndex?` and `AudioTrackIndex?`, with null
    meaning that stream isn't patched. It's per sequence, like Premiere's. It defaults to the bottom video track and

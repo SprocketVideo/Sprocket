@@ -158,7 +158,6 @@ public static class RangeEdits
             return null;
 
         string label = ripple ? "Extract" : "Lift";
-        long gap = (markOut - markIn).Ticks;
         var commands = new List<IEditCommand>();
         bool changed = false;
         int syncBreaks = 0, lockedInRange = 0;
@@ -189,65 +188,84 @@ public static class RangeEdits
                 }
             }
 
-            var shifted = new List<(Clip Clip, Timecode OrigStart)>();
-            foreach (Clip clip in track.Clips.ToList())
-            {
-                if (clip.TimelineEnd <= markIn)
-                    continue;
-                if (clip.TimelineStart >= markOut)
-                {
-                    if (ripple)
-                        shifted.Add((clip, clip.TimelineStart));
-                    continue;
-                }
-
-                // The clip overlaps [in, out): carve the in-range piece out with at most two blades.
-                Clip middle = clip;
-                if (clip.TimelineStart < markIn)
-                {
-                    var splitIn = new SplitClipCommand(track, clip, markIn);
-                    commands.Add(splitIn);
-                    middle = splitIn.RightClip;
-                }
-                if (middle.TimelineEnd > markOut)
-                {
-                    Guid? tailGroup = clip.LinkGroupId is { } g
-                        ? tailGroups.TryGetValue(g, out Guid fresh) ? fresh : tailGroups[g] = Guid.NewGuid()
-                        : null;
-                    var splitOut = new SplitClipCommand(track, middle, markOut, tailGroup);
-                    commands.Add(splitOut);
-                    if (ripple)
-                        shifted.Add((splitOut.RightClip, markOut));
-                }
-                commands.Add(new RemoveClipCommand(track, middle));
+            if (CarveTrack(track, markIn, markOut, ripple, label, commands, tailGroups))
                 changed = true;
-            }
-
-            foreach (Transition transition in track.Transitions.ToList())
-            {
-                if (transition.CutPoint >= markIn && transition.CutPoint <= markOut)
-                {
-                    commands.Add(new RemoveTransitionCommand(track, transition));
-                    changed = true;
-                }
-                else if (ripple && transition.CutPoint > markOut)
-                {
-                    Transition t = transition;
-                    commands.Add(SetPropertyCommand<Timecode>.Create(
-                        label, () => t.CutPoint, v => t.CutPoint = v, new Timecode(t.CutPoint.Ticks - gap)));
-                }
-            }
-
-            if (shifted.Count > 0)
-            {
-                commands.Add(new ShiftClipsCommand(shifted, -gap, label));
-                changed = true;
-            }
         }
 
         if (!changed)
             return null;
         commands.Add(new SetSequenceMarksCommand(sequence, null, null, label));
         return new RangeEditResult(new CompositeCommand(label, commands), syncBreaks, lockedInRange);
+    }
+
+    /// <summary>
+    /// Carves [<paramref name="markIn"/>, <paramref name="markOut"/>) out of one track, appending the commands to
+    /// <paramref name="commands"/>: straddling clips are bladed at the marks (a tail cut off at the out mark takes a
+    /// fresh link group from <paramref name="tailGroups"/>, shared with the other tails of its original group), the
+    /// in-range pieces removed, and transitions whose cut falls in the range removed. With <paramref name="ripple"/>
+    /// everything after the range — clips and transition cuts — shifts left by its length. Returns whether anything
+    /// changed. Shared by Lift / Extract and the three-point Overwrite (<see cref="ThreePointEdits"/>).
+    /// </summary>
+    internal static bool CarveTrack(
+        Track track, Timecode markIn, Timecode markOut, bool ripple, string label,
+        List<IEditCommand> commands, Dictionary<Guid, Guid> tailGroups)
+    {
+        long gap = (markOut - markIn).Ticks;
+        bool changed = false;
+        var shifted = new List<(Clip Clip, Timecode OrigStart)>();
+        foreach (Clip clip in track.Clips.ToList())
+        {
+            if (clip.TimelineEnd <= markIn)
+                continue;
+            if (clip.TimelineStart >= markOut)
+            {
+                if (ripple)
+                    shifted.Add((clip, clip.TimelineStart));
+                continue;
+            }
+
+            // The clip overlaps [in, out): carve the in-range piece out with at most two blades.
+            Clip middle = clip;
+            if (clip.TimelineStart < markIn)
+            {
+                var splitIn = new SplitClipCommand(track, clip, markIn);
+                commands.Add(splitIn);
+                middle = splitIn.RightClip;
+            }
+            if (middle.TimelineEnd > markOut)
+            {
+                Guid? tailGroup = clip.LinkGroupId is { } g
+                    ? tailGroups.TryGetValue(g, out Guid fresh) ? fresh : tailGroups[g] = Guid.NewGuid()
+                    : null;
+                var splitOut = new SplitClipCommand(track, middle, markOut, tailGroup);
+                commands.Add(splitOut);
+                if (ripple)
+                    shifted.Add((splitOut.RightClip, markOut));
+            }
+            commands.Add(new RemoveClipCommand(track, middle));
+            changed = true;
+        }
+
+        foreach (Transition transition in track.Transitions.ToList())
+        {
+            if (transition.CutPoint >= markIn && transition.CutPoint <= markOut)
+            {
+                commands.Add(new RemoveTransitionCommand(track, transition));
+                changed = true;
+            }
+            else if (ripple && transition.CutPoint > markOut)
+            {
+                Transition t = transition;
+                commands.Add(SetPropertyCommand<Timecode>.Create(
+                    label, () => t.CutPoint, v => t.CutPoint = v, new Timecode(t.CutPoint.Ticks - gap)));
+            }
+        }
+
+        if (shifted.Count > 0)
+        {
+            commands.Add(new ShiftClipsCommand(shifted, -gap, label));
+            changed = true;
+        }
+        return changed;
     }
 }

@@ -93,6 +93,8 @@ public partial class MainWindow : Window
     private ScrubberMarks? _scrubberMarks;  // the active monitor's in/out marks over the scrubber (step 61)
     private Border? _sourceMarkBar;         // the Source-tab-only Mark In / Out / Insert / Overwrite row
     private TextBlock? _sourceMarkText;     // its In / Out / Duration readout
+    private TextBlock? _audioOnlyLabel;     // "Audio only" over the blank frame of an audio-only Source media
+    private MenuItem? _insertEditMenuItem, _overwriteEditMenuItem; // Clip ▸ Insert / Overwrite Edit
     private int? _sourceMarksSignature;     // fingerprint of every media's source marks (RefreshBinIfSourceMarksChanged)
 
     private bool _suppressSeek;        // guards programmatic scrubber updates from re-triggering a seek
@@ -897,6 +899,10 @@ public partial class MainWindow : Window
         this.FindControl<MenuItem>("ClearInOutMenuItem")!.Click += (_, _) => ClearMarks(clearIn: true, clearOut: true);
         this.FindControl<MenuItem>("LiftMenuItem")!.Click += (_, _) => LiftOrExtract(extract: false);
         this.FindControl<MenuItem>("ExtractMenuItem")!.Click += (_, _) => LiftOrExtract(extract: true);
+        _insertEditMenuItem = this.FindControl<MenuItem>("InsertEditMenuItem")!;
+        _insertEditMenuItem.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Insert);
+        _overwriteEditMenuItem = this.FindControl<MenuItem>("OverwriteEditMenuItem")!;
+        _overwriteEditMenuItem.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Overwrite);
 
         // Preview render cache commands (PLAN.md step 32).
         this.FindControl<MenuItem>("RenderInOutMenuItem")!.Click += (_, _) =>
@@ -1083,6 +1089,9 @@ public partial class MainWindow : Window
         // Lift (;) and Extract (') over the marked range, Premiere's keys.
         else if (!shift && !primary && !alt && e.Key == Key.OemSemicolon) { LiftOrExtract(extract: false); e.Handled = true; }
         else if (!shift && !primary && !alt && e.Key == Key.OemQuotes) { LiftOrExtract(extract: true); e.Handled = true; }
+        // Insert (,) and Overwrite (.) the Source monitor's marked range, Premiere's keys — from either monitor.
+        else if (!shift && !primary && !alt && e.Key == Key.OemComma) { ThreePointEdit(ThreePointEditKind.Insert); e.Handled = true; }
+        else if (!shift && !primary && !alt && e.Key == Key.OemPeriod) { ThreePointEdit(ThreePointEditKind.Overwrite); e.Handled = true; }
         // Play In to Out (Ctrl+Shift+Space / ⌘⇧Space, the Premiere convention): plays only the marked range of the
         // focused monitor. Sits above plain Space, which stays unconstrained by the marks.
         else if (primary && shift && e.Key == Key.Space) { if (!_exporting) MarkKey(PlaySourceInToOut, PlayInToOut); e.Handled = true; }
@@ -2056,6 +2065,9 @@ public partial class MainWindow : Window
         _sourceMarkText = this.FindControl<TextBlock>("SourceMarkText")!;
         this.FindControl<Button>("SourceMarkInButton")!.Click += (_, _) => SetSourceMarkAtPlayhead(inPoint: true);
         this.FindControl<Button>("SourceMarkOutButton")!.Click += (_, _) => SetSourceMarkAtPlayhead(inPoint: false);
+        this.FindControl<Button>("SourceInsertButton")!.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Insert);
+        this.FindControl<Button>("SourceOverwriteButton")!.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Overwrite);
+        _audioOnlyLabel = this.FindControl<TextBlock>("AudioOnlyLabel")!;
 
         // The Program monitor composites the timeline at the sequence resolution; the Source monitor previews a
         // single selected clip's source (built lazily when its tab is opened). Both present through the one shared
@@ -2499,11 +2511,8 @@ public partial class MainWindow : Window
     private void ShowInSourceMonitor(MediaRef media)
     {
         string name = Path.GetFileName(media.AbsolutePath);
-        if (!media.Info.HasVideo)
-        {
-            SetStatus($"{name}: audio-only sources can't be previewed in the Source monitor yet — drag it onto an audio track.");
+        if (!media.Info.HasVideo && !media.Info.HasAudio)
             return;
-        }
         _source!.SetSource(media);                    // rebuilds in place if the Source tab is already active
         var sourceTab = this.FindControl<RadioButton>("SourceTab")!;
         if (sourceTab.IsChecked == true)
@@ -2672,6 +2681,8 @@ public partial class MainWindow : Window
             _source?.SetSource(media);
             if (ReferenceEquals(_active, _source))
                 RefreshTransportForActive();
+            else
+                UpdateMarkDisplay(); // the Insert / Overwrite items and the header patch chips follow the source
 
             string? name = media is null ? null : Path.GetFileName(media.AbsolutePath ?? "clip");
             SetStatus(name is null ? "" : $"Selected: {name}");
@@ -3489,12 +3500,15 @@ public partial class MainWindow : Window
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
         MediaRef? media = _project.MediaPool.Items.FirstOrDefault(m => string.Equals(m.AbsolutePath, sourcePath, cmp));
-        if (media is not { Info.HasVideo: true })
+        if (media is null || !(media.Info.HasVideo || media.Info.HasAudio))
             return;
         if (layout.SourceMonitorActive)
             Dispatcher.UIThread.Post(() => ShowInSourceMonitor(media)); // after the window is up, like a user double-click
         else
+        {
             _source?.SetSource(media); // loaded but behind the Program tab, as it was left
+            UpdateMarkDisplay();
+        }
     }
 
     /// <summary>Snapshots this project's view layout. Values a session without an engine never shows (zoom,
@@ -3884,6 +3898,41 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Insert (<c>,</c>) / Overwrite (<c>.</c>): cuts the Source monitor's media into the active sequence as a
+    /// three-point edit (PLAN.md step 61 phase 3) — the source marks pick the range, the sequence marks (else the
+    /// playhead) pick where, and the source patch picks the tracks. Afterwards the sequence marks are cleared and
+    /// the playhead parks at the end of the new clip, as in Premiere; the source marks stay for the next edit.
+    /// </summary>
+    private void ThreePointEdit(ThreePointEditKind kind)
+    {
+        if (_project is null || _program is null || _exporting)
+            return;
+        if (_source?.Media is not { } media)
+        {
+            SetStatus("Open a clip in the Source monitor first — double-click it in the bin.");
+            return;
+        }
+        Sequence seq = _project.ActiveSequence;
+        if (ThreePointResolver.Resolve(media, seq, _program.Position) is not { } range)
+        {
+            SetStatus("The source range is empty.");
+            return;
+        }
+        ThreePointEditResult result = ThreePointEdits.Build(kind, seq, media, range, null, null, usePatch: true);
+        if (result.Command is null)
+        {
+            SetStatus($"{result.Error}.");
+            return;
+        }
+        _history.Execute(result.Command);
+        _program.SeekTo(result.RecordOut);
+        string status = $"{result.Command.Label}: {Path.GetFileName(media.AbsolutePath)} at {FormatTime(result.RecordIn)}.";
+        foreach (string note in result.Notes)
+            status += $" {note}.";
+        SetStatus(status);
+    }
+
+    /// <summary>
     /// Play In to Out (Ctrl+Shift+Space / the Sequence menu): plays the Program monitor from the in mark and stops
     /// at the out mark — the dedicated ranged-play transport command of leading editors (Premiere's
     /// Ctrl+Shift+Space, Avid's Play In to Out). A missing mark falls back to the sequence start/end (the same
@@ -3985,6 +4034,12 @@ public partial class MainWindow : Window
             return;
         bool sourceTab = _source is not null && ReferenceEquals(_active, _source);
         _sourceMarkBar.IsVisible = sourceTab;
+        if (_audioOnlyLabel is not null)
+            _audioOnlyLabel.IsVisible = sourceTab && _source!.IsAudioOnly;
+        bool hasSource = _source?.Media is not null;
+        if (_insertEditMenuItem is not null && _overwriteEditMenuItem is not null)
+            _insertEditMenuItem.IsEnabled = _overwriteEditMenuItem.IsEnabled = hasSource;
+        _timeline?.SetSourceStreams(_source?.Media is { } src ? (src.Info.HasVideo, src.Info.HasAudio) : null);
         var scrubberSpan = new Timecode((long)_scrubber.Maximum);
         if (sourceTab)
         {

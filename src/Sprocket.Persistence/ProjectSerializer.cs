@@ -227,13 +227,42 @@ public static class ProjectSerializer
                 Locked = track.Locked ? true : null,
             });
         }
-        return dto with { Tracks = tracks, MarkInTicks = s.MarkIn?.Ticks, MarkOutTicks = s.MarkOut?.Ticks };
+        SourcePatch? patch = s.SourcePatch;
+        return dto with
+        {
+            Tracks = tracks,
+            MarkInTicks = s.MarkIn?.Ticks,
+            MarkOutTicks = s.MarkOut?.Ticks,
+            SourcePatchVideo = PatchIndex(s.Timeline.VideoTracks, patch?.Video, patch?.VideoUnpatched ?? false),
+            SourcePatchAudio = PatchIndex(s.Timeline.AudioTracks, patch?.Audio, patch?.AudioUnpatched ?? false),
+        };
+    }
+
+    // A patched stream's persisted form: null for the default track (or a track no longer in the timeline, which
+    // resolves to the default anyway), -1 for un-patched, else the track's index among its kind.
+    private static int? PatchIndex<T>(IEnumerable<T> tracks, T? track, bool unpatched) where T : Track
+    {
+        if (unpatched)
+            return -1;
+        if (track is null)
+            return null;
+        int index = tracks.ToList().IndexOf(track);
+        return index < 0 ? null : index;
     }
 
     private static void ApplyMarks(Sequence s, TimelineDto t)
     {
         s.MarkIn = t.MarkInTicks is { } markIn ? new Timecode(markIn) : null;
         s.MarkOut = t.MarkOutTicks is { } markOut ? new Timecode(markOut) : null;
+        if (t.SourcePatchVideo is null && t.SourcePatchAudio is null)
+            return;
+        List<VideoTrack> video = s.Timeline.VideoTracks.ToList();
+        List<AudioTrack> audio = s.Timeline.AudioTracks.ToList();
+        s.SourcePatch = new SourcePatch(
+            Video: t.SourcePatchVideo is >= 0 and var v && v < video.Count ? video[v] : null,
+            Audio: t.SourcePatchAudio is >= 0 and var a && a < audio.Count ? audio[a] : null,
+            VideoUnpatched: t.SourcePatchVideo == -1,
+            AudioUnpatched: t.SourcePatchAudio == -1);
     }
 
     internal static TimelineDto ToDto(Timeline t)

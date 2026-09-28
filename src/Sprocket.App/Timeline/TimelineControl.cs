@@ -25,14 +25,15 @@ namespace Sprocket.App;
 public sealed class TimelineControl : Control
 {
     // Layout constants (px).
-    private const double DefaultHeaderWidth = 168;
-    private const double MinHeaderWidth = 72;
+    private const double DefaultHeaderWidth = 196;
+    private const double MinHeaderWidth = 96;
     private const double MaxHeaderWidth = 360;
     private const double RulerHeight = 26;
     private const double TrackHeight = 46;
     private const double TrackGap = 4;
     private const double EdgeGrip = 7;
-    private const double NameLeft = 10;
+    private const double SourceGutter = 28;         // the source-patch column at the header's far left (step 61)
+    private const double NameLeft = SourceGutter + 8;
     internal const double MinPxPerSecond = 8;
     internal const double MaxPxPerSecond = 600;
     internal const double DefaultPxPerSecond = 70;
@@ -115,6 +116,7 @@ public sealed class TimelineControl : Control
     private static readonly IBrush FadePointFill = new ImmutableSolidColorBrush(Colors.White, 0.9);
 
     private Project? _project;
+    private (bool Video, bool Audio)? _sourceStreams; // the Source monitor media's streams, for the patch chips
     private EditHistory? _history;
     private PlaybackEngine? _engine;
 
@@ -1813,6 +1815,11 @@ public sealed class TimelineControl : Control
     {
         ctx.FillRectangle(HeaderBg, new Rect(0, 0, _headerWidth, Bounds.Height));
         ctx.DrawLine(EdgePen, new Point(_headerWidth, 0), new Point(_headerWidth, Bounds.Height));
+        ctx.DrawLine(EdgePen, new Point(SourceGutter, RulerHeight), new Point(SourceGutter, Bounds.Height));
+
+        // Source patching (step 61 phase 3): the V1 / A1 source indicators, drawn on the patched lanes only while the
+        // Source monitor holds media that has that stream — otherwise the column is an empty gutter, as in Premiere.
+        (VideoTrack? patchedVideo, AudioTrack? patchedAudio) = _project?.ActiveSequence.ResolvePatch() ?? default;
 
         for (int i = 0; i < lanes.Count; i++)
         {
@@ -1842,7 +1849,42 @@ public sealed class TimelineControl : Control
                 DrawToggle(ctx, LockBox(top), Icons.Lock, track.Locked);
             if (HeaderToggleFits(SyncLockBox(top), isVideo))
                 DrawToggle(ctx, SyncLockBox(top), Icons.SyncLock, track.SyncLocked);
+
+            if (_sourceStreams is { } streams
+                && (isVideo ? streams.Video && ReferenceEquals(track, patchedVideo) : streams.Audio && ReferenceEquals(track, patchedAudio)))
+                DrawToggle(ctx, SourcePatchBox(top), isVideo ? "V1" : "A1", on: true);
         }
+    }
+
+    /// <summary>
+    /// Tells the header which streams the Source monitor's media has (<see langword="null"/> when it's empty), so it
+    /// shows the matching source-patch chips. Called by the shell whenever the Source media changes.
+    /// </summary>
+    public void SetSourceStreams((bool Video, bool Audio)? streams)
+    {
+        if (_sourceStreams == streams)
+            return;
+        _sourceStreams = streams;
+        InvalidateVisual();
+    }
+
+    // A click in the source-patch column: on the patched chip it un-patches that stream; on another lane of the
+    // same kind it moves the patch there. One undo step; a no-op while the Source monitor is empty.
+    private void HandleSourcePatchClick(Track track, bool isVideo)
+    {
+        if (_project is null || _sourceStreams is not { } streams || !(isVideo ? streams.Video : streams.Audio))
+            return;
+        Sequence seq = _project.ActiveSequence;
+        (VideoTrack? video, AudioTrack? audio) = seq.ResolvePatch();
+        SourcePatch patch = seq.SourcePatch ?? SourcePatch.Default;
+        patch = isVideo
+            ? ReferenceEquals(track, video)
+                ? patch with { Video = null, VideoUnpatched = true }
+                : patch with { Video = (VideoTrack)track, VideoUnpatched = false }
+            : ReferenceEquals(track, audio)
+                ? patch with { Audio = null, AudioUnpatched = true }
+                : patch with { Audio = (AudioTrack)track, AudioUnpatched = false };
+        Execute(new SetSourcePatchCommand(seq, patch));
     }
 
     /// <summary>The lane's short editor name — <c>V1</c> for the bottom video track upward, <c>A1</c> for the first
@@ -1887,6 +1929,7 @@ public sealed class TimelineControl : Control
     private Rect MuteBox(double laneTop) => new(_headerWidth - 56, laneTop + TrackHeight - 24, 22, 17);
     private Rect SoloBox(double laneTop) => new(_headerWidth - 30, laneTop + TrackHeight - 24, 22, 17);
     private Rect EnableBox(double laneTop) => new(_headerWidth - 30, laneTop + TrackHeight - 24, 22, 17);
+    private static Rect SourcePatchBox(double laneTop) => new(3, laneTop + (TrackHeight - 17) / 2, SourceGutter - 6, 17);
     private static Rect TargetBox(double laneTop) => new(NameLeft - 2, laneTop + TrackHeight - 24, 26, 17);
     private static Rect LockBox(double laneTop) => new(NameLeft + 28, laneTop + TrackHeight - 24, 22, 17);
     private static Rect SyncLockBox(double laneTop) => new(NameLeft + 54, laneTop + TrackHeight - 24, 22, 17);
@@ -2339,6 +2382,11 @@ public sealed class TimelineControl : Control
         (Track track, bool isVideo) = lanes[i];
         double top = LaneTop(i);
 
+        if (p.X < SourceGutter)
+        {
+            HandleSourcePatchClick(track, isVideo);
+            return;
+        }
         if (HeaderToggleFits(TargetBox(top), isVideo) && TargetBox(top).Contains(p))
         {
             SetTrackTargeted(track, !track.Targeted);
@@ -2385,7 +2433,7 @@ public sealed class TimelineControl : Control
         double top = LaneTop(i);
 
         // Ignore double-clicks that land on the toggles — they keep their single-click behaviour.
-        if (EnableBox(top).Contains(p) || MuteBox(top).Contains(p) || SoloBox(top).Contains(p)
+        if (p.X < SourceGutter || EnableBox(top).Contains(p) || MuteBox(top).Contains(p) || SoloBox(top).Contains(p)
             || TargetBox(top).Contains(p) || LockBox(top).Contains(p) || SyncLockBox(top).Contains(p))
             return;
 
