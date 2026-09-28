@@ -54,7 +54,7 @@ public class RangeEditsTests
         seq.MarkIn = S(2);
         seq.MarkOut = S(6);
 
-        IEditCommand cmd = RangeEdits.Lift(seq, S(2), S(6))!;
+        IEditCommand cmd = RangeEdits.Lift(seq, S(2), S(6))!.Command;
         cmd.Apply();
 
         Assert.Equal([(S(0), S(2)), (S(6), S(8)), (S(8), S(12))], Spans(track));
@@ -68,7 +68,7 @@ public class RangeEditsTests
     {
         var (seq, track, a, b, c) = ThreeClips();
 
-        IEditCommand cmd = RangeEdits.Extract(seq, S(2), S(6))!;
+        IEditCommand cmd = RangeEdits.Extract(seq, S(2), S(6))!.Command;
         cmd.Apply();
 
         Assert.Equal([(S(0), S(2)), (S(2), S(4)), (S(4), S(8))], Spans(track));
@@ -90,7 +90,7 @@ public class RangeEditsTests
     {
         var (seq, track, _, b, _) = ThreeClips();
 
-        RangeEdits.Extract(seq, S(4), S(8))!.Apply();
+        RangeEdits.Extract(seq, S(4), S(8))!.Command.Apply();
 
         Assert.DoesNotContain(b, track.Clips);
         Assert.Equal([(S(0), S(4)), (S(4), S(8))], Spans(track));
@@ -101,7 +101,7 @@ public class RangeEditsTests
     {
         var (seq, track, a, _, _) = ThreeClips();
 
-        RangeEdits.Lift(seq, S(1), S(3))!.Apply();
+        RangeEdits.Lift(seq, S(1), S(3))!.Command.Apply();
 
         Assert.Equal([(S(0), S(1)), (S(3), S(4)), (S(4), S(8)), (S(8), S(12))], Spans(track));
         Assert.Equal(S(1), a.SourceOut);
@@ -119,7 +119,7 @@ public class RangeEditsTests
         au.LinkGroupId = group;
         audio.Clips.Add(au);
 
-        RangeEdits.Extract(seq, S(3), S(6))!.Apply();
+        RangeEdits.Extract(seq, S(3), S(6))!.Command.Apply();
 
         Clip vTail = video.Clips.Single(x => x.TimelineStart == S(3) && x.SourceIn == S(2));
         Clip aTail = audio.Clips.Single();
@@ -137,7 +137,7 @@ public class RangeEditsTests
         var after = new Transition(TransitionTypeIds.CrossDissolve, S(8), S(1));
         track.Transitions.AddRange([inside, after]);
 
-        IEditCommand cmd = RangeEdits.Extract(seq, S(3), S(5))!;
+        IEditCommand cmd = RangeEdits.Extract(seq, S(3), S(5))!.Command;
         cmd.Apply();
 
         Assert.Equal([after], track.Transitions);
@@ -168,6 +168,135 @@ public class RangeEditsTests
         Assert.Equal((S(5), S(6)), RangeEdits.ClipSpanAt(seq.Timeline, S(5.5)));
         Assert.Equal((S(4), S(8)), RangeEdits.ClipSpanAt(seq.Timeline, S(7)));
         Assert.Null(RangeEdits.ClipSpanAt(seq.Timeline, S(20)));
+    }
+
+    // A second video track holding one 12s clip [0,12) above the three butted clips.
+    private static VideoTrack AddUpperTrack(Sequence seq)
+    {
+        var upper = new VideoTrack();
+        upper.Clips.Add(ClipAt(0, 12));
+        seq.Timeline.Tracks.Add(upper);
+        return upper;
+    }
+
+    [Fact]
+    public void Lift_Leaves_Untargeted_Tracks_Alone()
+    {
+        var (seq, track, _, _, _) = ThreeClips();
+        VideoTrack upper = AddUpperTrack(seq);
+        upper.Targeted = false;
+
+        RangeEdits.Lift(seq, S(2), S(6))!.Command.Apply();
+
+        Assert.Equal([(S(0), S(2)), (S(6), S(8)), (S(8), S(12))], Spans(track));
+        Assert.Equal([(S(0), S(12))], Spans(upper));
+    }
+
+    [Fact]
+    public void Extract_Ripples_A_Sync_Locked_Untargeted_Track_Without_Carving_It()
+    {
+        var (seq, track, _, _, _) = ThreeClips();
+        var upper = new VideoTrack { Targeted = false };
+        Clip late = ClipAt(9, 2);
+        upper.Clips.Add(late);
+        seq.Timeline.Tracks.Add(upper);
+
+        RangeEditResult result = RangeEdits.Extract(seq, S(2), S(6))!;
+        result.Command.Apply();
+
+        Assert.Equal(S(5), late.TimelineStart); // shifted left by the 4s range to stay in sync
+        Assert.Equal(0, result.SyncBreaks);
+        Assert.Equal([(S(0), S(2)), (S(2), S(4)), (S(4), S(8))], Spans(track));
+    }
+
+    [Fact]
+    public void Extract_Reports_A_Sync_Break_When_A_Sync_Locked_Track_Has_Material_In_Range()
+    {
+        var (seq, _, _, _, _) = ThreeClips();
+        VideoTrack upper = AddUpperTrack(seq);
+        upper.Targeted = false;
+
+        RangeEditResult result = RangeEdits.Extract(seq, S(2), S(6))!;
+        result.Command.Apply();
+
+        Assert.Equal(1, result.SyncBreaks);
+        Assert.Equal([(S(0), S(12))], Spans(upper)); // no gap to close, so it keeps its place
+    }
+
+    [Fact]
+    public void Extract_Does_Not_Shift_A_Track_With_Sync_Lock_Off()
+    {
+        var (seq, _, _, _, _) = ThreeClips();
+        var upper = new VideoTrack { Targeted = false, SyncLocked = false };
+        Clip late = ClipAt(9, 2);
+        upper.Clips.Add(late);
+        seq.Timeline.Tracks.Add(upper);
+
+        RangeEditResult result = RangeEdits.Extract(seq, S(2), S(6))!;
+        result.Command.Apply();
+
+        Assert.Equal(S(9), late.TimelineStart);
+        Assert.Equal(0, result.SyncBreaks);
+    }
+
+    [Fact]
+    public void Locked_Tracks_Are_Never_Touched_And_Are_Reported()
+    {
+        var (seq, track, _, _, _) = ThreeClips();
+        VideoTrack upper = AddUpperTrack(seq);
+        upper.Locked = true; // still targeted + sync-locked, but the lock wins
+
+        RangeEditResult result = RangeEdits.Extract(seq, S(2), S(6))!;
+        result.Command.Apply();
+
+        Assert.Equal([(S(0), S(12))], Spans(upper));
+        Assert.Equal(1, result.LockedTracksInRange);
+        Assert.Equal(0, result.SyncBreaks);
+        Assert.Equal([(S(0), S(2)), (S(2), S(4)), (S(4), S(8))], Spans(track));
+    }
+
+    [Fact]
+    public void HasEditableTarget_Needs_A_Targeted_Unlocked_Track()
+    {
+        var (seq, track, _, _, _) = ThreeClips();
+        Assert.True(RangeEdits.HasEditableTarget(seq.Timeline));
+        track.Locked = true;
+        Assert.False(RangeEdits.HasEditableTarget(seq.Timeline));
+        track.Locked = false;
+        track.Targeted = false;
+        Assert.False(RangeEdits.HasEditableTarget(seq.Timeline));
+    }
+
+    [Fact]
+    public void ClipSpanAt_Only_Reads_Targeted_Tracks()
+    {
+        var (seq, track, _, _, _) = ThreeClips();
+        var upper = new VideoTrack { Targeted = false };
+        upper.Clips.Add(ClipAt(5, 1));
+        seq.Timeline.Tracks.Add(upper);
+
+        Assert.Equal((S(4), S(8)), RangeEdits.ClipSpanAt(seq.Timeline, S(5.5)));
+        track.Targeted = false;
+        Assert.Null(RangeEdits.ClipSpanAt(seq.Timeline, S(5.5)));
+    }
+
+    [Fact]
+    public void ClipsLinkedTo_Skips_Locked_Tracks_Unless_Asked()
+    {
+        var (seq, video, _, b, _) = ThreeClips();
+        var audio = new AudioTrack { Locked = true };
+        seq.Timeline.Tracks.Add(audio);
+        Guid group = Guid.NewGuid();
+        Clip au = ClipAt(4, 4);
+        b.LinkGroupId = group;
+        au.LinkGroupId = group;
+        audio.Clips.Add(au);
+
+        Assert.Empty(seq.Timeline.ClipsLinkedTo(b));
+        (Track linkedTrack, Clip linkedClip) = Assert.Single(seq.Timeline.ClipsLinkedTo(b, includeLocked: true));
+        Assert.Same(audio, linkedTrack);
+        Assert.Same(au, linkedClip);
+        Assert.Same(video, seq.Timeline.TrackOf(b));
     }
 
     [Fact]

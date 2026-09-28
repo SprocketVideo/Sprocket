@@ -30,6 +30,26 @@ public abstract class Track
     /// <summary>Whether the track contributes to the render. Disabled tracks are skipped entirely.</summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// Track targeting (the track-name toggle of leading editors): whether sequence-range edits — Lift / Extract
+    /// over the in/out marks — act on this track. On by default, so a fresh sequence edits every track. Editing
+    /// state only; it never changes a frame, so it stays out of the render graph and the render-cache hash.
+    /// </summary>
+    public bool Targeted { get; set; } = true;
+
+    /// <summary>
+    /// Sync lock: whether ripple edits made on <em>other</em> tracks (Extract, and later Insert) shift this track
+    /// too, keeping it in sync with them. On by default, as in leading editors. Editing state only (see
+    /// <see cref="Targeted"/>).
+    /// </summary>
+    public bool SyncLocked { get; set; } = true;
+
+    /// <summary>
+    /// Track lock: a locked track's clips can't be selected, moved, trimmed, cut, or removed, and range edits and
+    /// ripples skip it. Off by default. Editing state only (see <see cref="Targeted"/>).
+    /// </summary>
+    public bool Locked { get; set; }
+
     /// <summary>Clips on this track, in placement order.</summary>
     public List<Clip> Clips { get; } = new();
 

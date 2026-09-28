@@ -54,6 +54,20 @@ public class RenderCacheHasherTests
     }
 
     [Fact]
+    public void Track_Editing_State_Does_Not_Change_The_Hash()
+    {
+        Project p = BuildProject();
+        string before = VideoHash(p);
+        foreach (Track track in p.Timeline.Tracks)
+        {
+            track.Targeted = false;
+            track.SyncLocked = false;
+            track.Locked = true;
+        }
+        Assert.Equal(before, VideoHash(p));
+    }
+
+    [Fact]
     public void Identical_Models_Hash_Identically()
     {
         Project a = BuildProject();

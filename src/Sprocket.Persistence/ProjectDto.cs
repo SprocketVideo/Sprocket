@@ -157,7 +157,14 @@ internal sealed record TrackDto(
     double? Pan = null,
     // The audio track's insert effect chain (PLAN.md step 31). Additive + nullable: an empty chain writes null
     // (WhenWritingNull), so pre-31 files load with none and chain-less tracks serialize byte-identically.
-    List<EffectDto>? Effects = null);
+    List<EffectDto>? Effects = null,
+    // Editing state (three-point editing phase 1): track targeting, sync lock, track lock. Additive + nullable:
+    // only a non-default value is written (WhenWritingNull), so older files load targeted + sync-locked + unlocked
+    // and untouched tracks serialize byte-identically. Written only via the sequence path
+    // (ProjectSerializer.ToDto(Sequence)) so the render-cache hash never changes when a track is (un)locked.
+    bool? Targeted = null,
+    bool? SyncLocked = null,
+    bool? Locked = null);
 
 /// <summary>A transition on a cut (PLAN.md step 25): its type id, the cut it sits on, its length, alignment, and
 /// any type parameters (null when there are none — the v1 built-ins).</summary>

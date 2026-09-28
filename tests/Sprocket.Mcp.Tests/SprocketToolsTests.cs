@@ -41,7 +41,7 @@ public class SprocketToolsTests
             "set_effect_parameter_keyframes", "copy_effects", "set_effect_enabled",
             "set_clip_speed", "set_clip_gain", "ripple_trim", "roll_edit", "slide_clip", "ripple_delete",
             // Structure tools
-            "add_track", "remove_track", "list_transition_types", "add_transition", "remove_transition",
+            "add_track", "remove_track", "set_track_state", "list_transition_types", "add_transition", "remove_transition",
             "set_transition", "update_marker", "list_generator_types", "add_generator_clip",
             "set_generator_text", "set_generator_parameter", "list_audio_chain", "add_chain_effect",
             "remove_chain_effect", "set_chain_effect_parameter", "set_chain_effect_asset",
@@ -142,6 +142,34 @@ public class SprocketToolsTests
 
         await Assert.ThrowsAsync<McpException>(() => tools.MoveClip(clipId, 0, RuntimeIds.IdOf(audio)));
         await Assert.ThrowsAsync<McpException>(() => tools.MoveClip(clipId, 0, int.MaxValue));
+    }
+
+    [Fact]
+    public async Task SetTrackState_Is_Undoable_And_A_Locked_Track_Refuses_Edits_But_Not_Reads()
+    {
+        (FakeEditorSession session, SprocketTools tools, int clipId, Clip clip) = await PlacedClip();
+        Track track = session.Project.Timeline.Tracks.First(t => t.Clips.Contains(clip));
+        int trackId = RuntimeIds.IdOf(track);
+
+        await tools.SetTrackState(trackId, targeted: false, locked: true);
+        Assert.False(track.Targeted);
+        Assert.True(track.Locked);
+        Assert.True(track.SyncLocked);
+
+        long start = clip.TimelineStart.Ticks;
+        await Assert.ThrowsAsync<McpException>(() => tools.MoveClip(clipId, start + 240000));
+        await Assert.ThrowsAsync<McpException>(() => tools.DeleteClip(clipId));
+        Assert.Equal(start, clip.TimelineStart.Ticks);
+        await tools.GetClip(clipId); // reads still work
+
+        JsonNode state = JsonNode.Parse(await tools.GetProjectState())!;
+        Assert.Contains(state["tracks"]!.AsArray(), t => (int)t!["track_id"]! == trackId && (bool)t["locked"]!);
+
+        await tools.Undo(); // one step: both flags
+        Assert.True(track.Targeted);
+        Assert.False(track.Locked);
+        await tools.MoveClip(clipId, start + 240000);
+        Assert.Equal(start + 240000, clip.TimelineStart.Ticks);
     }
 
     [Fact]

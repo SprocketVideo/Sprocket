@@ -208,10 +208,25 @@ public static class ProjectSerializer
         DetectedColorProfile: string.IsNullOrEmpty(i.DetectedColorProfile) ? null : i.DetectedColorProfile,
         ChromaSubsampling: string.IsNullOrEmpty(i.ChromaSubsampling) ? null : i.ChromaSubsampling);
 
-    /// <summary>A sequence's timeline plus its in/out marks — the persisted shape. The bare
-    /// <see cref="ToDto(Timeline)"/> (used by the render-cache hash) deliberately omits the marks.</summary>
-    internal static TimelineDto ToDto(Sequence s) =>
-        ToDto(s.Timeline) with { MarkInTicks = s.MarkIn?.Ticks, MarkOutTicks = s.MarkOut?.Ticks };
+    /// <summary>A sequence's timeline plus its editing state — in/out marks and each track's targeting / sync lock /
+    /// lock — the persisted shape. The bare <see cref="ToDto(Timeline)"/> (used by the render-cache hash)
+    /// deliberately omits all of it, since none of it changes a frame.</summary>
+    internal static TimelineDto ToDto(Sequence s)
+    {
+        TimelineDto dto = ToDto(s.Timeline);
+        var tracks = new List<TrackDto>(dto.Tracks.Count);
+        for (int i = 0; i < dto.Tracks.Count; i++)
+        {
+            Track track = s.Timeline.Tracks[i];
+            tracks.Add(dto.Tracks[i] with
+            {
+                Targeted = track.Targeted ? null : false,
+                SyncLocked = track.SyncLocked ? null : false,
+                Locked = track.Locked ? true : null,
+            });
+        }
+        return dto with { Tracks = tracks, MarkInTicks = s.MarkIn?.Ticks, MarkOutTicks = s.MarkOut?.Ticks };
+    }
 
     private static void ApplyMarks(Sequence s, TimelineDto t)
     {
@@ -507,6 +522,9 @@ public static class ProjectSerializer
             TrackKind.Audio => new AudioTrack { Name = t.Name, Enabled = t.Enabled, GainDb = t.GainDb, Muted = t.Muted, Solo = t.Solo, Pan = t.Pan ?? 0 },
             _ => throw new InvalidDataException($"Unknown track kind {t.Kind}."),
         };
+        track.Targeted = t.Targeted ?? true;
+        track.SyncLocked = t.SyncLocked ?? true;
+        track.Locked = t.Locked ?? false;
         if (track is AudioTrack audio)
             AddEffects(audio.Effects, t.Effects);
         foreach (ClipDto c in t.Clips)

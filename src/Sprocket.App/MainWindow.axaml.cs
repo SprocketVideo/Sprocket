@@ -3103,9 +3103,32 @@ public partial class MainWindow : Window
             SetStatus($"Deleted {removed} empty track{(removed == 1 ? "" : "s")}");
         };
 
+        // Editing state (track targeting / sync lock / lock) — the same undoable toggles as the header buttons,
+        // always reachable here even when a narrow header column hides them.
+        MenuItem Toggle(string header, bool isChecked, Action onClick)
+        {
+            var item = new MenuItem { Header = header, ToggleType = MenuItemToggleType.CheckBox, IsChecked = isChecked };
+            item.Click += (_, _) => onClick();
+            return item;
+        }
+        MenuItem target = Toggle("_Target Track", track.Targeted, () => timeline.SetTrackTargeted(track, !track.Targeted));
+        MenuItem syncLock = Toggle("_Sync Lock", track.SyncLocked, () => timeline.SetTrackSyncLocked(track, !track.SyncLocked));
+        MenuItem lockTrack = Toggle("_Lock Track", track.Locked, () => timeline.SetTrackLocked(track, !track.Locked));
+        var targetAll = new MenuItem { Header = "Target _All Tracks" };
+        targetAll.Click += (_, _) => timeline.SetAllTracksTargeted(true);
+        var targetNone = new MenuItem { Header = "Target _No Tracks" };
+        targetNone.Click += (_, _) => timeline.SetAllTracksTargeted(false);
+
         // Shares the clip menu's slot so a right-click on either never stacks two open menus.
         _clipContextMenu?.Close();
-        var menu = new ContextMenu { Placement = PlacementMode.Pointer, ItemsSource = new Control[] { deleteTrack, deleteEmpty } };
+        var menu = new ContextMenu
+        {
+            Placement = PlacementMode.Pointer,
+            ItemsSource = new Control[]
+            {
+                target, syncLock, lockTrack, targetAll, targetNone, new Separator(), deleteTrack, deleteEmpty,
+            },
+        };
         menu.Closed += (_, _) => { if (ReferenceEquals(_clipContextMenu, menu)) _clipContextMenu = null; };
         _clipContextMenu = menu;
         menu.Open(timeline);
@@ -3797,8 +3820,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Sequence ▸ Lift (;) / Extract ('): removes the marked range from every track — Lift leaves the gap, Extract
-    /// ripples the rest of the sequence left to close it — then clears the marks and parks the playhead at the old
+    /// Sequence ▸ Lift (;) / Extract ('): removes the marked range from the targeted tracks — Lift leaves the gap,
+    /// Extract ripples the rest of the sequence (targeted + sync-locked tracks) left to close it — then clears the marks and parks the playhead at the old
     /// in point, as leading editors do. A missing mark falls back to the sequence start/end (the same fallback as
     /// Play / Render In to Out); with neither mark set nothing happens, so a stray key can't wipe the sequence.
     /// </summary>
@@ -3812,19 +3835,33 @@ public partial class MainWindow : Window
             SetStatus(extract ? "Set an in or out point to extract." : "Set an in or out point to lift.");
             return;
         }
+        if (!RangeEdits.HasEditableTarget(seq.Timeline))
+        {
+            SetStatus("No unlocked tracks are targeted. Target a track in its header first.");
+            return;
+        }
         Timecode markIn = seq.MarkIn ?? Timecode.Zero;
         Timecode markOut = seq.MarkOut ?? seq.Timeline.Duration;
-        IEditCommand? command = extract
+        RangeEditResult? result = extract
             ? RangeEdits.Extract(seq, markIn, markOut)
             : RangeEdits.Lift(seq, markIn, markOut);
-        if (command is null)
+        if (result is null)
         {
             SetStatus(extract ? "Nothing to extract in the marked range." : "Nothing to lift in the marked range.");
             return;
         }
-        _history.Execute(command); // the timeline prunes selected clips the edit removed
+        _history.Execute(result.Command); // the timeline prunes selected clips the edit removed
         _program?.SeekTo(markIn);
-        SetStatus(extract ? "Extracted the marked range." : "Lifted the marked range.");
+        string status = extract ? "Extracted the marked range." : "Lifted the marked range.";
+        if (result.LockedTracksInRange > 0)
+            status += result.LockedTracksInRange == 1
+                ? " 1 locked track kept."
+                : $" {result.LockedTracksInRange} locked tracks kept.";
+        if (result.SyncBreaks > 0)
+            status += result.SyncBreaks == 1
+                ? " 1 sync-locked track couldn't ripple and may be out of sync."
+                : $" {result.SyncBreaks} sync-locked tracks couldn't ripple and may be out of sync.";
+        SetStatus(status);
     }
 
     /// <summary>

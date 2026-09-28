@@ -22,7 +22,7 @@ public sealed partial class SprocketTools
         [Description("clip_id from list_clips / get_project_state.")] int clipId) =>
         _session.OnModelThreadAsync(api =>
         {
-            (Clip clip, Track _) = ResolveClip(api, clipId);
+            (Clip clip, Track _) = ResolveClip(api, clipId, forEdit: false);
             McpStabilizationInfo info = api.StabilizationInfoForClip(clip);
             if (!info.HasStabilization)
                 throw new McpException($"clip {clipId} has no enabled Stabilization effect — add builtin.stabilization first.");

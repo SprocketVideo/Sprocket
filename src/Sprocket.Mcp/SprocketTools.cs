@@ -218,7 +218,7 @@ public sealed partial class SprocketTools(IEditorSession session)
             if (clip.LinkGroupId is { } link)
             {
                 payload["link_group"] = link.ToString("D");
-                payload["linked_clip_ids"] = new JsonArray(api.Project.Timeline.ClipsLinkedTo(clip)
+                payload["linked_clip_ids"] = new JsonArray(api.Project.Timeline.ClipsLinkedTo(clip, includeLocked: true)
                     .Select(l => (JsonNode)RuntimeIds.IdOf(l.Clip)).ToArray());
             }
             return payload.ToJsonString();
@@ -299,6 +299,7 @@ public sealed partial class SprocketTools(IEditorSession session)
             IEditCommand primary;
             if (targetTrackId is { } destId && RuntimeIds.FindTrack(api.Project, destId) is { } dest && !ReferenceEquals(dest, track))
             {
+                RequireUnlocked(dest);
                 if (dest.GetType() != track.GetType())
                     throw new McpException($"track {destId} is a {Kind(dest)} track — a {Kind(track)} clip can't move there.");
                 primary = new MoveClipToTrackCommand(track, dest, clip, newStart);
@@ -568,10 +569,24 @@ public sealed partial class SprocketTools(IEditorSession session)
 
     // ── Shared resolution helpers ───────────────────────────────────────────────────────────────────
 
-    private static (Clip Clip, Track Track) ResolveClip(IEditorApi api, int clipId) =>
-        RuntimeIds.FindClip(api.Project, clipId, out Track? track) is { } clip
-            ? (clip, track!)
-            : throw new McpException($"clip {clipId} not found — call list_clips for current clip ids.");
+    /// <summary>Resolves a clip id. With <paramref name="forEdit"/> (the default) a clip on a locked track is
+    /// refused — the lock applies to AI edits exactly as to the UI; read-only tools pass false.</summary>
+    private static (Clip Clip, Track Track) ResolveClip(IEditorApi api, int clipId, bool forEdit = true)
+    {
+        if (RuntimeIds.FindClip(api.Project, clipId, out Track? track) is not { } clip)
+            throw new McpException($"clip {clipId} not found — call list_clips for current clip ids.");
+        if (forEdit)
+            RequireUnlocked(track!);
+        return (clip, track!);
+    }
+
+    /// <summary>Throws when <paramref name="track"/> is locked (unlock it with set_track_state first).</summary>
+    internal static void RequireUnlocked(Track track)
+    {
+        if (track.Locked)
+            throw new McpException(
+                $"track {RuntimeIds.IdOf(track)} ({track.Name}) is locked — unlock it with set_track_state first.");
+    }
 
     /// <summary>Resolves an effect on the clip by reference tag (preferred — stable across stack reorders)
     /// or by stack index. Exactly the effect-addressing rule every effect tool shares.</summary>

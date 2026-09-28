@@ -119,6 +119,38 @@ public class SequencePersistenceTests
         Assert.Equal(Timecode.FromSeconds(5), loaded.GetSequence(childId)!.MarkOut);
         Assert.DoesNotContain("\"markInTicks\"", ProjectSerializer.Serialize(loaded)); // additive: null marks not written
     }
+
+    [Fact]
+    public void Track_Targeting_Sync_Lock_And_Lock_Round_Trip_Additively()
+    {
+        var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));
+        var v1 = new VideoTrack { Name = "V1", Targeted = false };
+        var v2 = new VideoTrack { Name = "V2", Locked = true };
+        var a1 = new AudioTrack { Name = "A1", SyncLocked = false };
+        project.Timeline.Tracks.AddRange([v1, v2, a1]);
+
+        Project loaded = RoundTrip(project);
+        List<Track> tracks = loaded.Timeline.Tracks;
+
+        Assert.False(tracks[0].Targeted);
+        Assert.True(tracks[0].SyncLocked);
+        Assert.False(tracks[0].Locked);
+        Assert.True(tracks[1].Locked);
+        Assert.True(tracks[1].Targeted);
+        Assert.False(tracks[2].SyncLocked);
+        Assert.True(tracks[2].Targeted);
+    }
+
+    [Fact]
+    public void Default_Track_Editing_State_Is_Not_Written()
+    {
+        var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));
+        project.Timeline.Tracks.Add(new VideoTrack { Name = "V1" });
+        string json = ProjectSerializer.Serialize(project);
+        Assert.DoesNotContain("\"targeted\"", json);
+        Assert.DoesNotContain("\"syncLocked\"", json);
+        Assert.DoesNotContain("\"locked\"", json);
+    }
 }
 
 /// <summary>

@@ -358,6 +358,9 @@ public static class StateFormatter
             ["kind"] = track is VideoTrack ? "video" : "audio",
             ["name"] = track.Name,
             ["enabled"] = track.Enabled,
+            ["targeted"] = track.Targeted,
+            ["sync_locked"] = track.SyncLocked,
+            ["locked"] = track.Locked,
         };
         switch (track)
         {
@@ -468,7 +471,7 @@ public static class StateFormatter
         }
         if (clip.LinkGroupId is not null)
         {
-            obj["linked_clips"] = new JsonArray(project.Timeline.ClipsLinkedTo(clip)
+            obj["linked_clips"] = new JsonArray(project.Timeline.ClipsLinkedTo(clip, includeLocked: true)
                 .Select(l => (JsonNode)new JsonObject
                 {
                     ["clip_id"] = RuntimeIds.IdOf(l.Clip),

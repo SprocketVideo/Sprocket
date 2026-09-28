@@ -43,7 +43,7 @@ native buffers for the few crossings that must happen (audio samples). Server/Ba
 
 ## Build order — status ledger
 
-Steps 1–57 built the editor; steps 58+ are scheduled but not started (their detail lives in
+Steps 1–59 built the editor; steps 60+ are scheduled but not started (their detail lives in
 `plan/features/` until they ship). Each completed step's full original spec + **✅ DONE**
 implementation log was moved verbatim to `plan/history/` in the 2026-08-26 restructure (this
 file had grown past 400 KB); the **Detail** column links to it. The original feasibility preamble (recommended
@@ -72,7 +72,7 @@ shipped step append to its history entry directly.
 | 8 | Export pipeline (full-res encode) | ✅ | [history](plan/history/steps-01-20.md#step-8) |
 | 9 | Project save/load (JSON) | ✅ | [history](plan/history/steps-01-20.md#step-9) |
 
-### Post-slice build-out (steps 10–60)
+### Post-slice build-out (steps 10–61)
 
 | # | Step | Status | Detail |
 |---|---|---|---|
@@ -132,6 +132,7 @@ shipped step append to its history entry directly.
 | 58 | Plugin Manager (user-facing plugin management UI) | ✅ | [history](plan/history/steps-58plus.md#step-58) |
 | 59 | Open plugin standards (frei0r / LADSPA / LV2) | ✅ | [history](plan/history/steps-58plus.md#step-59) |
 | 60 | Preview allocation churn (per-frame metadata / wrapper Gen0 — measure + remediate) | ❌ → [plan](plan/features/preview-allocation-churn.md) | — |
+| 61 | Source-monitor marks + three-point editing (Insert / Overwrite, patching, targeting) | 🟡 phase 1 (targeting / sync lock / lock) ✅; phases 2–6 open → [plan](plan/features/three-point-editing.md) | [history](plan/history/steps-58plus.md#step-61) |
 
 ## Open work
 
@@ -141,9 +142,12 @@ verification-only items carry their checklist in the step's history entry.
 - [x] **In/Out marks completion + Lift / Extract** (small feature, shipped 2026-09-28) — marks are per-sequence,
   saved, and undoable; Go to In/Out, Clear In and Out, Mark Clip, Mark Selection, and Lift (`;`) / Extract (`'`)
   over the marked range, all on Premiere's keys. DONE log in [plan/history/steps-58plus.md](plan/history/steps-58plus.md).
-- [ ] **Source-monitor marks + three-point editing** (large feature, unplanned) — I/O in the Source monitor per media
-  item, Insert (`,`) / Overwrite (`.`), source patching / track targeting, drag-from-Source with the marked range.
-  Start a plan in `plan/features/` from `_TEMPLATE.md`.
+- [ ] **Source-monitor marks + three-point editing** — step 61, planned 2026-09-28 (Premiere model); **phase 1 ✅ 2026-09-28**. Six phases:
+  1 track targeting / sync lock / lock (Lift / Extract become scoped) → 2 per-media source marks + mark-key routing by
+  the focused monitor → 3 source patching + `ThreePointResolver` + Insert (`,`) / Overwrite (`.`) → 4 drag from the
+  Source monitor (video-only / audio-only handles) and drops overwrite by default, with Ctrl-drop to insert → 5
+  Source-monitor audio → 6 Fit to Fill (`Shift+F11`) + docs →
+  [plan/features/three-point-editing.md](plan/features/three-point-editing.md)
 - [x] **Project-open CPU spike / UI stall** (perf fix, shipped 2026-09-23) — media-bin thumbnails are
   throttled (shared semaphore, single-threaded decoders, cancelled on window dispose) and cached on disk
   (`ThumbnailDiskCache`, keyed by source size/mtime); the hidden Audio-tab waveform grid is built lazily;

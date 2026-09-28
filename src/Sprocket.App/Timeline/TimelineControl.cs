@@ -25,7 +25,7 @@ namespace Sprocket.App;
 public sealed class TimelineControl : Control
 {
     // Layout constants (px).
-    private const double DefaultHeaderWidth = 132;
+    private const double DefaultHeaderWidth = 168;
     private const double MinHeaderWidth = 72;
     private const double MaxHeaderWidth = 360;
     private const double RulerHeight = 26;
@@ -69,6 +69,8 @@ public sealed class TimelineControl : Control
     private static readonly IBrush Accent = Palette.AccentBrush;
     private static readonly IBrush ToggleOn = Palette.AccentBrush;
     private static readonly IBrush ToggleOff = Palette.EdgeBrush;
+    private static readonly IBrush LockedLaneFill = new ImmutableSolidColorBrush(Colors.Black, 0.18);
+    private static readonly Pen LockedHatchPen = new(new ImmutableSolidColorBrush(Colors.White, 0.10), 1);
     private static readonly Pen GridPen = new(Brush("#24242E"), 1);
     private static readonly IBrush MarkerLine = Brush("#33FFFFFF");
     private static readonly Pen EdgePen = new(Palette.EdgeBrush, 1);
@@ -412,10 +414,10 @@ public sealed class TimelineControl : Control
         // Clips may have been removed by undo/redo; drop stale selection members (the primary hands off).
         if (_selection.Count > 0 && _project is not null)
             OnSelectionMutated(_selection.Prune(
-                c => _project.Timeline.Tracks.Any(t => t.Clips.Contains(c))));
-        // Likewise drop a transition selection that undo/redo removed.
+                c => _project.Timeline.Tracks.Any(t => !t.Locked && t.Clips.Contains(c))));
+        // Likewise drop a transition selection that undo/redo removed (or whose track was just locked).
         if (_selectedTransition is not null && _project is not null
-            && !_project.Timeline.Tracks.Any(t => t.Transitions.Contains(_selectedTransition)))
+            && !_project.Timeline.Tracks.Any(t => !t.Locked && t.Transitions.Contains(_selectedTransition)))
         {
             _selectedTransition = null;
             _selectedTransitionTrack = null;
@@ -557,8 +559,8 @@ public sealed class TimelineControl : Control
             return;
         ClipboardOps.PasteResult? result = ClipboardOps.PasteAll(
             _clipboard, _playhead,
-            _project.Timeline.VideoTracks.FirstOrDefault(),
-            _project.Timeline.AudioTracks.FirstOrDefault());
+            EditableTrack(_project.Timeline.VideoTracks),
+            EditableTrack(_project.Timeline.AudioTracks));
         if (result is not { } paste)
             return;
 
@@ -1241,7 +1243,7 @@ public sealed class TimelineControl : Control
 
     /// <summary>
     /// Adds a synthetic (generator / adjustment) clip at the playhead. It lands on the topmost video track when that
-    /// track is free at the playhead; otherwise a new video track is created above so the clip stacks over (not
+    /// track is unlocked and free at the playhead; otherwise a new video track is created above so the clip stacks over (not
     /// displaces) existing content — both as one undoable entry. The new clip becomes the selection.
     /// </summary>
     private void InsertSyntheticVideoClip(Func<Timecode, Clip> create, string label)
@@ -1252,7 +1254,8 @@ public sealed class TimelineControl : Control
         Clip clip = create(_playhead);
         VideoTrack? top = _project.Timeline.VideoTracks.LastOrDefault();
 
-        if (top is not null && top.ResolveActiveClip(_playhead) is null && top.ResolveActiveClip(clip.TimelineEnd - new Timecode(1)) is null)
+        if (top is not null && !top.Locked
+            && top.ResolveActiveClip(_playhead) is null && top.ResolveActiveClip(clip.TimelineEnd - new Timecode(1)) is null)
         {
             Execute(new AddClipCommand(top, clip));
         }
@@ -1322,6 +1325,7 @@ public sealed class TimelineControl : Control
         DrawRenderBar(ctx, size);
         DrawClips(ctx, size, lanes);
         DrawTransitions(ctx, size, lanes);
+        DrawLockedLanes(ctx, size, lanes);
         DrawSequenceMarkers(ctx, size);
         DrawHeaders(ctx, lanes);
         DrawBladePreview(ctx, size);
@@ -1539,6 +1543,24 @@ public sealed class TimelineControl : Control
                 ctx.DrawLine(GridPen, new Point(x, RulerHeight - 7), new Point(x, RulerHeight));
                 ctx.DrawText(Label(TimeLabel(t), 10.5, MutedText), new Point(x + 4, 5));
             }
+        }
+    }
+
+    // A locked lane is overlaid with diagonal hatching (over its clips) so the lock reads at a glance, as in
+    // leading editors; the clips stay visible underneath.
+    private void DrawLockedLanes(DrawingContext ctx, Size size, List<(Track track, bool isVideo)> lanes)
+    {
+        using var _ = ctx.PushClip(new Rect(_headerWidth, RulerHeight, size.Width - _headerWidth, size.Height - RulerHeight));
+        for (int i = 0; i < lanes.Count; i++)
+        {
+            if (!lanes[i].track.Locked)
+                continue;
+            double top = LaneTop(i);
+            var lane = new Rect(_headerWidth, top, Math.Max(0, size.Width - _headerWidth), TrackHeight);
+            ctx.FillRectangle(LockedLaneFill, lane);
+            using (ctx.PushClip(lane))
+                for (double x = _headerWidth - TrackHeight; x < size.Width; x += 8)
+                    ctx.DrawLine(LockedHatchPen, new Point(x, top + TrackHeight), new Point(x + TrackHeight, top));
         }
     }
 
@@ -1811,7 +1833,24 @@ public sealed class TimelineControl : Control
                 DrawToggle(ctx, MuteBox(top), "M", audio.Muted);
                 DrawToggle(ctx, SoloBox(top), "S", audio.Solo);
             }
+
+            // Editing-state toggles on the left of the bottom row, each drawn only while it fits left of the
+            // kind's own toggles (a narrow column drops sync lock first, then lock; the track menu has all three).
+            if (HeaderToggleFits(TargetBox(top), isVideo))
+                DrawToggle(ctx, TargetBox(top), TrackShortName(lanes, i), track.Targeted);
+            if (HeaderToggleFits(LockBox(top), isVideo))
+                DrawToggle(ctx, LockBox(top), Icons.Lock, track.Locked);
+            if (HeaderToggleFits(SyncLockBox(top), isVideo))
+                DrawToggle(ctx, SyncLockBox(top), Icons.SyncLock, track.SyncLocked);
         }
+    }
+
+    /// <summary>The lane's short editor name — <c>V1</c> for the bottom video track upward, <c>A1</c> for the first
+    /// audio track downward — the label leading editors put on the track-targeting toggle.</summary>
+    private static string TrackShortName(List<(Track track, bool isVideo)> lanes, int index)
+    {
+        int videoCount = lanes.Count(l => l.isVideo);
+        return lanes[index].isVideo ? $"V{videoCount - index}" : $"A{index - videoCount + 1}";
     }
 
     private static void DrawToggle(DrawingContext ctx, Rect box, string glyph, bool on)
@@ -1848,6 +1887,13 @@ public sealed class TimelineControl : Control
     private Rect MuteBox(double laneTop) => new(_headerWidth - 56, laneTop + TrackHeight - 24, 22, 17);
     private Rect SoloBox(double laneTop) => new(_headerWidth - 30, laneTop + TrackHeight - 24, 22, 17);
     private Rect EnableBox(double laneTop) => new(_headerWidth - 30, laneTop + TrackHeight - 24, 22, 17);
+    private static Rect TargetBox(double laneTop) => new(NameLeft - 2, laneTop + TrackHeight - 24, 26, 17);
+    private static Rect LockBox(double laneTop) => new(NameLeft + 28, laneTop + TrackHeight - 24, 22, 17);
+    private static Rect SyncLockBox(double laneTop) => new(NameLeft + 54, laneTop + TrackHeight - 24, 22, 17);
+
+    // Whether a left-hand header toggle fits without touching the kind's right-hand toggles.
+    private bool HeaderToggleFits(Rect box, bool isVideo) =>
+        box.Right <= (isVideo ? _headerWidth - 30 : _headerWidth - 56) - 4;
 
     // Width available for the track-name text on a lane: from NameLeft to just left of that kind's toggles.
     private double NameAreaWidth(bool isVideo) =>
@@ -2096,9 +2142,13 @@ public sealed class TimelineControl : Control
         var hits = new List<Clip>(_marqueeBase);
         var seen = new HashSet<Clip>(_marqueeBase, ReferenceEqualityComparer.Instance);
         for (int i = first; i <= last; i++)
+        {
+            if (lanes[i].track.Locked)
+                continue;
             foreach (Clip c in lanes[i].track.Clips)
                 if (TimelineMath.MarqueeHitsSpan(t0, t1, c.TimelineStart.Ticks, c.TimelineEnd.Ticks) && seen.Add(c))
                     hits.Add(c);
+        }
 
         OnSelectionMutated(_selection.ReplaceAll(hits));
         InvalidateVisual(); // the band rect moved even when the selection didn't change
@@ -2289,6 +2339,22 @@ public sealed class TimelineControl : Control
         (Track track, bool isVideo) = lanes[i];
         double top = LaneTop(i);
 
+        if (HeaderToggleFits(TargetBox(top), isVideo) && TargetBox(top).Contains(p))
+        {
+            SetTrackTargeted(track, !track.Targeted);
+            return;
+        }
+        if (HeaderToggleFits(LockBox(top), isVideo) && LockBox(top).Contains(p))
+        {
+            SetTrackLocked(track, !track.Locked);
+            return;
+        }
+        if (HeaderToggleFits(SyncLockBox(top), isVideo) && SyncLockBox(top).Contains(p))
+        {
+            SetTrackSyncLocked(track, !track.SyncLocked);
+            return;
+        }
+
         if (isVideo)
         {
             if (EnableBox(top).Contains(p))
@@ -2319,11 +2385,50 @@ public sealed class TimelineControl : Control
         double top = LaneTop(i);
 
         // Ignore double-clicks that land on the toggles — they keep their single-click behaviour.
-        if (EnableBox(top).Contains(p) || MuteBox(top).Contains(p) || SoloBox(top).Contains(p))
+        if (EnableBox(top).Contains(p) || MuteBox(top).Contains(p) || SoloBox(top).Contains(p)
+            || TargetBox(top).Contains(p) || LockBox(top).Contains(p) || SyncLockBox(top).Contains(p))
             return;
 
         var rect = new Rect(NameLeft - 2, top + 4, NameAreaWidth(isVideo) + 2, 20);
         TrackRenameRequested?.Invoke(track, rect);
+    }
+
+    /// <summary>Targets or untargets <paramref name="track"/> for range edits (Lift / Extract, Mark Clip) and as the
+    /// default paste destination — one undo step, from the header's V1 / A1 toggle or the track menu.</summary>
+    public void SetTrackTargeted(Track track, bool on) =>
+        SetTrackFlag(track, on, "Toggle track targeting", () => track.Targeted, v => track.Targeted = v);
+
+    /// <summary>Sync-locks or unlocks <paramref name="track"/> (whether ripples on other tracks shift it too) — one
+    /// undo step.</summary>
+    public void SetTrackSyncLocked(Track track, bool on) =>
+        SetTrackFlag(track, on, "Toggle sync lock", () => track.SyncLocked, v => track.SyncLocked = v);
+
+    /// <summary>Locks or unlocks <paramref name="track"/> — one undo step. Locking drops the track's clips and
+    /// transitions from the selection (a locked track's clips can't be selected, as in leading editors).</summary>
+    public void SetTrackLocked(Track track, bool on) =>
+        SetTrackFlag(track, on, on ? "Lock track" : "Unlock track", () => track.Locked, v => track.Locked = v);
+
+    /// <summary>Sets <see cref="Track.Targeted"/> on every track at once (the track menu's Target All Tracks /
+    /// Target No Tracks) as one undo step.</summary>
+    public void SetAllTracksTargeted(bool on)
+    {
+        if (_history is null || _project is null)
+            return;
+        var commands = _project.Timeline.Tracks
+            .Where(t => t.Targeted != on)
+            .Select(t => (IEditCommand)SetPropertyCommand<bool>.Create(
+                "Target tracks", () => t.Targeted, v => t.Targeted = v, on))
+            .ToList();
+        if (commands.Count > 0)
+            Execute(new CompositeCommand(on ? "Target all tracks" : "Target no tracks", commands));
+    }
+
+    private void SetTrackFlag(Track track, bool on, string label, Func<bool> get, Action<bool> set)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        if (_history is null || get() == on)
+            return;
+        Execute(SetPropertyCommand<bool>.Create(label, get, set, on));
     }
 
     /// <summary>
@@ -2396,6 +2501,8 @@ public sealed class TimelineControl : Control
             return false;
 
         Track track = lanes[i].track;
+        if (track.Locked)
+            return false; // a locked track's clips can't be selected, dragged, trimmed, or cut
         // Highest HitPriority wins, so at a butt join each side of the cut grabs the clip it's over (not whichever
         // clip iterates last); ties go to the later clip so one drawn on top (later in the list) is hit first.
         int best = 0;
@@ -2661,7 +2768,9 @@ public sealed class TimelineControl : Control
         }
 
         (Track? laneTrack, _) = TrackAndKindAtY(p.Y);
-        _movePreviewTrack = ClipPlacement.CompatibleTrack(_dragSourceTrack!, laneTrack) ?? _dragSourceTrack;
+        _movePreviewTrack = laneTrack is { Locked: true }
+            ? _dragSourceTrack
+            : ClipPlacement.CompatibleTrack(_dragSourceTrack!, laneTrack) ?? _dragSourceTrack;
 
         Cursor = _movePreviewCopy ? new Cursor(StandardCursorType.DragCopy) : ToolCursor(_activeTool);
         InvalidateVisual();
@@ -3172,7 +3281,8 @@ public sealed class TimelineControl : Control
         // A look only grades video, so an audio lane refuses it up front (DropLook reports the same on a drop).
         bool look = FindLook is not null && e.DataTransfer.Contains(DragFormats.LookId)
             && TrackAndKindAtY(e.GetPosition(this).Y).track is not AudioTrack;
-        if (!media && !effect && !transition && !look)
+        bool lockedLane = TrackAndKindAtY(e.GetPosition(this).Y).track is { Locked: true };
+        if ((!media && !effect && !transition && !look) || lockedLane)
         {
             e.DragEffects = DragDropEffects.None;
             ClearDropPreview();
@@ -3198,6 +3308,11 @@ public sealed class TimelineControl : Control
         Point p = e.GetPosition(this);
         if (p.X < _headerWidth)
             return;
+        if (TrackAndKindAtY(p.Y).track is { Locked: true })
+        {
+            Status?.Invoke("That track is locked.");
+            return;
+        }
 
         if (e.DataTransfer.Contains(DragFormats.MediaRefId))
             DropMedia(e.DataTransfer.TryGetValue(DragFormats.MediaRefId), p);
@@ -3258,8 +3373,8 @@ public sealed class TimelineControl : Control
             return;
 
         (Track? dropped, bool isVideoLane) = TrackAndKindAtY(p.Y);
-        VideoTrack? videoTarget = dropped as VideoTrack ?? _project.Timeline.VideoTracks.FirstOrDefault();
-        AudioTrack? audioTarget = dropped as AudioTrack ?? _project.Timeline.AudioTracks.FirstOrDefault();
+        VideoTrack? videoTarget = dropped as VideoTrack ?? EditableTrack(_project.Timeline.VideoTracks);
+        AudioTrack? audioTarget = dropped as AudioTrack ?? EditableTrack(_project.Timeline.AudioTracks);
         bool primaryIsVideo = dropped is VideoTrack || (dropped is null && media.Info.HasVideo);
 
         long dropTicks = TimelineMath.TicksAtX(p.X, _pxPerSecond, _scrollX, _headerWidth);
@@ -3325,6 +3440,23 @@ public sealed class TimelineControl : Control
         }
         Status?.Invoke(MediaBrowser.LooksBrowserModel.ApplyToClip(look, clip, _project!, _history!));
         Select(clip);
+    }
+
+    /// <summary>The default destination among <paramref name="tracks"/> for a paste or a drop's companion stream:
+    /// the first targeted unlocked track (leading editors paste to the targeted tracks), else the first unlocked
+    /// one, else <see langword="null"/> when every track of that kind is locked.</summary>
+    private static T? EditableTrack<T>(IEnumerable<T> tracks) where T : Track
+    {
+        T? fallback = null;
+        foreach (T track in tracks)
+        {
+            if (track.Locked)
+                continue;
+            if (track.Targeted)
+                return track;
+            fallback ??= track;
+        }
+        return fallback;
     }
 
     private (Track? track, bool isVideo) TrackAndKindAtY(double y)
@@ -3403,6 +3535,8 @@ public sealed class TimelineControl : Control
             return false;
 
         Track t = lanes[i].track;
+        if (t.Locked)
+            return false;
         double top = LaneTop(i) + 3, h = TrackHeight - 6;
         if (p.Y < top || p.Y > top + h)
             return false;

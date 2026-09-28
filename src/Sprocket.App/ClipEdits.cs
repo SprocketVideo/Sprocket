@@ -113,7 +113,9 @@ public static class ClipEdits
         var members = new List<(Track Track, Clip Clip)>();
         foreach (Clip c in clips)
         {
-            if (!trackOf.TryGetValue(c, out Track? track) || !seen.Add(c))
+            // A clip on a locked track is never an edit target (its linked companions are skipped the same way
+            // by ClipsLinkedTo), so a selection made before the lock can't reach it.
+            if (!trackOf.TryGetValue(c, out Track? track) || track.Locked || !seen.Add(c))
                 continue;
             members.Add((track, c));
             if (!linked)

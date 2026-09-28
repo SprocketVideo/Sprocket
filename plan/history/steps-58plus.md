@@ -696,3 +696,46 @@ Closes the in/out-mark gaps against Premiere (the step-32 marks were session-onl
 - **Tests** — Core `RangeEditsTests` (10); Persistence mark round-trips (single + multi-sequence, null marks not
   written) and hash invariance. Core/App/Mcp/Persistence suites green.
 - **Next** — Source-monitor marks + three-point Insert/Overwrite (needs track targeting / source patching).
+
+## Step 61
+
+Source-monitor marks + three-point editing — plan in [plan/features/three-point-editing.md](../features/three-point-editing.md).
+
+### Phase 1 — track targeting, sync lock, track lock (2026-09-28) ✅ DONE
+
+- **Model** — `Track.Targeted` / `SyncLocked` (default on) / `Locked` (default off): editing state only, set through
+  `SetPropertyCommand<bool>` (one undo step each). `Timeline.ClipsLinkedTo` now skips companions on locked tracks
+  unless `includeLocked: true` (used only by the MCP reporting paths), so every edit through a linked clip leaves
+  its locked partner in place, as in Premiere. New `Timeline.TrackOf(Clip)`.
+- **Scoped range edits** — `RangeEdits.Lift`/`Extract` now return `RangeEditResult(Command, SyncBreaks,
+  LockedTracksInRange)`. Lift carves the targeted unlocked tracks; Extract carves them and also ripples every
+  sync-locked unlocked track. A sync-locked, untargeted track with material inside the range has no gap to close, so
+  it keeps its place and counts as a sync break, which the status bar reports. Locked tracks are never touched, and a
+  targeted locked track with material in the range is reported as kept. `HasEditableTarget` makes the shell refuse
+  when nothing is targeted. Mark Clip (`ClipSpanAt`) reads the targeted tracks only. This resolves the "every track"
+  departure logged under the In/Out-marks entry.
+- **Lock enforcement (App)** — a locked lane's clips and transitions don't hit-test and are skipped by the marquee,
+  so they can't be selected, dragged, trimmed, bladed, slipped, or right-clicked. Locking prunes them from the
+  selection (history refresh). `ClipEdits.ExpandWithLinked` drops locked-track members, so a stale selection can't
+  reach them. Drops onto a locked lane are refused (drag cursor None + status). A cross-track move can't retarget
+  onto a locked lane. Paste and a drop's companion stream go to the first targeted unlocked track (else the first
+  unlocked one). Generator / adjustment insertion stacks a new track when the top one is locked.
+- **UI** — the header's bottom row gains a `V1`/`A1` targeting chip, a lock toggle, and a sync-lock toggle
+  (`Icons.Lock`/`SyncLock`) left of the eye / M / S toggles. Each draws only while it fits: a narrow column drops sync
+  lock first, then lock. The default header width goes from 132 to 168 px. A locked lane is overlaid with a dark
+  diagonal hatch. The track right-click menu gains checkable Target Track / Sync Lock / Lock Track plus Target All /
+  Target No Tracks. **Departure from the plan text:** targeting is a separate chip rather than a click on the track
+  name, so rename keeps its double-click on the name.
+- **Persistence** — additive nullable `TrackDto.Targeted`/`SyncLocked`/`Locked`, written only when non-default and
+  only via `ProjectSerializer.ToDto(Sequence)`. The bare timeline DTO the render-cache hasher serializes omits them,
+  so toggling never invalidates cached renders.
+- **MCP** — new `set_track_state(trackId, targeted?, syncLocked?, locked?)`, one undo step. Track state lists
+  `targeted`/`sync_locked`/`locked`. `ResolveClip` refuses a clip on a locked track for every edit tool; `get_clip`,
+  `stabilization_status`, and the `copy_effects` source still read it. `move_clip` refuses a locked destination, and
+  `add_clip_to_timeline` refuses a locked track index.
+- **Not covered** — ripple trim / roll / slide don't consult sync lock yet; they act within one track, as before.
+  Sync-lock ripple of other tracks arrives with Insert in phase 3.
+- **Tests** — Core `RangeEditsTests` +8 (untargeted left alone, sync-locked ripple, sync break, sync lock off,
+  locked tracks, `HasEditableTarget`, targeted Mark Clip, locked `ClipsLinkedTo`). Persistence: round trip,
+  defaults not written, hash invariance. App `ClipEditsTests` +1 (locked members skipped). Mcp: `set_track_state`
+  + locked refusal + undo.

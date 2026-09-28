@@ -78,6 +78,8 @@ internal sealed class McpEditorSession(
             if (index < 0 || index >= videoTracks.Count)
                 return McpResult<Clip>.Fail($"video track index {index} is out of range (the sequence has {videoTracks.Count}).");
             video = videoTracks[index];
+            if (video.Locked)
+                return McpResult<Clip>.Fail($"video track {index} ({video.Name}) is locked — unlock it with set_track_state first.");
         }
         if (wantAudio)
         {
@@ -85,6 +87,8 @@ internal sealed class McpEditorSession(
             if (index < 0 || index >= audioTracks.Count)
                 return McpResult<Clip>.Fail($"audio track index {index} is out of range (the sequence has {audioTracks.Count}).");
             audio = audioTracks[index];
+            if (audio.Locked)
+                return McpResult<Clip>.Fail($"audio track {index} ({audio.Name}) is locked — unlock it with set_track_state first.");
         }
 
         ClipPlacement.PlacementResult? placement = ClipPlacement.BuildPlaceCommand(

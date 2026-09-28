@@ -85,6 +85,10 @@ public static class Icons
     public static readonly Geometry Activity = Geometry.Parse("M22,12 L18,12 L15,21 L9,3 L6,12 L2,12");
     public static readonly Geometry Eye = Geometry.Parse("M1,12 s4,-8 11,-8 11,8 11,8 -4,8 -11,8 -11,-8 -11,-8 Z M9,12 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0");
 
+    // Timeline track-header lock / sync-lock toggles (Feather lock; paired arrows meeting a bar for sync lock).
+    public static readonly Geometry Lock = Geometry.Parse("M5,11 L19,11 A2,2 0 0 1 21,13 L21,20 A2,2 0 0 1 19,22 L5,22 A2,2 0 0 1 3,20 L3,13 A2,2 0 0 1 5,11 Z M7,11 L7,7 A5,5 0 0 1 17,7 L17,11");
+    public static readonly Geometry SyncLock = Geometry.Parse("M2,12 L9,12 M6,9 L9,12 L6,15 M22,12 L15,12 M18,9 L15,12 L18,15 M12,4 L12,20");
+
     // Media browser tile fallback.
     public static readonly Geometry Music = Geometry.Parse("M9,18 V5 l12,-2 v13 M3,18 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0 M15,16 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0");
     public static readonly Geometry Film = Geometry.Parse("M4.18,2 L19.82,2 A2.18,2.18 0 0 1 22,4.18 L22,19.82 A2.18,2.18 0 0 1 19.82,22 L4.18,22 A2.18,2.18 0 0 1 2,19.82 L2,4.18 A2.18,2.18 0 0 1 4.18,2 Z M7,2 L7,22 M17,2 L17,22 M2,12 L22,12 M2,7 L7,7 M2,17 L7,17 M17,17 L22,17 M17,7 L22,7");

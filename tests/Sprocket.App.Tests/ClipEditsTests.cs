@@ -245,6 +245,23 @@ public class ClipEditsTests
     }
 
     [Fact]
+    public void Batch_Edits_Skip_Clips_And_Companions_On_Locked_Tracks()
+    {
+        Timeline timeline = LinkedPair(out VideoTrack video, out AudioTrack audio, out Clip v, out Clip a);
+        audio.Locked = true;
+
+        // The locked companion stays put when its unlocked partner is deleted…
+        List<(Track Track, Clip Clip)> members = ClipEdits.ExpandWithLinked(timeline, [v], linked: true);
+        (Track track, Clip clip) = Assert.Single(members);
+        Assert.Same(video, track);
+        Assert.Same(v, clip);
+
+        // …and a stale selection holding the locked clip itself can't reach it.
+        Assert.Null(ClipEdits.DeleteAll(timeline, [a], linked: true));
+        Assert.Single(audio.Clips);
+    }
+
+    [Fact]
     public void RippleDeleteAll_Closes_Both_Gaps_For_A_Downstream_Survivor()
     {
         var timeline = new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000);

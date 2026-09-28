@@ -60,6 +60,34 @@ public sealed partial class SprocketTools
             return StateFormatter.HistoryState(api.History, $"removed track {track.Name}");
         });
 
+    [McpServerTool(Name = "set_track_state")]
+    [Description("Sets a track's editing state (undoable, one step): targeted — whether Lift / Extract / Mark " +
+                 "Clip act on it and pastes default to it; sync_locked — whether ripple edits on other tracks " +
+                 "shift it too; locked — a locked track's clips can't be edited (edit tools refuse them). Omit a " +
+                 "flag to leave it unchanged. None of these change a rendered frame.")]
+    public Task<string> SetTrackState(
+        [Description("track_id from get_project_state.")] int trackId,
+        [Description("Track targeting on/off.")] bool? targeted = null,
+        [Description("Sync lock on/off.")] bool? syncLocked = null,
+        [Description("Track lock on/off.")] bool? locked = null) =>
+        _session.OnModelThreadAsync(api =>
+        {
+            Track track = RuntimeIds.FindTrack(api.Project, trackId)
+                ?? throw new McpException($"track {trackId} not found — call get_project_state.");
+            var commands = new List<IEditCommand>();
+            if (targeted is { } t && t != track.Targeted)
+                commands.Add(SetPropertyCommand<bool>.Create("Toggle track targeting", () => track.Targeted, v => track.Targeted = v, t));
+            if (syncLocked is { } s && s != track.SyncLocked)
+                commands.Add(SetPropertyCommand<bool>.Create("Toggle sync lock", () => track.SyncLocked, v => track.SyncLocked = v, s));
+            if (locked is { } l && l != track.Locked)
+                commands.Add(SetPropertyCommand<bool>.Create(l ? "Lock track" : "Unlock track", () => track.Locked, v => track.Locked = v, l));
+            if (commands.Count == 0)
+                return StateFormatter.HistoryState(api.History, $"track {track.Name} unchanged");
+            api.History.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Set track state", commands));
+            api.RefreshPreview();
+            return StateFormatter.HistoryState(api.History, $"updated track {track.Name}");
+        });
+
     // ── Transitions ─────────────────────────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "list_transition_types", ReadOnly = true, Idempotent = true)]

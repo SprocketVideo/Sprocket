@@ -30,7 +30,7 @@ public sealed partial class SprocketTools
     public Task<string> GetClip([Description("clip_id from list_clips.")] int clipId) =>
         _session.OnModelThreadAsync(api =>
         {
-            (Clip clip, Track track) = ResolveClip(api, clipId);
+            (Clip clip, Track track) = ResolveClip(api, clipId, forEdit: false);
             return StateFormatter.ClipDetail(api.Project, clip, track);
         });
 
@@ -279,7 +279,7 @@ public sealed partial class SprocketTools
         [Description("Whether to remove the target's existing effects first (default false = append).")] bool replace = false) =>
         _session.OnModelThreadAsync(api =>
         {
-            (Clip source, Track _) = ResolveClip(api, sourceClipId);
+            (Clip source, Track _) = ResolveClip(api, sourceClipId, forEdit: false);
             (Clip target, Track _) = ResolveClip(api, targetClipId);
             if (ReferenceEquals(source, target))
                 throw new McpException("source and target are the same clip.");
