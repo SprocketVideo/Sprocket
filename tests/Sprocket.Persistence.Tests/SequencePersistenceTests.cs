@@ -91,6 +91,34 @@ public class SequencePersistenceTests
         Assert.Contains("\"activeSequenceId\"", json);
         Assert.Contains("\"sourceSequenceId\"", json);
     }
+
+    [Fact]
+    public void Single_Sequence_In_Out_Marks_Round_Trip()
+    {
+        var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));
+        project.ActiveSequence.MarkIn = Timecode.FromSeconds(1);
+        project.ActiveSequence.MarkOut = Timecode.FromSeconds(3);
+
+        Sequence loaded = RoundTrip(project).ActiveSequence;
+
+        Assert.Equal(Timecode.FromSeconds(1), loaded.MarkIn);
+        Assert.Equal(Timecode.FromSeconds(3), loaded.MarkOut);
+    }
+
+    [Fact]
+    public void In_Out_Marks_Are_Per_Sequence_And_Unset_Marks_Stay_Unset()
+    {
+        Project project = ParentNestingChild(out SequenceId childId, out _);
+        project.GetSequence(childId)!.MarkOut = Timecode.FromSeconds(5);
+
+        Project loaded = RoundTrip(project);
+
+        Assert.Null(loaded.ActiveSequence.MarkIn);
+        Assert.Null(loaded.ActiveSequence.MarkOut);
+        Assert.Null(loaded.GetSequence(childId)!.MarkIn);
+        Assert.Equal(Timecode.FromSeconds(5), loaded.GetSequence(childId)!.MarkOut);
+        Assert.DoesNotContain("\"markInTicks\"", ProjectSerializer.Serialize(loaded)); // additive: null marks not written
+    }
 }
 
 /// <summary>

@@ -166,6 +166,26 @@
                  constrained by the marks (the convention in leading editors). -->
             <MenuItem x:Name="PlayInOutMenuItem" Header="_Play In to Out" InputGesture="Ctrl+Shift+Space" />
             <Separator />
+            <!-- In/out marks, Premiere's commands and keys (its Markers menu). Marks are per-sequence, undoable,
+                 and saved with the project. The keys are handled in OnKeyDown; the bare "/" ";" "'" keys carry no
+                 InputGesture because KeyGesture renders them as their Oem enum names, so their labels say the key. -->
+            <MenuItem x:Name="MarksMenuItem" Header="_In / Out">
+              <MenuItem x:Name="MarkInMenuItem" Header="Mark _In" InputGesture="I" />
+              <MenuItem x:Name="MarkOutMenuItem" Header="Mark _Out" InputGesture="O" />
+              <MenuItem x:Name="MarkClipMenuItem" Header="Mark _Clip" InputGesture="X" />
+              <MenuItem x:Name="MarkSelectionMenuItem" Header="Mark _Selection  (/)" />
+              <Separator />
+              <MenuItem x:Name="GoToInMenuItem" Header="_Go to In" InputGesture="Shift+I" />
+              <MenuItem x:Name="GoToOutMenuItem" Header="Go to O_ut" InputGesture="Shift+O" />
+              <Separator />
+              <MenuItem x:Name="ClearInMenuItem" Header="Clear I_n" InputGesture="Alt+I" />
+              <MenuItem x:Name="ClearOutMenuItem" Header="Clear Ou_t" InputGesture="Alt+O" />
+              <MenuItem x:Name="ClearInOutMenuItem" Header="Clear In _and Out" InputGesture="Ctrl+Shift+X" />
+            </MenuItem>
+            <!-- Lift leaves a gap; Extract ripples the rest of the sequence left (Premiere's ; and ' keys). -->
+            <MenuItem x:Name="LiftMenuItem" Header="Lif_t  (;)" />
+            <MenuItem x:Name="ExtractMenuItem" Header="_Extract  (')" />
+            <Separator />
             <!-- Preview render cache (PLAN.md step 32): render commands + cache management. Render In to Out
                  uses the timeline in/out marks (I / O keys; Alt+I / Alt+O clear) and falls back to the whole
                  sequence when unset; Delete Render Files shows the cache's disk footprint on submenu-open. -->

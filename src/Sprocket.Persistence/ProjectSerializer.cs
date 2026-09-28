@@ -120,11 +120,11 @@ public static class ProjectSerializer
         // Single sequence with no nesting → the legacy Timeline-only shape, byte-identical to pre-step-23 files.
         // Multiple sequences or any nested-sequence clip → the Sequences shape (all sequences + the active id).
         if (project.Sequences.Count <= 1 && !HasAnySequenceClip(project))
-            return new ProjectDto(SchemaVersion, media, ToDto(project.Timeline), settings, MulticamSources: multicams);
+            return new ProjectDto(SchemaVersion, media, ToDto(project.ActiveSequence), settings, MulticamSources: multicams);
 
         var sequences = new List<SequenceDto>(project.Sequences.Count);
         foreach (Sequence s in project.Sequences)
-            sequences.Add(new SequenceDto(s.Id.Value, s.Name, ToDto(s.Timeline)));
+            sequences.Add(new SequenceDto(s.Id.Value, s.Name, ToDto(s)));
         return new ProjectDto(
             SchemaVersion, media, Timeline: null, settings, sequences, project.ActiveSequence.Id.Value, multicams);
     }
@@ -207,6 +207,17 @@ public static class ProjectSerializer
         ColorSpace: string.IsNullOrEmpty(i.ColorSpace) ? null : i.ColorSpace,
         DetectedColorProfile: string.IsNullOrEmpty(i.DetectedColorProfile) ? null : i.DetectedColorProfile,
         ChromaSubsampling: string.IsNullOrEmpty(i.ChromaSubsampling) ? null : i.ChromaSubsampling);
+
+    /// <summary>A sequence's timeline plus its in/out marks — the persisted shape. The bare
+    /// <see cref="ToDto(Timeline)"/> (used by the render-cache hash) deliberately omits the marks.</summary>
+    internal static TimelineDto ToDto(Sequence s) =>
+        ToDto(s.Timeline) with { MarkInTicks = s.MarkIn?.Ticks, MarkOutTicks = s.MarkOut?.Ticks };
+
+    private static void ApplyMarks(Sequence s, TimelineDto t)
+    {
+        s.MarkIn = t.MarkInTicks is { } markIn ? new Timecode(markIn) : null;
+        s.MarkOut = t.MarkOutTicks is { } markOut ? new Timecode(markOut) : null;
+    }
 
     internal static TimelineDto ToDto(Timeline t)
     {
@@ -376,6 +387,7 @@ public static class ProjectSerializer
             foreach (SequenceDto sd in seqDtos)
             {
                 var seq = new Sequence(new SequenceId(sd.Id), sd.Name, FromDto(sd.Timeline));
+                ApplyMarks(seq, sd.Timeline);
                 project.Sequences.Add(seq);
                 if (sd.Id == dto.ActiveSequenceId)
                     active = seq;
@@ -385,7 +397,11 @@ public static class ProjectSerializer
         }
 
         if (dto.Timeline is { } tl)
-            return new Project(FromDto(tl)); // single sequence: fresh id + default name
+        {
+            var project = new Project(FromDto(tl)); // single sequence: fresh id + default name
+            ApplyMarks(project.ActiveSequence, tl);
+            return project;
+        }
 
         throw new InvalidDataException("The project file has neither a timeline nor any sequences.");
     }

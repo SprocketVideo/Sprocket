@@ -138,6 +138,12 @@ shipped step append to its history entry directly.
 The actionable remainder. Each large feature has its detailed plan in `plan/features/`;
 verification-only items carry their checklist in the step's history entry.
 
+- [x] **In/Out marks completion + Lift / Extract** (small feature, shipped 2026-09-28) — marks are per-sequence,
+  saved, and undoable; Go to In/Out, Clear In and Out, Mark Clip, Mark Selection, and Lift (`;`) / Extract (`'`)
+  over the marked range, all on Premiere's keys. DONE log in [plan/history/steps-58plus.md](plan/history/steps-58plus.md).
+- [ ] **Source-monitor marks + three-point editing** (large feature, unplanned) — I/O in the Source monitor per media
+  item, Insert (`,`) / Overwrite (`.`), source patching / track targeting, drag-from-Source with the marked range.
+  Start a plan in `plan/features/` from `_TEMPLATE.md`.
 - [x] **Project-open CPU spike / UI stall** (perf fix, shipped 2026-09-23) — media-bin thumbnails are
   throttled (shared semaphore, single-threaded decoders, cancelled on window dispose) and cached on disk
   (`ThumbnailDiskCache`, keyed by source size/mtime); the hidden Audio-tab waveform grid is built lazily;

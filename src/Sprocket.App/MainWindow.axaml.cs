@@ -858,6 +858,7 @@ public partial class MainWindow : Window
             _copyMenuItem.InputGesture = Cmd(Key.C);
             _pasteMenuItem.InputGesture = Cmd(Key.V);
             this.FindControl<MenuItem>("SelectAllMenuItem")!.InputGesture = Cmd(Key.A);
+            this.FindControl<MenuItem>("ClearInOutMenuItem")!.InputGesture = Cmd(Key.X, KeyModifiers.Shift);
             _clipSplitMenuItem!.InputGesture = Cmd(Key.K); // ⌘K — Split at Playhead (Shift+E's label needs no swap)
             _linkMenuItem!.InputGesture = Cmd(Key.L);   // ⌘L toggles Link/Unlink (PLAN.md step 55) —
             _unlinkMenuItem!.InputGesture = Cmd(Key.L); // both items show the shared shortcut
@@ -880,6 +881,18 @@ public partial class MainWindow : Window
         _openSequenceMenuItem = this.FindControl<MenuItem>("OpenSequenceMenuItem")!;
         this.FindControl<MenuItem>("SequenceMenu")!.SubmenuOpened += (_, _) => RefreshSequenceMenu();
         this.FindControl<MenuItem>("PlayInOutMenuItem")!.Click += (_, _) => PlayInToOut();
+        // In/out marks + Lift/Extract (Premiere's commands; the keys live in OnKeyDown).
+        this.FindControl<MenuItem>("MarkInMenuItem")!.Click += (_, _) => SetMarkAtPlayhead(inPoint: true);
+        this.FindControl<MenuItem>("MarkOutMenuItem")!.Click += (_, _) => SetMarkAtPlayhead(inPoint: false);
+        this.FindControl<MenuItem>("MarkClipMenuItem")!.Click += (_, _) => MarkClip();
+        this.FindControl<MenuItem>("MarkSelectionMenuItem")!.Click += (_, _) => MarkSelection();
+        this.FindControl<MenuItem>("GoToInMenuItem")!.Click += (_, _) => GoToMark(inPoint: true);
+        this.FindControl<MenuItem>("GoToOutMenuItem")!.Click += (_, _) => GoToMark(inPoint: false);
+        this.FindControl<MenuItem>("ClearInMenuItem")!.Click += (_, _) => ClearMarks(clearIn: true, clearOut: false);
+        this.FindControl<MenuItem>("ClearOutMenuItem")!.Click += (_, _) => ClearMarks(clearIn: false, clearOut: true);
+        this.FindControl<MenuItem>("ClearInOutMenuItem")!.Click += (_, _) => ClearMarks(clearIn: true, clearOut: true);
+        this.FindControl<MenuItem>("LiftMenuItem")!.Click += (_, _) => LiftOrExtract(extract: false);
+        this.FindControl<MenuItem>("ExtractMenuItem")!.Click += (_, _) => LiftOrExtract(extract: true);
 
         // Preview render cache commands (PLAN.md step 32).
         this.FindControl<MenuItem>("RenderInOutMenuItem")!.Click += (_, _) =>
@@ -982,7 +995,9 @@ public partial class MainWindow : Window
         if (IsTypingInTextBox())
             return;
 
-        if (primary && e.Key == Key.X) { _timeline?.CutSelected(); e.Handled = true; }
+        // Clear In and Out (Ctrl+Shift+X / ⌘⇧X, Premiere's key) — above Cut so the Shift variant isn't swallowed.
+        if (primary && shift && e.Key == Key.X) { ClearMarks(clearIn: true, clearOut: true); e.Handled = true; }
+        else if (primary && e.Key == Key.X) { _timeline?.CutSelected(); e.Handled = true; }
         else if (primary && e.Key == Key.C) { _timeline?.CopySelected(); e.Handled = true; }
         else if (primary && e.Key == Key.V) { _timeline?.PasteAtPlayhead(); e.Handled = true; }
         // Select All (PLAN.md step 54) — below the text guard so a focused text box keeps its native Ctrl+A.
@@ -1044,12 +1059,20 @@ public partial class MainWindow : Window
             _timeline?.ZoomIn();
             e.Handled = true;
         }
-        // Timeline in/out marks (PLAN.md step 32): I / O set at the playhead (the leading NLEs convention), Alt+I /
-        // Alt+O clear. Ctrl+I (Import) and Ctrl+O (Open) are handled above the text guard and never reach here.
-        else if (alt && e.Key == Key.I) { ClearMark(inPoint: true); e.Handled = true; }
-        else if (alt && e.Key == Key.O) { ClearMark(inPoint: false); e.Handled = true; }
-        else if (e.Key == Key.I) { SetMarkAtPlayhead(inPoint: true); e.Handled = true; }
-        else if (e.Key == Key.O) { SetMarkAtPlayhead(inPoint: false); e.Handled = true; }
+        // Sequence in/out marks (PLAN.md step 32), all Premiere's keys: I / O set at the playhead, Shift+I / Shift+O
+        // go to them, Alt+I / Alt+O clear one (Ctrl+Shift+X both, above), X marks the clip under the playhead and
+        // / the selection. Ctrl+I (Import) and Ctrl+O (Open) are handled above the text guard and never reach here.
+        else if (alt && e.Key == Key.I) { ClearMarks(clearIn: true, clearOut: false); e.Handled = true; }
+        else if (alt && e.Key == Key.O) { ClearMarks(clearIn: false, clearOut: true); e.Handled = true; }
+        else if (shift && !primary && e.Key == Key.I) { GoToMark(inPoint: true); e.Handled = true; }
+        else if (shift && !primary && e.Key == Key.O) { GoToMark(inPoint: false); e.Handled = true; }
+        else if (!shift && !primary && e.Key == Key.I) { SetMarkAtPlayhead(inPoint: true); e.Handled = true; }
+        else if (!shift && !primary && e.Key == Key.O) { SetMarkAtPlayhead(inPoint: false); e.Handled = true; }
+        else if (!shift && !primary && !alt && e.Key == Key.X) { MarkClip(); e.Handled = true; }
+        else if (!shift && !primary && !alt && (e.Key == Key.OemQuestion || e.Key == Key.Divide)) { MarkSelection(); e.Handled = true; }
+        // Lift (;) and Extract (') over the marked range, Premiere's keys.
+        else if (!shift && !primary && !alt && e.Key == Key.OemSemicolon) { LiftOrExtract(extract: false); e.Handled = true; }
+        else if (!shift && !primary && !alt && e.Key == Key.OemQuotes) { LiftOrExtract(extract: true); e.Handled = true; }
         // Play In to Out (Ctrl+Shift+Space / ⌘⇧Space, the Premiere convention): plays only the marked range of the
         // Program monitor. Sits above plain Space, which stays unconstrained by the marks.
         else if (primary && shift && e.Key == Key.Space) { if (!_exporting) PlayInToOut(); e.Handled = true; }
@@ -3603,11 +3626,6 @@ public partial class MainWindow : Window
         }
 
         _timeline?.OnActiveSequenceChanged(); // drop the (old-sequence) selection + repaint on the new timeline
-        if (_timeline is not null)
-        {
-            _timeline.MarkIn = null;  // in/out marks are per-sequence UI state; the old range is meaningless here
-            _timeline.MarkOut = null;
-        }
         UpdateSequenceBadge();
         UpdateTelemetry();
         UpdateTimelineHeader();
@@ -3712,27 +3730,101 @@ public partial class MainWindow : Window
         _timeline.RenderSpans = RenderCache.RenderBarModel.Compute(_project.Timeline, valid);
     }
 
-    /// <summary>Sets the timeline in (I) or out (O) mark at the Program playhead. Setting an in at/after the out
-    /// (or vice versa) drops the now-inconsistent other mark, so the range stays well-formed.</summary>
+    /// <summary>Sets the active sequence's in (I) or out (O) mark at the Program playhead. Setting an in at/after
+    /// the out (or vice versa) drops the now-inconsistent other mark, so the range stays well-formed. Marks are
+    /// per-sequence, undoable, and saved with the project (as in leading editors).</summary>
     private void SetMarkAtPlayhead(bool inPoint)
     {
-        if (_timeline is null || _engine is null)
+        if (_project is null || _engine is null)
             return;
+        Sequence seq = _project.ActiveSequence;
         Timecode pos = _engine.Position;
         if (inPoint)
         {
-            _timeline.MarkIn = pos;
-            if (_timeline.MarkOut is { } markOut && markOut <= pos)
-                _timeline.MarkOut = null;
+            Timecode? markOut = seq.MarkOut is { } o && o <= pos ? null : seq.MarkOut;
+            _history.Execute(new SetSequenceMarksCommand(seq, pos, markOut, "Mark In"));
             SetStatus($"In point set at {FormatTime(pos)}");
         }
         else
         {
-            _timeline.MarkOut = pos;
-            if (_timeline.MarkIn is { } markIn && markIn >= pos)
-                _timeline.MarkIn = null;
+            Timecode? markIn = seq.MarkIn is { } i && i >= pos ? null : seq.MarkIn;
+            _history.Execute(new SetSequenceMarksCommand(seq, markIn, pos, "Mark Out"));
             SetStatus($"Out point set at {FormatTime(pos)}");
         }
+    }
+
+    /// <summary>Marks both ends at once — Mark Clip (X: the clip under the playhead) and Mark Selection (/: the
+    /// selected clips' span), the leading editors' commands — as one undo entry.</summary>
+    private void SetMarks((Timecode In, Timecode Out)? span, string label, string nothingStatus)
+    {
+        if (_project is null)
+            return;
+        if (span is not { } s || s.Out <= s.In)
+        {
+            SetStatus(nothingStatus);
+            return;
+        }
+        _history.Execute(new SetSequenceMarksCommand(_project.ActiveSequence, s.In, s.Out, label));
+        SetStatus($"In/Out set to {FormatTime(s.In)} – {FormatTime(s.Out)}");
+    }
+
+    private void MarkClip()
+    {
+        if (_project is null || _program is null)
+            return;
+        SetMarks(RangeEdits.ClipSpanAt(_project.Timeline, _program.Position), "Mark Clip",
+            "No clip under the playhead to mark.");
+    }
+
+    private void MarkSelection()
+    {
+        if (_timeline is null)
+            return;
+        SetMarks(RangeEdits.SelectionSpan(_timeline.SelectedClips), "Mark Selection", "Select clips to mark.");
+    }
+
+    /// <summary>Go to In (Shift+I) / Go to Out (Shift+O): moves the Program playhead to the mark (navigation, not
+    /// undoable).</summary>
+    private void GoToMark(bool inPoint)
+    {
+        if (_project is null || _program is null)
+            return;
+        Sequence seq = _project.ActiveSequence;
+        if ((inPoint ? seq.MarkIn : seq.MarkOut) is { } mark)
+            _program.SeekTo(mark);
+        else
+            SetStatus(inPoint ? "No in point set." : "No out point set.");
+    }
+
+    /// <summary>
+    /// Sequence ▸ Lift (;) / Extract ('): removes the marked range from every track — Lift leaves the gap, Extract
+    /// ripples the rest of the sequence left to close it — then clears the marks and parks the playhead at the old
+    /// in point, as leading editors do. A missing mark falls back to the sequence start/end (the same fallback as
+    /// Play / Render In to Out); with neither mark set nothing happens, so a stray key can't wipe the sequence.
+    /// </summary>
+    private void LiftOrExtract(bool extract)
+    {
+        if (_project is null || _exporting)
+            return;
+        Sequence seq = _project.ActiveSequence;
+        if (seq.MarkIn is null && seq.MarkOut is null)
+        {
+            SetStatus(extract ? "Set an in or out point to extract." : "Set an in or out point to lift.");
+            return;
+        }
+        Timecode markIn = seq.MarkIn ?? Timecode.Zero;
+        Timecode markOut = seq.MarkOut ?? seq.Timeline.Duration;
+        IEditCommand? command = extract
+            ? RangeEdits.Extract(seq, markIn, markOut)
+            : RangeEdits.Lift(seq, markIn, markOut);
+        if (command is null)
+        {
+            SetStatus(extract ? "Nothing to extract in the marked range." : "Nothing to lift in the marked range.");
+            return;
+        }
+        _history.Execute(command); // the timeline prunes selected clips the edit removed
+        _program?.SeekTo(markIn);
+        SetStatus(extract ? "Extracted the marked range." : "Lifted the marked range.");
     }
 
     /// <summary>
@@ -3752,16 +3844,18 @@ public partial class MainWindow : Window
         _engine.PlayInToOut(_timeline?.MarkIn ?? Timecode.Zero, _timeline?.MarkOut ?? duration);
     }
 
-    /// <summary>Clears the timeline in (Alt+I) or out (Alt+O) mark.</summary>
-    private void ClearMark(bool inPoint)
+    /// <summary>Clears the in (Alt+I) or out (Alt+O) mark, or both (Ctrl+Shift+X), as one undo entry.</summary>
+    private void ClearMarks(bool clearIn, bool clearOut)
     {
-        if (_timeline is null)
+        if (_project is null)
             return;
-        if (inPoint)
-            _timeline.MarkIn = null;
-        else
-            _timeline.MarkOut = null;
-        SetStatus(inPoint ? "In point cleared" : "Out point cleared");
+        Sequence seq = _project.ActiveSequence;
+        Timecode? markIn = clearIn ? null : seq.MarkIn, markOut = clearOut ? null : seq.MarkOut;
+        if (markIn == seq.MarkIn && markOut == seq.MarkOut)
+            return; // already clear — don't push an empty undo entry
+        string label = clearIn && clearOut ? "Clear In and Out" : clearIn ? "Clear In" : "Clear Out";
+        _history.Execute(new SetSequenceMarksCommand(seq, markIn, markOut, label));
+        SetStatus(clearIn && clearOut ? "In and out points cleared" : clearIn ? "In point cleared" : "Out point cleared");
     }
 
     /// <summary>

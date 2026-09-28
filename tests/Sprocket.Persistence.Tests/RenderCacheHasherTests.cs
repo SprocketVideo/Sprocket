@@ -44,6 +44,16 @@ public class RenderCacheHasherTests
         RenderCacheHasher.ComputeHash(p, p.ActiveSequence.Id, RangeIn, RangeOut, RenderCacheScope.Audio);
 
     [Fact]
+    public void In_Out_Marks_Do_Not_Change_The_Hash()
+    {
+        Project p = BuildProject();
+        string before = VideoHash(p);
+        p.ActiveSequence.MarkIn = Timecode.FromSeconds(1);
+        p.ActiveSequence.MarkOut = Timecode.FromSeconds(4);
+        Assert.Equal(before, VideoHash(p));
+    }
+
+    [Fact]
     public void Identical_Models_Hash_Identically()
     {
         Project a = BuildProject();

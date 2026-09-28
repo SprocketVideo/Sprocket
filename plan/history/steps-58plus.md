@@ -672,3 +672,27 @@ reusable primitives named as other editors name them, stacked by a one-tap prese
   fix = keep only the frames each echo needs); future (positive) Echo Time; echoes on nested / adjustment /
   generator layers; ARCHITECTURE.md section for the temporal footprint; a manual app pass (look/sound by eye/ear)
   and an allocation-profiler run.
+
+## In/Out marks completion + Lift / Extract (unscheduled feature, 2026-09-28) ✅ DONE
+
+Closes the in/out-mark gaps against Premiere (the step-32 marks were session-only UI state on `TimelineControl`).
+
+- **Per-sequence, persisted, undoable marks** — `Sequence.MarkIn`/`MarkOut` (Core) set through
+  `SetSequenceMarksCommand` (both marks atomically, one undo entry, dirties the project). `TimelineControl.MarkIn/Out`
+  are now read-only views of the active sequence, so switching sequences restores each one's range (the old
+  clear-on-switch is gone). Persisted as additive nullable `TimelineDto.MarkInTicks`/`MarkOutTicks`, written only by
+  the new `ProjectSerializer.ToDto(Sequence)`; the render-cache hasher still serializes the bare `ToDto(Timeline)`,
+  so moving a mark never invalidates cached renders (guard test in `RenderCacheHasherTests`).
+- **Mark commands (Premiere keys)** — Go to In/Out (`Shift+I`/`Shift+O`), Clear In and Out (`Ctrl+Shift+X` / ⌘⇧X,
+  matched above Cut), Mark Clip (`X`: `RangeEdits.ClipSpanAt`, topmost video clip under the playhead, else audio),
+  Mark Selection (`/`: `RangeEdits.SelectionSpan`). New Sequence ▸ In / Out submenu mirrors them.
+- **Lift (`;`) / Extract (`'`)** — `RangeEdits.Lift`/`Extract` build one `CompositeCommand` over existing primitives:
+  blade straddling clips at the marks (`SplitClipCommand`), remove the in-range pieces, remove transitions whose cut
+  lies in [in, out], and on Extract shift downstream clips (`ShiftClipsCommand`) and transition cut points left by the
+  range length. Tails cut at the out mark get a fresh link group per original group so surviving A/V stays linked.
+  Both clear the marks and park the playhead at the old in point (Premiere behaviour). A missing mark falls back to
+  the sequence start/end; with neither set it is a no-op. **Departure:** applies to every track (no track targeting
+  yet); sequence markers do not ripple.
+- **Tests** — Core `RangeEditsTests` (10); Persistence mark round-trips (single + multi-sequence, null marks not
+  written) and hash invariance. Core/App/Mcp/Persistence suites green.
+- **Next** — Source-monitor marks + three-point Insert/Overwrite (needs track targeting / source patching).

@@ -1,3 +1,5 @@
+using Sprocket.Core.Timing;
+
 namespace Sprocket.Core.Model;
 
 /// <summary>A stable, serialization-friendly identifier for a <see cref="Sequence"/> in the project.</summary>
@@ -42,4 +44,15 @@ public sealed class Sequence
 
     /// <summary>The sequence's content: render format, tracks (z-ordered), and markers.</summary>
     public Timeline Timeline { get; }
+
+    /// <summary>
+    /// The sequence in point (the I key), or <see langword="null"/> when unset. With <see cref="MarkOut"/> it
+    /// scopes Play / Render In to Out, the export range, and Lift / Extract. Per-sequence like the in/out marks
+    /// of leading editors, so switching sequences restores each one's range; persisted with the project but
+    /// kept out of the render graph (it never changes a frame). Set through <see cref="Commands.SetSequenceMarksCommand"/>.
+    /// </summary>
+    public Timecode? MarkIn { get; set; }
+
+    /// <summary>The sequence out point (the O key), or <see langword="null"/> when unset. See <see cref="MarkIn"/>.</summary>
+    public Timecode? MarkOut { get; set; }
 }

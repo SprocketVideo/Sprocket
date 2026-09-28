@@ -168,7 +168,6 @@ public sealed class TimelineControl : Control
     // Render bar + in/out marks (PLAN.md step 32). The spans are computed by RenderBarModel (MainWindow pushes
     // fresh ones after every model change); the marks are session UI state driving Render In to Out.
     private IReadOnlyList<RenderCache.RenderBarSpan> _renderSpans = [];
-    private Timecode? _markIn, _markOut;
 
     // The selected transition (PLAN.md step 25), mutually exclusive with the clip selection. Selecting one clears
     // the other; Delete removes whichever is selected.
@@ -1460,20 +1459,14 @@ public sealed class TimelineControl : Control
         }
     }
 
-    /// <summary>The timeline in point (the I key), or <see langword="null"/> when unset — with
-    /// <see cref="MarkOut"/> it scopes Render In to Out (PLAN.md step 32). Session-only UI state.</summary>
-    public Timecode? MarkIn
-    {
-        get => _markIn;
-        set { _markIn = value; InvalidateVisual(); }
-    }
+    /// <summary>The active sequence's in point (the I key), or <see langword="null"/> when unset — with
+    /// <see cref="MarkOut"/> it scopes Play / Render In to Out, the export range, and Lift / Extract. Stored on the
+    /// <see cref="Sequence"/> (set through <see cref="SetSequenceMarksCommand"/>), so it persists and follows
+    /// sequence switches; the history's Changed repaints it.</summary>
+    public Timecode? MarkIn => _project?.ActiveSequence.MarkIn;
 
-    /// <summary>The timeline out point (the O key), or <see langword="null"/> when unset.</summary>
-    public Timecode? MarkOut
-    {
-        get => _markOut;
-        set { _markOut = value; InvalidateVisual(); }
-    }
+    /// <summary>The active sequence's out point (the O key), or <see langword="null"/> when unset.</summary>
+    public Timecode? MarkOut => _project?.ActiveSequence.MarkOut;
 
     // The render bar (PLAN.md step 32): a 3px strip along the very top of the ruler, the familiar
     // green / yellow / red rendered-state model.
@@ -1502,23 +1495,24 @@ public sealed class TimelineControl : Control
     // accent tick at each set mark — the work-area idiom found in leading editors, scoping Render In to Out.
     private void DrawInOutRange(DrawingContext ctx, Size size)
     {
-        if (_markIn is null && _markOut is null)
+        Timecode? markInOrNull = MarkIn, markOutOrNull = MarkOut;
+        if (markInOrNull is null && markOutOrNull is null)
             return;
         using var _ = ctx.PushClip(new Rect(_headerWidth, 0, size.Width - _headerWidth, RulerHeight));
 
-        long inTicks = _markIn?.Ticks ?? 0;
-        long outTicks = _markOut?.Ticks ?? _project?.Timeline.Duration.Ticks ?? inTicks;
+        long inTicks = markInOrNull?.Ticks ?? 0;
+        long outTicks = markOutOrNull?.Ticks ?? _project?.Timeline.Duration.Ticks ?? inTicks;
         double x0 = TimelineMath.XAtTicks(inTicks, _pxPerSecond, _scrollX, _headerWidth);
         double x1 = TimelineMath.XAtTicks(outTicks, _pxPerSecond, _scrollX, _headerWidth);
         if (x1 > x0)
             ctx.FillRectangle(InOutFill, new Rect(x0, 0, x1 - x0, RulerHeight));
 
-        if (_markIn is { } markIn)
+        if (markInOrNull is { } markIn)
         {
             double x = TimelineMath.XAtTicks(markIn.Ticks, _pxPerSecond, _scrollX, _headerWidth);
             ctx.DrawLine(InOutPen, new Point(x, 0), new Point(x, RulerHeight));
         }
-        if (_markOut is { } markOut)
+        if (markOutOrNull is { } markOut)
         {
             double x = TimelineMath.XAtTicks(markOut.Ticks, _pxPerSecond, _scrollX, _headerWidth);
             ctx.DrawLine(InOutPen, new Point(x, 0), new Point(x, RulerHeight));

@@ -127,7 +127,13 @@ internal sealed record TimelineDto(
     List<MarkerDto>? Markers = null,
     // The sequence's audio output-bus effect chain (PLAN.md step 31). Additive + nullable: an empty chain writes
     // null (WhenWritingNull), so pre-31 files load with none and chain-less projects serialize byte-identically.
-    List<EffectDto>? AudioEffects = null);
+    List<EffectDto>? AudioEffects = null,
+    // The sequence in/out marks (the I / O keys). Additive + nullable: unset marks write null (WhenWritingNull), so
+    // older files load with none and a mark-less project serializes byte-identically. Written only via the sequence
+    // path (ProjectSerializer.ToDto(Sequence)) so the render-cache hash, which serializes the bare timeline, never
+    // changes when a mark moves.
+    long? MarkInTicks = null,
+    long? MarkOutTicks = null);
 
 /// <summary>A track in z-order. <see cref="Kind"/> discriminates video vs audio; the unused fields for the
 /// other kind are simply ignored (kept flat for a simple, robust format).</summary>
