@@ -887,3 +887,26 @@ Source-monitor marks + three-point editing — plan in [plan/features/three-poin
   once per media. The view is hit-test invisible, so dragging the picture still drags the source.
 - **Tests** — App: `SourceMonitorProjectTests` (a full-length track per stream). The audio path is device-bound:
   **not yet verified in the running app** (Source audio A/V sync, the two-output switch, the waveform).
+
+### Phase 6 — Fit to Fill, docs, and inventory (2026-09-29) ✅ DONE
+
+- **Fit to Fill** — `ThreePointEdits.FitToFill`: a 4-point Overwrite that needs both sequence marks, takes the source's
+  marked range (whole media for a missing mark), and retimes it to the constant speed source ÷ sequence (an exact
+  reduced `Rational` of the tick spans), refused outside `SpeedRamp.MinSpeed`–`MaxSpeed` (1%–10000%); a still fills
+  the range at normal speed. `Build` gained an optional `speed` that retimes the new clips and sizes the carve /
+  ripple / marker shift by source ÷ speed. Clip ▸ **Fit to Fill** and `Shift+F11` (Resolve's key; plain `F11` stays
+  fullscreen). Status reports the speed.
+- **Bin double-click focuses the monitor** — found while writing the docs: after a double-click the bin kept the
+  active work area, so `I` / `O` marked the sequence. `ShowInSourceMonitor` now posts `FocusWorkArea(Monitor)`, as
+  Premiere does.
+- **Docs** (`sprocket-docs`) — new `edit/three-point-editing.md` (workflow, mark-combination table, patching,
+  Insert / Overwrite, Fit to Fill, Source drags, targeting / sync lock / lock, Up / Down); `edit/marks-and-markers.md`
+  (Mark Clip / Selection / Go to / Clear, Lift and Extract, Source-monitor marks); `performance/preview-and-monitors.md`
+  (Source audio, audio-only waveform, one monitor plays, the Source bar); `edit/editing-on-the-timeline.md` (header
+  toggles, Up / Down); `get-started/keyboard-shortcuts.md` (`,` `.` `Shift+F11`, Up / Down, mark keys); `index.md`.
+- **Inventory** — FEATURES.md step-61 rows documented and flipped to ✅, a new Fit to Fill row, §0 stamps bumped and
+  a row for the new guide; README's three-point bullet gains Fit to Fill.
+- **Tests** — Core: Fit to Fill retime / placement / no ripple / marks cleared, refusals (no sequence Out, speed
+  beyond the limit), exact undo.
+- **Not verified in the running app** — the whole of step 61 still needs the manual pass (the checklist from the
+  2026-09-29 session).

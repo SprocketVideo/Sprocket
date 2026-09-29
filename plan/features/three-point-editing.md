@@ -1,6 +1,6 @@
 # Source-monitor marks + three-point editing
 
-🟡 **Phases 1–5 ✅ (2026-09-28 / 29)** — targeting / sync lock / lock, source marks, patching + Insert / Overwrite, Source-monitor drag, Source-monitor audio; phase 6 open (planned 2026-09-28). This covers: In/Out marks in the Source monitor for each media item; Insert (`,`) and
+✅ **Shipped 2026-09-29** (phases 1–4 2026-09-28, 5–6 2026-09-29; manual QA of the running app pending) — DONE log in [plan/history/steps-58plus.md § Step 61](../history/steps-58plus.md#step-61). Kept as the design record (planned 2026-09-28). This covers: In/Out marks in the Source monitor for each media item; Insert (`,`) and
 Overwrite (`.`) three-point edits using the Premiere rules; source patching; track targeting, sync lock, and track lock;
 drag from the Source monitor (whole clip, video only, or audio only) that uses the marked range; and changing drops onto
 the timeline to overwrite by default, with Ctrl held for insert. Tracked in [PLAN.md](../../PLAN.md) as step 61 and in
@@ -236,7 +236,7 @@ currently on Lift / Extract.
 This phase is its own step because audio playback touches the master-clock seam (ARCHITECTURE §6, §8). Phases 1–4
 don't depend on it.
 
-### Phase 6: Fit to Fill, docs, and inventory
+### Phase 6: Fit to Fill, docs, and inventory — ✅ shipped 2026-09-29
 
 1. **Fit to Fill (`Shift+F11`, Resolve's key).** Premiere has no default key for it. It needs a 4-point edit. It
    overwrites the source range into the sequence range with the constant-speed retime set so that `speed = srcDur /

@@ -2556,6 +2556,10 @@ public partial class MainWindow : Window
             RefreshTransportForActive();              // IsCheckedChanged won't fire; re-point the transport ourselves
         else
             sourceTab.IsChecked = true;               // fires WireMonitorTabs → Activate() → bind surface + transport
+        // Hand focus to the monitor, as Premiere does on a bin double-click, so I / O mark the source right away
+        // instead of the sequence (the bin would otherwise keep the active work area). Posted so it lands after the
+        // double-click's own input handling, which would otherwise leave focus in the bin list.
+        Dispatcher.UIThread.Post(() => FocusWorkArea(WorkArea.Monitor), DispatcherPriority.Background);
         SetStatus($"Source: {name}");
     }
 

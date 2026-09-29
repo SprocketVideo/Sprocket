@@ -132,7 +132,7 @@ shipped step append to its history entry directly.
 | 58 | Plugin Manager (user-facing plugin management UI) | ✅ | [history](plan/history/steps-58plus.md#step-58) |
 | 59 | Open plugin standards (frei0r / LADSPA / LV2) | ✅ | [history](plan/history/steps-58plus.md#step-59) |
 | 60 | Preview allocation churn (per-frame metadata / wrapper Gen0 — measure + remediate) | ❌ → [plan](plan/features/preview-allocation-churn.md) | — |
-| 61 | Source-monitor marks + three-point editing (Insert / Overwrite, patching, targeting) | 🟡 phase 1 (targeting / sync lock / lock) ✅, phase 2 (source marks) ✅, phase 3 (patching + Insert / Overwrite) ✅, phase 4 (Source-monitor drag + overwrite-on-drop) ✅, phase 5 (Source-monitor audio) ✅; phase 6 open → [plan](plan/features/three-point-editing.md) | [history](plan/history/steps-58plus.md#step-61) |
+| 61 | Source-monitor marks + three-point editing (Insert / Overwrite, patching, targeting) | ✅ 2026-09-29 — targeting / sync lock / lock, source marks, patching + Insert / Overwrite, Source-monitor drag + overwrite-on-drop, Source-monitor audio, Fit to Fill + docs (manual QA of the running app pending) → [plan](plan/features/three-point-editing.md) | [history](plan/history/steps-58plus.md#step-61) |
 
 ## Open work
 
@@ -142,7 +142,7 @@ verification-only items carry their checklist in the step's history entry.
 - [x] **In/Out marks completion + Lift / Extract** (small feature, shipped 2026-09-28) — marks are per-sequence,
   saved, and undoable; Go to In/Out, Clear In and Out, Mark Clip, Mark Selection, and Lift (`;`) / Extract (`'`)
   over the marked range, all on Premiere's keys. DONE log in [plan/history/steps-58plus.md](plan/history/steps-58plus.md).
-- [ ] **Source-monitor marks + three-point editing** — step 61, planned 2026-09-28 (Premiere model); **phases 1–4 ✅ 2026-09-28, phase 5 ✅ 2026-09-29**. Six phases:
+- [x] **Source-monitor marks + three-point editing** — step 61, planned 2026-09-28 (Premiere model); **shipped 2026-09-29** (phases 1–4 2026-09-28, 5–6 2026-09-29; manual QA pending). Six phases:
   1 track targeting / sync lock / lock (Lift / Extract become scoped) → 2 per-media source marks + mark-key routing by
   the focused monitor → 3 source patching + `ThreePointResolver` + Insert (`,`) / Overwrite (`.`) → 4 drag from the
   Source monitor (video-only / audio-only handles) and drops overwrite by default, with Ctrl-drop to insert → 5
