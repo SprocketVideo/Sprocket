@@ -1855,9 +1855,11 @@ public sealed class TimelineControl : Control
         ctx.DrawLine(EdgePen, new Point(_headerWidth, 0), new Point(_headerWidth, Bounds.Height));
         ctx.DrawLine(EdgePen, new Point(SourceGutter, RulerHeight), new Point(SourceGutter, Bounds.Height));
 
-        // Source patching (step 61 phase 3): the V1 / A1 source indicators, drawn on the patched lanes only while the
-        // Source monitor holds media that has that stream — otherwise the column is an empty gutter, as in Premiere.
-        (VideoTrack? patchedVideo, AudioTrack? patchedAudio) = _project?.ActiveSequence.ResolvePatch() ?? default;
+        // Source patching (step 61 phase 3): the V1 / A1 source indicators, drawn on their lanes only while the Source
+        // monitor holds media that has that stream — otherwise the column is an empty gutter, as in Premiere. An
+        // un-patched indicator stays on its lane in the off style, so it's clear how to turn it back on.
+        (VideoTrack? patchedVideo, AudioTrack? patchedAudio) = _project?.ActiveSequence.ResolvePatchLanes() ?? default;
+        SourcePatch patch = _project?.ActiveSequence.SourcePatch ?? SourcePatch.Default;
 
         for (int i = 0; i < lanes.Count; i++)
         {
@@ -1890,7 +1892,8 @@ public sealed class TimelineControl : Control
 
             if (_sourceStreams is { } streams
                 && (isVideo ? streams.Video && ReferenceEquals(track, patchedVideo) : streams.Audio && ReferenceEquals(track, patchedAudio)))
-                DrawToggle(ctx, SourcePatchBox(top), isVideo ? "V1" : "A1", on: true);
+                DrawToggle(ctx, SourcePatchBox(top), isVideo ? "V1" : "A1",
+                    on: !(isVideo ? patch.VideoUnpatched : patch.AudioUnpatched));
         }
     }
 
@@ -1906,21 +1909,22 @@ public sealed class TimelineControl : Control
         InvalidateVisual();
     }
 
-    // A click in the source-patch column: on the patched chip it un-patches that stream; on another lane of the
-    // same kind it moves the patch there. One undo step; a no-op while the Source monitor is empty.
+    // A click in the source-patch column: on the indicator it toggles that stream patched / un-patched (the indicator
+    // stays put, as in Premiere); on another lane of the same kind it moves the indicator there, patched. One undo
+    // step; a no-op while the Source monitor is empty.
     private void HandleSourcePatchClick(Track track, bool isVideo)
     {
         if (_project is null || _sourceStreams is not { } streams || !(isVideo ? streams.Video : streams.Audio))
             return;
         Sequence seq = _project.ActiveSequence;
-        (VideoTrack? video, AudioTrack? audio) = seq.ResolvePatch();
+        (VideoTrack? video, AudioTrack? audio) = seq.ResolvePatchLanes();
         SourcePatch patch = seq.SourcePatch ?? SourcePatch.Default;
         patch = isVideo
             ? ReferenceEquals(track, video)
-                ? patch with { Video = null, VideoUnpatched = true }
+                ? patch with { VideoUnpatched = !patch.VideoUnpatched }
                 : patch with { Video = (VideoTrack)track, VideoUnpatched = false }
             : ReferenceEquals(track, audio)
-                ? patch with { Audio = null, AudioUnpatched = true }
+                ? patch with { AudioUnpatched = !patch.AudioUnpatched }
                 : patch with { Audio = (AudioTrack)track, AudioUnpatched = false };
         Execute(new SetSourcePatchCommand(seq, patch));
     }

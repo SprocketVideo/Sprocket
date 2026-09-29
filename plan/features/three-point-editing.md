@@ -94,7 +94,9 @@ This phase comes first because it gives Insert and Overwrite a scope. It also re
 currently on Lift / Extract.
 
 1. **Model.** Add three fields to `Track`:
-   - `Targeted` (default `true`): what Lift, Extract, paste and Mark Clip act on.
+   - `Targeted` (default `true`): what Lift, Extract, paste and Mark Clip act on. Also the tracks Up / Down
+     (Go to Previous / Next Edit Point) stop on, with Shift+Up / Shift+Down for every track — added 2026-09-29 after
+     the manual check found the keys unimplemented (`EditPointNavigation`, `MainWindow.JumpToEditPoint`).
    - `SyncLocked` (default `true`): which tracks shift on ripple edits (Insert, Extract, ripple delete).
    - `Locked` (default `false`): no edits at all.
 
@@ -160,7 +162,9 @@ currently on Lift / Extract.
    re-point or clear it, and undo restores it.
 2. **Header UI.** A source-indicator column at the far left of the header, as in Premiere. The patched video lane
    shows a `V1` chip and the patched audio lane an `A1` chip in the accent colour. Clicking the column on a lane moves
-   the chip there, and clicking the chip itself un-patches that stream. The column only shows chips when the Source
+   the chip there, and clicking the chip itself toggles that stream un-patched / patched — an un-patched chip stays
+   on its lane in the dimmed off style, as in Premiere (changed 2026-09-28 after the manual check: a chip that
+   vanished read as broken and gave no way back). The column only shows chips when the Source
    monitor has media; otherwise it's an empty gutter. Media with no audio shows no `A1` chip, and the same for video.
 3. **Three-point resolver (pure Core).** `ThreePointResolver.Resolve(srcIn?, srcOut?, srcLength, seqIn?, seqOut?,
    playhead)` returns `(sourceIn, sourceOut, recordIn, notes)`, following Premiere's precedence:

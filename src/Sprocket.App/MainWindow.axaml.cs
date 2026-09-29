@@ -1036,6 +1036,9 @@ public partial class MainWindow : Window
         else if (!primary && !ctrl && e.Key == Key.Right) { _active?.StepFrame(shift ? +5 : +1); e.Handled = true; }
         else if (!primary && !ctrl && !shift && e.Key == Key.Home) { _active?.JumpToStart(); e.Handled = true; }
         else if (!primary && !ctrl && !shift && e.Key == Key.End) { _active?.JumpToEnd(); e.Handled = true; }
+        // Go to the previous / next edit point (Premiere's Up / Down): on the targeted tracks, Shift for every track.
+        else if (!primary && !ctrl && !alt && e.Key == Key.Up) { JumpToEditPoint(-1, allTracks: shift); e.Handled = true; }
+        else if (!primary && !ctrl && !alt && e.Key == Key.Down) { JumpToEditPoint(+1, allTracks: shift); e.Handled = true; }
         // Activate a work area directly (Shift+1 Project, Shift+2 Timeline, Shift+3 Monitor, Shift+4 Inspector —
         // the Premiere-style "activate panel by number" convention, see WorkAreaFocus.TryDirectKey). Sits above
         // the bare 1–9 multicam angle keys, which are gated on !shift so the two never collide, and below the
@@ -1478,6 +1481,22 @@ public partial class MainWindow : Window
             _program.SeekTo(m.Time);
             SetStatus(MarkerListFormat.Describe(m, _project.Timeline.Markers.IndexOf(m)));
         }
+    }
+
+    /// <summary>
+    /// Seeks the Program playhead to the previous (<paramref name="direction"/> &lt; 0) or next edit point — a clip
+    /// start or end — on the targeted tracks, or on every track when <paramref name="allTracks"/> (Premiere's
+    /// Up / Down and Shift+Up / Shift+Down). A no-op when there is no edit point in that direction.
+    /// </summary>
+    private void JumpToEditPoint(int direction, bool allTracks)
+    {
+        if (_project is null || _program is null)
+            return;
+        IEnumerable<Core.Model.Track> tracks = _project.Timeline.Tracks.Where(t => allTracks || t.Targeted);
+        Timecode now = _program.Position;
+        Timecode? target = direction < 0 ? EditPointNavigation.Previous(tracks, now) : EditPointNavigation.Next(tracks, now);
+        if (target is { } t)
+            _program.SeekTo(t);
     }
 
     /// <summary>Enables the keyframe-jump buttons only when the selection has keyframes to navigate.</summary>

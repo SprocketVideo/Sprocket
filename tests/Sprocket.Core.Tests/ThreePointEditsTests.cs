@@ -71,6 +71,16 @@ public class ThreePointEditsTests
     }
 
     [Fact]
+    public void Unpatched_Stream_Keeps_Its_Indicator_Lane()
+    {
+        var (seq, _, v2, a1, _) = Fixture();
+        seq.SourcePatch = new SourcePatch(Video: v2, VideoUnpatched: true, AudioUnpatched: true);
+
+        Assert.Equal<(VideoTrack?, AudioTrack?)>((null, null), seq.ResolvePatch());
+        Assert.Equal((v2, a1), seq.ResolvePatchLanes());
+    }
+
+    [Fact]
     public void Removing_The_Patched_Track_Falls_Back_And_Undo_Restores_It()
     {
         var (seq, v1, v2, _, _) = Fixture();

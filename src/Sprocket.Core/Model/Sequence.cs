@@ -73,21 +73,31 @@ public sealed class Sequence
     public (VideoTrack? Video, AudioTrack? Audio) ResolvePatch()
     {
         SourcePatch patch = SourcePatch ?? Model.SourcePatch.Default;
-        VideoTrack? video = patch.VideoUnpatched ? null
-            : patch.Video is { } v && Timeline.Tracks.Contains(v) ? v : Timeline.VideoTracks.FirstOrDefault();
-        AudioTrack? audio = patch.AudioUnpatched ? null
-            : patch.Audio is { } a && Timeline.Tracks.Contains(a) ? a : Timeline.AudioTracks.FirstOrDefault();
+        (VideoTrack? video, AudioTrack? audio) = ResolvePatchLanes();
+        return (patch.VideoUnpatched ? null : video, patch.AudioUnpatched ? null : audio);
+    }
+
+    /// <summary>
+    /// The lanes the <c>V1</c>/<c>A1</c> source indicators sit on, whether or not their stream is un-patched — an
+    /// un-patched indicator stays on its lane (drawn dimmed, as leading editors do) so clicking it re-patches there.
+    /// Same fallback as <see cref="ResolvePatch"/>.
+    /// </summary>
+    public (VideoTrack? Video, AudioTrack? Audio) ResolvePatchLanes()
+    {
+        SourcePatch patch = SourcePatch ?? Model.SourcePatch.Default;
+        VideoTrack? video = patch.Video is { } v && Timeline.Tracks.Contains(v) ? v : Timeline.VideoTracks.FirstOrDefault();
+        AudioTrack? audio = patch.Audio is { } a && Timeline.Tracks.Contains(a) ? a : Timeline.AudioTracks.FirstOrDefault();
         return (video, audio);
     }
 }
 
 /// <summary>
-/// A sequence's source patch (PLAN.md step 61 phase 3): per stream, a specific track, the default track
-/// (<see langword="null"/> track, not un-patched), or un-patched. Tracks are held by reference, so adding or
-/// removing other tracks never re-points the patch.
+/// A sequence's source patch (PLAN.md step 61 phase 3): per stream, a track (or <see langword="null"/> for the
+/// default track) and whether the stream is un-patched. An un-patched stream keeps its track, so re-patching puts it
+/// back where it was. Tracks are held by reference, so adding or removing other tracks never re-points the patch.
 /// </summary>
-/// <param name="Video">The patched video track, or <see langword="null"/> for the default.</param>
-/// <param name="Audio">The patched audio track, or <see langword="null"/> for the default.</param>
+/// <param name="Video">The video indicator's track, or <see langword="null"/> for the default.</param>
+/// <param name="Audio">The audio indicator's track, or <see langword="null"/> for the default.</param>
 /// <param name="VideoUnpatched">Whether the video stream is un-patched (a source's video isn't edited in).</param>
 /// <param name="AudioUnpatched">Whether the audio stream is un-patched.</param>
 public sealed record SourcePatch(

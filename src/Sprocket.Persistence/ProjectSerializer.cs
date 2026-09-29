@@ -233,17 +233,17 @@ public static class ProjectSerializer
             Tracks = tracks,
             MarkInTicks = s.MarkIn?.Ticks,
             MarkOutTicks = s.MarkOut?.Ticks,
-            SourcePatchVideo = PatchIndex(s.Timeline.VideoTracks, patch?.Video, patch?.VideoUnpatched ?? false),
-            SourcePatchAudio = PatchIndex(s.Timeline.AudioTracks, patch?.Audio, patch?.AudioUnpatched ?? false),
+            SourcePatchVideo = PatchIndex(s.Timeline.VideoTracks, patch?.Video),
+            SourcePatchAudio = PatchIndex(s.Timeline.AudioTracks, patch?.Audio),
+            SourcePatchVideoOff = patch?.VideoUnpatched == true ? true : null,
+            SourcePatchAudioOff = patch?.AudioUnpatched == true ? true : null,
         };
     }
 
-    // A patched stream's persisted form: null for the default track (or a track no longer in the timeline, which
-    // resolves to the default anyway), -1 for un-patched, else the track's index among its kind.
-    private static int? PatchIndex<T>(IEnumerable<T> tracks, T? track, bool unpatched) where T : Track
+    // A source indicator's persisted track: null for the default track (or a track no longer in the timeline, which
+    // resolves to the default anyway), else the track's index among its kind.
+    private static int? PatchIndex<T>(IEnumerable<T> tracks, T? track) where T : Track
     {
-        if (unpatched)
-            return -1;
         if (track is null)
             return null;
         int index = tracks.ToList().IndexOf(track);
@@ -254,15 +254,16 @@ public static class ProjectSerializer
     {
         s.MarkIn = t.MarkInTicks is { } markIn ? new Timecode(markIn) : null;
         s.MarkOut = t.MarkOutTicks is { } markOut ? new Timecode(markOut) : null;
-        if (t.SourcePatchVideo is null && t.SourcePatchAudio is null)
+        if (t.SourcePatchVideo is null && t.SourcePatchAudio is null
+            && t.SourcePatchVideoOff is null && t.SourcePatchAudioOff is null)
             return;
         List<VideoTrack> video = s.Timeline.VideoTracks.ToList();
         List<AudioTrack> audio = s.Timeline.AudioTracks.ToList();
         s.SourcePatch = new SourcePatch(
             Video: t.SourcePatchVideo is >= 0 and var v && v < video.Count ? video[v] : null,
             Audio: t.SourcePatchAudio is >= 0 and var a && a < audio.Count ? audio[a] : null,
-            VideoUnpatched: t.SourcePatchVideo == -1,
-            AudioUnpatched: t.SourcePatchAudio == -1);
+            VideoUnpatched: t.SourcePatchVideoOff == true,
+            AudioUnpatched: t.SourcePatchAudioOff == true);
     }
 
     internal static TimelineDto ToDto(Timeline t)

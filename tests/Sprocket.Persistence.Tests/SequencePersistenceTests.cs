@@ -180,6 +180,23 @@ public class SequencePersistenceTests
     }
 
     [Fact]
+    public void Unpatched_Stream_Round_Trips_With_Its_Indicator_Lane()
+    {
+        var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));
+        var v1 = new VideoTrack { Name = "V1" };
+        var v2 = new VideoTrack { Name = "V2" };
+        var a1 = new AudioTrack { Name = "A1" };
+        project.Timeline.Tracks.AddRange([v1, v2, a1]);
+
+        project.ActiveSequence.SourcePatch = new SourcePatch(Video: v2, VideoUnpatched: true);
+        Sequence loaded = RoundTrip(project).ActiveSequence;
+
+        Assert.Null(loaded.ResolvePatch().Video);
+        Assert.Equal("V2", loaded.ResolvePatchLanes().Video!.Name);
+        Assert.Equal("A1", loaded.ResolvePatch().Audio!.Name);
+    }
+
+    [Fact]
     public void Default_Track_Editing_State_Is_Not_Written()
     {
         var project = new Project(new Timeline(new Rational(30, 1), new Resolution(1920, 1080), 48000));
