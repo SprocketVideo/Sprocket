@@ -276,13 +276,23 @@ public sealed class ThumbnailService : IDisposable
     {
         if (width <= 0 || height <= 0)
             return null;
+        return ReadWaveformPeaks(media, width, ct) is { } peaks ? DrawWaveform(peaks, width, height) : null;
+    }
+
+    /// <summary>
+    /// Decodes a source's audio to <paramref name="bucketCount"/> mono peaks in [0, 1] across its duration (up to
+    /// <see cref="MaxWaveformSamples"/>), or <see langword="null"/> on cancellation or when it can't be read. Shared by
+    /// the bin's waveform tiles and the Source monitor's audio-only view (PLAN.md step 61 phase 5).
+    /// </summary>
+    internal static float[]? ReadWaveformPeaks(MediaRef media, int bucketCount, CancellationToken ct)
+    {
         try
         {
             int sampleRate = media.Info.SampleRate > 0 ? media.Info.SampleRate : 48000;
             using IPcmReader reader = AudioSource.Open(media.AbsolutePath, sampleRate, channels: 1);
 
             // Read up to a bounded number of mono samples and reduce them to one peak per output column.
-            int buckets = Math.Max(1, width);
+            int buckets = Math.Max(1, bucketCount);
             var chunk = new float[8192];
             int n;
             float[] peaks;
@@ -313,7 +323,7 @@ public sealed class ThumbnailService : IDisposable
                 peaks = WaveformBuilder.BuildPeaks(samples, channels: 1, bucketCount: buckets);
             }
 
-            return DrawWaveform(peaks, width, height);
+            return peaks;
         }
         catch
         {

@@ -94,6 +94,8 @@ public partial class MainWindow : Window
     private Border? _sourceMarkBar;         // the Source-tab-only Mark In / Out / Insert / Overwrite row
     private TextBlock? _sourceMarkText;     // its In / Out / Duration readout
     private TextBlock? _audioOnlyLabel;     // "Audio only" over the blank frame of an audio-only Source media
+    private SourceWaveformView? _sourceWaveform; // that media's waveform, marks, and playhead (step 61 phase 5)
+    private MediaRef? _waveformMedia;       // the media whose peaks the waveform view holds or is decoding
     private Border? _sourceDragVideo, _sourceDragAudio; // the Source bar's drag-one-stream handles (step 61 phase 4)
     private MenuItem? _insertEditMenuItem, _overwriteEditMenuItem; // Clip ▸ Insert / Overwrite Edit
     private int? _sourceMarksSignature;     // fingerprint of every media's source marks (RefreshBinIfSourceMarksChanged)
@@ -2088,6 +2090,7 @@ public partial class MainWindow : Window
         this.FindControl<Button>("SourceInsertButton")!.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Insert);
         this.FindControl<Button>("SourceOverwriteButton")!.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Overwrite);
         _audioOnlyLabel = this.FindControl<TextBlock>("AudioOnlyLabel")!;
+        _sourceWaveform = this.FindControl<SourceWaveformView>("SourceWaveform")!;
         _sourceDragVideo = this.FindControl<Border>("SourceDragVideoHandle")!;
         _sourceDragAudio = this.FindControl<Border>("SourceDragAudioHandle")!;
         EnableSourceDrag(_sourceDragVideo, SourceStreams.Video);
@@ -2101,11 +2104,16 @@ public partial class MainWindow : Window
         _preview.MotionTracks = _stab; // stabilized layers pull their motion track through the analysis service
         (int seqW, int seqH) = (_project!.Timeline.Resolution.Width, _project.Timeline.Resolution.Height);
         _program = new ProgramMonitor(_engine!, seqW, seqH);
-        _source = new SourceMonitor();
+        _source = new SourceMonitor(() => _userSettings.AudioOutputDevice);
         _active = _program;
 
         // Re-bind the surface whenever the active monitor's engine is replaced (the Source monitor rebuilds).
         _source.EngineChanged += () => Dispatcher.UIThread.Post(() => { if (ReferenceEquals(_active, _source)) BindActiveToSurface(); });
+        // Only one monitor plays at a time (step 61 phase 5): each has its own audio clock, so starting one pauses
+        // the other rather than mixing both out of the device.
+        _program.StateChanged += s => { if (s == PlaybackState.Playing) Dispatcher.UIThread.Post(() => _source?.Pause()); };
+        _source.StateChanged += s => { if (s == PlaybackState.Playing) Dispatcher.UIThread.Post(() => _program?.Pause()); };
+        _source.PositionChanged += t => Dispatcher.UIThread.Post(() => _sourceWaveform?.SetPosition(t));
         BindActiveToSurface(); // attach the program engine to the surface
 
         WireTimeline();
@@ -4112,6 +4120,7 @@ public partial class MainWindow : Window
         _sourceMarkBar.IsVisible = sourceTab;
         if (_audioOnlyLabel is not null)
             _audioOnlyLabel.IsVisible = sourceTab && _source!.IsAudioOnly;
+        UpdateSourceWaveform(sourceTab && _source!.IsAudioOnly);
         bool hasSource = _source?.Media is not null;
         if (_insertEditMenuItem is not null && _overwriteEditMenuItem is not null)
             _insertEditMenuItem.IsEnabled = _overwriteEditMenuItem.IsEnabled = hasSource;
@@ -4136,6 +4145,31 @@ public partial class MainWindow : Window
             Sequence? seq = _project?.ActiveSequence;
             _scrubberMarks.SetMarks(seq?.MarkIn, seq?.MarkOut, scrubberSpan);
         }
+    }
+
+    /// <summary>
+    /// Shows the audio-only Source media's waveform view (step 61 phase 5) and keeps its span and marks current. The
+    /// peaks are decoded off the UI thread once per media; a result for media no longer shown is dropped.
+    /// </summary>
+    private void UpdateSourceWaveform(bool show)
+    {
+        if (_sourceWaveform is null)
+            return;
+        _sourceWaveform.IsVisible = show;
+        if (!show || _source?.Media is not { } media)
+            return;
+        _sourceWaveform.SetSpan(media.Info.Duration, media.SourceMarkIn, media.SourceMarkOut);
+        _sourceWaveform.SetPosition(_source.Position);
+        if (ReferenceEquals(media, _waveformMedia))
+            return;
+        _waveformMedia = media;
+        _sourceWaveform.SetPeaks(null);
+        const int Buckets = 2048; // enough for a full-width monitor; the view folds them per pixel column
+        _ = Task.Run(() => ThumbnailService.ReadWaveformPeaks(media, Buckets, CancellationToken.None)).ContinueWith(t =>
+        {
+            if (t.IsCompletedSuccessfully && ReferenceEquals(media, _waveformMedia))
+                _sourceWaveform.SetPeaks(t.Result);
+        }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     /// <summary>Re-lists the bin when any media's Source-monitor marks changed (a mark edit, or its undo / redo), so

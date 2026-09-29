@@ -857,3 +857,33 @@ Source-monitor marks + three-point editing — plan in [plan/features/three-poin
   patched companion, locked-patch fallback + primary kind, streams the media or drag lacks) and the payload round
   trip / rejections.
 - **Not verified in the running app** — drag gestures, the ghost, and the handles are build + test verified only.
+
+### Manual-check fixes to phases 1–4 (2026-09-29) ✅ DONE
+
+- **Source-patch chips toggle, not vanish** — clicking a `V1`/`A1` chip used to remove it, which read as broken and
+  left no hint how to get it back. It now toggles, as in Premiere: an un-patched chip stays on its lane in the header
+  toggles' off style, and clicking it re-patches. `Sequence.ResolvePatchLanes` gives the chip's lane regardless;
+  `ResolvePatch` still returns `null` for an un-patched stream. The patch persists as the track index plus
+  `SourcePatchVideoOff` / `SourcePatchAudioOff` (the unreleased `-1` encoding is gone).
+- **Up / Down edit-point navigation** — the checklist assumed it existed; it didn't. `EditPointNavigation` (Core)
+  finds the previous / next clip start or end; `MainWindow.JumpToEditPoint` seeks the Program playhead on the
+  targeted tracks, Shift for every track (Premiere's keys).
+
+### Phase 5 — Source-monitor audio (2026-09-29) ✅ DONE
+
+- **Second master clock, not engine switching** — the Source monitor gets its own `AudioEngine` over its one-clip
+  project (`MediaBootstrap.TryCreateAudioClockForProject`, now internal), so its A/V sync is the Program monitor's
+  mechanism unchanged. `BuildSourceProject` adds an audio track whenever the source has audio (video + audio sources
+  get both tracks); no audio or no device falls back to the `SoftwareClock` as before.
+- **Two OpenAL outputs at once** — the OpenAL current context is process-global, and `OpenAlAudioOutput` made its
+  context current only at configure time, so a second output would have hijacked the first. All instances now share
+  one static lock, and each makes its own context current (tracked in a static) before its AL calls; disposing the
+  current context clears it first.
+- **One monitor plays at a time** — the shell pauses the other monitor whenever one enters `Playing` (the tab switch
+  already paused Program / tore down Source; this also covers Program playback started from elsewhere).
+- **Audio-only waveform** — `SourceWaveformView` draws the source's peaks full-frame over the blank surface, with the
+  marked range shaded and the playhead; the "Audio only" label moved to the top. Peaks come from
+  `ThumbnailService.ReadWaveformPeaks` (extracted from the bin's waveform tile renderer), decoded off the UI thread
+  once per media. The view is hit-test invisible, so dragging the picture still drags the source.
+- **Tests** — App: `SourceMonitorProjectTests` (a full-length track per stream). The audio path is device-bound:
+  **not yet verified in the running app** (Source audio A/V sync, the two-output switch, the waveform).

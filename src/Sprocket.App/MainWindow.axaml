@@ -600,12 +600,14 @@
             </Border>
 
             <!-- Both monitors (Program/Source) present through this one surface; the active tab swaps the
-                 engine it is attached to (PLAN.md step 17). The label marks an audio-only source's blank frame
-                 (step 61 phase 3); its ZIndex keeps it over the surface after a fullscreen round trip re-adds it. -->
+                 engine it is attached to (PLAN.md step 17). An audio-only source shows its waveform over the blank
+                 frame (step 61 phase 5) under an "Audio only" label; their ZIndex keeps them over the surface after
+                 a fullscreen round trip re-adds it. -->
             <Panel>
               <local:PreviewSurface x:Name="Preview" />
+              <local:SourceWaveformView x:Name="SourceWaveform" ZIndex="1" IsVisible="False" />
               <TextBlock x:Name="AudioOnlyLabel" ZIndex="1" IsVisible="False" IsHitTestVisible="False"
-                         HorizontalAlignment="Center" VerticalAlignment="Center"
+                         HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0"
                          FontSize="{x:Static local:Typography.Body}" Foreground="{DynamicResource MutedText}"
                          Text="Audio only" />
             </Panel>

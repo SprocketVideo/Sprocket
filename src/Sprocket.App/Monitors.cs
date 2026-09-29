@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Sprocket.Audio;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 using Sprocket.Media;
@@ -107,17 +108,22 @@ internal sealed class ProgramMonitor : IMonitor
 /// in/out before editing. It owns a rebuildable single-feed <see cref="PlaybackEngine"/> over a throwaway one-clip
 /// project that spans the whole source (the same render graph as the Program monitor, ARCHITECTURE.md §5). The
 /// engine is built only while the Source tab is <see cref="Activate">active</see> so a decoder is opened lazily and
-/// freed when the user looks away; the preview is video-only on a <see cref="SoftwareClock"/> (source-audio scrub
-/// is a later refinement). Audio-only media (PLAN.md step 61 phase 3) runs the same engine with no video feed over
-/// a blank frame, so its marks, duration, and transport still work for three-point editing. Decode/playback is
+/// freed when the user looks away. A source with audio plays it through its own <see cref="AudioEngine"/>
+/// master clock, as the Program monitor does (PLAN.md step 61 phase 5); without audio, or with no device, it runs on a
+/// <see cref="SoftwareClock"/>. Audio-only media (phase 3) runs the same engine with no video feed over a blank
+/// frame, so its marks, duration, and transport still work for three-point editing. Decode/playback is
 /// device/IO-bound, so this rests on manual verification.
 /// </summary>
 internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
 {
+    private readonly Func<string> _audioDevice;
     private PlaybackEngine? _engine;
     private MediaRef? _desired;   // the source the shell wants previewed
     private MediaRef? _shown;     // the source the current engine is decoding
     private bool _active;
+
+    /// <param name="audioDevice">The chosen output device (the user setting), read each time a source's audio opens.</param>
+    public SourceMonitor(Func<string> audioDevice) => _audioDevice = audioDevice;
 
     public PlaybackEngine? CurrentEngine => _engine;
 
@@ -178,19 +184,16 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
 
         if (_desired is not { } media || !(media.Info.HasVideo || media.Info.HasAudio))
             return;
-        PlaybackEngine engine;
-        if (media.Info.HasVideo)
-        {
-            IVideoFrameFeed? feed = MediaBootstrap.OpenVideoFeed(media);
-            if (feed is null)
-                return;
-            engine = new PlaybackEngine(BuildSourceProject(media), feed); // default SoftwareClock, video-only
-        }
-        else
-        {
-            // No picture to decode: the engine only runs the clock over the source's span (audio is phase 5).
-            engine = new PlaybackEngine(BuildSourceProject(media), (_, _) => null);
-        }
+        Project project = BuildSourceProject(media);
+        IVideoFrameFeed? feed = null;
+        if (media.Info.HasVideo && (feed = MediaBootstrap.OpenVideoFeed(media)) is null)
+            return;
+        // The source's audio drives the clock, as on the Program monitor; null (no audio, no device) → SoftwareClock.
+        // The engine owns + disposes the clock.
+        (AudioEngine? clock, _) = MediaBootstrap.TryCreateAudioClockForProject(project, _audioDevice());
+        PlaybackEngine engine = feed is not null
+            ? new PlaybackEngine(project, feed, clock)
+            : new PlaybackEngine(project, (_, _) => null, clock); // no picture: audio (or the clock) over the span
         engine.PositionChanged += OnEnginePosition;
         engine.StateChanged += OnEngineState;
         engine.Start();
@@ -220,10 +223,10 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
     private void OnEnginePosition(Timecode t) => PositionChanged?.Invoke(t);
     private void OnEngineState(PlaybackState s) => StateChanged?.Invoke(s);
 
-    /// <summary>A throwaway project: one track holding one clip that spans the whole source, raw (no effects) — a
-    /// video track the single-feed engine drives from the supplied feed, or for audio-only media an audio track that
-    /// just gives the engine its duration.</summary>
-    private static Project BuildSourceProject(MediaRef media)
+    /// <summary>A throwaway project spanning the whole source, raw (no effects): a video track the single-feed engine
+    /// drives from the supplied feed, and an audio track the source's audio clock mixes — each only when the source
+    /// has that stream.</summary>
+    internal static Project BuildSourceProject(MediaRef media)
     {
         ProbedMediaInfo info = media.Info;
         int sampleRate = info.SampleRate > 0 ? info.SampleRate : 48000;
@@ -233,10 +236,17 @@ internal sealed class SourceMonitor : IMonitor, IAsyncDisposable
         var project = new Project(timeline);
         project.MediaPool.Add(media);
 
-        Track track = info.HasVideo ? new VideoTrack { Name = "Source" } : new AudioTrack { Name = "Source" };
-        track.Clips.Add(new Clip(media.Id, Timecode.Zero, info.Duration, Timecode.Zero));
-        timeline.Tracks.Add(track);
+        if (info.HasVideo)
+            timeline.Tracks.Add(SourceTrack(new VideoTrack { Name = "Source" }, media));
+        if (info.HasAudio)
+            timeline.Tracks.Add(SourceTrack(new AudioTrack { Name = "Source" }, media));
         return project;
+    }
+
+    private static Track SourceTrack(Track track, MediaRef media)
+    {
+        track.Clips.Add(new Clip(media.Id, Timecode.Zero, media.Info.Duration, Timecode.Zero));
+        return track;
     }
 
     public void Play() => _engine?.Play();

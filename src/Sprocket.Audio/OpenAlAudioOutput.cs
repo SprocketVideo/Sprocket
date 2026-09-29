@@ -12,8 +12,9 @@ namespace Sprocket.Audio;
 /// <remarks>
 /// This is device-bound: like the windowed GPU preview it rests on manual verification, not headless tests
 /// (the mixer and master clock are tested against a fake output). <see cref="Configure"/> throws if no audio
-/// device is available, and the playback bootstrap then falls back to a software clock. All OpenAL calls are
-/// serialised by an internal lock because the OpenAL context is process-global, not thread-safe.
+/// device is available, and the playback bootstrap then falls back to a software clock. The OpenAL current context is
+/// process-global, so every instance's AL calls go through one shared lock, and each instance makes its own context
+/// current first — two outputs (the Program and Source monitors' clocks, PLAN.md step 61 phase 5) can live at once.
 /// </remarks>
 public sealed unsafe class OpenAlAudioOutput : IAudioOutput
 {
@@ -28,7 +29,10 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     private delegate* unmanaged[Cdecl]<Device*, byte*, int*, byte> _reopenDevice;
     private bool _reopenProbed;
 
-    private readonly object _al = new();
+    // Serialises every instance's OpenAL calls and guards CurrentContext: the current context is process-global.
+    private static readonly object Gate = new();
+    private static Context* CurrentContext;
+
     private AL _api = null!;
     private ALContext _alc = null!;
     private Device* _device;
@@ -63,6 +67,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
         Channels = channels;
         _format = channels == 1 ? BufferFormat.Mono16 : BufferFormat.Stereo16;
 
+        lock (Gate)
         try
         {
             _alc = GetAlcApi();
@@ -78,6 +83,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
             _context = _alc.CreateContext(_device, null);
             if (_context is null || !_alc.MakeContextCurrent(_context))
                 throw new InvalidOperationException("Failed to create/activate the OpenAL context.");
+            CurrentContext = _context;
 
             _source = _api.GenSource();
             foreach (uint buffer in _api.GenBuffers(BufferCount))
@@ -114,7 +120,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     {
         get
         {
-            lock (_al)
+            lock (Gate)
             {
                 if (!_configured)
                     return 0;
@@ -130,7 +136,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     {
         get
         {
-            lock (_al)
+            lock (Gate)
             {
                 if (!_configured)
                     return 0;
@@ -147,7 +153,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
         if (frames == 0)
             return;
 
-        lock (_al)
+        lock (Gate)
         {
             if (!_configured)
                 return;
@@ -177,7 +183,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     /// <inheritdoc />
     public void Play()
     {
-        lock (_al)
+        lock (Gate)
         {
             if (!_configured)
                 return;
@@ -189,11 +195,12 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     /// <inheritdoc />
     public void Pause()
     {
-        lock (_al)
+        lock (Gate)
         {
             if (!_configured)
                 return;
             _playing = false;
+            MakeCurrentLocked();
             _api.SourcePause(_source);
         }
     }
@@ -201,11 +208,12 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     /// <inheritdoc />
     public void Flush()
     {
-        lock (_al)
+        lock (Gate)
         {
             if (!_configured)
                 return;
 
+            MakeCurrentLocked();
             _api.SourceStop(_source);
             // Stopping marks every queued buffer processed; recycle them all back to the free pool. We do NOT
             // credit their frames to _playedBase — discarded audio was not heard — so the clock re-anchors
@@ -228,7 +236,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     /// <inheritdoc />
     public bool IsConnected
     {
-        get { lock (_al) return IsConnectedLocked(); }
+        get { lock (Gate) return IsConnectedLocked(); }
     }
 
     private bool IsConnectedLocked()
@@ -251,7 +259,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
     /// <inheritdoc />
     public bool TryReopenDevice(string? deviceSpecifier)
     {
-        lock (_al)
+        lock (Gate)
         {
             if (!_configured || _device is null)
                 return false;
@@ -335,8 +343,18 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
         return devices;
     }
 
+    // Makes this instance's context the process's current one, if another output's is. Call under Gate.
+    private void MakeCurrentLocked()
+    {
+        if (CurrentContext == _context)
+            return;
+        _alc.MakeContextCurrent(_context);
+        CurrentContext = _context;
+    }
+
     private void RecycleProcessedLocked()
     {
+        MakeCurrentLocked();
         _api.GetSourceProperty(_source, GetSourceInteger.BuffersProcessed, out int processed);
         if (processed <= 0)
             return;
@@ -353,6 +371,7 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
 
     private void EnsurePlayingLocked()
     {
+        MakeCurrentLocked();
         _api.GetSourceProperty(_source, GetSourceInteger.SourceState, out int state);
         if ((SourceState)state != SourceState.Playing)
             _api.SourcePlay(_source);
@@ -375,12 +394,13 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
 
     private void DisposeDevice()
     {
-        lock (_al)
+        lock (Gate)
         {
             try
             {
                 if (_configured)
                 {
+                    MakeCurrentLocked();
                     _api.SourceStop(_source);
                     _api.DeleteSource(_source);
                     if (_queuedFrames.Count > 0 || _free.Count > 0)
@@ -393,7 +413,16 @@ public sealed unsafe class OpenAlAudioOutput : IAudioOutput
             }
             catch { /* tearing down a device that may already be gone */ }
 
-            if (_context is not null) { _alc.DestroyContext(_context); _context = null; }
+            if (_context is not null)
+            {
+                if (CurrentContext == _context)
+                {
+                    _alc.MakeContextCurrent(null); // a current context can't be destroyed; the next call re-points it
+                    CurrentContext = null;
+                }
+                _alc.DestroyContext(_context);
+                _context = null;
+            }
             if (_device is not null) { _alc.CloseDevice(_device); _device = null; }
             _configured = false;
         }

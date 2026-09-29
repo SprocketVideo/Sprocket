@@ -190,9 +190,10 @@ internal static class MediaBootstrap
     /// Builds an audio master clock over an existing project's audio tracks (used by <see cref="CreateForProject"/>
     /// for New/Open), or returns <c>(null, false)</c> so the engine falls back to its software clock — when no
     /// audio track references an audio-bearing source, or no audio device is available. The mixer resolves a PCM
-    /// reader per source on demand, so it already mixes N audio tracks; offline sources mix as silence (§15).
+    /// reader per source on demand, so it already mixes N audio tracks; offline sources mix as silence (§15). Also
+    /// builds the Source monitor's own clock over its one-clip project (PLAN.md step 61 phase 5).
     /// </summary>
-    private static (AudioEngine? clock, bool audioWired) TryCreateAudioClockForProject(Project project, string audioDevice)
+    internal static (AudioEngine? clock, bool audioWired) TryCreateAudioClockForProject(Project project, string audioDevice)
     {
         int sampleRate = project.Timeline.SampleRate > 0 ? project.Timeline.SampleRate : 48000;
         const int channels = 2; // stereo output; sources are up/downmixed at decode
