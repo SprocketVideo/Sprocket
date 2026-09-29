@@ -373,3 +373,7 @@ FFmpeg is bundled separately per platform as a **GPL-configured build** (it prov
 export encoders); Sprocket's MIT license is GPL-compatible, and the corresponding FFmpeg source is
 linked from [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) (also shipped in-app under
 Help ▸ Third-Party Notices).
+
+All product and company names mentioned (for example, in file-format and camera-profile names) are
+trademarks of their respective owners. Sprocket is not affiliated with, endorsed by, or sponsored
+by them.
