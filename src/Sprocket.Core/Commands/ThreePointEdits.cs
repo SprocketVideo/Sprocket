@@ -201,18 +201,87 @@ public static class ThreePointEdits
         Build(ThreePointEditKind.Overwrite, sequence, media, range, videoTrack, audioTrack, usePatch: true);
 
     /// <summary>
+    /// Fit to Fill (PLAN.md step 61 phase 6; Resolve's <c>Shift+F11</c>): a 4-point Overwrite that retimes the source's
+    /// marked range (the whole media for a missing mark) to exactly fill the sequence In–Out, at the constant speed
+    /// source ÷ sequence. It needs both sequence marks, and refuses a speed outside the retime limits
+    /// [<see cref="SpeedRamp.MinSpeed"/>, <see cref="SpeedRamp.MaxSpeed"/>]. A still has any length, so it simply
+    /// fills the range at normal speed. Lands on the patched tracks and clears the sequence marks, like Overwrite.
+    /// </summary>
+    public static ThreePointEditResult FitToFill(Sequence sequence, MediaRef media)
+    {
+        ArgumentNullException.ThrowIfNull(sequence);
+        ArgumentNullException.ThrowIfNull(media);
+        if (sequence.MarkIn is not { } seqIn || sequence.MarkOut is not { } seqOut || seqOut <= seqIn)
+            return ThreePointEditResult.Fail("Fit to Fill needs a sequence In and Out");
+        Timecode seqDur = seqOut - seqIn;
+        if (media.HasUnboundedDuration)
+        {
+            Timecode stillIn = media.SourceMarkIn ?? Timecode.Zero;
+            return Build(ThreePointEditKind.Overwrite, sequence, media,
+                new ThreePointRange(stillIn, stillIn + seqDur, seqIn, []), null, null, usePatch: true);
+        }
+        Timecode length = media.Info.Duration;
+        if (length <= Timecode.Zero)
+            return ThreePointEditResult.Fail("The source range is empty");
+
+        Timecode sIn = media.SourceMarkIn is { } i && i > Timecode.Zero ? i : Timecode.Zero;
+        Timecode sOut = media.SourceMarkOut is { } o && o < length ? o : length;
+        if (sOut <= sIn)
+            (sIn, sOut) = (Timecode.Zero, length);
+
+        Rational speed = SpeedOf(sOut - sIn, seqDur);
+        double fraction = (double)speed.Num / speed.Den;
+        if (fraction < SpeedRamp.MinSpeed || fraction > SpeedRamp.MaxSpeed)
+            return ThreePointEditResult.Fail(
+                $"Fit to Fill would need {fraction * 100:0.#}% speed, outside the {SpeedRamp.MinSpeed * 100:0.#}%–" +
+                $"{SpeedRamp.MaxSpeed * 100:0.#}% limit");
+        var notes = new List<string>();
+        if (speed != Rational.One)
+            notes.Add($"retimed to {fraction * 100:0.##}%");
+        ThreePointEditResult result = Build(ThreePointEditKind.Overwrite, sequence, media,
+            new ThreePointRange(sIn, sOut, seqIn, []), null, null, usePatch: true, speed: speed);
+        return result.Command is null ? result : result with { Notes = [.. result.Notes, .. notes] };
+    }
+
+    // The exact speed source ÷ record as a reduced rational. Tick spans of frame-aligned marks reduce to small
+    // numbers; a span too long to fit an int after reducing is scaled down (off by at most a tick in length).
+    private static Rational SpeedOf(Timecode source, Timecode record)
+    {
+        long num = source.Ticks, den = record.Ticks;
+        long g = Gcd(num, den);
+        num /= g;
+        den /= g;
+        if (num > int.MaxValue || den > int.MaxValue)
+        {
+            long k = (Math.Max(num, den) + int.MaxValue - 1) / int.MaxValue;
+            num = Math.Max(1, num / k);
+            den = Math.Max(1, den / k);
+        }
+        return new Rational((int)num, (int)den);
+    }
+
+    private static long Gcd(long a, long b)
+    {
+        while (b != 0)
+            (a, b) = (b, a % b);
+        return Math.Max(1, a);
+    }
+
+    /// <summary>
     /// Builds an Insert or Overwrite of <paramref name="media"/>'s <paramref name="range"/>. With
     /// <paramref name="usePatch"/> a null destination falls back to the sequence's patched track for that stream; without
     /// it a null destination leaves that stream out (a video-only or audio-only edit). A source stream with no
     /// destination is left out; if no stream has one, or a destination is locked, the edit is refused.
     /// <paramref name="linked"/> gives the new A/V pair a shared link group. <paramref name="clearSequenceMarks"/> clears
     /// the sequence marks as part of the edit — the keyed edits do (they consumed the marks); a timeline drop, which
-    /// never reads them, passes <see langword="false"/> (PLAN.md step 61 phase 4).
+    /// never reads them, passes <see langword="false"/> (PLAN.md step 61 phase 4). <paramref name="speed"/> retimes
+    /// the new clips to that constant speed, so the edit's sequence length is the source span ÷ speed (Fit to Fill,
+    /// phase 6); <see langword="null"/> is normal speed.
     /// </summary>
     public static ThreePointEditResult Build(
         ThreePointEditKind kind, Sequence sequence, MediaRef media, ThreePointRange range,
         VideoTrack? videoTrack, AudioTrack? audioTrack, bool usePatch,
-        bool linked = true, bool clearSequenceMarks = true)
+        bool linked = true, bool clearSequenceMarks = true, Rational? speed = null)
     {
         ArgumentNullException.ThrowIfNull(sequence);
         ArgumentNullException.ThrowIfNull(media);
@@ -239,8 +308,9 @@ public static class ThreePointEdits
         if (range.Duration <= Timecode.Zero)
             return ThreePointEditResult.Fail("The source range is empty");
 
-        string label = kind == ThreePointEditKind.Insert ? "Insert" : "Overwrite";
-        Timecode recordIn = range.RecordIn, recordOut = range.RecordOut;
+        string label = speed is not null ? "Fit to Fill" : kind == ThreePointEditKind.Insert ? "Insert" : "Overwrite";
+        Timecode length = speed is { } s ? range.Duration.Scale(s.Inverse()) : range.Duration;
+        Timecode recordIn = range.RecordIn, recordOut = recordIn + length;
         var destinations = new List<Track>(2);
         if (vDest is not null)
             destinations.Add(vDest);
@@ -269,11 +339,11 @@ public static class ThreePointEdits
                         lockedSkipped++;
                     continue;
                 }
-                RippleOpen(track, recordIn, range.Duration, label, commands, tailGroups);
+                RippleOpen(track, recordIn, length, label, commands, tailGroups);
             }
             foreach (Marker marker in timeline.Markers)
                 if (marker.Time >= recordIn)
-                    commands.Add(new MoveMarkerCommand(marker, marker.Time + range.Duration));
+                    commands.Add(new MoveMarkerCommand(marker, marker.Time + length));
             if (lockedSkipped > 0)
                 notes.Add(lockedSkipped == 1
                     ? "1 locked track didn't shift and is now out of sync"
@@ -282,6 +352,14 @@ public static class ThreePointEdits
 
         (Clip? videoClip, Clip? audioClip) = SourceClips.Create(
             media, range.SourceIn, range.SourceOut, recordIn, vDest is not null, aDest is not null, linked);
+        if (speed is { } retime)
+        {
+            // New clips, not yet in the model: retime them directly rather than through a speed command.
+            if (videoClip is not null)
+                videoClip.SpeedRatio = retime;
+            if (audioClip is not null)
+                audioClip.SpeedRatio = retime;
+        }
         if (videoClip is not null)
             commands.Add(new AddClipCommand(vDest!, videoClip));
         if (audioClip is not null)

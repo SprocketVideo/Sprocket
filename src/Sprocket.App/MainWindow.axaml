@@ -111,6 +111,8 @@
                  Oem names), so the labels say the key. Enabled while the Source monitor has media. -->
             <MenuItem x:Name="InsertEditMenuItem" Header="Insert Ed_it  (,)" IsEnabled="False" />
             <MenuItem x:Name="OverwriteEditMenuItem" Header="_Overwrite Edit  (.)" IsEnabled="False" />
+            <!-- Fit to Fill (step 61 phase 6, Resolve's Shift+F11): retimes the source range to the sequence In–Out. -->
+            <MenuItem x:Name="FitToFillMenuItem" Header="Fit to Fill" InputGesture="Shift+F11" IsEnabled="False" />
             <Separator />
             <!-- Split at Playhead (Ctrl+K, the Add Edit command in leading editors) and Duplicate (PLAN.md step 53) — also on the
                  clip right-click context menu; every context item keeps a menu-bar home. -->

@@ -97,7 +97,7 @@ public partial class MainWindow : Window
     private SourceWaveformView? _sourceWaveform; // that media's waveform, marks, and playhead (step 61 phase 5)
     private MediaRef? _waveformMedia;       // the media whose peaks the waveform view holds or is decoding
     private Border? _sourceDragVideo, _sourceDragAudio; // the Source bar's drag-one-stream handles (step 61 phase 4)
-    private MenuItem? _insertEditMenuItem, _overwriteEditMenuItem; // Clip ▸ Insert / Overwrite Edit
+    private MenuItem? _insertEditMenuItem, _overwriteEditMenuItem, _fitToFillMenuItem; // Clip ▸ Insert / Overwrite Edit, Fit to Fill
     private int? _sourceMarksSignature;     // fingerprint of every media's source marks (RefreshBinIfSourceMarksChanged)
 
     private bool _suppressSeek;        // guards programmatic scrubber updates from re-triggering a seek
@@ -906,6 +906,8 @@ public partial class MainWindow : Window
         _insertEditMenuItem.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Insert);
         _overwriteEditMenuItem = this.FindControl<MenuItem>("OverwriteEditMenuItem")!;
         _overwriteEditMenuItem.Click += (_, _) => ThreePointEdit(ThreePointEditKind.Overwrite);
+        _fitToFillMenuItem = this.FindControl<MenuItem>("FitToFillMenuItem")!;
+        _fitToFillMenuItem.Click += (_, _) => FitToFill();
 
         // Preview render cache commands (PLAN.md step 32).
         this.FindControl<MenuItem>("RenderInOutMenuItem")!.Click += (_, _) =>
@@ -962,7 +964,7 @@ public partial class MainWindow : Window
         // Window fullscreen: F11 everywhere, plus the native ⌃⌘F on macOS (Magic Keyboards without an Fn row
         // treat F11 as a media key, so F11 alone is unreachable there). While the fullscreen preview overlay is
         // up, F11 peels that first — an overlay in a windowed frame isn't this feature's contract.
-        if (e.Key == Key.F11 || (isMac && ctrl && meta && e.Key == Key.F))
+        if ((e.Key == Key.F11 && !shift) || (isMac && ctrl && meta && e.Key == Key.F)) // Shift+F11 is Fit to Fill
         {
             if (_previewFullscreen)
                 ExitFullscreenPreview();
@@ -1098,6 +1100,8 @@ public partial class MainWindow : Window
         // Insert (,) and Overwrite (.) the Source monitor's marked range, Premiere's keys — from either monitor.
         else if (!shift && !primary && !alt && e.Key == Key.OemComma) { ThreePointEdit(ThreePointEditKind.Insert); e.Handled = true; }
         else if (!shift && !primary && !alt && e.Key == Key.OemPeriod) { ThreePointEdit(ThreePointEditKind.Overwrite); e.Handled = true; }
+        // Fit to Fill (Shift+F11, Resolve's key; Premiere has none by default).
+        else if (shift && !primary && !alt && e.Key == Key.F11) { FitToFill(); e.Handled = true; }
         // Play In to Out (Ctrl+Shift+Space / ⌘⇧Space, the Premiere convention): plays only the marked range of the
         // focused monitor. Sits above plain Space, which stays unconstrained by the marks.
         else if (primary && shift && e.Key == Key.Space) { if (!_exporting) MarkKey(PlaySourceInToOut, PlayInToOut); e.Handled = true; }
@@ -3951,14 +3955,33 @@ public partial class MainWindow : Window
             SetStatus("The source range is empty.");
             return;
         }
-        ThreePointEditResult result = ThreePointEdits.Build(kind, seq, media, range, null, null, usePatch: true);
+        ApplyThreePointEdit(media, ThreePointEdits.Build(kind, seq, media, range, null, null, usePatch: true));
+    }
+
+    /// <summary>Fit to Fill (Shift+F11, Resolve's key — PLAN.md step 61 phase 6): retimes the Source monitor's marked
+    /// range to fill the sequence In–Out on the patched tracks.</summary>
+    private void FitToFill()
+    {
+        if (_project is null || _program is null || _exporting)
+            return;
+        if (_source?.Media is not { } media)
+        {
+            SetStatus("Open a clip in the Source monitor first — double-click it in the bin.");
+            return;
+        }
+        ApplyThreePointEdit(media, ThreePointEdits.FitToFill(_project.ActiveSequence, media));
+    }
+
+    // Runs a built three-point edit, parks the playhead after it, and reports it (or why it was refused).
+    private void ApplyThreePointEdit(MediaRef media, ThreePointEditResult result)
+    {
         if (result.Command is null)
         {
             SetStatus($"{result.Error}.");
             return;
         }
         _history.Execute(result.Command);
-        _program.SeekTo(result.RecordOut);
+        _program!.SeekTo(result.RecordOut);
         string status = $"{result.Command.Label}: {Path.GetFileName(media.AbsolutePath)} at {FormatTime(result.RecordIn)}.";
         foreach (string note in result.Notes)
             status += $" {note}.";
@@ -4124,6 +4147,8 @@ public partial class MainWindow : Window
         bool hasSource = _source?.Media is not null;
         if (_insertEditMenuItem is not null && _overwriteEditMenuItem is not null)
             _insertEditMenuItem.IsEnabled = _overwriteEditMenuItem.IsEnabled = hasSource;
+        if (_fitToFillMenuItem is not null)
+            _fitToFillMenuItem.IsEnabled = hasSource;
         _timeline?.SetSourceStreams(_source?.Media is { } src ? (src.Info.HasVideo, src.Info.HasAudio) : null);
         var scrubberSpan = new Timecode((long)_scrubber.Maximum);
         if (sourceTab)

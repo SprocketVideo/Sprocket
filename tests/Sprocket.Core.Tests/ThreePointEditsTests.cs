@@ -239,6 +239,57 @@ public class ThreePointEditsTests
         Assert.DoesNotContain(v1.Clips, c => c.MediaRefId == media.Id);
     }
 
+    [Fact]
+    public void Fit_To_Fill_Retimes_The_Source_Range_Into_The_Sequence_Range()
+    {
+        var (seq, v1, _, a1, _) = Fixture();
+        MediaRef media = Media();
+        media.SourceMarkIn = S(1);
+        media.SourceMarkOut = S(5);   // 4s of source
+        seq.MarkIn = S(2);
+        seq.MarkOut = S(4);           // into 2s of sequence → 200%
+
+        ThreePointEditResult r = ThreePointEdits.FitToFill(seq, media);
+        r.Command!.Apply();
+
+        Clip fitted = v1.Clips.Single(c => c.MediaRefId == media.Id);
+        Assert.Equal(new Rational(2, 1), fitted.SpeedRatio);
+        Assert.Equal((S(2), S(4)), (fitted.TimelineStart, fitted.TimelineEnd));
+        Assert.Equal((S(1), S(5)), (fitted.SourceIn, fitted.SourceOut));
+        Assert.Equal([(S(0), S(2)), (S(2), S(4)), (S(4), S(8))], Spans(v1));   // overwrite, no ripple
+        Assert.Equal(S(4), a1.Clips.Single(c => c.MediaRefId == media.Id).TimelineEnd);
+        Assert.Null(seq.MarkIn);
+        Assert.Contains(r.Notes, n => n.Contains("200"));
+    }
+
+    [Fact]
+    public void Fit_To_Fill_Needs_Both_Sequence_Marks_And_A_Legal_Speed()
+    {
+        var (seq, _, _, _, _) = Fixture();
+        seq.MarkIn = S(2);
+        Assert.NotNull(ThreePointEdits.FitToFill(seq, Media()).Error);
+
+        seq.MarkOut = S(2) + new Timecode(1);   // 10s of source into one tick: far beyond 10000%
+        ThreePointEditResult tooFast = ThreePointEdits.FitToFill(seq, Media());
+        Assert.Null(tooFast.Command);
+        Assert.Contains("%", tooFast.Error);
+    }
+
+    [Fact]
+    public void Fit_To_Fill_Undo_Restores_The_Model_Exactly()
+    {
+        var (seq, _, _, _, _) = Fixture();
+        seq.MarkIn = S(1);
+        seq.MarkOut = S(6);
+        string before = Snapshot(seq);
+        var history = new EditHistory();
+
+        history.Execute(ThreePointEdits.FitToFill(seq, Media(length: 3)).Command!);
+        history.Undo();
+
+        Assert.Equal(before, Snapshot(seq));
+    }
+
     [Theory]
     [InlineData(ThreePointEditKind.Insert)]
     [InlineData(ThreePointEditKind.Overwrite)]
