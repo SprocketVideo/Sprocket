@@ -204,3 +204,17 @@ only on a new FFmpeg **major** (SONAME bump) — the procedure (and the decision
 three-arm decision spike (`Sprocket.Spike.Bindings`, FFmpeg.AutoGen + Flyleaf) was removed post-migration
 to keep dev-only NuGets out of the tree; it lives in git history on the `ffmpeg8-migration` branch.
 **Do not reintroduce Sdcb.FFmpeg** (it never shipped FFmpeg 8).
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked as local markdown files under `.scratch/<feature>/` (PLAN.md remains the status ledger). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded as `Status:` lines. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md` + `docs/adr/` (created lazily). See `docs/agents/domain.md`.
