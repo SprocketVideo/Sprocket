@@ -9,7 +9,7 @@ Tracked in [PLAN.md](../../PLAN.md) Open work.
 **2026-09-30 decision:** signing (Windows + macOS) is parked for a future, unscheduled phase —
 no money is being spent on Microsoft/Apple signing accounts yet, and the **initial release ships
 unsigned**. Tickets `.scratch/code-signing/issues/01–03, 06` are `deferred`; 04 (sample-export
-smoke, ✅ 2026-09-30) and 05 (linux-arm64 AppImage) need no accounts.
+smoke, ✅ 2026-09-30) and 05 (linux-arm64 AppImage, ✅ 2026-09-30) need no accounts.
 
 ## What remains
 
@@ -25,8 +25,9 @@ smoke, ✅ 2026-09-30) and 05 (linux-arm64 AppImage) need no accounts.
   `scripts/macos-bundle-ffmpeg.sh` with a Developer ID Application identity, hardened
   runtime + entitlements audit (JIT not needed; audio input not needed today), then
   `notarytool` submit/staple in CI. Both `osx-arm64` and `osx-x64` artifacts.
-- **`linux-arm64` AppImage** — currently zip-only until an arm runner (or the QEMU distro-smoke
-  leg) smoke-launches the AppImage.
+- ~~**`linux-arm64` AppImage**~~ — ✅ 2026-09-30: built + smoke-launched on a native
+  `ubuntu-24.04-arm` leg of the release workflow's `linux` job; details in
+  [plan/history/steps-21-40.md#step-36](../history/steps-21-40.md#step-36).
 - ~~**Sample-export CI validation**~~ — ✅ 2026-09-30: every release smoke leg (Windows portable +
   silent install, Linux portable + AppImage, macOS portable + `.app`) runs `--export-check`
   (`src/Sprocket.App/ExportCheck.cs`): exports the bundled sample project, re-probes the output's

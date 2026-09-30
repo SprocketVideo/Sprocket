@@ -70,12 +70,14 @@ Download **`Sprocket-win-x64-Setup.exe`** (or `win-arm64` for Windows on ARM) an
 
 ### 🐧 Linux
 
-Download **`Sprocket-linux-x64.AppImage`**, then:
+Download **`Sprocket-linux-x64.AppImage`** (or **`Sprocket-linux-arm64.AppImage`** on 64-bit ARM), then:
 
 ```bash
 chmod +x Sprocket-linux-x64.AppImage
 ./Sprocket-linux-x64.AppImage
 ```
+
+(On ARM, use `Sprocket-linux-arm64.AppImage` in both commands.)
 
 - On first launch Sprocket offers to **add itself to your applications menu** (a per-user launcher +
   icon, no root needed), so you can start it like any installed app afterwards. You can add or remove
@@ -86,7 +88,6 @@ chmod +x Sprocket-linux-x64.AppImage
 - If it won't start, your distro may need FUSE for AppImages (e.g. Ubuntu ≥ 22.04:
   `sudo apt install libfuse2`), or use the portable zip instead: unzip, `chmod +x Sprocket`, run
   `./Sprocket` (the included `install.sh` adds a launcher icon; portable builds don't self-update).
-- `linux-arm64` is portable-zip only for now.
 
 **Supported Linux baseline.** The Linux builds are **glibc**-based and target **modern desktop
 distributions with glibc 2.35 or newer** (Ubuntu 22.04 LTS and later, Debian 12+, Fedora, recent
@@ -152,10 +153,10 @@ macOS builds is experimental; if an update fails, just download the new zip.
   runners). Linux and macOS run the *identical* managed code, but windowed-GPU and on-device
   verification there is still in progress — treat those builds as experimental.
 - **Linux support is experimental and scoped to modern glibc desktops (glibc ≥ 2.35);** musl distros
-  (Alpine) are unsupported. Release CI runs the full build + smoke on Ubuntu and additionally runs an
-  informational headless smoke of the published zips across several distros (Ubuntu 22.04, Debian,
-  Fedora, openSUSE, Arch) and an emulated `linux-arm64` — but these are best-effort signals, not a
-  release gate. Run `./Sprocket --doctor` to confirm your own host and see any missing dependencies.
+  (Alpine) are unsupported. Release CI runs the full build + smoke on Ubuntu (natively on both x64
+  and arm64) and additionally runs an informational headless smoke of the published zips across
+  several distros (Ubuntu 22.04, Debian, Fedora, openSUSE, Arch) and an emulated `linux-arm64` — but
+  these are best-effort signals, not a release gate. Run `./Sprocket --doctor` to confirm your own host and see any missing dependencies.
 - The windowed GPU preview and audio output are display/device-bound and rest on manual verification.
 - The bundled FFmpeg is a **GPL build** (it provides the H.264/H.265 export encoders); its
   corresponding source is linked in

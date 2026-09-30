@@ -94,8 +94,8 @@ param(
     # Skip zipping; leave the raw publish folders in place.
     [switch] $NoZip,
 
-    # Do not wipe the output directory first. Lets CI accumulate artifacts across invocations with
-    # different RID/package combinations (e.g. linux-x64 velopack+zip, then linux-arm64 zip-only).
+    # Do not wipe the output directory first. Lets several invocations with different RID/package
+    # combinations accumulate into one dist/ (CI currently builds each job's RIDs in one call).
     [switch] $NoClean,
 
     # Artifact kinds to produce per RID: 'zip' (portable folder zip) and/or 'velopack' (installer +

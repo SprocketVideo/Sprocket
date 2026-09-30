@@ -4,7 +4,8 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (2026-09-30)
 
-- [ ] The release script and CI produce a linux-arm64 AppImage
-- [ ] It is smoke-launched on an arm runner or the QEMU distro-smoke leg
+- [x] The release script and CI produce a linux-arm64 AppImage
+- [x] It is smoke-launched on an arm runner or the QEMU distro-smoke leg (native `ubuntu-24.04-arm`
+  leg of the release workflow's `linux` job)

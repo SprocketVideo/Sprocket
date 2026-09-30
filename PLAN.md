@@ -239,8 +239,8 @@ verification-only items carry their checklist in the step's history entry.
   [history](plan/history/steps-58plus.md#step-59)
 - [ ] **Code-signing & notarization** — step 36 remainder, **deferred to a future unscheduled
   phase** (2026-09-30: no paid Azure Trusted Signing / Apple Developer accounts for now; the initial
-  release ships unsigned). The non-signing remainder — the `linux-arm64` AppImage — is still open
-  (`.scratch/code-signing` ticket 05); sample-export CI validation (ticket 04) ✅ 2026-09-30 →
+  release ships unsigned). The non-signing remainder is done: sample-export CI validation (ticket 04)
+  and the `linux-arm64` AppImage (ticket 05, native arm64 runner) both ✅ 2026-09-30 →
   [plan/features/code-signing.md](plan/features/code-signing.md)
 - [ ] **Live stop-motion capture** (unscheduled feature; deliberately deferred until packaging
   stabilizes) → [plan/features/stop-motion-capture.md](plan/features/stop-motion-capture.md)

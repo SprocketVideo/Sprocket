@@ -1344,6 +1344,18 @@
       (as with their launch checks) they get no export check. The check also seeks near the end and decodes
       a frame, since the container duration alone wouldn't catch a short video stream under full-length audio.
       Local run: 315 frames, probed 10.494 s = expected, ~10 s wall.
+    - ✅ **DONE 2026-09-30 — `linux-arm64` AppImage** (`.scratch/code-signing` ticket 05). The
+      release workflow's `linux` job became an x64/arm64 matrix (`ubuntu-latest` / GitHub's native
+      `ubuntu-24.04-arm` runner, free for the public repo), each leg running
+      `release.ps1 -Rids <rid> -Package velopack,zip` and smoking the portable zip and the AppImage
+      (`--appimage-extract-and-run`) with the full check set incl. `--export-check` — so the arm64
+      artifacts now gate the release and the arm64 half of the known gap above is closed (`win-arm64`
+      is still build-only). No `release.ps1` change was needed: vpk 1.2.0 already cross-packs Linux
+      (bundled `appimagekit-runtime-aarch64` + `UpdateNix_arm64`, system `mksquashfs`); a new
+      "Ensure build tools" step installs `squashfs-tools` / `unzip` / pwsh when the leaner arm image
+      lacks them. Artifacts are uploaded per RID (`linux-x64`, `linux-arm64`); `linux-distro-smoke`
+      downloads `pattern: linux-*` merged into one dir. The release body's download table links
+      `Sprocket-linux-arm64.AppImage`.
 ## Step 36a
 
 36a. **Third-party notices / license acknowledgements.** Before distribution, inventory every third-party

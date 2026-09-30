@@ -144,9 +144,20 @@ jobs:
             dist/velopack/**
           if-no-files-found: error
 
+  # One job per Linux arch, each on a native runner so the AppImage smoke genuinely executes:
+  # ubuntu-24.04-arm is GitHub's hosted arm64 runner (free for public repos). vpk packs the arm64
+  # AppImage with its bundled aarch64 AppImage runtime + the system mksquashfs (squashfs-tools).
   linux:
     needs: version
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -161,34 +172,41 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .ffmpeg-cache
-          key: ffmpeg-linux-${{ github.run_id }}
-          restore-keys: ffmpeg-linux-
+          key: ffmpeg-${{ matrix.rid }}-${{ github.run_id }}
+          restore-keys: ffmpeg-${{ matrix.rid }}-
+
+      # The arm64 runner image may lack tools ubuntu-latest ships: make sure the ones the build + smoke
+      # need (pwsh for release.ps1, mksquashfs for vpk's AppImage pack, unzip) are present.
+      - name: Ensure build tools
+        run: |
+          missing=()
+          command -v mksquashfs >/dev/null || missing+=(squashfs-tools)
+          command -v unzip >/dev/null || missing+=(unzip)
+          if [ ${#missing[@]} -gt 0 ]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq "${missing[@]}"
+          fi
+          command -v pwsh >/dev/null || dotnet tool install -g PowerShell
 
       - name: Install vpk
         run: dotnet tool install -g vpk --version ${{ env.VPK_VERSION }}
 
-      # linux-x64 gets the AppImage; linux-arm64 stays zip-only for the alpha (no arm runner to
-      # smoke an arm AppImage). -NoClean lets the second invocation add to the same dist/.
-      - name: Build linux-x64 (velopack + zip) and linux-arm64 (zip)
+      - name: Build ${{ matrix.rid }} (velopack + zip)
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           ./scripts/release.ps1 -Version '${{ needs.version.outputs.base }}' `
             -VersionSuffix '${{ needs.version.outputs.suffix }}' `
-            -Rids linux-x64 -Package velopack,zip
-          ./scripts/release.ps1 -Version '${{ needs.version.outputs.base }}' `
-            -VersionSuffix '${{ needs.version.outputs.suffix }}' `
-            -Rids linux-arm64 -Package zip -NoClean
+            -Rids ${{ matrix.rid }} -Package velopack,zip
 
       # Same checks scripts/linux-smoke.sh makes in Docker: bundled natives must resolve from the
       # app dir with no LD_LIBRARY_PATH help.
-      - name: Smoke linux-x64 (portable)
+      - name: Smoke ${{ matrix.rid }} (portable)
         env:
           ALSOFT_DRIVERS: 'null'
         run: |
-          zip=$(ls dist/Sprocket-*-linux-x64.zip)
-          dir="$RUNNER_TEMP/smoke-linux-x64"
+          zip=$(ls dist/Sprocket-*-${{ matrix.rid }}.zip)
+          dir="$RUNNER_TEMP/smoke-${{ matrix.rid }}"
           mkdir -p "$dir" && unzip -q "$zip" -d "$dir"
           chmod +x "$dir/Sprocket"
           unset LD_LIBRARY_PATH
@@ -200,11 +218,11 @@ jobs:
           "$dir/Sprocket" --export-check
 
       # --appimage-extract-and-run avoids needing FUSE on the runner.
-      - name: Smoke linux-x64 (AppImage)
+      - name: Smoke ${{ matrix.rid }} (AppImage)
         env:
           ALSOFT_DRIVERS: 'null'
         run: |
-          appimage=$(ls dist/velopack/linux-x64/*.AppImage)
+          appimage=$(ls dist/velopack/${{ matrix.rid }}/*.AppImage)
           chmod +x "$appimage"
           "$appimage" --appimage-extract-and-run --ffmpeg-check
           "$appimage" --appimage-extract-and-run --audio-check
@@ -213,7 +231,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux
+          name: ${{ matrix.rid }}
           path: |
             dist/*.zip
             dist/velopack/**
@@ -337,7 +355,7 @@ jobs:
             platform: linux/amd64
           - image: 'archlinux:latest'
             platform: linux/amd64
-          - image: 'ubuntu:22.04'      # arm64 runtime coverage (emulated) — closes the arm64 smoke gap
+          - image: 'ubuntu:22.04'      # arm64 on the glibc 2.35 baseline (emulated; the linux job smokes arm64 natively)
             platform: linux/arm64
     steps:
       - uses: actions/checkout@v5
@@ -349,7 +367,8 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: linux
+          pattern: linux-*
+          merge-multiple: true
           path: artifacts/linux
 
       - name: Smoke ${{ matrix.image }} (${{ matrix.platform }})
@@ -394,7 +413,7 @@ jobs:
             '| Your system | Download |'
             '|---|---|'
             "| **Windows 10 / 11** (most PCs) | **[Sprocket Setup — x64]($base/Sprocket-win-x64-Setup.exe)** &middot; [ARM64]($base/Sprocket-win-arm64-Setup.exe) |"
-            "| **Linux** | **[Sprocket AppImage — x64]($base/Sprocket-linux-x64.AppImage)** (arm64: portable zip under Assets) |"
+            "| **Linux** | **[Sprocket AppImage — x64]($base/Sprocket-linux-x64.AppImage)** &middot; [arm64]($base/Sprocket-linux-arm64.AppImage) |"
             "| **macOS** — Apple Silicon (M1 and later) | **[Sprocket — arm64]($base/Sprocket-osx-arm64-Portable.zip)** |"
             "| **macOS** — Intel | **[Sprocket — x64]($base/Sprocket-osx-x64-Portable.zip)** |"
             ''
