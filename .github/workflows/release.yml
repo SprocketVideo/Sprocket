@@ -3,8 +3,9 @@
 # Triggered by pushing a v* tag (scripts/gh-release.ps1 is the local tag-cutter). Each OS job builds
 # its own RIDs with scripts/release.ps1 (self-contained folder publish + FFmpeg/OpenAL natives +
 # Velopack packages + portable zips), smoke-launches every runnable artifact headlessly
-# (--version / --ffmpeg-check / --audio-check / --mcp-check), and uploads the results as workflow
-# artifacts. The final job assembles ONE GitHub release with everything attached — single-writer, so
+# (--version / --ffmpeg-check / --audio-check / --mcp-check) plus a real headless export of the bundled
+# sample project (--export-check: export it, then re-probe duration/streams and decode a frame), and
+# uploads the results as workflow artifacts. The final job assembles ONE GitHub release with everything attached — single-writer, so
 # parallel jobs never race on release creation, and a failed smoke anywhere blocks the whole release.
 #
 # `linux-distro-smoke` additionally runs the published Linux zips inside clean multi-distro containers
@@ -106,7 +107,7 @@ jobs:
           $zip = Get-ChildItem dist -Filter 'Sprocket-*-win-x64.zip' | Select-Object -First 1
           $dir = Join-Path $env:RUNNER_TEMP 'smoke-win-x64'
           Expand-Archive $zip.FullName -DestinationPath $dir -Force
-          foreach ($check in '--version', '--ffmpeg-check', '--audio-check', '--mcp-check') {
+          foreach ($check in '--version', '--ffmpeg-check', '--audio-check', '--mcp-check', '--export-check') {
             $out = Join-Path $env:RUNNER_TEMP 'check-out.txt'
             $err = Join-Path $env:RUNNER_TEMP 'check-err.txt'
             $p = Start-Process -FilePath "$dir/Sprocket.exe" -ArgumentList $check -Wait -PassThru `
@@ -126,12 +127,14 @@ jobs:
           # --silent suppresses the post-install auto-launch, but kill any straggler defensively so
           # the headless check below is the only instance.
           Get-Process Sprocket -ErrorAction SilentlyContinue | Stop-Process -Force
-          $out = Join-Path $env:RUNNER_TEMP 'install-check.txt'
-          $err = Join-Path $env:RUNNER_TEMP 'install-check-err.txt'
-          $p = Start-Process -FilePath $exe -ArgumentList '--ffmpeg-check' -Wait -PassThru `
-            -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
-          Write-Host "installed --ffmpeg-check -> exit=$($p.ExitCode): $("$(Get-Content $out -Raw)".Trim()) $("$(Get-Content $err -Raw)".Trim())"
-          if ($p.ExitCode -ne 0) { throw 'installed --ffmpeg-check failed' }
+          foreach ($check in '--ffmpeg-check', '--export-check') {
+            $out = Join-Path $env:RUNNER_TEMP 'install-check.txt'
+            $err = Join-Path $env:RUNNER_TEMP 'install-check-err.txt'
+            $p = Start-Process -FilePath $exe -ArgumentList $check -Wait -PassThru `
+              -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
+            Write-Host "installed $check -> exit=$($p.ExitCode): $("$(Get-Content $out -Raw)".Trim()) $("$(Get-Content $err -Raw)".Trim())"
+            if ($p.ExitCode -ne 0) { throw "installed $check failed" }
+          }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -194,6 +197,7 @@ jobs:
           "$dir/Sprocket" --audio-check
           "$dir/Sprocket" --doctor
           "$dir/Sprocket" --mcp-check
+          "$dir/Sprocket" --export-check
 
       # --appimage-extract-and-run avoids needing FUSE on the runner.
       - name: Smoke linux-x64 (AppImage)
@@ -205,6 +209,7 @@ jobs:
           "$appimage" --appimage-extract-and-run --ffmpeg-check
           "$appimage" --appimage-extract-and-run --audio-check
           "$appimage" --appimage-extract-and-run --mcp-check
+          "$appimage" --appimage-extract-and-run --export-check
 
       - uses: actions/upload-artifact@v4
         with:
@@ -284,6 +289,7 @@ jobs:
           "$dir/Sprocket" --ffmpeg-check
           "$dir/Sprocket" --audio-check
           "$dir/Sprocket" --mcp-check
+          "$dir/Sprocket" --export-check
 
       # The Velopack portable zip carries the actual .app bundle — smoke its inner binary too.
       - name: Smoke ${{ matrix.rid }} (.app)
@@ -298,6 +304,7 @@ jobs:
           "$app/Contents/MacOS/Sprocket" --ffmpeg-check
           "$app/Contents/MacOS/Sprocket" --audio-check
           "$app/Contents/MacOS/Sprocket" --mcp-check
+          "$app/Contents/MacOS/Sprocket" --export-check
 
       - uses: actions/upload-artifact@v4
         with:

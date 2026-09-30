@@ -205,7 +205,8 @@ Releases are cut with [`scripts/gh-release.ps1`](scripts/gh-release.ps1): it bum
 commits, tags `v<version>-alpha.N`, and pushes — the tag triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds every RID on its
 native OS runner (the only way to produce the macOS `.app`), smoke-tests each artifact headlessly
-(`--version` / `--ffmpeg-check` / `--audio-check`, plus a real silent install on Windows), and
+(`--version` / `--ffmpeg-check` / `--audio-check` / `--mcp-check`, a real headless export of the
+bundled sample via `--export-check`, plus a real silent install on Windows), and
 publishes the GitHub release with everything attached.
 
 ```powershell

@@ -73,6 +73,12 @@ internal static class Program
         if (args.Contains("--mcp-check"))
             return McpCheck.Run();
 
+        // Headless export smoke check (code-signing ticket 04): export the bundled sample project through the
+        // real exporter and re-probe the output's duration/streams, proving a shipped build can export, not
+        // just launch. Every CI release smoke leg runs it; a failure blocks the release.
+        if (args.Contains("--export-check"))
+            return ExportCheck.Run();
+
         // Diagnostic: open a media file through the real MediaSource path and report what happened
         // (or the full failure), without starting the UI.  --probe "C:\path\to\file.mp4"
         int probeIdx = Array.IndexOf(args, "--probe");

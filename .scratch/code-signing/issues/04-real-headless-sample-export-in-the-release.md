@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (2026-09-30)
 
-- [ ] Each CI smoke leg runs a headless export of the bundled sample and checks the output opens and has the expected duration/streams
-- [ ] Failure fails the release build
+- [x] Each CI smoke leg runs a headless export of the bundled sample and checks the output opens and has the expected duration/streams
+- [x] Failure fails the release build

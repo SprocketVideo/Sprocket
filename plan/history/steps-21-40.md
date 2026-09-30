@@ -1328,6 +1328,22 @@
       code-signing and macOS notarization (alpha ships unsigned with documented SmartScreen/Gatekeeper
       steps in RELEASE_NOTES.md); a `linux-arm64` AppImage (zip-only until an arm runner smokes it);
       the sample-export CI validation (smoke is launch + native checks today).
+    - **✅ 2026-09-30 — sample-export CI validation** (`.scratch/code-signing` ticket 04). New headless
+      **`--export-check`** flag (`src/Sprocket.App/ExportCheck.cs`, wired in `Program.Main`): loads the
+      bundled `Samples/sample.sprocket.json` (refusing offline media, which would otherwise export as
+      black/silence and pass), exports the whole timeline through `VideoExporter.ExportWithSummary` with
+      `default(ExportOptions)` (MP4 / H.264 / AAC, software encode), then re-probes the output and
+      requires a video + audio stream, the `ComputeExportResolution` size, `h264`/`aac` codecs, and a
+      duration within ±0.2 s of the timeline's, and finally decodes the first frame in software. The
+      expectation/verdict half (`ExpectFor` / `Verify`) is pure and unit-tested
+      (`tests/Sprocket.App.Tests/ExportCheckTests.cs`). `.github/workflows/release.yml` runs it in every
+      smoke leg — Windows portable + installed, Linux portable + AppImage, macOS portable + `.app` — so a
+      failure fails that OS job and, via `release`'s `needs`, blocks the release. Not added to the
+      informational `linux-distro-smoke` legs (the QEMU arm64 one would make a 10 s export take
+      minutes). Known gap: the `win-arm64` and `linux-arm64` artifacts can't execute on the x64 runners, so
+      (as with their launch checks) they get no export check. The check also seeks near the end and decodes
+      a frame, since the container duration alone wouldn't catch a short video stream under full-length audio.
+      Local run: 315 frames, probed 10.494 s = expected, ~10 s wall.
 ## Step 36a
 
 36a. **Third-party notices / license acknowledgements.** Before distribution, inventory every third-party

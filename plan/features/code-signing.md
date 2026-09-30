@@ -9,7 +9,7 @@ Tracked in [PLAN.md](../../PLAN.md) Open work.
 **2026-09-30 decision:** signing (Windows + macOS) is parked for a future, unscheduled phase —
 no money is being spent on Microsoft/Apple signing accounts yet, and the **initial release ships
 unsigned**. Tickets `.scratch/code-signing/issues/01–03, 06` are `deferred`; 04 (sample-export
-smoke) and 05 (linux-arm64 AppImage) need no accounts and remain open.
+smoke, ✅ 2026-09-30) and 05 (linux-arm64 AppImage) need no accounts.
 
 ## What remains
 
@@ -27,9 +27,11 @@ smoke) and 05 (linux-arm64 AppImage) need no accounts and remain open.
   `notarytool` submit/staple in CI. Both `osx-arm64` and `osx-x64` artifacts.
 - **`linux-arm64` AppImage** — currently zip-only until an arm runner (or the QEMU distro-smoke
   leg) smoke-launches the AppImage.
-- **Sample-export CI validation** — release smoke today is launch + native checks
-  (`--version` / `--ffmpeg-check` / `--audio-check` / `--mcp-check`); add a real headless
-  sample export per artifact.
+- ~~**Sample-export CI validation**~~ — ✅ 2026-09-30: every release smoke leg (Windows portable +
+  silent install, Linux portable + AppImage, macOS portable + `.app`) runs `--export-check`
+  (`src/Sprocket.App/ExportCheck.cs`): exports the bundled sample project, re-probes the output's
+  duration / resolution / H.264 + AAC streams, and decodes its first and a near-end frame; a failure fails the job
+  and so blocks the release.
 - **Copy updates on completion** — remove the unsigned-alpha caveats from RELEASE_NOTES.md /
   README.md; flip the FEATURES.md platform notes if they mention unsigned builds; update the
   "Planned" bullet in README.md.

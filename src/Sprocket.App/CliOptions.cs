@@ -6,7 +6,7 @@ namespace Sprocket.App;
 /// The parsed command line for a normal (UI) launch: an optional media file to open, plus the
 /// scripting flags that start the loopback MCP server for this session (PLAN.md step 38 follow-on).
 /// Pure and headlessly tested (<c>CliOptionsTests</c>); the diagnostic flags that never reach the UI
-/// (<c>--version</c> / <c>--ffmpeg-check</c> / <c>--probe</c>) are handled earlier, in <c>Program.Main</c>.
+/// (<c>--version</c> / <c>--ffmpeg-check</c> / <c>--audio-check</c> / <c>--doctor</c> / <c>--mcp-check</c> / <c>--export-check</c> / <c>--probe</c>) are handled earlier, in <c>Program.Main</c>.
 /// </summary>
 /// <param name="MediaPath">The first non-flag argument — the media file to open (existence is checked
 /// by <c>MediaBootstrap</c>, which degrades to an empty project), or <see langword="null"/>.</param>
