@@ -131,7 +131,7 @@ shipped step append to its history entry directly.
 | 57 | Linux support (verify + declare) | 🟡 phases 1–4 ✅; hardware-accel verify remaining | [history](plan/history/steps-41-57.md#step-57) |
 | 58 | Plugin Manager (user-facing plugin management UI) | ✅ | [history](plan/history/steps-58plus.md#step-58) |
 | 59 | Open plugin standards (frei0r / LADSPA / LV2) | ✅ | [history](plan/history/steps-58plus.md#step-59) |
-| 60 | Preview allocation churn (per-frame metadata / wrapper Gen0 — measure + remediate) | ❌ → [plan](plan/features/preview-allocation-churn.md) | — |
+| 60 | Preview allocation churn (per-frame metadata / wrapper Gen0 — measure + remediate) | ❌ → [plan](plan/features/preview-allocation-churn.md); ticketed as `.scratch/architecture-deepening` 29–33 | — |
 | 61 | Source-monitor marks + three-point editing (Insert / Overwrite, patching, targeting) | ✅ 2026-09-29 — targeting / sync lock / lock, source marks, patching + Insert / Overwrite, Source-monitor drag + overwrite-on-drop, Source-monitor audio, Fit to Fill + docs (manual QA of the running app pending) → [plan](plan/features/three-point-editing.md) | [history](plan/history/steps-58plus.md#step-61) |
 
 ## Open work
@@ -237,8 +237,10 @@ verification-only items carry their checklist in the step's history entry.
   descriptor/metadata → catalog → mixer chain / render pipeline → persistence by plugin id + port
   values; Plugin Manager rows for all three formats →
   [history](plan/history/steps-58plus.md#step-59)
-- [ ] **Code-signing & notarization** — step 36 remainder (alpha ships unsigned; also
-  `linux-arm64` AppImage + sample-export CI validation) →
+- [ ] **Code-signing & notarization** — step 36 remainder, **deferred to a future unscheduled
+  phase** (2026-09-30: no paid Azure Trusted Signing / Apple Developer accounts for now; the initial
+  release ships unsigned). The non-signing remainder — `linux-arm64` AppImage + sample-export CI
+  validation — is still open (`.scratch/code-signing` tickets 04–05) →
   [plan/features/code-signing.md](plan/features/code-signing.md)
 - [ ] **Live stop-motion capture** (unscheduled feature; deliberately deferred until packaging
   stabilizes) → [plan/features/stop-motion-capture.md](plan/features/stop-motion-capture.md)
@@ -250,7 +252,8 @@ verification-only items carry their checklist in the step's history entry.
   parameter dictionaries, per-effect Skia uniform/child wrappers, and the per-draw layer list + closure
   are rebuilt on every repaint, and per-frame allocation *rate* has never been measured (the 2026-06-30
   benchmark saw 0 collections but did not count bytes). Measure first, then remediate in payoff order →
-  [plan/features/preview-allocation-churn.md](plan/features/preview-allocation-churn.md)
+  [plan/features/preview-allocation-churn.md](plan/features/preview-allocation-churn.md) — tickets:
+  `.scratch/architecture-deepening/issues/29–33` (remediation waits on that effort's ticket 23)
 - [ ] **Export speed / throughput** (unscheduled feature) — improve export throughput in two deliberate
   tiers: deterministic **Final Export** stays the reference path, while a speed-first **Fast Export** mode
   may use hardware decode/render and cache reuse; start with diagnostics + actual-encoder visibility,

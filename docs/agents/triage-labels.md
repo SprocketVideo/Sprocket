@@ -13,3 +13,7 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the right-hand column to match whatever vocabulary you actually use.
+
+Repo-specific extension: **`deferred`** — accepted work parked for a future, unscheduled phase
+(e.g. it needs a paid account or decision that isn't being made now). Not `wontfix`: it is still
+intended. Frontier scans skip `deferred` tickets and anything blocked by one.

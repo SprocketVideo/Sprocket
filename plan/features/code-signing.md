@@ -6,6 +6,11 @@ full record in [plan/history/steps-21-40.md#step-36](../history/steps-21-40.md#s
 The alpha ships unsigned with documented SmartScreen/Gatekeeper steps in RELEASE_NOTES.md.
 Tracked in [PLAN.md](../../PLAN.md) Open work.
 
+**2026-09-30 decision:** signing (Windows + macOS) is parked for a future, unscheduled phase —
+no money is being spent on Microsoft/Apple signing accounts yet, and the **initial release ships
+unsigned**. Tickets `.scratch/code-signing/issues/01–03, 06` are `deferred`; 04 (sample-export
+smoke) and 05 (linux-arm64 AppImage) need no accounts and remain open.
+
 ## What remains
 
 - **Windows code-signing** — obtain a signing certificate (an OV cert still triggers
