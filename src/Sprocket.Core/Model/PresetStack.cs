@@ -5,10 +5,12 @@ namespace Sprocket.Core.Model;
 /// <summary>Where a <see cref="PresetStackEntry"/>'s effect lands in a clip's stack when it is not already there.</summary>
 public enum PresetStackPlacement
 {
-    /// <summary>Appended after the clip's existing effects (the correct-then-look order of any added effect).</summary>
+    /// <summary>Placed by the shared <see cref="EffectPlacement"/> rule: appended after the clip's existing effects
+    /// (the correct-then-look order of any added effect), except Color Transform / Stabilization at the base.</summary>
     Append,
 
-    /// <summary>At the front of the stack — after any leading input color transform, which always runs first, and
+    /// <summary>At the front of the stack — after any leading base-placed effects (input color transform,
+    /// Stabilization; see <see cref="EffectPlacement"/>), which always run first, and
     /// after earlier front-placed entries of the same stack. For effects that must act on the source itself: a time
     /// modifier (Posterize Time), or later a temporal effect such as Echo.</summary>
     Front,
@@ -159,7 +161,7 @@ public static class PresetStackApplication
                 // Simulate the stack so each InsertEffectAtCommand index is right when the composite applies in order.
                 List<EffectInstance> sim = [.. target.Effects];
                 int front = 0;
-                while (front < sim.Count && sim[front].EffectTypeId == EffectTypeIds.ColorTransform)
+                while (front < sim.Count && EffectPlacement.IsBasePlaced(sim[front].EffectTypeId))
                     front++;
 
                 foreach ((PresetStackEntry entry, EffectDescriptor descriptor, EffectPreset? preset) in resolved)
@@ -197,8 +199,12 @@ public static class PresetStackApplication
                     }
                     else
                     {
-                        commands.Add(new AddEffectCommand(target, fresh));
-                        sim.Add(fresh);
+                        int index = EffectPlacement.IndexFor(entry.EffectTypeId, sim);
+                        commands.Add(new InsertEffectAtCommand(target, fresh, index));
+                        sim.Insert(index, fresh);
+                        // A base-placed effect (Color Transform, Stabilization) stays ahead of the front entries.
+                        if (EffectPlacement.IsBasePlaced(entry.EffectTypeId) && index <= front)
+                            front++;
                     }
                     applied.Add((target, fresh));
                 }

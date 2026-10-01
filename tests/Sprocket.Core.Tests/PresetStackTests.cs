@@ -254,6 +254,27 @@ public sealed class PresetStackTests
     }
 
     [Fact]
+    public void Appended_Entries_Follow_The_Shared_Effect_Placement_Rule()
+    {
+        Timeline timeline = LinkedPair(out Clip video, out _);
+        video.Effects.Add(new EffectInstance(EffectTypeIds.ColorTransform));
+        video.Effects.Add(new EffectInstance(EffectTypeIds.Brightness));
+        var stack = new PresetStack("Test", "Test", "Test",
+            [
+                new PresetStackEntry(EffectTypeIds.Stabilization, null),
+                new PresetStackEntry(EffectTypeIds.PosterizeTime, null, Placement: PresetStackPlacement.Front),
+            ],
+            []);
+
+        PresetStackApplication.Build(timeline, video, stack).Command!.Apply();
+
+        // Stabilization sits at the base just after the input transform; a later Front entry still follows it.
+        Assert.Equal(
+            new[] { EffectTypeIds.ColorTransform, EffectTypeIds.Stabilization, EffectTypeIds.PosterizeTime, EffectTypeIds.Brightness },
+            Types(video));
+    }
+
+    [Fact]
     public void Unknown_Effect_Or_Preset_Entries_Are_Skipped_Not_Fatal()
     {
         Timeline timeline = LinkedPair(out Clip video, out _);

@@ -1056,7 +1056,7 @@ public sealed class MediaBrowserPanel : UserControl
         }
 
         EffectInstance instance = preset is null ? effect.CreateInstance() : effect.CreateInstance(preset);
-        _history.Execute(new AddEffectCommand(_selectedClip, instance));
+        _history.Execute(EffectPlacement.AddCommand(_selectedClip, instance));
         string clip = Path.GetFileName(_project.MediaPool.Get(_selectedClip.MediaRefId)?.AbsolutePath ?? "clip");
         string name = preset is null ? effect.DisplayName : $"{effect.DisplayName} ({preset.Name})";
         Status?.Invoke($"Added {name} to {clip}.");

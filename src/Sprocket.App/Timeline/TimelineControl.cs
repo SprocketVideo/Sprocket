@@ -1005,13 +1005,14 @@ public sealed class TimelineControl : Control
         return list;
     }
 
-    /// <summary>Appends an effect (by catalog id) to the selected clip via <see cref="AddEffectCommand"/> (steps 15–16).</summary>
+    /// <summary>Adds an effect (by catalog id) to the selected clip at its <see cref="EffectPlacement"/> position
+    /// (steps 15–16).</summary>
     public void ApplyEffectToSelected(string effectTypeId)
     {
         if (_selected is null || _history is null || string.IsNullOrEmpty(effectTypeId))
             return;
         EffectInstance instance = EffectCatalog.Find(effectTypeId)?.CreateInstance() ?? new EffectInstance(effectTypeId);
-        Execute(new AddEffectCommand(_selected, instance));
+        Execute(EffectPlacement.AddCommand(_selected, instance));
     }
 
     /// <summary>
@@ -3540,9 +3541,9 @@ public sealed class TimelineControl : Control
         public long Duration => (SourceOut - SourceIn).Ticks;
     }
 
-    /// <summary>Appends the dropped effect to the clip under the cursor (PLAN.md step 16b) — with
-    /// <paramref name="presetName"/>'s look applied when a preset row was dragged (the DAY FOR NIGHT group), the same
-    /// one-undo-step instance double-clicking that row adds.</summary>
+    /// <summary>Adds the dropped effect to the clip under the cursor at its <see cref="EffectPlacement"/> position
+    /// (PLAN.md step 16b) — with <paramref name="presetName"/>'s look applied when a preset row was dragged (the
+    /// DAY FOR NIGHT group), the same one-undo-step instance double-clicking that row adds.</summary>
     private void DropEffect(string? effectId, string? presetName, Point p)
     {
         if (string.IsNullOrEmpty(effectId))
@@ -3554,7 +3555,7 @@ public sealed class TimelineControl : Control
         EffectInstance instance = descriptor is null ? new EffectInstance(effectId)
             : presetName is not null && descriptor.FindPreset(presetName) is { } preset ? descriptor.CreateInstance(preset)
             : descriptor.CreateInstance();
-        Execute(new AddEffectCommand(clip, instance));
+        Execute(EffectPlacement.AddCommand(clip, instance));
         Select(clip);
     }
 

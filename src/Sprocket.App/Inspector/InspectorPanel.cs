@@ -2329,43 +2329,11 @@ public sealed class InspectorPanel : UserControl
             // One point below the menu default, matching the panel's dense 12–13px type scale.
             var item = new MenuItem { Header = descriptor.DisplayName };
             EffectDescriptor captured = descriptor;
-            item.Click += (_, _) => _history!.Execute(PlacementCommand(clip, captured));
+            item.Click += (_, _) => _history!.Execute(EffectPlacement.AddCommand(clip, captured.CreateInstance()));
             items.Add(item);
         }
         add.Flyout = new MenuFlyout { ItemsSource = items };
         return add;
-    }
-
-    /// <summary>
-    /// The command that adds a freshly-created effect at the position its type wants in the stack.
-    /// <list type="bullet">
-    /// <item>The input <b>Color Transform</b> must run before the creative grade (PLAN.md step 37), so it inserts at
-    /// the front.</item>
-    /// <item><b>Stabilization</b> should reframe the source before any creative grade/transform reads it, so it
-    /// inserts right after a Color Transform if one is present, else at the front (mirrors leading editors, where
-    /// the stabilizer sits at the base of the stack).</item>
-    /// <item>Everything else appends.</item>
-    /// </list>
-    /// </summary>
-    private static IEditCommand PlacementCommand(Clip clip, EffectDescriptor descriptor)
-    {
-        EffectInstance instance = descriptor.CreateInstance();
-        if (descriptor.Id == EffectTypeIds.ColorTransform)
-            return new InsertEffectAtCommand(clip, instance, 0);
-        if (descriptor.Id == EffectTypeIds.Stabilization)
-            return new InsertEffectAtCommand(clip, instance, StabilizationInsertIndex(clip));
-        return new AddEffectCommand(clip, instance);
-    }
-
-    /// <summary>The index Stabilization should land at: just after a Color Transform if the stack has one, else 0.</summary>
-    private static int StabilizationInsertIndex(Clip clip)
-    {
-        for (int i = 0; i < clip.Effects.Count; i++)
-        {
-            if (clip.Effects[i].EffectTypeId == EffectTypeIds.ColorTransform)
-                return i + 1;
-        }
-        return 0;
     }
 
     /// <summary>The insert-chain "+ Effect" bar (PLAN.md step 31): the catalog's audio effects, appended to

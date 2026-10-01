@@ -257,6 +257,21 @@ public class SprocketToolsTests
     }
 
     [Fact]
+    public async Task AddEffect_Places_Stabilization_Just_After_A_Color_Transform()
+    {
+        (FakeEditorSession _, SprocketTools tools, int clipId, Clip clip) = await PlacedClip();
+        await tools.AddEffect(clipId, EffectTypeIds.Brightness);
+        await tools.AddEffect(clipId, EffectTypeIds.ColorTransform);
+
+        JsonNode added = JsonNode.Parse(await tools.AddEffect(clipId, EffectTypeIds.Stabilization))!;
+
+        Assert.Equal(1, (int)added["effect_index"]!);
+        Assert.Equal(
+            new[] { EffectTypeIds.ColorTransform, EffectTypeIds.Stabilization, EffectTypeIds.Brightness },
+            clip.Effects.Select(e => e.EffectTypeId));
+    }
+
+    [Fact]
     public async Task MoveEffect_Reorders_The_Stack_As_One_Undoable_Step()
     {
         (FakeEditorSession session, SprocketTools tools, int clipId, Clip clip) = await PlacedClip();

@@ -405,7 +405,8 @@ public sealed partial class SprocketTools(IEditorSession session)
 
     [McpServerTool(Name = "add_effect")]
     [Description("Adds an effect to a clip (see list_effect_types). The input color transform is inserted " +
-                 "first in the stack (it converts the source before other effects); everything else appends. " +
+                 "first in the stack (it converts the source before other effects); stabilization goes just after " +
+                 "a color transform (or first if there is none); everything else appends. " +
                  "Pass preset to start from one of the type's factory presets (list_effect_types reports them), " +
                  "e.g. builtin.dayfornight with \"Street Scene\" — one undo step.")]
     public Task<string> AddEffect(
@@ -425,10 +426,7 @@ public sealed partial class SprocketTools(IEditorSession session)
                     ?? throw new McpException(descriptor.Presets.Count == 0
                         ? $"{effectTypeId} has no presets."
                         : $"unknown preset '{preset}' for {effectTypeId} — one of: {string.Join(", ", descriptor.Presets.Select(p => p.Name))}."));
-            IEditCommand command = effectTypeId == EffectTypeIds.ColorTransform
-                ? new InsertEffectAtCommand(clip, effect, 0)
-                : new AddEffectCommand(clip, effect);
-            api.History.Execute(command);
+            api.History.Execute(EffectPlacement.AddCommand(clip, effect));
             EffectTags.EnsureAssigned(api.Project); // settle the new instance's reference tag before reporting it
             api.RefreshPreview();
             return new JsonObject
