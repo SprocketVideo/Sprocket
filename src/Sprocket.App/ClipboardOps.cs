@@ -93,12 +93,7 @@ public static class ClipboardOps
         return new PasteResult(command, pasted[0], pasted);
     }
 
-    /// <summary>
-    /// Clamps a nudge of <paramref name="deltaTicks"/> so the earliest clip in a moved group never crosses the
-    /// timeline origin. <paramref name="groupMinStartTicks"/> is the smallest <see cref="Clip.TimelineStart"/>
-    /// among the clips being moved; the returned delta is what every member shifts by (a left nudge can be
-    /// shortened to keep the group at <c>t = 0</c>, a right nudge is unaffected).
-    /// </summary>
+    /// <summary>The group nudge clamp — see <see cref="ClipEdits.ClampGroupNudge"/>.</summary>
     public static long ClampGroupNudge(long deltaTicks, long groupMinStartTicks) =>
-        Math.Max(deltaTicks, -groupMinStartTicks);
+        ClipEdits.ClampGroupNudge(deltaTicks, groupMinStartTicks);
 }

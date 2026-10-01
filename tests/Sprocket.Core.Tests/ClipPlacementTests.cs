@@ -1,11 +1,10 @@
 using System.Linq;
-using Sprocket.App;
 using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 using Xunit;
 
-namespace Sprocket.App.Tests;
+namespace Sprocket.Core.Tests;
 
 /// <summary>
 /// Headless tests for <see cref="ClipPlacement"/> (PLAN.md step 16b): snapping a dropped clip's start and
@@ -275,18 +274,5 @@ public class ClipPlacementTests
         Assert.Equal((v1, (AudioTrack?)null, true), ClipPlacement.DropTargets(Media(true, false), SourceStreams.Both, a1, seq));
         Assert.Equal(((VideoTrack?)null, a1, false), ClipPlacement.DropTargets(Media(false, true), SourceStreams.Both, v1, seq));
         Assert.Equal((v1, (AudioTrack?)null, true), ClipPlacement.DropTargets(Media(true, true), SourceStreams.Video, a1, seq));
-    }
-
-    [Fact]
-    public void SourceRangePayload_Round_Trips_And_Rejects_Malformed_Text()
-    {
-        var payload = new SourceRangePayload(MediaRefId.New(), Timecode.FromSeconds(1), Timecode.FromSeconds(3), SourceStreams.Audio);
-
-        Assert.Equal(payload, SourceRangePayload.TryParse(payload.Format()));
-        Assert.Null(SourceRangePayload.TryParse(null));
-        Assert.Null(SourceRangePayload.TryParse("not-a-guid|0|10|Both"));
-        Assert.Null(SourceRangePayload.TryParse($"{Guid.NewGuid()}|10|10|Both"));   // empty range
-        Assert.Null(SourceRangePayload.TryParse($"{Guid.NewGuid()}|0|10|Sideways"));
-        Assert.Null(SourceRangePayload.TryParse($"{Guid.NewGuid()}|0|10|7"));       // numeric, undefined
     }
 }

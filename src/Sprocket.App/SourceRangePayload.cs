@@ -5,19 +5,6 @@ using Sprocket.Core.Timing;
 
 namespace Sprocket.App;
 
-/// <summary>Which of a source's streams a drag from the Source monitor carries (PLAN.md step 61 phase 4).</summary>
-public enum SourceStreams
-{
-    /// <summary>Video and audio — dragging the Source picture itself.</summary>
-    Both,
-
-    /// <summary>Video only — Premiere's "Drag Video Only" handle.</summary>
-    Video,
-
-    /// <summary>Audio only — Premiere's "Drag Audio Only" handle.</summary>
-    Audio,
-}
-
 /// <summary>
 /// The payload of a drag from the Source monitor (<see cref="DragFormats.SourceRange"/>, PLAN.md step 61 phase 4): the
 /// media, the marked source range at the moment the drag began, and which streams it carries. Serialized as a small

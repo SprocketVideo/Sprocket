@@ -5,13 +5,13 @@ using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 using Xunit;
 
-namespace Sprocket.App.Tests;
+namespace Sprocket.Core.Tests;
 
 /// <summary>
 /// Headless tests for <see cref="ClipEdits"/> (PLAN.md step 53): the split / duplicate / enable-toggle command
 /// builders behind Split at Playhead (Ctrl+K), Duplicate, and the Enable toggle (Shift+E). The context-menu and
-/// pointer wiring in <see cref="MainWindow"/>/<c>TimelineControl</c> rest on these + manual verification (the
-/// App is a UI-bound WinExe), the <see cref="ClipboardOpsTests"/> idiom.
+/// pointer wiring in <c>MainWindow</c>/<c>TimelineControl</c> rest on these + manual verification (the
+/// App is a UI-bound WinExe), the App.Tests <c>ClipboardOpsTests</c> idiom.
 /// </summary>
 public class ClipEditsTests
 {

@@ -218,28 +218,12 @@ public static class TimelineMath
     }
 
     /// <summary>Clamps a tick value to be non-negative (the timeline starts at 0).</summary>
-    public static long ClampNonNegative(long ticks) => ticks < 0 ? 0 : ticks;
+    public static long ClampNonNegative(long ticks) => TickSnapping.ClampNonNegative(ticks);
 
-    /// <summary>
-    /// Snaps <paramref name="ticks"/> to the nearest <paramref name="candidates"/> entry that is within
-    /// <paramref name="tolerancePx"/> on screen; returns the original value if none is close enough. Used to
-    /// snap a dragged clip edge to other clip edges, the playhead, and the timeline origin.
-    /// </summary>
-    public static long Snap(long ticks, IReadOnlyList<long> candidates, double tolerancePx, double pxPerSecond)
-    {
-        long best = ticks;
-        double bestPx = tolerancePx;
-        foreach (long c in candidates)
-        {
-            double dpx = Math.Abs(WidthOfTicks(ticks - c, pxPerSecond));
-            if (dpx <= bestPx)
-            {
-                bestPx = dpx;
-                best = c;
-            }
-        }
-        return best;
-    }
+    /// <summary>Snaps a tick to the nearest candidate within an on-screen tolerance — see
+    /// <see cref="TickSnapping.Snap"/>.</summary>
+    public static long Snap(long ticks, IReadOnlyList<long> candidates, double tolerancePx, double pxPerSecond) =>
+        TickSnapping.Snap(ticks, candidates, tolerancePx, pxPerSecond);
 
     /// <summary>
     /// Classifies a pointer X against a clip's on-screen span <c>[clipX0, clipX1]</c>: within

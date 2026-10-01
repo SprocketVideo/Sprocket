@@ -1,18 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 
-namespace Sprocket.App;
+namespace Sprocket.Core.Commands;
 
 /// <summary>
 /// Pure command-builders for the clip context-menu operations (PLAN.md step 53): split at a timeline point,
 /// duplicate, and the Enable toggle. Kept free of Avalonia types so the linked-companion collection, link-group
-/// bookkeeping, and placement math are unit-testable headlessly (the <see cref="ClipboardOps"/> idiom); the
-/// public clip-edit methods on <see cref="Timeline.TimelineControl"/> and the menu wiring in
-/// <see cref="MainWindow"/> rest on these. Every builder returns a single command (composite when multi-part),
+/// bookkeeping, and placement math are unit-testable headlessly (the App's <c>ClipboardOps</c> idiom); the
+/// public clip-edit methods on the App's <c>TimelineControl</c> and the menu wiring in
+/// <c>MainWindow</c> rest on these. Every builder returns a single command (composite when multi-part),
 /// so each operation is one undo entry through the step-10 command stack.
 /// </summary>
 public static class ClipEdits
@@ -183,6 +182,15 @@ public static class ClipEdits
     }
 
     /// <summary>
+    /// Clamps a nudge of <paramref name="deltaTicks"/> so the earliest clip in a moved group never crosses the
+    /// timeline origin. <paramref name="groupMinStartTicks"/> is the smallest <see cref="Clip.TimelineStart"/>
+    /// among the clips being moved; the returned delta is what every member shifts by (a left nudge can be
+    /// shortened to keep the group at <c>t = 0</c>, a right nudge is unaffected).
+    /// </summary>
+    public static long ClampGroupNudge(long deltaTicks, long groupMinStartTicks) =>
+        Math.Max(deltaTicks, -groupMinStartTicks);
+
+    /// <summary>
     /// Nudges every selected clip (plus linked companions with <paramref name="linked"/> on) by
     /// <paramref name="deltaTicks"/>, group-clamped so no member crosses the timeline origin — the whole set
     /// shifts rigidly by one delta, as one undo entry. Returns <see langword="null"/> when the clamp leaves
@@ -195,7 +203,7 @@ public static class ClipEdits
             return null;
 
         long groupMin = members.Min(m => m.Clip.TimelineStart.Ticks);
-        long delta = ClipboardOps.ClampGroupNudge(deltaTicks, groupMin);
+        long delta = ClampGroupNudge(deltaTicks, groupMin);
         if (delta == 0)
             return null;
 

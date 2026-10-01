@@ -1,15 +1,14 @@
 using System;
 using System.Collections.Generic;
-using Sprocket.Core.Commands;
 using Sprocket.Core.Model;
 using Sprocket.Core.Timing;
 
-namespace Sprocket.App;
+namespace Sprocket.Core.Commands;
 
 /// <summary>
 /// Pure logic for placing a new clip on the timeline by dragging a source from the media bin (PLAN.md step
 /// 16b). Kept free of Avalonia types so the snapping + command-building are unit-testable headlessly; the
-/// drag/drop plumbing in <see cref="MediaBrowser.MediaBrowserPanel"/> / <see cref="Timeline.TimelineControl"/>
+/// drag/drop plumbing in the App's <c>MediaBrowserPanel</c> / <c>TimelineControl</c>
 /// rests on this and on manual verification. Placement reuses the existing <see cref="AddClipCommand"/> (and a
 /// <see cref="CompositeCommand"/> with a shared link group for A/V sources, mirroring step 13), so a dropped
 /// clip is undoable by construction (step 10).
@@ -30,19 +29,19 @@ public static class ClipPlacement
         long dropTicks, long clipDuration, IReadOnlyList<long> snapPoints,
         bool snapping, double tolerancePx, double pxPerSecond)
     {
-        long start = TimelineMath.ClampNonNegative(dropTicks);
+        long start = TickSnapping.ClampNonNegative(dropTicks);
         if (!snapping || snapPoints.Count == 0)
             return start;
 
-        long snappedStart = TimelineMath.Snap(start, snapPoints, tolerancePx, pxPerSecond);
+        long snappedStart = TickSnapping.Snap(start, snapPoints, tolerancePx, pxPerSecond);
         if (snappedStart != start)
-            return TimelineMath.ClampNonNegative(snappedStart);
+            return TickSnapping.ClampNonNegative(snappedStart);
 
         // Try snapping the trailing edge so the clip lands flush to the left of an existing clip/playhead.
         long end = start + clipDuration;
-        long snappedEnd = TimelineMath.Snap(end, snapPoints, tolerancePx, pxPerSecond);
+        long snappedEnd = TickSnapping.Snap(end, snapPoints, tolerancePx, pxPerSecond);
         if (snappedEnd != end)
-            return TimelineMath.ClampNonNegative(snappedEnd - clipDuration);
+            return TickSnapping.ClampNonNegative(snappedEnd - clipDuration);
 
         return start;
     }
@@ -80,7 +79,7 @@ public static class ClipPlacement
     {
         ArgumentNullException.ThrowIfNull(media);
 
-        long start = TimelineMath.ClampNonNegative(startTicks);
+        long start = TickSnapping.ClampNonNegative(startTicks);
         Timecode timelineStart = new(start);
         (Timecode sourceIn, Timecode sourceOut) = sourceRange ?? MarkedRange(media);
 
